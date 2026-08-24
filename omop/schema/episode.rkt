@@ -1,0 +1,35 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.uv.omop#2.0.0-ballot — DO NOT EDIT (verified by raco fhir check).
+(require fhir/model/schema fhir/model/registry)
+
+(register-type! 'episode (fhir-spec 'episode "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode" 'type)
+  #:schema (type-schema 'episode #f 'Base "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode"
+             (list
+    (schema-field 'episode_id 1 1 (vector 'prim "code") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.episode_id" #f)
+    (schema-field 'person_id 1 1 (vector 'prim "integer") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.person_id" #f)
+    (schema-field 'episode_concept_id 1 1 (vector 'prim "code") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.episode_concept_id" #f)
+    (schema-field 'episode_start_date 1 1 (vector 'prim "date") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.episode_start_date" #f)
+    (schema-field 'episode_start_datetime 0 1 (vector 'prim "dateTime") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.episode_start_datetime" #f)
+    (schema-field 'episode_end_date 0 1 (vector 'prim "date") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.episode_end_date" #f)
+    (schema-field 'episode_end_datetime 0 1 (vector 'prim "dateTime") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.episode_end_datetime" #f)
+    (schema-field 'episode_parent_id 0 1 (vector 'prim "integer") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.episode_parent_id" #f)
+    (schema-field 'episode_number 0 1 (vector 'prim "integer") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.episode_number" #f)
+    (schema-field 'episode_object_concept_id 1 1 (vector 'prim "code") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.episode_object_concept_id" #f)
+    (schema-field 'episode_type_concept_id 1 1 (vector 'prim "code") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.episode_type_concept_id" #f)
+    (schema-field 'episode_source_value 0 1 (vector 'prim "string") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.episode_source_value" #f)
+    (schema-field 'episode_source_concept_id 0 1 (vector 'prim "code") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.episode_source_concept_id" #f)
+             ) #f #f))
+(register-element! "episode.episode_id" (fhir-spec (string->symbol "episode.episode_id") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.episode_id" 'element))
+(register-element! "episode.person_id" (fhir-spec (string->symbol "episode.person_id") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.person_id" 'element))
+(register-element! "episode.episode_concept_id" (fhir-spec (string->symbol "episode.episode_concept_id") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.episode_concept_id" 'element))
+(register-element! "episode.episode_start_date" (fhir-spec (string->symbol "episode.episode_start_date") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.episode_start_date" 'element))
+(register-element! "episode.episode_start_datetime" (fhir-spec (string->symbol "episode.episode_start_datetime") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.episode_start_datetime" 'element))
+(register-element! "episode.episode_end_date" (fhir-spec (string->symbol "episode.episode_end_date") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.episode_end_date" 'element))
+(register-element! "episode.episode_end_datetime" (fhir-spec (string->symbol "episode.episode_end_datetime") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.episode_end_datetime" 'element))
+(register-element! "episode.episode_parent_id" (fhir-spec (string->symbol "episode.episode_parent_id") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.episode_parent_id" 'element))
+(register-element! "episode.episode_number" (fhir-spec (string->symbol "episode.episode_number") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.episode_number" 'element))
+(register-element! "episode.episode_object_concept_id" (fhir-spec (string->symbol "episode.episode_object_concept_id") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.episode_object_concept_id" 'element))
+(register-element! "episode.episode_type_concept_id" (fhir-spec (string->symbol "episode.episode_type_concept_id") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.episode_type_concept_id" 'element))
+(register-element! "episode.episode_source_value" (fhir-spec (string->symbol "episode.episode_source_value") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.episode_source_value" 'element))
+(register-element! "episode.episode_source_concept_id" (fhir-spec (string->symbol "episode.episode_source_concept_id") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#episode.episode_source_concept_id" 'element))
+

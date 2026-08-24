@@ -1,0 +1,108 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r5.core#5.0.0 — DO NOT EDIT (verified by raco fhir check).
+(require fhir/model/schema fhir/model/registry)
+
+(register-type! 'CoverageEligibilityRequest (fhir-spec 'CoverageEligibilityRequest "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest" 'type)
+  #:schema (type-schema 'CoverageEligibilityRequest #f 'DomainResource "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest"
+             (list
+    (schema-field 'identifier 0 '* (vector 'type 'Identifier) #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.identifier" #f)
+    (schema-field 'status 1 1 (vector 'prim "code") #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.status" #f)
+    (schema-field 'priority 0 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.priority" #f)
+    (schema-field 'purpose 1 '* (vector 'prim "code") #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.purpose" #f)
+    (schema-field 'patient 1 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.patient" #f)
+    (schema-field 'event 0 '* (vector 'type 'CoverageEligibilityRequestEvent) #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.event" #f)
+    (schema-field 'created 1 1 (vector 'prim "dateTime") #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.created" #f)
+    (schema-field 'enterer 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.enterer" #f)
+    (schema-field 'provider 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.provider" #f)
+    (schema-field 'insurer 1 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.insurer" #f)
+    (schema-field 'facility 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.facility" #f)
+    (schema-field 'supportingInfo 0 '* (vector 'type 'CoverageEligibilityRequestSupportingInfo) #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.supportingInfo" #f)
+    (schema-field 'insurance 0 '* (vector 'type 'CoverageEligibilityRequestInsurance) #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.insurance" #f)
+    (schema-field 'item 0 '* (vector 'type 'CoverageEligibilityRequestItem) #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item" #f)
+    (schema-field 'servicedDate 0 1 (vector 'prim "date") 'serviced "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.serviced[x]" #f)
+    (schema-field 'servicedPeriod 0 1 (vector 'type 'Period) 'serviced "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.serviced[x]" #f)
+             ) #f #f))
+(register-element! "CoverageEligibilityRequest.identifier" (fhir-spec (string->symbol "CoverageEligibilityRequest.identifier") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.identifier" 'element))
+(register-element! "CoverageEligibilityRequest.status" (fhir-spec (string->symbol "CoverageEligibilityRequest.status") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.status" 'element))
+(register-element! "CoverageEligibilityRequest.priority" (fhir-spec (string->symbol "CoverageEligibilityRequest.priority") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.priority" 'element))
+(register-element! "CoverageEligibilityRequest.purpose" (fhir-spec (string->symbol "CoverageEligibilityRequest.purpose") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.purpose" 'element))
+(register-element! "CoverageEligibilityRequest.patient" (fhir-spec (string->symbol "CoverageEligibilityRequest.patient") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.patient" 'element))
+(register-element! "CoverageEligibilityRequest.event" (fhir-spec (string->symbol "CoverageEligibilityRequest.event") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.event" 'element))
+(register-element! "CoverageEligibilityRequest.created" (fhir-spec (string->symbol "CoverageEligibilityRequest.created") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.created" 'element))
+(register-element! "CoverageEligibilityRequest.enterer" (fhir-spec (string->symbol "CoverageEligibilityRequest.enterer") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.enterer" 'element))
+(register-element! "CoverageEligibilityRequest.provider" (fhir-spec (string->symbol "CoverageEligibilityRequest.provider") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.provider" 'element))
+(register-element! "CoverageEligibilityRequest.insurer" (fhir-spec (string->symbol "CoverageEligibilityRequest.insurer") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.insurer" 'element))
+(register-element! "CoverageEligibilityRequest.facility" (fhir-spec (string->symbol "CoverageEligibilityRequest.facility") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.facility" 'element))
+(register-element! "CoverageEligibilityRequest.supportingInfo" (fhir-spec (string->symbol "CoverageEligibilityRequest.supportingInfo") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.supportingInfo" 'element))
+(register-element! "CoverageEligibilityRequest.insurance" (fhir-spec (string->symbol "CoverageEligibilityRequest.insurance") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.insurance" 'element))
+(register-element! "CoverageEligibilityRequest.item" (fhir-spec (string->symbol "CoverageEligibilityRequest.item") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item" 'element))
+(register-element! "CoverageEligibilityRequest.serviced[x]" (fhir-spec (string->symbol "CoverageEligibilityRequest.serviced[x]") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.serviced[x]" 'element))
+(register-element! "CoverageEligibilityRequest.serviced[x]" (fhir-spec (string->symbol "CoverageEligibilityRequest.serviced[x]") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.serviced[x]" 'element))
+
+(register-type! 'CoverageEligibilityRequestEvent (fhir-spec 'CoverageEligibilityRequestEvent "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.event" 'type)
+  #:schema (type-schema 'CoverageEligibilityRequestEvent #f 'BackboneElement "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.event"
+             (list
+    (schema-field 'type 1 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.event.type" #f)
+    (schema-field 'whenDateTime 0 1 (vector 'prim "dateTime") 'when "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.event.when[x]" #f)
+    (schema-field 'whenPeriod 0 1 (vector 'type 'Period) 'when "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.event.when[x]" #f)
+             ) #f #f))
+(register-element! "CoverageEligibilityRequest.event.type" (fhir-spec (string->symbol "CoverageEligibilityRequest.event.type") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.event.type" 'element))
+(register-element! "CoverageEligibilityRequest.event.when[x]" (fhir-spec (string->symbol "CoverageEligibilityRequest.event.when[x]") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.event.when[x]" 'element))
+(register-element! "CoverageEligibilityRequest.event.when[x]" (fhir-spec (string->symbol "CoverageEligibilityRequest.event.when[x]") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.event.when[x]" 'element))
+
+(register-type! 'CoverageEligibilityRequestSupportingInfo (fhir-spec 'CoverageEligibilityRequestSupportingInfo "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.supportingInfo" 'type)
+  #:schema (type-schema 'CoverageEligibilityRequestSupportingInfo #f 'BackboneElement "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.supportingInfo"
+             (list
+    (schema-field 'sequence 1 1 (vector 'prim "positiveInt") #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.supportingInfo.sequence" #f)
+    (schema-field 'information 1 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.supportingInfo.information" #f)
+    (schema-field 'appliesToAll 0 1 (vector 'prim "boolean") #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.supportingInfo.appliesToAll" #f)
+             ) #f #f))
+(register-element! "CoverageEligibilityRequest.supportingInfo.sequence" (fhir-spec (string->symbol "CoverageEligibilityRequest.supportingInfo.sequence") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.supportingInfo.sequence" 'element))
+(register-element! "CoverageEligibilityRequest.supportingInfo.information" (fhir-spec (string->symbol "CoverageEligibilityRequest.supportingInfo.information") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.supportingInfo.information" 'element))
+(register-element! "CoverageEligibilityRequest.supportingInfo.appliesToAll" (fhir-spec (string->symbol "CoverageEligibilityRequest.supportingInfo.appliesToAll") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.supportingInfo.appliesToAll" 'element))
+
+(register-type! 'CoverageEligibilityRequestInsurance (fhir-spec 'CoverageEligibilityRequestInsurance "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.insurance" 'type)
+  #:schema (type-schema 'CoverageEligibilityRequestInsurance #f 'BackboneElement "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.insurance"
+             (list
+    (schema-field 'focal 0 1 (vector 'prim "boolean") #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.insurance.focal" #f)
+    (schema-field 'coverage 1 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.insurance.coverage" #f)
+    (schema-field 'businessArrangement 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.insurance.businessArrangement" #f)
+             ) #f #f))
+(register-element! "CoverageEligibilityRequest.insurance.focal" (fhir-spec (string->symbol "CoverageEligibilityRequest.insurance.focal") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.insurance.focal" 'element))
+(register-element! "CoverageEligibilityRequest.insurance.coverage" (fhir-spec (string->symbol "CoverageEligibilityRequest.insurance.coverage") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.insurance.coverage" 'element))
+(register-element! "CoverageEligibilityRequest.insurance.businessArrangement" (fhir-spec (string->symbol "CoverageEligibilityRequest.insurance.businessArrangement") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.insurance.businessArrangement" 'element))
+
+(register-type! 'CoverageEligibilityRequestItem (fhir-spec 'CoverageEligibilityRequestItem "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item" 'type)
+  #:schema (type-schema 'CoverageEligibilityRequestItem #f 'BackboneElement "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item"
+             (list
+    (schema-field 'supportingInfoSequence 0 '* (vector 'prim "positiveInt") #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.supportingInfoSequence" #f)
+    (schema-field 'category 0 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.category" #f)
+    (schema-field 'productOrService 0 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.productOrService" #f)
+    (schema-field 'modifier 0 '* (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.modifier" #f)
+    (schema-field 'provider 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.provider" #f)
+    (schema-field 'quantity 0 1 (vector 'type 'Quantity) #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.quantity" #f)
+    (schema-field 'unitPrice 0 1 (vector 'type 'Money) #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.unitPrice" #f)
+    (schema-field 'facility 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.facility" #f)
+    (schema-field 'diagnosis 0 '* (vector 'type 'CoverageEligibilityRequestItemDiagnosis) #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.diagnosis" #f)
+    (schema-field 'detail 0 '* (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.detail" #f)
+             ) #f #f))
+(register-element! "CoverageEligibilityRequest.item.supportingInfoSequence" (fhir-spec (string->symbol "CoverageEligibilityRequest.item.supportingInfoSequence") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.supportingInfoSequence" 'element))
+(register-element! "CoverageEligibilityRequest.item.category" (fhir-spec (string->symbol "CoverageEligibilityRequest.item.category") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.category" 'element))
+(register-element! "CoverageEligibilityRequest.item.productOrService" (fhir-spec (string->symbol "CoverageEligibilityRequest.item.productOrService") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.productOrService" 'element))
+(register-element! "CoverageEligibilityRequest.item.modifier" (fhir-spec (string->symbol "CoverageEligibilityRequest.item.modifier") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.modifier" 'element))
+(register-element! "CoverageEligibilityRequest.item.provider" (fhir-spec (string->symbol "CoverageEligibilityRequest.item.provider") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.provider" 'element))
+(register-element! "CoverageEligibilityRequest.item.quantity" (fhir-spec (string->symbol "CoverageEligibilityRequest.item.quantity") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.quantity" 'element))
+(register-element! "CoverageEligibilityRequest.item.unitPrice" (fhir-spec (string->symbol "CoverageEligibilityRequest.item.unitPrice") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.unitPrice" 'element))
+(register-element! "CoverageEligibilityRequest.item.facility" (fhir-spec (string->symbol "CoverageEligibilityRequest.item.facility") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.facility" 'element))
+(register-element! "CoverageEligibilityRequest.item.diagnosis" (fhir-spec (string->symbol "CoverageEligibilityRequest.item.diagnosis") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.diagnosis" 'element))
+(register-element! "CoverageEligibilityRequest.item.detail" (fhir-spec (string->symbol "CoverageEligibilityRequest.item.detail") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.detail" 'element))
+
+(register-type! 'CoverageEligibilityRequestItemDiagnosis (fhir-spec 'CoverageEligibilityRequestItemDiagnosis "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.diagnosis" 'type)
+  #:schema (type-schema 'CoverageEligibilityRequestItemDiagnosis #f 'BackboneElement "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.diagnosis"
+             (list
+    (schema-field 'diagnosisCodeableConcept 0 1 (vector 'type 'CodeableConcept) 'diagnosis "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.diagnosis.diagnosis[x]" #f)
+    (schema-field 'diagnosisReference 0 1 (vector 'type 'Reference) 'diagnosis "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.diagnosis.diagnosis[x]" #f)
+             ) #f #f))
+(register-element! "CoverageEligibilityRequest.item.diagnosis.diagnosis[x]" (fhir-spec (string->symbol "CoverageEligibilityRequest.item.diagnosis.diagnosis[x]") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.diagnosis.diagnosis[x]" 'element))
+(register-element! "CoverageEligibilityRequest.item.diagnosis.diagnosis[x]" (fhir-spec (string->symbol "CoverageEligibilityRequest.item.diagnosis.diagnosis[x]") "https://hl7.org/fhir/R5/coverageeligibilityrequest.html#CoverageEligibilityRequest.item.diagnosis.diagnosis[x]" 'element))
+

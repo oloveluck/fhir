@@ -1,0 +1,17 @@
+Curated R5, dependency-free subset of https://github.com/FHIR/fhir-test-cases (Apache-2.0)
+validator/ inputs + validator/outcomes/java (the HL7 Java reference validator's recorded
+OperationOutcomes). Used by tests/validate-diff-test.rkt for a case-level recall differential:
+false-positives (we flag a reference-clean resource) must be 0; recall (dirty cases we catch) is a
+ratchet that only rises.
+
+SELECTION (widened 2026-08-24 from 33 to 55 cases, driven by validator/manifest.json): every
+manifest case with version 5.0*, a .json input, a recorded java outcome, and NO dependency keys
+(profiles/profile/packages/ig/supporting/questionnaire/logical/matchetype/use-test) — i.e. cases
+that need only the R5 core package, which is all our resolver has. Cases requiring supporting
+profiles or external terminologies (SNOMED/LOINC) are excluded: without them we fail open, so they
+would only depress recall without testing anything.
+
+CURRENT: clean-agree=29 caught=16 missed=8 FALSE-POSITIVE=0 skip=2 (recall 16/24).
+The 8 misses are documented capability gaps, not bugs: embedded FHIRPath expression validation
+(fhirpath-bad/null), contained-resource canonical resolution (contained-canonical*), cross-element
+SearchParameter base consistency, CodeSystem property ordering, and a LOINC-dependent supplement.

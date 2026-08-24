@@ -1,0 +1,37 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.uv.omop#2.0.0-ballot — DO NOT EDIT (verified by raco fhir check).
+(require fhir/model/schema fhir/model/registry)
+
+(register-type! 'note_nlp (fhir-spec 'note_nlp "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp" 'type)
+  #:schema (type-schema 'note_nlp #f 'Base "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp"
+             (list
+    (schema-field 'note_nlp_id 1 1 (vector 'prim "code") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.note_nlp_id" #f)
+    (schema-field 'note_id 1 1 (vector 'prim "integer") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.note_id" #f)
+    (schema-field 'section_concept_id 0 1 (vector 'prim "code") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.section_concept_id" #f)
+    (schema-field 'snippet 0 1 (vector 'prim "string") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.snippet" #f)
+    (schema-field 'offset 0 1 (vector 'prim "string") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.offset" #f)
+    (schema-field 'lexical_variant 1 1 (vector 'prim "string") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.lexical_variant" #f)
+    (schema-field 'note_nlp_concept_id 0 1 (vector 'prim "code") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.note_nlp_concept_id" #f)
+    (schema-field 'note_nlp_source_concept_id 0 1 (vector 'prim "code") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.note_nlp_source_concept_id" #f)
+    (schema-field 'nlp_system 0 1 (vector 'prim "string") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.nlp_system" #f)
+    (schema-field 'nlp_date 1 1 (vector 'prim "date") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.nlp_date" #f)
+    (schema-field 'nlp_datetime 0 1 (vector 'prim "dateTime") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.nlp_datetime" #f)
+    (schema-field 'term_exists 0 1 (vector 'prim "string") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.term_exists" #f)
+    (schema-field 'term_temporal 0 1 (vector 'prim "string") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.term_temporal" #f)
+    (schema-field 'term_modifiers 0 1 (vector 'prim "string") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.term_modifiers" #f)
+             ) #f #f))
+(register-element! "note_nlp.note_nlp_id" (fhir-spec (string->symbol "note_nlp.note_nlp_id") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.note_nlp_id" 'element))
+(register-element! "note_nlp.note_id" (fhir-spec (string->symbol "note_nlp.note_id") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.note_id" 'element))
+(register-element! "note_nlp.section_concept_id" (fhir-spec (string->symbol "note_nlp.section_concept_id") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.section_concept_id" 'element))
+(register-element! "note_nlp.snippet" (fhir-spec (string->symbol "note_nlp.snippet") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.snippet" 'element))
+(register-element! "note_nlp.offset" (fhir-spec (string->symbol "note_nlp.offset") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.offset" 'element))
+(register-element! "note_nlp.lexical_variant" (fhir-spec (string->symbol "note_nlp.lexical_variant") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.lexical_variant" 'element))
+(register-element! "note_nlp.note_nlp_concept_id" (fhir-spec (string->symbol "note_nlp.note_nlp_concept_id") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.note_nlp_concept_id" 'element))
+(register-element! "note_nlp.note_nlp_source_concept_id" (fhir-spec (string->symbol "note_nlp.note_nlp_source_concept_id") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.note_nlp_source_concept_id" 'element))
+(register-element! "note_nlp.nlp_system" (fhir-spec (string->symbol "note_nlp.nlp_system") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.nlp_system" 'element))
+(register-element! "note_nlp.nlp_date" (fhir-spec (string->symbol "note_nlp.nlp_date") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.nlp_date" 'element))
+(register-element! "note_nlp.nlp_datetime" (fhir-spec (string->symbol "note_nlp.nlp_datetime") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.nlp_datetime" 'element))
+(register-element! "note_nlp.term_exists" (fhir-spec (string->symbol "note_nlp.term_exists") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.term_exists" 'element))
+(register-element! "note_nlp.term_temporal" (fhir-spec (string->symbol "note_nlp.term_temporal") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.term_temporal" 'element))
+(register-element! "note_nlp.term_modifiers" (fhir-spec (string->symbol "note_nlp.term_modifiers") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#note_nlp.term_modifiers" 'element))
+

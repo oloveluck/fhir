@@ -1,0 +1,82 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r5.core#5.0.0 — DO NOT EDIT (verified by raco fhir check).
+(require fhir/model/schema fhir/model/registry)
+
+(register-type! 'Patient (fhir-spec 'Patient "https://hl7.org/fhir/R5/patient.html#Patient" 'type)
+  #:schema (type-schema 'Patient #f 'DomainResource "https://hl7.org/fhir/R5/patient.html#Patient"
+             (list
+    (schema-field 'identifier 0 '* (vector 'type 'Identifier) #f "https://hl7.org/fhir/R5/patient.html#Patient.identifier" #f)
+    (schema-field 'active 0 1 (vector 'prim "boolean") #f "https://hl7.org/fhir/R5/patient.html#Patient.active" #f)
+    (schema-field 'name 0 '* (vector 'type 'HumanName) #f "https://hl7.org/fhir/R5/patient.html#Patient.name" #f)
+    (schema-field 'telecom 0 '* (vector 'type 'ContactPoint) #f "https://hl7.org/fhir/R5/patient.html#Patient.telecom" #f)
+    (schema-field 'gender 0 1 (vector 'prim "code") #f "https://hl7.org/fhir/R5/patient.html#Patient.gender" #f)
+    (schema-field 'birthDate 0 1 (vector 'prim "date") #f "https://hl7.org/fhir/R5/patient.html#Patient.birthDate" #f)
+    (schema-field 'address 0 '* (vector 'type 'Address) #f "https://hl7.org/fhir/R5/patient.html#Patient.address" #f)
+    (schema-field 'maritalStatus 0 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/patient.html#Patient.maritalStatus" #f)
+    (schema-field 'photo 0 '* (vector 'type 'Attachment) #f "https://hl7.org/fhir/R5/patient.html#Patient.photo" #f)
+    (schema-field 'contact 0 '* (vector 'type 'PatientContact) #f "https://hl7.org/fhir/R5/patient.html#Patient.contact" #f)
+    (schema-field 'communication 0 '* (vector 'type 'PatientCommunication) #f "https://hl7.org/fhir/R5/patient.html#Patient.communication" #f)
+    (schema-field 'generalPractitioner 0 '* (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/patient.html#Patient.generalPractitioner" #f)
+    (schema-field 'managingOrganization 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/patient.html#Patient.managingOrganization" #f)
+    (schema-field 'link 0 '* (vector 'type 'PatientLink) #f "https://hl7.org/fhir/R5/patient.html#Patient.link" #f)
+    (schema-field 'deceasedBoolean 0 1 (vector 'prim "boolean") 'deceased "https://hl7.org/fhir/R5/patient.html#Patient.deceased[x]" #f)
+    (schema-field 'deceasedDateTime 0 1 (vector 'prim "dateTime") 'deceased "https://hl7.org/fhir/R5/patient.html#Patient.deceased[x]" #f)
+    (schema-field 'multipleBirthBoolean 0 1 (vector 'prim "boolean") 'multipleBirth "https://hl7.org/fhir/R5/patient.html#Patient.multipleBirth[x]" #f)
+    (schema-field 'multipleBirthInteger 0 1 (vector 'prim "integer") 'multipleBirth "https://hl7.org/fhir/R5/patient.html#Patient.multipleBirth[x]" #f)
+             ) #f #f))
+(register-element! "Patient.identifier" (fhir-spec (string->symbol "Patient.identifier") "https://hl7.org/fhir/R5/patient.html#Patient.identifier" 'element))
+(register-element! "Patient.active" (fhir-spec (string->symbol "Patient.active") "https://hl7.org/fhir/R5/patient.html#Patient.active" 'element))
+(register-element! "Patient.name" (fhir-spec (string->symbol "Patient.name") "https://hl7.org/fhir/R5/patient.html#Patient.name" 'element))
+(register-element! "Patient.telecom" (fhir-spec (string->symbol "Patient.telecom") "https://hl7.org/fhir/R5/patient.html#Patient.telecom" 'element))
+(register-element! "Patient.gender" (fhir-spec (string->symbol "Patient.gender") "https://hl7.org/fhir/R5/patient.html#Patient.gender" 'element))
+(register-element! "Patient.birthDate" (fhir-spec (string->symbol "Patient.birthDate") "https://hl7.org/fhir/R5/patient.html#Patient.birthDate" 'element))
+(register-element! "Patient.address" (fhir-spec (string->symbol "Patient.address") "https://hl7.org/fhir/R5/patient.html#Patient.address" 'element))
+(register-element! "Patient.maritalStatus" (fhir-spec (string->symbol "Patient.maritalStatus") "https://hl7.org/fhir/R5/patient.html#Patient.maritalStatus" 'element))
+(register-element! "Patient.photo" (fhir-spec (string->symbol "Patient.photo") "https://hl7.org/fhir/R5/patient.html#Patient.photo" 'element))
+(register-element! "Patient.contact" (fhir-spec (string->symbol "Patient.contact") "https://hl7.org/fhir/R5/patient.html#Patient.contact" 'element))
+(register-element! "Patient.communication" (fhir-spec (string->symbol "Patient.communication") "https://hl7.org/fhir/R5/patient.html#Patient.communication" 'element))
+(register-element! "Patient.generalPractitioner" (fhir-spec (string->symbol "Patient.generalPractitioner") "https://hl7.org/fhir/R5/patient.html#Patient.generalPractitioner" 'element))
+(register-element! "Patient.managingOrganization" (fhir-spec (string->symbol "Patient.managingOrganization") "https://hl7.org/fhir/R5/patient.html#Patient.managingOrganization" 'element))
+(register-element! "Patient.link" (fhir-spec (string->symbol "Patient.link") "https://hl7.org/fhir/R5/patient.html#Patient.link" 'element))
+(register-element! "Patient.deceased[x]" (fhir-spec (string->symbol "Patient.deceased[x]") "https://hl7.org/fhir/R5/patient.html#Patient.deceased[x]" 'element))
+(register-element! "Patient.deceased[x]" (fhir-spec (string->symbol "Patient.deceased[x]") "https://hl7.org/fhir/R5/patient.html#Patient.deceased[x]" 'element))
+(register-element! "Patient.multipleBirth[x]" (fhir-spec (string->symbol "Patient.multipleBirth[x]") "https://hl7.org/fhir/R5/patient.html#Patient.multipleBirth[x]" 'element))
+(register-element! "Patient.multipleBirth[x]" (fhir-spec (string->symbol "Patient.multipleBirth[x]") "https://hl7.org/fhir/R5/patient.html#Patient.multipleBirth[x]" 'element))
+
+(register-type! 'PatientContact (fhir-spec 'PatientContact "https://hl7.org/fhir/R5/patient.html#Patient.contact" 'type)
+  #:schema (type-schema 'PatientContact #f 'BackboneElement "https://hl7.org/fhir/R5/patient.html#Patient.contact"
+             (list
+    (schema-field 'relationship 0 '* (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/patient.html#Patient.contact.relationship" #f)
+    (schema-field 'name 0 1 (vector 'type 'HumanName) #f "https://hl7.org/fhir/R5/patient.html#Patient.contact.name" #f)
+    (schema-field 'telecom 0 '* (vector 'type 'ContactPoint) #f "https://hl7.org/fhir/R5/patient.html#Patient.contact.telecom" #f)
+    (schema-field 'address 0 1 (vector 'type 'Address) #f "https://hl7.org/fhir/R5/patient.html#Patient.contact.address" #f)
+    (schema-field 'gender 0 1 (vector 'prim "code") #f "https://hl7.org/fhir/R5/patient.html#Patient.contact.gender" #f)
+    (schema-field 'organization 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/patient.html#Patient.contact.organization" #f)
+    (schema-field 'period 0 1 (vector 'type 'Period) #f "https://hl7.org/fhir/R5/patient.html#Patient.contact.period" #f)
+             ) #f #f))
+(register-element! "Patient.contact.relationship" (fhir-spec (string->symbol "Patient.contact.relationship") "https://hl7.org/fhir/R5/patient.html#Patient.contact.relationship" 'element))
+(register-element! "Patient.contact.name" (fhir-spec (string->symbol "Patient.contact.name") "https://hl7.org/fhir/R5/patient.html#Patient.contact.name" 'element))
+(register-element! "Patient.contact.telecom" (fhir-spec (string->symbol "Patient.contact.telecom") "https://hl7.org/fhir/R5/patient.html#Patient.contact.telecom" 'element))
+(register-element! "Patient.contact.address" (fhir-spec (string->symbol "Patient.contact.address") "https://hl7.org/fhir/R5/patient.html#Patient.contact.address" 'element))
+(register-element! "Patient.contact.gender" (fhir-spec (string->symbol "Patient.contact.gender") "https://hl7.org/fhir/R5/patient.html#Patient.contact.gender" 'element))
+(register-element! "Patient.contact.organization" (fhir-spec (string->symbol "Patient.contact.organization") "https://hl7.org/fhir/R5/patient.html#Patient.contact.organization" 'element))
+(register-element! "Patient.contact.period" (fhir-spec (string->symbol "Patient.contact.period") "https://hl7.org/fhir/R5/patient.html#Patient.contact.period" 'element))
+
+(register-type! 'PatientCommunication (fhir-spec 'PatientCommunication "https://hl7.org/fhir/R5/patient.html#Patient.communication" 'type)
+  #:schema (type-schema 'PatientCommunication #f 'BackboneElement "https://hl7.org/fhir/R5/patient.html#Patient.communication"
+             (list
+    (schema-field 'language 1 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/patient.html#Patient.communication.language" #f)
+    (schema-field 'preferred 0 1 (vector 'prim "boolean") #f "https://hl7.org/fhir/R5/patient.html#Patient.communication.preferred" #f)
+             ) #f #f))
+(register-element! "Patient.communication.language" (fhir-spec (string->symbol "Patient.communication.language") "https://hl7.org/fhir/R5/patient.html#Patient.communication.language" 'element))
+(register-element! "Patient.communication.preferred" (fhir-spec (string->symbol "Patient.communication.preferred") "https://hl7.org/fhir/R5/patient.html#Patient.communication.preferred" 'element))
+
+(register-type! 'PatientLink (fhir-spec 'PatientLink "https://hl7.org/fhir/R5/patient.html#Patient.link" 'type)
+  #:schema (type-schema 'PatientLink #f 'BackboneElement "https://hl7.org/fhir/R5/patient.html#Patient.link"
+             (list
+    (schema-field 'other 1 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/patient.html#Patient.link.other" #f)
+    (schema-field 'type 1 1 (vector 'prim "code") #f "https://hl7.org/fhir/R5/patient.html#Patient.link.type" #f)
+             ) #f #f))
+(register-element! "Patient.link.other" (fhir-spec (string->symbol "Patient.link.other") "https://hl7.org/fhir/R5/patient.html#Patient.link.other" 'element))
+(register-element! "Patient.link.type" (fhir-spec (string->symbol "Patient.link.type") "https://hl7.org/fhir/R5/patient.html#Patient.link.type" 'element))
+

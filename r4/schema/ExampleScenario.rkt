@@ -1,0 +1,155 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r4.core#4.0.1 — DO NOT EDIT (verified by raco fhir check).
+(require fhir/model/schema fhir/model/registry)
+
+(register-type! 'ExampleScenario (fhir-spec 'ExampleScenario "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario" 'type)
+  #:schema (type-schema 'ExampleScenario #f 'DomainResource "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario"
+             (list
+    (schema-field 'url 0 1 (vector 'prim "uri") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.url" #f)
+    (schema-field 'identifier 0 '* (vector 'type 'Identifier) #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.identifier" #f)
+    (schema-field 'version 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.version" #f)
+    (schema-field 'name 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.name" #f)
+    (schema-field 'status 1 1 (vector 'prim "code") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.status" #f)
+    (schema-field 'experimental 0 1 (vector 'prim "boolean") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.experimental" #f)
+    (schema-field 'date 0 1 (vector 'prim "dateTime") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.date" #f)
+    (schema-field 'publisher 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.publisher" #f)
+    (schema-field 'contact 0 '* (vector 'type 'ContactDetail) #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.contact" #f)
+    (schema-field 'useContext 0 '* (vector 'type 'UsageContext) #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.useContext" #f)
+    (schema-field 'jurisdiction 0 '* (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.jurisdiction" #f)
+    (schema-field 'copyright 0 1 (vector 'prim "markdown") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.copyright" #f)
+    (schema-field 'purpose 0 1 (vector 'prim "markdown") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.purpose" #f)
+    (schema-field 'actor 0 '* (vector 'type 'ExampleScenarioActor) #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.actor" #f)
+    (schema-field 'instance 0 '* (vector 'type 'ExampleScenarioInstance) #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance" #f)
+    (schema-field 'process 0 '* (vector 'type 'ExampleScenarioProcess) #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process" #f)
+    (schema-field 'workflow 0 '* (vector 'prim "canonical") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.workflow" #f)
+             ) #f #f))
+(register-element! "ExampleScenario.url" (fhir-spec (string->symbol "ExampleScenario.url") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.url" 'element))
+(register-element! "ExampleScenario.identifier" (fhir-spec (string->symbol "ExampleScenario.identifier") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.identifier" 'element))
+(register-element! "ExampleScenario.version" (fhir-spec (string->symbol "ExampleScenario.version") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.version" 'element))
+(register-element! "ExampleScenario.name" (fhir-spec (string->symbol "ExampleScenario.name") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.name" 'element))
+(register-element! "ExampleScenario.status" (fhir-spec (string->symbol "ExampleScenario.status") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.status" 'element))
+(register-element! "ExampleScenario.experimental" (fhir-spec (string->symbol "ExampleScenario.experimental") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.experimental" 'element))
+(register-element! "ExampleScenario.date" (fhir-spec (string->symbol "ExampleScenario.date") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.date" 'element))
+(register-element! "ExampleScenario.publisher" (fhir-spec (string->symbol "ExampleScenario.publisher") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.publisher" 'element))
+(register-element! "ExampleScenario.contact" (fhir-spec (string->symbol "ExampleScenario.contact") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.contact" 'element))
+(register-element! "ExampleScenario.useContext" (fhir-spec (string->symbol "ExampleScenario.useContext") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.useContext" 'element))
+(register-element! "ExampleScenario.jurisdiction" (fhir-spec (string->symbol "ExampleScenario.jurisdiction") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.jurisdiction" 'element))
+(register-element! "ExampleScenario.copyright" (fhir-spec (string->symbol "ExampleScenario.copyright") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.copyright" 'element))
+(register-element! "ExampleScenario.purpose" (fhir-spec (string->symbol "ExampleScenario.purpose") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.purpose" 'element))
+(register-element! "ExampleScenario.actor" (fhir-spec (string->symbol "ExampleScenario.actor") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.actor" 'element))
+(register-element! "ExampleScenario.instance" (fhir-spec (string->symbol "ExampleScenario.instance") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance" 'element))
+(register-element! "ExampleScenario.process" (fhir-spec (string->symbol "ExampleScenario.process") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process" 'element))
+(register-element! "ExampleScenario.workflow" (fhir-spec (string->symbol "ExampleScenario.workflow") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.workflow" 'element))
+
+(register-type! 'ExampleScenarioActor (fhir-spec 'ExampleScenarioActor "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.actor" 'type)
+  #:schema (type-schema 'ExampleScenarioActor #f 'BackboneElement "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.actor"
+             (list
+    (schema-field 'actorId 1 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.actor.actorId" #f)
+    (schema-field 'type 1 1 (vector 'prim "code") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.actor.type" #f)
+    (schema-field 'name 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.actor.name" #f)
+    (schema-field 'description 0 1 (vector 'prim "markdown") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.actor.description" #f)
+             ) #f #f))
+(register-element! "ExampleScenario.actor.actorId" (fhir-spec (string->symbol "ExampleScenario.actor.actorId") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.actor.actorId" 'element))
+(register-element! "ExampleScenario.actor.type" (fhir-spec (string->symbol "ExampleScenario.actor.type") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.actor.type" 'element))
+(register-element! "ExampleScenario.actor.name" (fhir-spec (string->symbol "ExampleScenario.actor.name") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.actor.name" 'element))
+(register-element! "ExampleScenario.actor.description" (fhir-spec (string->symbol "ExampleScenario.actor.description") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.actor.description" 'element))
+
+(register-type! 'ExampleScenarioInstance (fhir-spec 'ExampleScenarioInstance "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance" 'type)
+  #:schema (type-schema 'ExampleScenarioInstance #f 'BackboneElement "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance"
+             (list
+    (schema-field 'resourceId 1 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance.resourceId" #f)
+    (schema-field 'resourceType 1 1 (vector 'prim "code") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance.resourceType" #f)
+    (schema-field 'name 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance.name" #f)
+    (schema-field 'description 0 1 (vector 'prim "markdown") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance.description" #f)
+    (schema-field 'version 0 '* (vector 'type 'ExampleScenarioInstanceVersion) #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance.version" #f)
+    (schema-field 'containedInstance 0 '* (vector 'type 'ExampleScenarioInstanceContainedInstance) #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance.containedInstance" #f)
+             ) #f #f))
+(register-element! "ExampleScenario.instance.resourceId" (fhir-spec (string->symbol "ExampleScenario.instance.resourceId") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance.resourceId" 'element))
+(register-element! "ExampleScenario.instance.resourceType" (fhir-spec (string->symbol "ExampleScenario.instance.resourceType") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance.resourceType" 'element))
+(register-element! "ExampleScenario.instance.name" (fhir-spec (string->symbol "ExampleScenario.instance.name") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance.name" 'element))
+(register-element! "ExampleScenario.instance.description" (fhir-spec (string->symbol "ExampleScenario.instance.description") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance.description" 'element))
+(register-element! "ExampleScenario.instance.version" (fhir-spec (string->symbol "ExampleScenario.instance.version") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance.version" 'element))
+(register-element! "ExampleScenario.instance.containedInstance" (fhir-spec (string->symbol "ExampleScenario.instance.containedInstance") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance.containedInstance" 'element))
+
+(register-type! 'ExampleScenarioInstanceVersion (fhir-spec 'ExampleScenarioInstanceVersion "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance.version" 'type)
+  #:schema (type-schema 'ExampleScenarioInstanceVersion #f 'BackboneElement "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance.version"
+             (list
+    (schema-field 'versionId 1 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance.version.versionId" #f)
+    (schema-field 'description 1 1 (vector 'prim "markdown") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance.version.description" #f)
+             ) #f #f))
+(register-element! "ExampleScenario.instance.version.versionId" (fhir-spec (string->symbol "ExampleScenario.instance.version.versionId") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance.version.versionId" 'element))
+(register-element! "ExampleScenario.instance.version.description" (fhir-spec (string->symbol "ExampleScenario.instance.version.description") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance.version.description" 'element))
+
+(register-type! 'ExampleScenarioInstanceContainedInstance (fhir-spec 'ExampleScenarioInstanceContainedInstance "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance.containedInstance" 'type)
+  #:schema (type-schema 'ExampleScenarioInstanceContainedInstance #f 'BackboneElement "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance.containedInstance"
+             (list
+    (schema-field 'resourceId 1 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance.containedInstance.resourceId" #f)
+    (schema-field 'versionId 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance.containedInstance.versionId" #f)
+             ) #f #f))
+(register-element! "ExampleScenario.instance.containedInstance.resourceId" (fhir-spec (string->symbol "ExampleScenario.instance.containedInstance.resourceId") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance.containedInstance.resourceId" 'element))
+(register-element! "ExampleScenario.instance.containedInstance.versionId" (fhir-spec (string->symbol "ExampleScenario.instance.containedInstance.versionId") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.instance.containedInstance.versionId" 'element))
+
+(register-type! 'ExampleScenarioProcess (fhir-spec 'ExampleScenarioProcess "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process" 'type)
+  #:schema (type-schema 'ExampleScenarioProcess #f 'BackboneElement "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process"
+             (list
+    (schema-field 'title 1 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.title" #f)
+    (schema-field 'description 0 1 (vector 'prim "markdown") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.description" #f)
+    (schema-field 'preConditions 0 1 (vector 'prim "markdown") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.preConditions" #f)
+    (schema-field 'postConditions 0 1 (vector 'prim "markdown") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.postConditions" #f)
+    (schema-field 'step 0 '* (vector 'type 'ExampleScenarioProcessStep) #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step" #f)
+             ) #f #f))
+(register-element! "ExampleScenario.process.title" (fhir-spec (string->symbol "ExampleScenario.process.title") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.title" 'element))
+(register-element! "ExampleScenario.process.description" (fhir-spec (string->symbol "ExampleScenario.process.description") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.description" 'element))
+(register-element! "ExampleScenario.process.preConditions" (fhir-spec (string->symbol "ExampleScenario.process.preConditions") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.preConditions" 'element))
+(register-element! "ExampleScenario.process.postConditions" (fhir-spec (string->symbol "ExampleScenario.process.postConditions") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.postConditions" 'element))
+(register-element! "ExampleScenario.process.step" (fhir-spec (string->symbol "ExampleScenario.process.step") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step" 'element))
+
+(register-type! 'ExampleScenarioProcessStep (fhir-spec 'ExampleScenarioProcessStep "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step" 'type)
+  #:schema (type-schema 'ExampleScenarioProcessStep #f 'BackboneElement "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step"
+             (list
+    (schema-field 'process 0 '* (vector 'type 'ExampleScenarioProcess) #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.process" #f)
+    (schema-field 'pause 0 1 (vector 'prim "boolean") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.pause" #f)
+    (schema-field 'operation 0 1 (vector 'type 'ExampleScenarioProcessStepOperation) #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.operation" #f)
+    (schema-field 'alternative 0 '* (vector 'type 'ExampleScenarioProcessStepAlternative) #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.alternative" #f)
+             ) #f #f))
+(register-element! "ExampleScenario.process.step.process" (fhir-spec (string->symbol "ExampleScenario.process.step.process") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.process" 'element))
+(register-element! "ExampleScenario.process.step.pause" (fhir-spec (string->symbol "ExampleScenario.process.step.pause") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.pause" 'element))
+(register-element! "ExampleScenario.process.step.operation" (fhir-spec (string->symbol "ExampleScenario.process.step.operation") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.operation" 'element))
+(register-element! "ExampleScenario.process.step.alternative" (fhir-spec (string->symbol "ExampleScenario.process.step.alternative") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.alternative" 'element))
+
+(register-type! 'ExampleScenarioProcessStepOperation (fhir-spec 'ExampleScenarioProcessStepOperation "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.operation" 'type)
+  #:schema (type-schema 'ExampleScenarioProcessStepOperation #f 'BackboneElement "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.operation"
+             (list
+    (schema-field 'number 1 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.operation.number" #f)
+    (schema-field 'type 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.operation.type" #f)
+    (schema-field 'name 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.operation.name" #f)
+    (schema-field 'initiator 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.operation.initiator" #f)
+    (schema-field 'receiver 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.operation.receiver" #f)
+    (schema-field 'description 0 1 (vector 'prim "markdown") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.operation.description" #f)
+    (schema-field 'initiatorActive 0 1 (vector 'prim "boolean") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.operation.initiatorActive" #f)
+    (schema-field 'receiverActive 0 1 (vector 'prim "boolean") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.operation.receiverActive" #f)
+    (schema-field 'request 0 1 (vector 'type 'ExampleScenarioInstanceContainedInstance) #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.operation.request" #f)
+    (schema-field 'response 0 1 (vector 'type 'ExampleScenarioInstanceContainedInstance) #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.operation.response" #f)
+             ) #f #f))
+(register-element! "ExampleScenario.process.step.operation.number" (fhir-spec (string->symbol "ExampleScenario.process.step.operation.number") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.operation.number" 'element))
+(register-element! "ExampleScenario.process.step.operation.type" (fhir-spec (string->symbol "ExampleScenario.process.step.operation.type") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.operation.type" 'element))
+(register-element! "ExampleScenario.process.step.operation.name" (fhir-spec (string->symbol "ExampleScenario.process.step.operation.name") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.operation.name" 'element))
+(register-element! "ExampleScenario.process.step.operation.initiator" (fhir-spec (string->symbol "ExampleScenario.process.step.operation.initiator") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.operation.initiator" 'element))
+(register-element! "ExampleScenario.process.step.operation.receiver" (fhir-spec (string->symbol "ExampleScenario.process.step.operation.receiver") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.operation.receiver" 'element))
+(register-element! "ExampleScenario.process.step.operation.description" (fhir-spec (string->symbol "ExampleScenario.process.step.operation.description") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.operation.description" 'element))
+(register-element! "ExampleScenario.process.step.operation.initiatorActive" (fhir-spec (string->symbol "ExampleScenario.process.step.operation.initiatorActive") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.operation.initiatorActive" 'element))
+(register-element! "ExampleScenario.process.step.operation.receiverActive" (fhir-spec (string->symbol "ExampleScenario.process.step.operation.receiverActive") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.operation.receiverActive" 'element))
+(register-element! "ExampleScenario.process.step.operation.request" (fhir-spec (string->symbol "ExampleScenario.process.step.operation.request") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.operation.request" 'element))
+(register-element! "ExampleScenario.process.step.operation.response" (fhir-spec (string->symbol "ExampleScenario.process.step.operation.response") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.operation.response" 'element))
+
+(register-type! 'ExampleScenarioProcessStepAlternative (fhir-spec 'ExampleScenarioProcessStepAlternative "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.alternative" 'type)
+  #:schema (type-schema 'ExampleScenarioProcessStepAlternative #f 'BackboneElement "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.alternative"
+             (list
+    (schema-field 'title 1 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.alternative.title" #f)
+    (schema-field 'description 0 1 (vector 'prim "markdown") #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.alternative.description" #f)
+    (schema-field 'step 0 '* (vector 'type 'ExampleScenarioProcessStep) #f "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.alternative.step" #f)
+             ) #f #f))
+(register-element! "ExampleScenario.process.step.alternative.title" (fhir-spec (string->symbol "ExampleScenario.process.step.alternative.title") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.alternative.title" 'element))
+(register-element! "ExampleScenario.process.step.alternative.description" (fhir-spec (string->symbol "ExampleScenario.process.step.alternative.description") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.alternative.description" 'element))
+(register-element! "ExampleScenario.process.step.alternative.step" (fhir-spec (string->symbol "ExampleScenario.process.step.alternative.step") "https://hl7.org/fhir/R4/examplescenario.html#ExampleScenario.process.step.alternative.step" 'element))
+

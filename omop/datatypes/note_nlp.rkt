@@ -1,0 +1,22 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.uv.omop#2.0.0-ballot — DO NOT EDIT (verified by raco fhir check).
+(require (for-syntax racket/base fhir/lang-gen/form-syntax))
+(provide note_nlp)
+(define-syntax (note_nlp stx)
+  (build-fhir-form stx 'note_nlp
+    '(#s(field-spec note_nlp_id 1 1 #(prim "code") #f)
+      #s(field-spec note_id 1 1 #(prim "integer") #f)
+      #s(field-spec section_concept_id 0 1 #(prim "code") #f)
+      #s(field-spec snippet 0 1 #(prim "string") #f)
+      #s(field-spec offset 0 1 #(prim "string") #f)
+      #s(field-spec lexical_variant 1 1 #(prim "string") #f)
+      #s(field-spec note_nlp_concept_id 0 1 #(prim "code") #f)
+      #s(field-spec note_nlp_source_concept_id 0 1 #(prim "code") #f)
+      #s(field-spec nlp_system 0 1 #(prim "string") #f)
+      #s(field-spec nlp_date 1 1 #(prim "date") #f)
+      #s(field-spec nlp_datetime 0 1 #(prim "dateTime") #f)
+      #s(field-spec term_exists 0 1 #(prim "string") #f)
+      #s(field-spec term_temporal 0 1 #(prim "string") #f)
+      #s(field-spec term_modifiers 0 1 #(prim "string") #f)
+      )
+    #:parent 'Base))

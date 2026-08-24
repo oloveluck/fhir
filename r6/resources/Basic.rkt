@@ -1,0 +1,21 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r6.core#6.0.0-ballot4 — DO NOT EDIT (verified by raco fhir check).
+(require (for-syntax racket/base fhir/lang-gen/form-syntax))
+(provide Basic)
+(define-syntax (Basic stx)
+  (build-fhir-form stx 'Basic
+    '(#s(field-spec id 0 1 #(raw) #f)
+      #s(field-spec meta 0 1 #(type Meta) #f)
+      #s(field-spec implicitRules 0 1 #(raw) #f)
+      #s(field-spec language 0 1 #(raw) #f)
+      #s(field-spec text 0 1 #(type Narrative) #f)
+      #s(field-spec contained 0 * #(resource) #f)
+      #s(field-spec extension 0 * #(type Extension) #f)
+      #s(field-spec modifierExtension 0 * #(type Extension) #f)
+      #s(field-spec identifier 0 * #(type Identifier) #f)
+      #s(field-spec code 1 1 #(type CodeableConcept) #f)
+      #s(field-spec subject 0 1 #(type Reference) #f)
+      #s(field-spec created 0 1 #(prim "dateTime") #f)
+      #s(field-spec author 0 1 #(type Reference) #f)
+      )
+    #:parent 'DomainResource))

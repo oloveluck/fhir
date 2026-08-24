@@ -1,0 +1,35 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.uv.omop#2.0.0-ballot — DO NOT EDIT (verified by raco fhir check).
+(require fhir/model/schema fhir/model/registry)
+
+(register-type! 'provider (fhir-spec 'provider "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider" 'type)
+  #:schema (type-schema 'provider #f 'Base "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider"
+             (list
+    (schema-field 'provider_id 1 1 (vector 'prim "integer") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.provider_id" #f)
+    (schema-field 'provider_name 0 1 (vector 'prim "string") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.provider_name" #f)
+    (schema-field 'npi 0 1 (vector 'prim "string") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.npi" #f)
+    (schema-field 'dea 0 1 (vector 'prim "string") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.dea" #f)
+    (schema-field 'specialty_concept_id 0 1 (vector 'prim "code") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.specialty_concept_id" #f)
+    (schema-field 'care_site_id 0 1 (vector 'prim "integer") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.care_site_id" #f)
+    (schema-field 'year_of_birth 0 1 (vector 'prim "integer") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.year_of_birth" #f)
+    (schema-field 'gender_concept_id 0 1 (vector 'prim "code") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.gender_concept_id" #f)
+    (schema-field 'provider_source_value 0 1 (vector 'prim "string") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.provider_source_value" #f)
+    (schema-field 'specialty_source_value 0 1 (vector 'prim "string") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.specialty_source_value" #f)
+    (schema-field 'specialty_source_concept_id 0 1 (vector 'prim "code") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.specialty_source_concept_id" #f)
+    (schema-field 'gender_source_value 0 1 (vector 'prim "string") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.gender_source_value" #f)
+    (schema-field 'gender_source_concept_id 0 1 (vector 'prim "code") #f "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.gender_source_concept_id" #f)
+             ) #f #f))
+(register-element! "provider.provider_id" (fhir-spec (string->symbol "provider.provider_id") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.provider_id" 'element))
+(register-element! "provider.provider_name" (fhir-spec (string->symbol "provider.provider_name") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.provider_name" 'element))
+(register-element! "provider.npi" (fhir-spec (string->symbol "provider.npi") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.npi" 'element))
+(register-element! "provider.dea" (fhir-spec (string->symbol "provider.dea") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.dea" 'element))
+(register-element! "provider.specialty_concept_id" (fhir-spec (string->symbol "provider.specialty_concept_id") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.specialty_concept_id" 'element))
+(register-element! "provider.care_site_id" (fhir-spec (string->symbol "provider.care_site_id") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.care_site_id" 'element))
+(register-element! "provider.year_of_birth" (fhir-spec (string->symbol "provider.year_of_birth") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.year_of_birth" 'element))
+(register-element! "provider.gender_concept_id" (fhir-spec (string->symbol "provider.gender_concept_id") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.gender_concept_id" 'element))
+(register-element! "provider.provider_source_value" (fhir-spec (string->symbol "provider.provider_source_value") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.provider_source_value" 'element))
+(register-element! "provider.specialty_source_value" (fhir-spec (string->symbol "provider.specialty_source_value") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.specialty_source_value" 'element))
+(register-element! "provider.specialty_source_concept_id" (fhir-spec (string->symbol "provider.specialty_source_concept_id") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.specialty_source_concept_id" 'element))
+(register-element! "provider.gender_source_value" (fhir-spec (string->symbol "provider.gender_source_value") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.gender_source_value" 'element))
+(register-element! "provider.gender_source_concept_id" (fhir-spec (string->symbol "provider.gender_source_concept_id") "https://build.fhir.org/ig/HL7/fhir-omop-ig/datatypes.html#provider.gender_source_concept_id" 'element))
+

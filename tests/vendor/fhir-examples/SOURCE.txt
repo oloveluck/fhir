@@ -1,0 +1,3 @@
+FHIR example resources vendored from https://github.com/FHIR/fhir-test-cases (Apache-2.0),
+paths r5/examples and r4/examples. Used by tests/example-roundtrip-r{4,5}.rkt for a lenient
+parse -> serialize -> re-parse idempotence check over the type towers + serializer.

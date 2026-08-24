@@ -1,0 +1,42 @@
+hl7.fhir.uv.tx-ecosystem.tgz — the HL7 terminology-ecosystem IG (1.9.3, FHIR 5.0.0), from
+https://packages2.fhir.org/web/hl7.fhir.uv.tx-ecosystem-1.9.3.tgz retrieved 2026-08-24.
+
+Vendored for its `tests/` tree: test-cases.json declares 35 suites / 920 tests, each naming a
+request Parameters file, an expected response, and the suite's OWN setup CodeSystems/ValueSets —
+which is what makes the suite executable offline. Run by terminology/tests/tx-harness.rkt via
+`raco fhir tx-tck`, floor in run-tx.rkt.
+
+WHAT RUNS (463/553 as of 2026-08-24):
+  $expand           — compared on the SET OF CODES in expansion.contains; supports the
+                      parameters offset/count (paging), activeOnly, filter, displayLanguage,
+                      includeDesignations, property, valueSetVersion, and `excludeNested` — whose
+                      DEFAULT is flat here; an explicit `false` asks for the hierarchical form
+                      (children nested under their parent, so only roots appear at top level).
+  $validate-code    — all three input shapes (bare code, Coding, CodeableConcept), display
+                      validation against the concept's display and designations (with
+                      `lenient-display-validation` downgrading a mismatch to a warning), and
+                      version semantics (a Coding's version, `systemVersion`,
+                      compose.include.version pinning, `1.x.x` wildcard patterns, and the
+                      server-level `system-version` / `force-system-version` /
+                      `check-system-version` parameters a test supplies via its `profile` file).
+                      A CodeableConcept is invalid when any coding names an unknown code in a
+                      COMPLETE CodeSystem, even if a sibling coding resolves.
+  cs-validate-code  — CodeSystem-level validation (no ValueSet).
+  $lookup           — compared on the resolved display.
+  $translate        — the `result` verdict.
+Message prose is deliberately not compared — the reference's wording is unreproducible; the
+verdict is what conformance means (same philosophy as the validator differential). Where the
+reference states the resolved `code`, ours must agree.
+
+WHAT IS SKIPPED (counted, never silently dropped): the 130 tests in suites needing an external
+terminology (sct-ecl 103, bugs 25, metadata 2); the `compare` operation (61 — a tx-ecosystem
+ValueSet-comparison mode, not a core FHIR operation); and cases using expansion parameters still
+unimplemented (excludeNotForUI, system-version/force-system-version, useSupplement, tx-resource,
+includeDefinition, limit). A per-test 5s budget guards against expansions that are unbounded
+offline; over-budget counts as a skip, never as a pass.
+
+UNDECIDABLE CASES ARE SKIPPED, NOT FAILED: when every include in a ValueSet's compose names a code
+system the resolver cannot see (SNOMED CT, LOINC, the OHDSI vocabulary), the question is
+unanswerable offline. Such a case is counted as a skip — recording a verdict for it would be
+dishonest in either direction. A ValueSet with one missing system among several is still answered
+for the systems we do have.

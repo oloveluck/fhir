@@ -1,0 +1,14 @@
+{
+  "resourceType": "Group",
+  "type": "person",
+  "membership": "definitional",
+  "characteristic": [
+    {
+      "code": {
+        "text": "test"
+      },
+      "valueBoolean": 1,
+      "exclude": false
+    }
+  ]
+}

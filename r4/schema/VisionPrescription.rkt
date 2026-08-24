@@ -1,0 +1,67 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r4.core#4.0.1 — DO NOT EDIT (verified by raco fhir check).
+(require fhir/model/schema fhir/model/registry)
+
+(register-type! 'VisionPrescription (fhir-spec 'VisionPrescription "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription" 'type)
+  #:schema (type-schema 'VisionPrescription #f 'DomainResource "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription"
+             (list
+    (schema-field 'identifier 0 '* (vector 'type 'Identifier) #f "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.identifier" #f)
+    (schema-field 'status 1 1 (vector 'prim "code") #f "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.status" #f)
+    (schema-field 'created 1 1 (vector 'prim "dateTime") #f "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.created" #f)
+    (schema-field 'patient 1 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.patient" #f)
+    (schema-field 'encounter 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.encounter" #f)
+    (schema-field 'dateWritten 1 1 (vector 'prim "dateTime") #f "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.dateWritten" #f)
+    (schema-field 'prescriber 1 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.prescriber" #f)
+    (schema-field 'lensSpecification 1 '* (vector 'type 'VisionPrescriptionLensSpecification) #f "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification" #f)
+             ) #f #f))
+(register-element! "VisionPrescription.identifier" (fhir-spec (string->symbol "VisionPrescription.identifier") "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.identifier" 'element))
+(register-element! "VisionPrescription.status" (fhir-spec (string->symbol "VisionPrescription.status") "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.status" 'element))
+(register-element! "VisionPrescription.created" (fhir-spec (string->symbol "VisionPrescription.created") "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.created" 'element))
+(register-element! "VisionPrescription.patient" (fhir-spec (string->symbol "VisionPrescription.patient") "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.patient" 'element))
+(register-element! "VisionPrescription.encounter" (fhir-spec (string->symbol "VisionPrescription.encounter") "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.encounter" 'element))
+(register-element! "VisionPrescription.dateWritten" (fhir-spec (string->symbol "VisionPrescription.dateWritten") "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.dateWritten" 'element))
+(register-element! "VisionPrescription.prescriber" (fhir-spec (string->symbol "VisionPrescription.prescriber") "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.prescriber" 'element))
+(register-element! "VisionPrescription.lensSpecification" (fhir-spec (string->symbol "VisionPrescription.lensSpecification") "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification" 'element))
+
+(register-type! 'VisionPrescriptionLensSpecification (fhir-spec 'VisionPrescriptionLensSpecification "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification" 'type)
+  #:schema (type-schema 'VisionPrescriptionLensSpecification #f 'BackboneElement "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification"
+             (list
+    (schema-field 'product 1 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.product" #f)
+    (schema-field 'eye 1 1 (vector 'prim "code") #f "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.eye" #f)
+    (schema-field 'sphere 0 1 (vector 'prim "decimal") #f "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.sphere" #f)
+    (schema-field 'cylinder 0 1 (vector 'prim "decimal") #f "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.cylinder" #f)
+    (schema-field 'axis 0 1 (vector 'prim "integer") #f "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.axis" #f)
+    (schema-field 'prism 0 '* (vector 'type 'VisionPrescriptionLensSpecificationPrism) #f "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.prism" #f)
+    (schema-field 'add 0 1 (vector 'prim "decimal") #f "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.add" #f)
+    (schema-field 'power 0 1 (vector 'prim "decimal") #f "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.power" #f)
+    (schema-field 'backCurve 0 1 (vector 'prim "decimal") #f "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.backCurve" #f)
+    (schema-field 'diameter 0 1 (vector 'prim "decimal") #f "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.diameter" #f)
+    (schema-field 'duration 0 1 (vector 'type 'Quantity) #f "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.duration" #f)
+    (schema-field 'color 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.color" #f)
+    (schema-field 'brand 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.brand" #f)
+    (schema-field 'note 0 '* (vector 'type 'Annotation) #f "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.note" #f)
+             ) #f #f))
+(register-element! "VisionPrescription.lensSpecification.product" (fhir-spec (string->symbol "VisionPrescription.lensSpecification.product") "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.product" 'element))
+(register-element! "VisionPrescription.lensSpecification.eye" (fhir-spec (string->symbol "VisionPrescription.lensSpecification.eye") "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.eye" 'element))
+(register-element! "VisionPrescription.lensSpecification.sphere" (fhir-spec (string->symbol "VisionPrescription.lensSpecification.sphere") "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.sphere" 'element))
+(register-element! "VisionPrescription.lensSpecification.cylinder" (fhir-spec (string->symbol "VisionPrescription.lensSpecification.cylinder") "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.cylinder" 'element))
+(register-element! "VisionPrescription.lensSpecification.axis" (fhir-spec (string->symbol "VisionPrescription.lensSpecification.axis") "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.axis" 'element))
+(register-element! "VisionPrescription.lensSpecification.prism" (fhir-spec (string->symbol "VisionPrescription.lensSpecification.prism") "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.prism" 'element))
+(register-element! "VisionPrescription.lensSpecification.add" (fhir-spec (string->symbol "VisionPrescription.lensSpecification.add") "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.add" 'element))
+(register-element! "VisionPrescription.lensSpecification.power" (fhir-spec (string->symbol "VisionPrescription.lensSpecification.power") "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.power" 'element))
+(register-element! "VisionPrescription.lensSpecification.backCurve" (fhir-spec (string->symbol "VisionPrescription.lensSpecification.backCurve") "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.backCurve" 'element))
+(register-element! "VisionPrescription.lensSpecification.diameter" (fhir-spec (string->symbol "VisionPrescription.lensSpecification.diameter") "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.diameter" 'element))
+(register-element! "VisionPrescription.lensSpecification.duration" (fhir-spec (string->symbol "VisionPrescription.lensSpecification.duration") "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.duration" 'element))
+(register-element! "VisionPrescription.lensSpecification.color" (fhir-spec (string->symbol "VisionPrescription.lensSpecification.color") "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.color" 'element))
+(register-element! "VisionPrescription.lensSpecification.brand" (fhir-spec (string->symbol "VisionPrescription.lensSpecification.brand") "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.brand" 'element))
+(register-element! "VisionPrescription.lensSpecification.note" (fhir-spec (string->symbol "VisionPrescription.lensSpecification.note") "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.note" 'element))
+
+(register-type! 'VisionPrescriptionLensSpecificationPrism (fhir-spec 'VisionPrescriptionLensSpecificationPrism "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.prism" 'type)
+  #:schema (type-schema 'VisionPrescriptionLensSpecificationPrism #f 'BackboneElement "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.prism"
+             (list
+    (schema-field 'amount 1 1 (vector 'prim "decimal") #f "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.prism.amount" #f)
+    (schema-field 'base 1 1 (vector 'prim "code") #f "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.prism.base" #f)
+             ) #f #f))
+(register-element! "VisionPrescription.lensSpecification.prism.amount" (fhir-spec (string->symbol "VisionPrescription.lensSpecification.prism.amount") "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.prism.amount" 'element))
+(register-element! "VisionPrescription.lensSpecification.prism.base" (fhir-spec (string->symbol "VisionPrescription.lensSpecification.prism.base") "https://hl7.org/fhir/R4/visionprescription.html#VisionPrescription.lensSpecification.prism.base" 'element))
+

@@ -1,0 +1,23 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r6.core#6.0.0-ballot4 — DO NOT EDIT (verified by raco fhir check).
+(require (for-syntax racket/base fhir/lang-gen/form-syntax))
+(provide Attachment)
+(define-syntax (Attachment stx)
+  (build-fhir-form stx 'Attachment
+    '(#s(field-spec id 0 1 #(raw) #f)
+      #s(field-spec extension 0 * #(type Extension) #f)
+      #s(field-spec contentType 0 1 #(prim "code") (required "http://hl7.org/fhir/ValueSet/mimetypes"))
+      #s(field-spec language 0 1 #(prim "code") (required "http://hl7.org/fhir/ValueSet/all-languages"))
+      #s(field-spec data 0 1 #(prim "base64Binary") #f)
+      #s(field-spec url 0 1 #(prim "url") #f)
+      #s(field-spec size 0 1 #(prim "integer64") #f)
+      #s(field-spec hash 0 1 #(prim "base64Binary") #f)
+      #s(field-spec title 0 1 #(prim "string") #f)
+      #s(field-spec creation 0 1 #(prim "dateTime") #f)
+      #s(field-spec height 0 1 #(prim "positiveInt") #f)
+      #s(field-spec width 0 1 #(prim "positiveInt") #f)
+      #s(field-spec frames 0 1 #(prim "positiveInt") #f)
+      #s(field-spec duration 0 1 #(prim "decimal") #f)
+      #s(field-spec pages 0 1 #(prim "positiveInt") #f)
+      )
+    #:parent 'DataType))

@@ -1,0 +1,35 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r5.core#5.0.0 — DO NOT EDIT (verified by raco fhir check).
+(require fhir/model/schema fhir/model/registry)
+
+(register-type! 'Attachment (fhir-spec 'Attachment "https://hl7.org/fhir/R5/datatypes.html#Attachment" 'type)
+  #:schema (type-schema 'Attachment #f 'DataType "https://hl7.org/fhir/R5/datatypes.html#Attachment"
+             (list
+    (schema-field 'contentType 0 1 (vector 'prim "code") #f "https://hl7.org/fhir/R5/datatypes.html#Attachment.contentType" #f)
+    (schema-field 'language 0 1 (vector 'prim "code") #f "https://hl7.org/fhir/R5/datatypes.html#Attachment.language" #f)
+    (schema-field 'data 0 1 (vector 'prim "base64Binary") #f "https://hl7.org/fhir/R5/datatypes.html#Attachment.data" #f)
+    (schema-field 'url 0 1 (vector 'prim "url") #f "https://hl7.org/fhir/R5/datatypes.html#Attachment.url" #f)
+    (schema-field 'size 0 1 (vector 'prim "integer64") #f "https://hl7.org/fhir/R5/datatypes.html#Attachment.size" #f)
+    (schema-field 'hash 0 1 (vector 'prim "base64Binary") #f "https://hl7.org/fhir/R5/datatypes.html#Attachment.hash" #f)
+    (schema-field 'title 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R5/datatypes.html#Attachment.title" #f)
+    (schema-field 'creation 0 1 (vector 'prim "dateTime") #f "https://hl7.org/fhir/R5/datatypes.html#Attachment.creation" #f)
+    (schema-field 'height 0 1 (vector 'prim "positiveInt") #f "https://hl7.org/fhir/R5/datatypes.html#Attachment.height" #f)
+    (schema-field 'width 0 1 (vector 'prim "positiveInt") #f "https://hl7.org/fhir/R5/datatypes.html#Attachment.width" #f)
+    (schema-field 'frames 0 1 (vector 'prim "positiveInt") #f "https://hl7.org/fhir/R5/datatypes.html#Attachment.frames" #f)
+    (schema-field 'duration 0 1 (vector 'prim "decimal") #f "https://hl7.org/fhir/R5/datatypes.html#Attachment.duration" #f)
+    (schema-field 'pages 0 1 (vector 'prim "positiveInt") #f "https://hl7.org/fhir/R5/datatypes.html#Attachment.pages" #f)
+             ) #f #f))
+(register-element! "Attachment.contentType" (fhir-spec (string->symbol "Attachment.contentType") "https://hl7.org/fhir/R5/datatypes.html#Attachment.contentType" 'element))
+(register-element! "Attachment.language" (fhir-spec (string->symbol "Attachment.language") "https://hl7.org/fhir/R5/datatypes.html#Attachment.language" 'element))
+(register-element! "Attachment.data" (fhir-spec (string->symbol "Attachment.data") "https://hl7.org/fhir/R5/datatypes.html#Attachment.data" 'element))
+(register-element! "Attachment.url" (fhir-spec (string->symbol "Attachment.url") "https://hl7.org/fhir/R5/datatypes.html#Attachment.url" 'element))
+(register-element! "Attachment.size" (fhir-spec (string->symbol "Attachment.size") "https://hl7.org/fhir/R5/datatypes.html#Attachment.size" 'element))
+(register-element! "Attachment.hash" (fhir-spec (string->symbol "Attachment.hash") "https://hl7.org/fhir/R5/datatypes.html#Attachment.hash" 'element))
+(register-element! "Attachment.title" (fhir-spec (string->symbol "Attachment.title") "https://hl7.org/fhir/R5/datatypes.html#Attachment.title" 'element))
+(register-element! "Attachment.creation" (fhir-spec (string->symbol "Attachment.creation") "https://hl7.org/fhir/R5/datatypes.html#Attachment.creation" 'element))
+(register-element! "Attachment.height" (fhir-spec (string->symbol "Attachment.height") "https://hl7.org/fhir/R5/datatypes.html#Attachment.height" 'element))
+(register-element! "Attachment.width" (fhir-spec (string->symbol "Attachment.width") "https://hl7.org/fhir/R5/datatypes.html#Attachment.width" 'element))
+(register-element! "Attachment.frames" (fhir-spec (string->symbol "Attachment.frames") "https://hl7.org/fhir/R5/datatypes.html#Attachment.frames" 'element))
+(register-element! "Attachment.duration" (fhir-spec (string->symbol "Attachment.duration") "https://hl7.org/fhir/R5/datatypes.html#Attachment.duration" 'element))
+(register-element! "Attachment.pages" (fhir-spec (string->symbol "Attachment.pages") "https://hl7.org/fhir/R5/datatypes.html#Attachment.pages" 'element))
+

@@ -1,0 +1,20 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.uv.omop#2.0.0-ballot — DO NOT EDIT (verified by raco fhir check).
+(require (for-syntax racket/base fhir/lang-gen/form-syntax))
+(provide location)
+(define-syntax (location stx)
+  (build-fhir-form stx 'location
+    '(#s(field-spec location_id 1 1 #(prim "integer") #f)
+      #s(field-spec address_1 0 1 #(prim "string") #f)
+      #s(field-spec address_2 0 1 #(prim "string") #f)
+      #s(field-spec city 0 1 #(prim "string") #f)
+      #s(field-spec state 0 1 #(prim "string") #f)
+      #s(field-spec zip 0 1 #(prim "string") #f)
+      #s(field-spec county 0 1 #(prim "string") #f)
+      #s(field-spec location_source_value 0 1 #(prim "string") #f)
+      #s(field-spec country_concept_id 0 1 #(prim "code") #f)
+      #s(field-spec country_source_value 0 1 #(prim "string") #f)
+      #s(field-spec latitude 0 1 #(prim "decimal") #f)
+      #s(field-spec longitude 0 1 #(prim "decimal") #f)
+      )
+    #:parent 'Base))

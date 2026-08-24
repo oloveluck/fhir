@@ -1,0 +1,17 @@
+snapshot-generation/ — the official FHIR snapshot-generation test corpus, vendored verbatim from
+https://github.com/FHIR/fhir-test-cases  rX/snapshot-generation  (Apache-2.0), retrieved
+2026-08-24. Each case is a StructureDefinition differential (`<name>-input.*`) plus the reference
+implementation's generated snapshot (`<name>-output.*`); manifest.xml lists the cases.
+
+SCOPE. This repo is JSON-only (no XML, documented repo-wide), so only cases whose INPUT and
+OUTPUT are both JSON are executable here:
+  * StructureDefinition-encounter-legalStatus  (Extension profile; -output.json is the R5-shaped
+    snapshot, -output-4.0.1.json the R4 one — we compare against the R5 output since
+    conformance/sd-index.rkt resolves bases from the R5 core package)
+  * prov-fi                                    (Provenance profile, 91 differential elements ->
+                                                270 snapshot elements)
+The remaining cases have XML inputs and/or XML outputs and are SKIPPED — reported as such by the
+harness rather than silently dropped. Several also profile IG bases (US Core, QICore, nl-core,
+ch-*) that our R5-core-only resolver cannot reach; those would fail open regardless.
+
+Run by conformance/tests/snapshot-conformance-test.rkt with a ratcheted floor.

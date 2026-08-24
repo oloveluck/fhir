@@ -1,0 +1,50 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r5.core#5.0.0 — DO NOT EDIT (verified by raco fhir check).
+(require fhir/model/schema fhir/model/registry)
+
+(register-type! 'BiologicallyDerivedProductDispense (fhir-spec 'BiologicallyDerivedProductDispense "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense" 'type)
+  #:schema (type-schema 'BiologicallyDerivedProductDispense #f 'DomainResource "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense"
+             (list
+    (schema-field 'identifier 0 '* (vector 'type 'Identifier) #f "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.identifier" #f)
+    (schema-field 'basedOn 0 '* (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.basedOn" #f)
+    (schema-field 'partOf 0 '* (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.partOf" #f)
+    (schema-field 'status 1 1 (vector 'prim "code") #f "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.status" #f)
+    (schema-field 'originRelationshipType 0 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.originRelationshipType" #f)
+    (schema-field 'product 1 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.product" #f)
+    (schema-field 'patient 1 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.patient" #f)
+    (schema-field 'matchStatus 0 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.matchStatus" #f)
+    (schema-field 'performer 0 '* (vector 'type 'BiologicallyDerivedProductDispensePerformer) #f "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.performer" #f)
+    (schema-field 'location 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.location" #f)
+    (schema-field 'quantity 0 1 (vector 'type 'Quantity) #f "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.quantity" #f)
+    (schema-field 'preparedDate 0 1 (vector 'prim "dateTime") #f "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.preparedDate" #f)
+    (schema-field 'whenHandedOver 0 1 (vector 'prim "dateTime") #f "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.whenHandedOver" #f)
+    (schema-field 'destination 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.destination" #f)
+    (schema-field 'note 0 '* (vector 'type 'Annotation) #f "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.note" #f)
+    (schema-field 'usageInstruction 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.usageInstruction" #f)
+             ) #f #f))
+(register-element! "BiologicallyDerivedProductDispense.identifier" (fhir-spec (string->symbol "BiologicallyDerivedProductDispense.identifier") "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.identifier" 'element))
+(register-element! "BiologicallyDerivedProductDispense.basedOn" (fhir-spec (string->symbol "BiologicallyDerivedProductDispense.basedOn") "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.basedOn" 'element))
+(register-element! "BiologicallyDerivedProductDispense.partOf" (fhir-spec (string->symbol "BiologicallyDerivedProductDispense.partOf") "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.partOf" 'element))
+(register-element! "BiologicallyDerivedProductDispense.status" (fhir-spec (string->symbol "BiologicallyDerivedProductDispense.status") "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.status" 'element))
+(register-element! "BiologicallyDerivedProductDispense.originRelationshipType" (fhir-spec (string->symbol "BiologicallyDerivedProductDispense.originRelationshipType") "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.originRelationshipType" 'element))
+(register-element! "BiologicallyDerivedProductDispense.product" (fhir-spec (string->symbol "BiologicallyDerivedProductDispense.product") "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.product" 'element))
+(register-element! "BiologicallyDerivedProductDispense.patient" (fhir-spec (string->symbol "BiologicallyDerivedProductDispense.patient") "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.patient" 'element))
+(register-element! "BiologicallyDerivedProductDispense.matchStatus" (fhir-spec (string->symbol "BiologicallyDerivedProductDispense.matchStatus") "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.matchStatus" 'element))
+(register-element! "BiologicallyDerivedProductDispense.performer" (fhir-spec (string->symbol "BiologicallyDerivedProductDispense.performer") "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.performer" 'element))
+(register-element! "BiologicallyDerivedProductDispense.location" (fhir-spec (string->symbol "BiologicallyDerivedProductDispense.location") "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.location" 'element))
+(register-element! "BiologicallyDerivedProductDispense.quantity" (fhir-spec (string->symbol "BiologicallyDerivedProductDispense.quantity") "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.quantity" 'element))
+(register-element! "BiologicallyDerivedProductDispense.preparedDate" (fhir-spec (string->symbol "BiologicallyDerivedProductDispense.preparedDate") "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.preparedDate" 'element))
+(register-element! "BiologicallyDerivedProductDispense.whenHandedOver" (fhir-spec (string->symbol "BiologicallyDerivedProductDispense.whenHandedOver") "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.whenHandedOver" 'element))
+(register-element! "BiologicallyDerivedProductDispense.destination" (fhir-spec (string->symbol "BiologicallyDerivedProductDispense.destination") "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.destination" 'element))
+(register-element! "BiologicallyDerivedProductDispense.note" (fhir-spec (string->symbol "BiologicallyDerivedProductDispense.note") "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.note" 'element))
+(register-element! "BiologicallyDerivedProductDispense.usageInstruction" (fhir-spec (string->symbol "BiologicallyDerivedProductDispense.usageInstruction") "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.usageInstruction" 'element))
+
+(register-type! 'BiologicallyDerivedProductDispensePerformer (fhir-spec 'BiologicallyDerivedProductDispensePerformer "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.performer" 'type)
+  #:schema (type-schema 'BiologicallyDerivedProductDispensePerformer #f 'BackboneElement "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.performer"
+             (list
+    (schema-field 'function 0 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.performer.function" #f)
+    (schema-field 'actor 1 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.performer.actor" #f)
+             ) #f #f))
+(register-element! "BiologicallyDerivedProductDispense.performer.function" (fhir-spec (string->symbol "BiologicallyDerivedProductDispense.performer.function") "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.performer.function" 'element))
+(register-element! "BiologicallyDerivedProductDispense.performer.actor" (fhir-spec (string->symbol "BiologicallyDerivedProductDispense.performer.actor") "https://hl7.org/fhir/R5/biologicallyderivedproductdispense.html#BiologicallyDerivedProductDispense.performer.actor" 'element))
+

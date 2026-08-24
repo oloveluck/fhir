@@ -1,0 +1,67 @@
+group-choice-bad1.json	R5.group-choice-bad1-json-base.json
+group-choice-bad2.json	R5.group-choice-bad2-base.json
+group-choice-bad3.json	R5.group-choice-bad3-json-base.json
+group-choice-empty.json	R5.group-choice-empty-json-base.json
+group-choice-good.json	R5.group-choice-good-json-base.json
+group-minimal-tiny.json	R5.group-minimal-tiny-base.json
+group-minimal.json	R5.group-minimal-json-base.json
+list-bad-syntax.json	R5.list-bad-syntax-json-base.json
+list-empty1.json	R5.list-empty1-json-base.json
+list-empty2.json	R5.list-empty2-json-base.json
+list-minimal.json	R5.list-minimal-json-base.json
+list-unknown-prop.json	R5.list-unknown-prop-base.json
+list-wrong-order.json	R5.list-wrong-order-json-base.json
+primitive-good-ws.json	R5.primitive-good-ws-json-base.json
+observation-with-trailing-dot.json	R5.observation-with-trailing-dot-base.json
+patient-good.json	R5.patient-good-json-base.json
+patient-duplicate.json	R5.patient-duplicate-base.json
+patient-lang1.json	R5.patient-lang1-json-base.json
+patient-lang2.json	R5.patient-lang2-json-base.json
+patient-lang2a.json	R5.patient-lang2a-base.json
+patient-lang2b.json	R5.patient-lang2b-base.json
+patient-lang3.json	R5.patient-lang3-json-base.json
+fhirpath-good.json	R5.fhirpath-good-base.json
+fhirpath-bad.json	R5.fhirpath-bad-base.json
+fhirpath-null.json	R5.fhirpath-null-base.json
+patient-id-bad-1.json	R5.patient-id-bad-1 - R5-base.json
+patient-id-bad-3.json	R5.patient-id-bad-3 - R5-base.json
+patient-id-bad-2.json	R5.patient-id-bad-2 - R5-base.json
+obs-decimal.json	R5.obs-decimal-base.json
+params-ws.json	R5.params-ws-base.json
+obs-vital-signs-mdc.json	R5.obs-vital-signs-mdc5-base.json
+patient-ig-ig.json	R5.patient-ig-ig-base.json
+obs-sampled-data.json	R5.obs-sampled-data-base.json
+search-parameter-with-no-matching-base.json	R5.search-parameter-with-no-matching-base-base.json
+q-base.json	R5.q-base-base.json
+mixed-request-canonical-targets-profile.json	R5.mixed-request-canonical-targets-profile-base.json
+vs-display-mixed.json	R5.vs-display-mixed-base.json
+xver-immunization-r5.json	R5.xver-immunization-r5-base.json
+xver-immunization2-r5.json	R5.xver-immunization2-r5-base.json
+xver-patient-r5.json	R5.xver-patient-r5-base.json
+xver-task-r5.json	R5.xver-task-r5-base.json
+xver-parameters-r5.json	R5.xver-parameters-r5-base.json
+contained-canonical.json	R5.contained-canonical-base.json
+contained-canonical-bad.json	R5.contained-canonical-bad-base.json
+contained-canonical-bad-2.json	R5.contained-canonical-bad-2-base.json
+cs-bad-prop-code.json	R5.cs-bad-prop-code-base.json
+patient-duplicate-contained.json	R5.patient-duplicate-contained-base.json
+vs-sct-validation.json	R5.vs-sct-validation-base.json
+ref-policy-r5.json	R5.ref-policy-default-r5-base.json
+sd-slices-ms.json	R5.sd-slices-ms-base.json
+dr-bad-att-hash.json	R5.dr-bad-att-hash-base.json
+cs-order-prop.json	R5.cs-order-prop-r5-base.json
+cs-stds-status.json	R5.standards-status-r5-base.json
+cs-val-vs-loinc.json	R5.cs-val-vs-loinc-base.json
+supplement-loinc.json	R5.supplement-loinc-base.json
+q-derived-complies.json	R5.q-derived-complies-base.json	q-base.json
+q-derived-extends.json	R5.q-derived-extends-base.json	q-base.json
+reslicing-instance.json	R5.reslicing-instance-base.json	reslicing-profile.json
+ns-instance.json	R5.ns-instance-base.json	ns-defn.json
+additional-bindings-observation-uc-y.json	R5.additional-bindings-observation-uc-y-base.json	additional-bindings-profile-cs.json
+additional-bindings-observation-uc-n.json	R5.additional-bindings-observation-uc-n-base.json	additional-bindings-profile-cs.json
+patient-deprecated-extension.json	R5.deprecated-extension-base.json	StructureDefinition-deprecated.json
+slicing-instance.json	R5.slicing-parent-slice-base.json	slicing-profile-child.json,slicing-profile-parent.json
+measure-report-ihe-r5.json	R5.measure-report-ihe-linked-base.json	measure-ihe-r5.json,measure-ihe-cs.json
+cs-stds-status-x.json	R5.standards-status-x-r5-base.json	cs-stds-status-ext.json
+cs-val-vs.json	R5.cs-val-vs-base.json	cs-val-example.json
+cs-val-cm.json	R5.cs-val-cm-base.json	cs-val-example.json,cs-val-vs.json,cs-val-vs-loinc.json

@@ -1,0 +1,35 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r5.core#5.0.0 — DO NOT EDIT (verified by raco fhir check).
+(require fhir/model/schema fhir/model/registry)
+
+(register-type! 'ImmunizationEvaluation (fhir-spec 'ImmunizationEvaluation "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation" 'type)
+  #:schema (type-schema 'ImmunizationEvaluation #f 'DomainResource "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation"
+             (list
+    (schema-field 'identifier 0 '* (vector 'type 'Identifier) #f "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.identifier" #f)
+    (schema-field 'status 1 1 (vector 'prim "code") #f "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.status" #f)
+    (schema-field 'patient 1 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.patient" #f)
+    (schema-field 'date 0 1 (vector 'prim "dateTime") #f "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.date" #f)
+    (schema-field 'authority 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.authority" #f)
+    (schema-field 'targetDisease 1 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.targetDisease" #f)
+    (schema-field 'immunizationEvent 1 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.immunizationEvent" #f)
+    (schema-field 'doseStatus 1 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.doseStatus" #f)
+    (schema-field 'doseStatusReason 0 '* (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.doseStatusReason" #f)
+    (schema-field 'description 0 1 (vector 'prim "markdown") #f "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.description" #f)
+    (schema-field 'series 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.series" #f)
+    (schema-field 'doseNumber 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.doseNumber" #f)
+    (schema-field 'seriesDoses 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.seriesDoses" #f)
+             ) #f #f))
+(register-element! "ImmunizationEvaluation.identifier" (fhir-spec (string->symbol "ImmunizationEvaluation.identifier") "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.identifier" 'element))
+(register-element! "ImmunizationEvaluation.status" (fhir-spec (string->symbol "ImmunizationEvaluation.status") "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.status" 'element))
+(register-element! "ImmunizationEvaluation.patient" (fhir-spec (string->symbol "ImmunizationEvaluation.patient") "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.patient" 'element))
+(register-element! "ImmunizationEvaluation.date" (fhir-spec (string->symbol "ImmunizationEvaluation.date") "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.date" 'element))
+(register-element! "ImmunizationEvaluation.authority" (fhir-spec (string->symbol "ImmunizationEvaluation.authority") "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.authority" 'element))
+(register-element! "ImmunizationEvaluation.targetDisease" (fhir-spec (string->symbol "ImmunizationEvaluation.targetDisease") "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.targetDisease" 'element))
+(register-element! "ImmunizationEvaluation.immunizationEvent" (fhir-spec (string->symbol "ImmunizationEvaluation.immunizationEvent") "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.immunizationEvent" 'element))
+(register-element! "ImmunizationEvaluation.doseStatus" (fhir-spec (string->symbol "ImmunizationEvaluation.doseStatus") "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.doseStatus" 'element))
+(register-element! "ImmunizationEvaluation.doseStatusReason" (fhir-spec (string->symbol "ImmunizationEvaluation.doseStatusReason") "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.doseStatusReason" 'element))
+(register-element! "ImmunizationEvaluation.description" (fhir-spec (string->symbol "ImmunizationEvaluation.description") "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.description" 'element))
+(register-element! "ImmunizationEvaluation.series" (fhir-spec (string->symbol "ImmunizationEvaluation.series") "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.series" 'element))
+(register-element! "ImmunizationEvaluation.doseNumber" (fhir-spec (string->symbol "ImmunizationEvaluation.doseNumber") "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.doseNumber" 'element))
+(register-element! "ImmunizationEvaluation.seriesDoses" (fhir-spec (string->symbol "ImmunizationEvaluation.seriesDoses") "https://hl7.org/fhir/R5/immunizationevaluation.html#ImmunizationEvaluation.seriesDoses" 'element))
+

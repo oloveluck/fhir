@@ -1,0 +1,97 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r6.core#6.0.0-ballot4 — DO NOT EDIT (verified by raco fhir check).
+(require fhir/model/schema fhir/model/registry)
+
+(register-type! 'Ingredient (fhir-spec 'Ingredient "https://build.fhir.org/ingredient.html#Ingredient" 'type)
+  #:schema (type-schema 'Ingredient #f 'DomainResource "https://build.fhir.org/ingredient.html#Ingredient"
+             (list
+    (schema-field 'identifier 0 '* (vector 'type 'Identifier) #f "https://build.fhir.org/ingredient.html#Ingredient.identifier" #f)
+    (schema-field 'status 1 1 (vector 'prim "code") #f "https://build.fhir.org/ingredient.html#Ingredient.status" #f)
+    (schema-field 'for 0 '* (vector 'type 'Reference) #f "https://build.fhir.org/ingredient.html#Ingredient.for" #f)
+    (schema-field 'role 1 1 (vector 'type 'CodeableConcept) #f "https://build.fhir.org/ingredient.html#Ingredient.role" #f)
+    (schema-field 'function 0 '* (vector 'type 'CodeableConcept) #f "https://build.fhir.org/ingredient.html#Ingredient.function" #f)
+    (schema-field 'group 0 1 (vector 'type 'CodeableConcept) #f "https://build.fhir.org/ingredient.html#Ingredient.group" #f)
+    (schema-field 'allergenicIndicator 0 1 (vector 'prim "boolean") #f "https://build.fhir.org/ingredient.html#Ingredient.allergenicIndicator" #f)
+    (schema-field 'comment 0 1 (vector 'prim "markdown") #f "https://build.fhir.org/ingredient.html#Ingredient.comment" #f)
+    (schema-field 'manufacturer 0 '* (vector 'type 'IngredientManufacturer) #f "https://build.fhir.org/ingredient.html#Ingredient.manufacturer" #f)
+    (schema-field 'substance 1 1 (vector 'type 'IngredientSubstance) #f "https://build.fhir.org/ingredient.html#Ingredient.substance" #f)
+             ) #f #f))
+(register-element! "Ingredient.identifier" (fhir-spec (string->symbol "Ingredient.identifier") "https://build.fhir.org/ingredient.html#Ingredient.identifier" 'element))
+(register-element! "Ingredient.status" (fhir-spec (string->symbol "Ingredient.status") "https://build.fhir.org/ingredient.html#Ingredient.status" 'element))
+(register-element! "Ingredient.for" (fhir-spec (string->symbol "Ingredient.for") "https://build.fhir.org/ingredient.html#Ingredient.for" 'element))
+(register-element! "Ingredient.role" (fhir-spec (string->symbol "Ingredient.role") "https://build.fhir.org/ingredient.html#Ingredient.role" 'element))
+(register-element! "Ingredient.function" (fhir-spec (string->symbol "Ingredient.function") "https://build.fhir.org/ingredient.html#Ingredient.function" 'element))
+(register-element! "Ingredient.group" (fhir-spec (string->symbol "Ingredient.group") "https://build.fhir.org/ingredient.html#Ingredient.group" 'element))
+(register-element! "Ingredient.allergenicIndicator" (fhir-spec (string->symbol "Ingredient.allergenicIndicator") "https://build.fhir.org/ingredient.html#Ingredient.allergenicIndicator" 'element))
+(register-element! "Ingredient.comment" (fhir-spec (string->symbol "Ingredient.comment") "https://build.fhir.org/ingredient.html#Ingredient.comment" 'element))
+(register-element! "Ingredient.manufacturer" (fhir-spec (string->symbol "Ingredient.manufacturer") "https://build.fhir.org/ingredient.html#Ingredient.manufacturer" 'element))
+(register-element! "Ingredient.substance" (fhir-spec (string->symbol "Ingredient.substance") "https://build.fhir.org/ingredient.html#Ingredient.substance" 'element))
+
+(register-type! 'IngredientManufacturer (fhir-spec 'IngredientManufacturer "https://build.fhir.org/ingredient.html#Ingredient.manufacturer" 'type)
+  #:schema (type-schema 'IngredientManufacturer #f 'BackboneElement "https://build.fhir.org/ingredient.html#Ingredient.manufacturer"
+             (list
+    (schema-field 'role 0 1 (vector 'prim "code") #f "https://build.fhir.org/ingredient.html#Ingredient.manufacturer.role" #f)
+    (schema-field 'manufacturer 1 1 (vector 'type 'Reference) #f "https://build.fhir.org/ingredient.html#Ingredient.manufacturer.manufacturer" #f)
+             ) #f #f))
+(register-element! "Ingredient.manufacturer.role" (fhir-spec (string->symbol "Ingredient.manufacturer.role") "https://build.fhir.org/ingredient.html#Ingredient.manufacturer.role" 'element))
+(register-element! "Ingredient.manufacturer.manufacturer" (fhir-spec (string->symbol "Ingredient.manufacturer.manufacturer") "https://build.fhir.org/ingredient.html#Ingredient.manufacturer.manufacturer" 'element))
+
+(register-type! 'IngredientSubstance (fhir-spec 'IngredientSubstance "https://build.fhir.org/ingredient.html#Ingredient.substance" 'type)
+  #:schema (type-schema 'IngredientSubstance #f 'BackboneElement "https://build.fhir.org/ingredient.html#Ingredient.substance"
+             (list
+    (schema-field 'code 1 1 (vector 'type 'CodeableReference) #f "https://build.fhir.org/ingredient.html#Ingredient.substance.code" #f)
+    (schema-field 'strength 0 '* (vector 'type 'IngredientSubstanceStrength) #f "https://build.fhir.org/ingredient.html#Ingredient.substance.strength" #f)
+             ) #f #f))
+(register-element! "Ingredient.substance.code" (fhir-spec (string->symbol "Ingredient.substance.code") "https://build.fhir.org/ingredient.html#Ingredient.substance.code" 'element))
+(register-element! "Ingredient.substance.strength" (fhir-spec (string->symbol "Ingredient.substance.strength") "https://build.fhir.org/ingredient.html#Ingredient.substance.strength" 'element))
+
+(register-type! 'IngredientSubstanceStrength (fhir-spec 'IngredientSubstanceStrength "https://build.fhir.org/ingredient.html#Ingredient.substance.strength" 'type)
+  #:schema (type-schema 'IngredientSubstanceStrength #f 'BackboneElement "https://build.fhir.org/ingredient.html#Ingredient.substance.strength"
+             (list
+    (schema-field 'textPresentation 0 1 (vector 'prim "string") #f "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.textPresentation" #f)
+    (schema-field 'textConcentration 0 1 (vector 'prim "string") #f "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.textConcentration" #f)
+    (schema-field 'basis 0 1 (vector 'type 'CodeableConcept) #f "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.basis" #f)
+    (schema-field 'measurementPoint 0 1 (vector 'prim "string") #f "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.measurementPoint" #f)
+    (schema-field 'country 0 '* (vector 'type 'CodeableConcept) #f "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.country" #f)
+    (schema-field 'referenceStrength 0 '* (vector 'type 'IngredientSubstanceStrengthReferenceStrength) #f "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.referenceStrength" #f)
+    (schema-field 'presentationRatio 0 1 (vector 'type 'Ratio) 'presentation "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.presentation[x]" #f)
+    (schema-field 'presentationRatioRange 0 1 (vector 'type 'RatioRange) 'presentation "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.presentation[x]" #f)
+    (schema-field 'presentationCodeableConcept 0 1 (vector 'type 'CodeableConcept) 'presentation "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.presentation[x]" #f)
+    (schema-field 'presentationQuantity 0 1 (vector 'type 'Quantity) 'presentation "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.presentation[x]" #f)
+    (schema-field 'concentrationRatio 0 1 (vector 'type 'Ratio) 'concentration "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.concentration[x]" #f)
+    (schema-field 'concentrationRatioRange 0 1 (vector 'type 'RatioRange) 'concentration "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.concentration[x]" #f)
+    (schema-field 'concentrationCodeableConcept 0 1 (vector 'type 'CodeableConcept) 'concentration "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.concentration[x]" #f)
+    (schema-field 'concentrationQuantity 0 1 (vector 'type 'Quantity) 'concentration "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.concentration[x]" #f)
+             ) #f #f))
+(register-element! "Ingredient.substance.strength.textPresentation" (fhir-spec (string->symbol "Ingredient.substance.strength.textPresentation") "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.textPresentation" 'element))
+(register-element! "Ingredient.substance.strength.textConcentration" (fhir-spec (string->symbol "Ingredient.substance.strength.textConcentration") "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.textConcentration" 'element))
+(register-element! "Ingredient.substance.strength.basis" (fhir-spec (string->symbol "Ingredient.substance.strength.basis") "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.basis" 'element))
+(register-element! "Ingredient.substance.strength.measurementPoint" (fhir-spec (string->symbol "Ingredient.substance.strength.measurementPoint") "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.measurementPoint" 'element))
+(register-element! "Ingredient.substance.strength.country" (fhir-spec (string->symbol "Ingredient.substance.strength.country") "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.country" 'element))
+(register-element! "Ingredient.substance.strength.referenceStrength" (fhir-spec (string->symbol "Ingredient.substance.strength.referenceStrength") "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.referenceStrength" 'element))
+(register-element! "Ingredient.substance.strength.presentation[x]" (fhir-spec (string->symbol "Ingredient.substance.strength.presentation[x]") "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.presentation[x]" 'element))
+(register-element! "Ingredient.substance.strength.presentation[x]" (fhir-spec (string->symbol "Ingredient.substance.strength.presentation[x]") "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.presentation[x]" 'element))
+(register-element! "Ingredient.substance.strength.presentation[x]" (fhir-spec (string->symbol "Ingredient.substance.strength.presentation[x]") "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.presentation[x]" 'element))
+(register-element! "Ingredient.substance.strength.presentation[x]" (fhir-spec (string->symbol "Ingredient.substance.strength.presentation[x]") "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.presentation[x]" 'element))
+(register-element! "Ingredient.substance.strength.concentration[x]" (fhir-spec (string->symbol "Ingredient.substance.strength.concentration[x]") "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.concentration[x]" 'element))
+(register-element! "Ingredient.substance.strength.concentration[x]" (fhir-spec (string->symbol "Ingredient.substance.strength.concentration[x]") "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.concentration[x]" 'element))
+(register-element! "Ingredient.substance.strength.concentration[x]" (fhir-spec (string->symbol "Ingredient.substance.strength.concentration[x]") "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.concentration[x]" 'element))
+(register-element! "Ingredient.substance.strength.concentration[x]" (fhir-spec (string->symbol "Ingredient.substance.strength.concentration[x]") "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.concentration[x]" 'element))
+
+(register-type! 'IngredientSubstanceStrengthReferenceStrength (fhir-spec 'IngredientSubstanceStrengthReferenceStrength "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.referenceStrength" 'type)
+  #:schema (type-schema 'IngredientSubstanceStrengthReferenceStrength #f 'BackboneElement "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.referenceStrength"
+             (list
+    (schema-field 'substance 1 1 (vector 'type 'CodeableReference) #f "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.referenceStrength.substance" #f)
+    (schema-field 'measurementPoint 0 1 (vector 'prim "string") #f "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.referenceStrength.measurementPoint" #f)
+    (schema-field 'country 0 '* (vector 'type 'CodeableConcept) #f "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.referenceStrength.country" #f)
+    (schema-field 'strengthRatio 0 1 (vector 'type 'Ratio) 'strength "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.referenceStrength.strength[x]" #f)
+    (schema-field 'strengthRatioRange 0 1 (vector 'type 'RatioRange) 'strength "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.referenceStrength.strength[x]" #f)
+    (schema-field 'strengthQuantity 0 1 (vector 'type 'Quantity) 'strength "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.referenceStrength.strength[x]" #f)
+             ) #f #f))
+(register-element! "Ingredient.substance.strength.referenceStrength.substance" (fhir-spec (string->symbol "Ingredient.substance.strength.referenceStrength.substance") "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.referenceStrength.substance" 'element))
+(register-element! "Ingredient.substance.strength.referenceStrength.measurementPoint" (fhir-spec (string->symbol "Ingredient.substance.strength.referenceStrength.measurementPoint") "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.referenceStrength.measurementPoint" 'element))
+(register-element! "Ingredient.substance.strength.referenceStrength.country" (fhir-spec (string->symbol "Ingredient.substance.strength.referenceStrength.country") "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.referenceStrength.country" 'element))
+(register-element! "Ingredient.substance.strength.referenceStrength.strength[x]" (fhir-spec (string->symbol "Ingredient.substance.strength.referenceStrength.strength[x]") "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.referenceStrength.strength[x]" 'element))
+(register-element! "Ingredient.substance.strength.referenceStrength.strength[x]" (fhir-spec (string->symbol "Ingredient.substance.strength.referenceStrength.strength[x]") "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.referenceStrength.strength[x]" 'element))
+(register-element! "Ingredient.substance.strength.referenceStrength.strength[x]" (fhir-spec (string->symbol "Ingredient.substance.strength.referenceStrength.strength[x]") "https://build.fhir.org/ingredient.html#Ingredient.substance.strength.referenceStrength.strength[x]" 'element))
+

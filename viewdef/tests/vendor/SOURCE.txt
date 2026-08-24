@@ -1,0 +1,13 @@
+SQL-on-FHIR v2 shared test suite (vendored)
+===========================================
+tests/*.json + tests.schema.json vendored verbatim from:
+  repo:    https://github.com/FHIR/sql-on-fhir.js  (the relocated home of the HL7/sql-on-fhir
+           shared test suite — see HL7/sql-on-fhir commit 48f3607 "Remove relocated tooling")
+  path:    tests/
+  commit:  7969489777b72ea87e866c320c461f7a13df9388
+  fetched: 2026-08-23
+
+Format (tests.schema.json): each file = { title, fhirVersion, resources: [FHIR resources],
+tests: [{ title, view: ViewDefinition, expect: [rows] | expectError | expectCount }] }.
+The harness evaluates each ViewDefinition over the file's resources with the repo's FHIRPath engine
+and compares the produced rows (order-insensitive unless the test demands otherwise).

@@ -1,0 +1,21 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.uv.omop#2.0.0-ballot — DO NOT EDIT (verified by raco fhir check).
+(require (for-syntax racket/base fhir/lang-gen/form-syntax))
+(provide episode)
+(define-syntax (episode stx)
+  (build-fhir-form stx 'episode
+    '(#s(field-spec episode_id 1 1 #(prim "code") #f)
+      #s(field-spec person_id 1 1 #(prim "integer") #f)
+      #s(field-spec episode_concept_id 1 1 #(prim "code") #f)
+      #s(field-spec episode_start_date 1 1 #(prim "date") #f)
+      #s(field-spec episode_start_datetime 0 1 #(prim "dateTime") #f)
+      #s(field-spec episode_end_date 0 1 #(prim "date") #f)
+      #s(field-spec episode_end_datetime 0 1 #(prim "dateTime") #f)
+      #s(field-spec episode_parent_id 0 1 #(prim "integer") #f)
+      #s(field-spec episode_number 0 1 #(prim "integer") #f)
+      #s(field-spec episode_object_concept_id 1 1 #(prim "code") #f)
+      #s(field-spec episode_type_concept_id 1 1 #(prim "code") #f)
+      #s(field-spec episode_source_value 0 1 #(prim "string") #f)
+      #s(field-spec episode_source_concept_id 0 1 #(prim "code") #f)
+      )
+    #:parent 'Base))

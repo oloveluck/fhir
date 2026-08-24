@@ -1,0 +1,23 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.uv.omop#2.0.0-ballot — DO NOT EDIT (verified by raco fhir check).
+(require (for-syntax racket/base fhir/lang-gen/form-syntax))
+(provide specimen)
+(define-syntax (specimen stx)
+  (build-fhir-form stx 'specimen
+    '(#s(field-spec specimen_id 1 1 #(prim "code") #f)
+      #s(field-spec person_id 1 1 #(prim "integer") #f)
+      #s(field-spec specimen_concept_id 1 1 #(prim "code") #f)
+      #s(field-spec specimen_type_concept_id 1 1 #(prim "code") #f)
+      #s(field-spec specimen_date 1 1 #(prim "date") #f)
+      #s(field-spec specimen_datetime 0 1 #(prim "dateTime") #f)
+      #s(field-spec quantity 0 1 #(prim "integer") #f)
+      #s(field-spec unit_concept_id 0 1 #(prim "code") #f)
+      #s(field-spec anatomic_site_concept_id 0 1 #(prim "code") #f)
+      #s(field-spec disease_status_concept_id 0 1 #(prim "code") #f)
+      #s(field-spec specimen_source_id 0 1 #(prim "string") #f)
+      #s(field-spec specimen_source_value 0 1 #(prim "string") #f)
+      #s(field-spec unit_source_value 0 1 #(prim "string") #f)
+      #s(field-spec anatomic_site_source_value 0 1 #(prim "string") #f)
+      #s(field-spec disease_status_source_value 0 1 #(prim "string") #f)
+      )
+    #:parent 'Base))

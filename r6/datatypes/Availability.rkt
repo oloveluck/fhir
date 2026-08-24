@@ -1,0 +1,33 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r6.core#6.0.0-ballot4 — DO NOT EDIT (verified by raco fhir check).
+(require (for-syntax racket/base fhir/lang-gen/form-syntax))
+(provide Availability AvailabilityAvailableTime AvailabilityNotAvailableTime)
+(define-syntax (Availability stx)
+  (build-fhir-form stx 'Availability
+    '(#s(field-spec id 0 1 #(raw) #f)
+      #s(field-spec extension 0 * #(type Extension) #f)
+      #s(field-spec period 0 1 #(type Period) #f)
+      #s(field-spec availableTime 0 * #(type AvailabilityAvailableTime) #f)
+      #s(field-spec notAvailableTime 0 * #(type AvailabilityNotAvailableTime) #f)
+      )
+    #:parent 'DataType))
+(define-syntax (AvailabilityAvailableTime stx)
+  (build-fhir-form stx 'AvailabilityAvailableTime
+    '(#s(field-spec id 0 1 #(raw) #f)
+      #s(field-spec extension 0 * #(type Extension) #f)
+      #s(field-spec modifierExtension 0 * #(type Extension) #f)
+      #s(field-spec daysOfWeek 0 * #(prim "code") (required "http://hl7.org/fhir/ValueSet/days-of-week"))
+      #s(field-spec allDay 0 1 #(prim "boolean") #f)
+      #s(field-spec availableStartTime 0 1 #(prim "time") #f)
+      #s(field-spec availableEndTime 0 1 #(prim "time") #f)
+      )
+    #:parent 'BackboneElement))
+(define-syntax (AvailabilityNotAvailableTime stx)
+  (build-fhir-form stx 'AvailabilityNotAvailableTime
+    '(#s(field-spec id 0 1 #(raw) #f)
+      #s(field-spec extension 0 * #(type Extension) #f)
+      #s(field-spec modifierExtension 0 * #(type Extension) #f)
+      #s(field-spec description 0 1 #(prim "string") #f)
+      #s(field-spec during 0 1 #(type Period) #f)
+      )
+    #:parent 'BackboneElement))

@@ -1,0 +1,26 @@
+#lang fhir/r6
+
+;;; A Patient authored in the R6 type language. Every form is validated at COMPILE time against the
+;;; generated schema (unknown fields, bad primitive literals, wrong nested types, choice min/max all
+;;; fail to compile), then built into a typed `fhir` node. Run this file to print its FHIR JSON.
+
+(Patient
+ (id "example")
+ (active #t)
+ (name (HumanName
+        (use "official")
+        (family "Chalmers")
+        (given "Peter" "James")
+        (period (Period (start "1974-12-25")))))
+ (gender "male")
+ (birthDate "1974-12-25")
+ (maritalStatus (CodeableConcept
+                 (coding (Coding (system "http://terminology.hl7.org/CodeSystem/v3-MaritalStatus")
+                                 (code "M")
+                                 (display "Married")))
+                 (text "Married")))
+ (deceasedBoolean #f)
+ (contact (PatientContact
+           (relationship (CodeableConcept (text "Emergency Contact")))
+           (name (HumanName (family "du Marché") (given "Bénédicte")))
+           (gender "female"))))

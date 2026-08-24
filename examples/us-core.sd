@@ -1,0 +1,15 @@
+#lang fhir/sd
+
+;;; Profiles authored in the StructureDefinition language. Each `profile` constrains a base type; the
+;;; constraints are checked at COMPILE time and the profile compiles to a delegating form macro. A
+;;; profile may base on another profile, giving multi-level delegation (VIP → USCorePatient →
+;;; Patient → typed node). Loosening a cardinality is a compile error.
+
+;; A US-Core-style Patient: name and gender are required.
+(profile USCorePatient #:base Patient
+  (name   1 *)
+  (gender 1 1))
+
+;; A profile OF a profile: a VIP must have exactly one name (narrowing USCorePatient's 1..*).
+(profile VIPPatient #:base USCorePatient
+  (name 1 1))

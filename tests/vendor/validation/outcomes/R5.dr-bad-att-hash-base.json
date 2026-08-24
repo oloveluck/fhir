@@ -1,0 +1,38 @@
+{
+  "resourceType" : "OperationOutcome",
+  "issue" : [{
+    "severity" : "warning",
+    "code" : "business-rule",
+    "details" : {
+      "text" : "The XHTML  the resource contains more than one node for each of the following node ids and anchor names: in-author (4x)"
+    },
+    "diagnostics" : "[12,5026]",
+    "expression" : ["DocumentReference.text.div"]
+  },
+  {
+    "extension" : [{
+      "url" : "http://hl7.org/fhir/StructureDefinition/operationoutcome-issue-context",
+      "valueString" : "http://hl7.org/fhir/StructureDefinition/Practitioner|5.0.0"
+    }],
+    "severity" : "error",
+    "code" : "structure",
+    "details" : {
+      "text" : "Stated Attachment Size 190 does not match actual attachment size 189"
+    },
+    "diagnostics" : "[123,6]",
+    "expression" : ["DocumentReference.content[0].attachment"]
+  },
+  {
+    "extension" : [{
+      "url" : "http://hl7.org/fhir/StructureDefinition/operationoutcome-issue-context",
+      "valueString" : "http://hl7.org/fhir/StructureDefinition/Practitioner|5.0.0"
+    }],
+    "severity" : "error",
+    "code" : "structure",
+    "details" : {
+      "text" : "The hash of the data did not match the data (stated: 'OGEzOGYyNjMzMDA2ZmQ1MzUxNDljNDRhM2E3M2YzMTI0MzdiMzQ3OA==', actual: '25WudypM2fY1GUNkG1iaD+5FsQQ=')"
+    },
+    "diagnostics" : "[123,6]",
+    "expression" : ["DocumentReference.content[0].attachment"]
+  }]
+}

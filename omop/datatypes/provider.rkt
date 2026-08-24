@@ -1,0 +1,21 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.uv.omop#2.0.0-ballot — DO NOT EDIT (verified by raco fhir check).
+(require (for-syntax racket/base fhir/lang-gen/form-syntax))
+(provide provider)
+(define-syntax (provider stx)
+  (build-fhir-form stx 'provider
+    '(#s(field-spec provider_id 1 1 #(prim "integer") #f)
+      #s(field-spec provider_name 0 1 #(prim "string") #f)
+      #s(field-spec npi 0 1 #(prim "string") #f)
+      #s(field-spec dea 0 1 #(prim "string") #f)
+      #s(field-spec specialty_concept_id 0 1 #(prim "code") #f)
+      #s(field-spec care_site_id 0 1 #(prim "integer") #f)
+      #s(field-spec year_of_birth 0 1 #(prim "integer") #f)
+      #s(field-spec gender_concept_id 0 1 #(prim "code") #f)
+      #s(field-spec provider_source_value 0 1 #(prim "string") #f)
+      #s(field-spec specialty_source_value 0 1 #(prim "string") #f)
+      #s(field-spec specialty_source_concept_id 0 1 #(prim "code") #f)
+      #s(field-spec gender_source_value 0 1 #(prim "string") #f)
+      #s(field-spec gender_source_concept_id 0 1 #(prim "code") #f)
+      )
+    #:parent 'Base))

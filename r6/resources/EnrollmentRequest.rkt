@@ -1,0 +1,23 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r6.core#6.0.0-ballot4 — DO NOT EDIT (verified by raco fhir check).
+(require (for-syntax racket/base fhir/lang-gen/form-syntax))
+(provide EnrollmentRequest)
+(define-syntax (EnrollmentRequest stx)
+  (build-fhir-form stx 'EnrollmentRequest
+    '(#s(field-spec id 0 1 #(raw) #f)
+      #s(field-spec meta 0 1 #(type Meta) #f)
+      #s(field-spec implicitRules 0 1 #(raw) #f)
+      #s(field-spec language 0 1 #(raw) #f)
+      #s(field-spec text 0 1 #(type Narrative) #f)
+      #s(field-spec contained 0 * #(resource) #f)
+      #s(field-spec extension 0 * #(type Extension) #f)
+      #s(field-spec modifierExtension 0 * #(type Extension) #f)
+      #s(field-spec identifier 0 * #(type Identifier) #f)
+      #s(field-spec status 0 1 #(prim "code") (required "http://hl7.org/fhir/ValueSet/fm-status"))
+      #s(field-spec created 0 1 #(prim "dateTime") #f)
+      #s(field-spec insurer 0 1 #(type Reference) #f)
+      #s(field-spec provider 0 1 #(type Reference) #f)
+      #s(field-spec candidate 0 1 #(type Reference) #f)
+      #s(field-spec coverage 0 1 #(type Reference) #f)
+      )
+    #:parent 'DomainResource))
