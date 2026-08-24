@@ -6,16 +6,19 @@ types, a StructureDefinition lang, per-IG generated langs, capability/operation 
 FHIRPath/CQL/FML/FSH langs). JSON only, no XML.
 
 ## Package setup
-This directory IS the `fhir` collection (linked via `raco pkg install --link --name fhir`). It
-displaced the previously-linked `stroma` (which also used collection `fhir`). To restore stroma:
-`raco pkg remove fhir && raco pkg install --link /Users/oloveluck/Sandbox/stroma`.
+This directory IS the `fhir` collection (linked via `raco pkg install --link --name fhir`).
+
+## How-to-use docs
+User-facing usage/how-to lives in `.claude/skills/` — `fhir-authoring` (write/run the langs),
+`fhir-cli` (`raco fhir` reference), `fhir-serving` (store + HTTP), `fhir-analytics` (OMOP/DuckDB).
+This file is the architecture reference; keep the how-to in the skills.
 
 ## Architecture (bottom-up)
 - **Result, not exceptions** (`result/`): validation returns `(ok v)`/`(err e)`; every error carries
   the `spec-url` it violated.
 - **Canonical value is a typed node** (`model/node.rkt`): one generic `(struct fhir (type fields))`.
   Leaves are primitive newtype instances; nested values are `fhir` nodes. jsexpr is DERIVED
-  (`serialize/to-json.rkt`) — do not reintroduce "jsexpr is the only value" (stroma's weakness).
+  (`serialize/to-json.rkt`) — do not reintroduce "jsexpr is the only value".
 - **Spec-linking registry** (`model/registry.rkt`): `prop:fhir-spec` on values + type/primitive/
   element registries. `from-json`, and future langs, read this.
 - **Compile-time validation** (`lang-gen/form-syntax.rkt`): `build-fhir-form` is the crown jewel —
@@ -251,8 +254,7 @@ lookups; the base target index is fetched via the cached `type-index`. `drop-fal
 `serialize/jsexpr-util.rkt` (shared).
 
 ## FHIR Shorthand lang (`#lang fhir/fsh`, `fsh/`)
-A from-scratch FSH compiler (the SUSHI authoring DSL), ported from the `~/Sandbox/stroma/fsh` prior art
-onto this repo's model. Layers: `parser/` (a `#lang brag` grammar + a stateful `br-parser-tools` lexer
+A from-scratch FSH compiler (the SUSHI authoring DSL) built onto this repo's model. Layers: `parser/` (a `#lang brag` grammar + a stateful `br-parser-tools` lexer
 that emulates FSH's ANTLR pushMode/popMode via a mode-stack box + one lexer per mode; prefab AST with
 `lower-entity`; `path.rkt` sub-parses FSH paths; `parse.rkt` pre-splits a doc into entity chunks since
 brag's start rule is one `entity`), `resolve.rkt` (walks an FSH path against the R5 registry via
