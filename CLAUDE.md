@@ -5,90 +5,51 @@ vertical slice**; the grand vision is FHIR's type system as a collection of lang
 types, a StructureDefinition lang, per-IG generated langs, capability/operation langs, and separate
 FHIRPath/CQL/FML/FSH langs). JSON only, no XML.
 
+## Package map (the split)
+The family is seven Racket packages / git repos, all declaring `(define collection "fhir")` so they
+splice into ONE `fhir` collection — module paths and `#lang` names are exactly the monorepo's.
+Rule that makes this work: **cross-directory imports use collection paths** (`fhir/model/node`),
+never `../model/node.rkt`. Dependency order (base first):
+
+| package (repo) | directories | depends on |
+|---|---|---|
+| `fhir-core` | `result/ contracts.rkt model/ primitives/ kernel/ lang-gen/ serialize/ foundation/ codegen/ spec/ r4/ r5/ r6/ sd/` | base |
+| `fhir-fhirpath` | `fhirpath/` (incl. UCUM, `print.rkt`) | fhir-core |
+| `fhir-vcl` | `vcl/` | fhir-core |
+| `fhir-cql` | `cql/` | fhir-core, fhir-fhirpath |
+| `fhir-fml` | `fml/` | fhir-core, fhir-fhirpath, fhir-cql (`cql/error.rkt`) |
+| `fhir-fsh` | `fsh/` | fhir-core, fhir-fhirpath (snapshots via `fhir/sd/snapshot`) |
+| `fhir` (this repo) | `capability/ http/ terminology/ conformance/ viewdef/ store/ omop/ cli/ tests/ examples/` | all of the above (+ db-lib) |
+
+Seams introduced by the split (each a one-module move, no behaviour change):
+- `kernel/operation-entry.rkt` (fhir-core) holds the struct generated `operations.rkt` files need,
+  so towers don't depend on `capability/`; `capability/runtime` re-exports it.
+- `fhirpath/print.rkt` (was `fml/fhirpath-print.rkt`) — the store narrows search-param
+  expressions with it; FML only consumed it.
+- `store/materialize.rkt` (was `viewdef/materialize.rkt`) — the DuckDB bottom half depends on
+  `store/fhir-analytics`, so it lives with the store; `viewdef/` stays a pure lang + evaluator.
+- `sd/{sd-index,snapshot,element-index}.rkt` (were `conformance/`) — pure SD machinery, now in
+  fhir-core so `fsh` doesn't depend on the validator.
+- `fhirpath/tests/run-r5.rkt` `dynamic-require`s `fhir/terminology/service` (the %terminologies
+  backend) — terminology depends on fhirpath, so the TCK runner injects it at run time.
+- `spec/*.tgz` are located with `(collection-file-path "<pkg>.tgz" "fhir" "spec")` and codegen
+  writes towers to `(collection-path "fhir" "<tower>")` — both resolve across packages.
+
+Each language repo carries its own `CLAUDE.md` with the architecture notes for that language.
+
 ## Package setup
-This directory IS the `fhir` collection (linked via `raco pkg install --link --name fhir`).
+Seven linked packages (see Package map). From `~/Projects`, in dependency order:
+```sh
+raco pkg install --link --auto fhir-core fhir-fhirpath fhir-vcl fhir-cql fhir-fml fhir-fsh fhir
+raco setup --check-pkg-deps --pkgs fhir-core fhir-fhirpath fhir-vcl fhir-cql fhir-fml fhir-fsh fhir
+```
+This directory contributes `capability/ http/ terminology/ conformance/ viewdef/ store/ omop/ cli/
+tests/ examples/` to the `fhir` collection and owns the `raco fhir` CLI.
 
 ## How-to-use docs
 User-facing usage/how-to lives in `.claude/skills/` — `fhir-authoring` (write/run the langs),
 `fhir-cli` (`raco fhir` reference), `fhir-serving` (store + HTTP), `fhir-analytics` (OMOP/DuckDB).
 This file is the architecture reference; keep the how-to in the skills.
-
-## Architecture (bottom-up)
-- **Result, not exceptions** (`result/`): validation returns `(ok v)`/`(err e)`; every error carries
-  the `spec-url` it violated.
-- **Canonical value is a typed node** (`model/node.rkt`): one generic `(struct fhir (type fields))`.
-  Leaves are primitive newtype instances; nested values are `fhir` nodes. jsexpr is DERIVED
-  (`serialize/to-json.rkt`) — do not reintroduce "jsexpr is the only value".
-- **Spec-linking registry** (`model/registry.rkt`): `prop:fhir-spec` on values + type/primitive/
-  element registries. `from-json`, and future langs, read this.
-- **Compile-time validation** (`lang-gen/form-syntax.rkt`): `build-fhir-form` is the crown jewel —
-  it runs at phase 1 in generated modules and expands to `node-build`. Keep the `#:delegate` seam
-  (the profile/IG extension point) even though the slice doesn't use it.
-- **One schema, two directions**: `serialize/{to,from}-json` are both driven by the registered
-  `type-schema`, so they cannot drift.
-
-## Codegen (`codegen/`)
-`gen.rkt`'s `generate-tower` / `tower-files` reads a vendored `.tgz` (`load-spec`), nests + expands
-the snapshot to IR (`nest`/`expand`/`ir`), and emits per type a form module (`emit-form`) + a schema
-module (`emit-schema`), plus the tower index/main/reader. `target.rkt` is the R6/R4 seam (a
-`gen-target` with a `whitelist` that keeps the slice small — set to `#f` for full generation).
-
-**Generating an IG's resources as a lang (the recipe, proven by `#lang fhir/viewdef`):** an IG whose
-StructureDefinitions are `kind=resource`/`derivation=specialization` with snapshots becomes a
-first-class generated tower in four steps — (1) vendor the IG's NPM package under `spec/` (from
-`packages2.fhir.org/packages/<id>` → the `tarball` URL); (2) add a `gen-target` in `codegen/target.rkt`
-with `#:whitelist` = the IG's own types, `#:delegate-base` = the matching core tower (match
-`fhirVersion`!), `#:forms?` `#t` for an authoring `#lang`; (3) add the id to `target-for` + the CLI's
-`targets-of` "all" list; (4) `raco fhir regen <id>` — the emitted `types.rkt` requires the base
-tower's index first, so every core datatype the IG references (Meta, Coding, …) resolves through the
-shared runtime registry (types are referenced by symbol, `(vector 'type 'Coding)`, resolved at
-runtime — nothing is re-emitted). `raco fhir check all` then guards the IG tower's determinism too.
-Constraint-derivation profiles in the package are auto-skipped by `keep?`. Hand-written modules
-(evaluators, harnesses) co-locate safely in the same directory: the check byte-diffs only the files
-it generates. `target-sof` (`spec/hl7.fhir.uv.sql-on-fhir.tgz`, whitelist `ViewDefinition`, base R6)
-is the exemplar: `#lang fhir/viewdef` authors compile-time-validated ViewDefinitions, and the same
-schema drives `from-json`, which strictly parses 132/133 of the official suite's views — the 1
-rejection being the suite's deliberately-invalid view.
-
-**OperationDefinitions generate too**: `load-package` also collects the package's
-`OperationDefinition-*.json` (sorted by (code, id)), and any package that ships them gets a generated
-`<tower>/operations.rkt` — each OD verbatim as data (`<code>-definition`, embedded as canonical
-sorted-key JSON for byte-determinism) plus a scaffold constructor `<code>-operation` that binds
-level/code/target from the OD and takes ONLY the handler, returning `operation-entry`s for
-`build-app`. Identifiers are named by code, or by id when several ODs share a code (the core
-$apply pair). The core towers get the standard operations (`fhir/r5/operations`: 61); the SOF
-tower gets `sql-run-operation`/`sql-export-operation`.
-
-**Terminology generates too** — ValueSets are part of the language: `load-package` collects
-ValueSet/CodeSystem (+ `package/example/*.json`, returning one `package-contents` struct), and
-every REQUIRED-bound `code` element on a kept type whose ValueSet expands OFFLINE from the
-package's own CodeSystems (whole-system or enumerated includes; filters/imports/excludes → not
-expandable, fail open) lands in a generated `<tower>/terminology.rkt` registering codes into
-`model/binding.rkt`. The tower index requires it normally AND for-syntax, the element's binding
-flows into the form macro's field-spec `extra` slot (`(required vs-url)` — captured from
-ElementDefinition.binding, which `element-definition` now parses), and `form-syntax`'s
-`check-binding` rejects out-of-set literal codes at COMPILE time: `(Patient (gender "florp"))` is
-a syntax error listing the valid codes (r6: 202 valuesets; unregistered urls fail open).
-VS/CS resolution consults the DELEGATE-BASE packages up the chain, so IG towers get core-bound
-expansions too (`viewdef/terminology.rkt`: `(ViewDefinition (status "florp"))` is a compile
-error). At RUNTIME the same catalogue backs `conformance/validate.rkt`'s required-binding check
-when no tx-service is supplied (offline expansions are exact → 'no is never a false positive). Runtime
-terminology ($expand/$validate-code/$translate over ANY package tgz) remains `terminology/`.
-
-**Examples must parse** (`tests/ig-examples-sof-test.rkt`): every `package/example/*.json` an IG
-ships parses — the tower's own types STRICTLY (the schema is the validator), everything else
-leniently to its declared type. Documented corpus defect: all 10 of the SOF 3.0.0-ballot's
-ViewDefinition examples carry `resourceDefinition`, an element the IG's own SD does not declare —
-masked with a ratchet check that fails (forcing mask removal) once the IG fixes its examples.
-
-**Generated code is never hand-edited.** Every generated file carries a `DO NOT EDIT` banner;
-`raco fhir check` (→ `codegen/check.rkt`) regenerates purely and byte-diffs vs disk. **Generated
-code is held to reading standards too**: the banner stamps the TRUE provenance
-(`hl7.fhir.uv.omop#2.0.0-ballot`, not a generic "core"), form macros emit one field-spec per line
-(a schema table, not a 1500-char line), and operations.rkt embeds each OperationDefinition as
-pretty sorted-key JSON in a multi-line string literal (readable AND byte-deterministic).
-Generation must
-stay deterministic: emit via `~s` on data, sort names, quote unbounded max as `'*`.
 
 ## Conventions
 - Contracts on module boundaries (`contract-out`); `match` over multi-branch `cond`.
@@ -124,7 +85,9 @@ This codebase is written in the **How to Design Programs** idiom; keep new code 
 
 ## Verify
 ```sh
-raco test result/ model/ primitives/ kernel/ lang-gen/ serialize/ codegen/ terminology/ capability/ http/ fsh/ cql/ tests/
+raco test terminology/ capability/ http/ conformance/ viewdef/ store/ omop/ tests/   # this repo
+(cd ../fhir-core && raco test result/ model/ primitives/ kernel/ lang-gen/ serialize/ codegen/ sd/)
+for p in fhirpath vcl cql fml fsh; do (cd ../fhir-$p && raco test $p/); done
 racket examples/patient.fhir6            # prints FHIR JSON
 racket examples/demo.cql                 # #lang fhir/cql — prints ELM JSON
 raco fhir check all                      # determinism guard
@@ -143,16 +106,6 @@ resource renamed across versions, are skipped via `type-registered?`). R4 and R5
 processes so the towers don't double-register. This drove a `from-json` robustness fix: a nested value
 whose JSON shape isn't an object (an R4-style string where R5 expects a complex type) now returns `err`
 (dropped under lenient) instead of throwing — lenient parsing never crashes.
-
-## StructureDefinition / profiling lang (`#lang fhir/sd`, `sd/`)
-`(profile Name #:base Base (field min max) …)` reads `Base`'s full schema at **phase 1** (via
-`model/introspect.rkt`'s `full-field-specs`, which reads the runtime registry — `sd/profile.rkt`
-requires `fhir/r6/types` for-syntax to populate it), validates each override as a genuine *narrowing*
-(loosening is a compile error), and synthesizes a form macro that validates the constrained schema
-then **delegates** to the base macro (`build-fhir-form #:delegate`). `#:base` may be a base type or an
-earlier profile → multi-level delegation (a compile-time `profile-table` carries each profile's
-constrained schema for profile-of-profile). The built value is the base resource; the profile adds
-only compile-time conformance. Reader is plain (profiles are definitions, not resource instances).
 
 ## Capability / operation lang (`#lang fhir/capability`, `capability/`)
 Declare-and-derive: a module DECLARES what a FHIR app supports and the lang DERIVES the
@@ -253,189 +206,6 @@ preserving): `parse-fhirpath` is memoized; `make-element-index` precomputes O(1)
 lookups; the base target index is fetched via the cached `type-index`. `drop-false` lives in
 `serialize/jsexpr-util.rkt` (shared).
 
-## FHIR Shorthand lang (`#lang fhir/fsh`, `fsh/`)
-A from-scratch FSH compiler (the SUSHI authoring DSL) built onto this repo's model. Layers: `parser/` (a `#lang brag` grammar + a stateful `br-parser-tools` lexer
-that emulates FSH's ANTLR pushMode/popMode via a mode-stack box + one lexer per mode; prefab AST with
-`lower-entity`; `path.rkt` sub-parses FSH paths; `parse.rkt` pre-splits a doc into entity chunks since
-brag's start rule is one `entity`), `resolve.rkt` (walks an FSH path against the R5 registry via
-`model/introspect` `full-field-specs` → element type code / cardinality kind — for fixed/pattern key
-selection and Instance array nesting), `caret.rkt` (get/set at a caret path), `compile.rkt`
-(entity AST → **FHIR jsexpr**). Targets **R5** (`fhirVersion "5.0.0"`, canonical base default
-`http://example.org`). Profiles/Extensions → a StructureDefinition **differential** (type-qualified
-paths, per-element `id`; **no snapshot** — deferred); `=` assigns `patternX`, `= … (exactly)` assigns
-`fixedX` (both prim+complex); root `obeys` lands a constraint on the base-type element sourced to the
-profile url. Instance → a plain resource (schema-driven nesting; `meta.profile` stamped when
-`InstanceOf` is a local profile). ValueSet/CodeSystem → compose/concept (system pulled from `from
-system` or the code token; CodeSystem gets `count`). Whole-doc compile resolves `Alias`es and expands
-non-parameterized `insert RuleSet` first. `#lang fhir/fsh` (`fsh/base.rkt` custom `#%module-begin` +
-`fsh/lang/reader.rkt`'s `#:read-syntax` running `parse-fsh-doc`, emitting `(fsh-entity <ast>)` forms)
-makes a `.fsh` file a module providing `document`/`compiled`(jsexpr)/`resources`(typed nodes via
-`from-json`), printing JSON in `main`. `raco fhir fsh <dir>` batch-compiles a folder SUSHI-style.
-**Bidirectional**: the reverse direction (FHIR → FSH, "GoFSH") is `fsh/decompile.rkt` +
-`fsh/print.rkt` (FSH AST → text). `fhir->fsh` (jsexpr) / `node->fsh` (typed node) emit idiomatic rules
-where recognised (card/flag/binding/only-with-targetProfile/obeys/concept/include-exclude) and a
-lossless `^caret` catch-all for everything else; Invariants are **not** emitted standalone (SUSHI-style)
-but re-synthesised from SD constraints so a recompile refills severity/human/expression. `raco fhir
-gofsh <file.json>` is the CLI. Invariants are consumed only as SD constraint sources — `compile-doc`
-skips standalone `fsh-invariant` output.
-
-Conformance: `fsh/tests/golden-test.rkt` runs the vendored SUSHI **golden corpus** (`.fsh`+`.json`
-pairs) through a tolerant deep-subset comparator (expected ⊆ actual; list items matched
-content-independently so differential `element` arrays line up by path) — forward **22/22**;
-`fsh/tests/roundtrip-test.rkt` checks a **FSH→FHIR→FSH→FHIR fixpoint** (deep-equal, **22/22** — all
-pairs) and a parse∘print∘parse AST fixpoint.
-
-The initially-deferred features are all implemented: **CodeSystem concept hierarchy** (`* #a #b` nests,
-`count` totals the tree); **Extension auto-scaffolding** (`add-extension-scaffold`/`add-extension-header`
-— root short/definition, `extension` 0..0 / min + per-slice `.extension` 0..0 + `.url` fixedUri, `url`
-fixedUri, `context` + type-characteristics); **discriminator slicing** (`contains` sets base `min` =
-Σ slice mins, slice ids `path:slice`, slicing authored via `^slicing…` carets; `element-loc` maps FSH
-paths → ElementDefinition id/path, `[x]`→`[x]`, `[slice]`→`:slice`); **Logical models & custom
-Resources** (`compile-logical-resource` — root element at the entity id, `addElement`/kind/derivation=
-specialization); **parameterized RuleSets** (`instantiate-ruleset` substitutes `{param}` in the raw
-body tokens and re-parses); **snapshot generation** (opt-in `emit-snapshot?` → `sd/snapshot.rkt`, a
-ProfileUtilities-style merge of the differential onto the base's snapshot from the R5 core package via
-`sd/sd-index.rkt`); and **Mapping** (`apply-mapping` — a post-pass injecting `StructureDefinition.mapping`
-+ `ElementDefinition.mapping` into the named Source SD). `fsh/tests/features-test.rkt` covers the
-golden-less features (param RuleSets, snapshot, Mapping). The reverse direction is complete too:
-`decompile-extension` emits minimal FSH and lets the forward compiler regenerate the scaffold, and the
-profile decompiler is slice-aware (`id->fsh-rel` inverts id↔path, reconstructs `contains` + `^slicing`
-carets) — so all 22 pairs round-trip. **Reslicing** (a slice of a slice — ids join with `/`, e.g.
-`component:Lab/Chem`; `element-loc`'s `id-seg` and the `contains` handler are reslice-aware, as is the
-decompiler's `base-id-of`) and **multi-discriminator** slicing both compile and round-trip
-(`fsh/tests/features-test.rkt`). The FSH lang is now feature-complete for this slice — nothing is
-deferred.
-
-## Serialization details now handled (`serialize/`)
-- **Primitive `_field` sibling**: id/extension serialize to a parallel `_field` object (list →
-  `_field` array with `null` placeholders) and merge back on parse.
-- **Precision-preserving decimal**: `decimal` is string-backed; `node->json-string` emits it as a raw
-  number token via an internal extended-jsexpr (`raw-num`). `node->jsexpr` is the lossy structured
-  view. Read via racket/json is number→string (value-kept; trailing zeros limited by racket/json —
-  a decimal supplied as a JSON *string* is preserved exactly).
-- **`lit` macro** (`primitives/literals.rkt`): standalone compile-time-checked literals, e.g.
-  `(lit date "1974-12-25")`.
-
-## FHIRPath (`fhirpath/`)
-A from-scratch engine in `fhir/fhirpath/`, evaluating over the typed `fhir` node model. Layers:
-`parser/` (brag precedence-cascade grammar + br-parser-tools lexer + prefab AST), `value.rkt`
-(item/collection model + System types + `item->system`), `decimal.rkt` (exact + scale),
-`temporal-ops.rkt` (partial Date/Time/DateTime: compare/equal/arith/boundary), `quantity.rkt` +
-`ucum.rkt` (a compact UCUM engine ported from `ucum-essence.xml` — exact canonicalization/
-conversion), `types.rkt` (FHIR ancestry from the registry + System lattice + is/as/ofType),
-`navigate.rkt` (schema-driven, value[x] choice, resource-root, `_field` extensions), `equality.rkt`
-(= ~ 3-valued + set ops), `operators.rkt`, `functions.rkt` (the full library), `environment.rkt`
-(`$this/$index/$total`, `%` externals, defineVariable via a shared mutable scope), `eval.rkt`.
-
-Data-driven conformance harness in `fhirpath/tests/` runs the official HL7 suites:
-`raco fhir fhirpath-tck r5` (1044) / `... r4` (934). Current: **R5 1044/1044, R4 932/934** — 100% of
-in-scope tests. Each run requires the matching full tower (`run-r5` requires `fhir/r5/schemas`);
-`tests/vendor/` has the suite XML + `.g4`, `tests/inputs*/` the JSON resources.
-`tests/fhirpath-test.rkt` is a fast in-tree smoke. Input loading is **lenient** (`from-json
-#:lenient? #t` — unknown/mismatched fields are skipped) so examples from a newer FHIR version than
-the tower still load.
-
-Strict-mode semantics: `fhirpath/analyze.rkt` is a conservative static pass (seeded from the input
-resource type via `eval-fhirpath #:strict?`) that raises `'semantic` for unknown elements, direct
-expanded-choice access (`Observation.valueQuantity` — allowed only under `mode="lenient"`), string
-functions on complex types, and order-dependent functions on unordered sources. It only raises when
-confident (unknown type ⇒ stop), so it never flags a valid expression it can't fully type. UCUM
-product/quotient units, quantity `~` least-precision, defineVariable scope (via `env-clone-vars` at
-`|`/projection boundaries), and `resolve()` over `contained` are all implemented.
-
-`%terminologies` is a terminology-service handle: the `terminology/` package is version-neutral
-(`make-terminology <core.tgz>`, with `make-r5-terminology` / `make-r4-terminology` conveniences) —
-it lazily loads a core package, indexes every CodeSystem/ValueSet/ConceptMap by canonical URL, and
-implements `$expand` / `$validate-code` (vs a ValueSet) / `$translate` (ported clean-room from
-fhir4s's `TerminologyOps`). Algorithms run on raw jsexpr; only the result nodes go through `from-json`,
-so they build against whichever tower the caller registered (R5 core is what the TCK exercises; R4
-works identically — the R4 suite just has no `%terminologies` tests, so `run-r4` doesn't wire it). The engine side is a version-neutral `tx-service` struct
-(`fhirpath/terminology.rkt`) with three closures; `expand`/`validateVS`/`translate`
-(`fhirpath/functions.rkt`) dispatch on it. The service is injected via `eval-fhirpath #:externals`
-as `%terminologies` (see `run-r5.rkt`); `env-lookup-external` already checks `#:externals` first, so
-no engine-core change was needed. Results are typed nodes (built via `from-json`) that navigate
-normally (`.expansion.contains`, `.parameter.where(...)`).
-
-Remaining known failures: 1 R4 `@…+0.1 's'` (a genuine R4-vs-R5 spec conflict — R4 truncates fractional seconds, R5
-keeps them; fixing R4 would regress R5); 1 R4 signed-zero `(-0.0034).lowBoundary(1)` = `-0.0`
-(`fp-decimal` has no signed zero).
-
-## CQL / ELM lang (`#lang fhir/cql`, `cql/`)
-Clinical Quality Language (https://cql.hl7.org/) as the next sibling lang. Unlike FHIRPath (evaluated
-directly), **CQL is compiled to ELM** (Expression Logical Model, the machine-readable form of a
-library) and the ELM is then RUN — the interpreter never evaluates CQL directly. This is the
-**foundation CQL slice**: the expression + definition core (the FHIRPath-superset expression grammar +
-`library`/`using`/`include`/`parameter`/`define`/function-`define`), System-typed literals (Integer,
-Long, Decimal, Quantity, Ratio, String, Boolean, Date/DateTime/Time, List, Interval, Tuple),
-operators, `if`/`case`. Layers:
-- `cql/parser/` — a **fork-and-extend** of `fhirpath/parser/` (brag grammars can't be imported): a
-  `br-parser-tools` `lexer.rkt` (CQL keywords, `'…'` strings, `"…"` delimited ids, `42L` longs), a
-  `#lang brag` `grammar.rkt` (a superset precedence cascade + library/definition/interval/list/tuple/
-  if/case productions), prefab `ast.rkt` + `lower` (the fhirpath pattern), and a memoized `parse.rkt`
-  (`parse-cql` → `Result<cql-library>`, `parse-cql-expr` for bare-expression fragments).
-- `cql/elm/` — prefab ELM node structs (`ast.rkt`; binary/n-ary/unary operators share the ELM
-  OperatorExpression shape via generic `elm-nary`/`elm-unary` carrying the ELM type string) + `json.rkt`
-  emitting **canonical ELM JSON** via `racket/json` (NOT `serialize/to-json.rkt`, which is FHIR-specific);
-  `drop-false` shared util; interval `lowClosed`/`highClosed` are meaningful #f (never dropped).
-- `cql/compile.rkt` — `cql-ast → elm-ast` with a **light System-type inference** (bottom-up
-  `(values node type)`) that resolves overloaded surface operators (`+`→Add on numbers / Concatenate on
-  strings; `&`→`Concatenate(Coalesce(l,''),Coalesce(r,''))`; `!=`→`Not(Equal)`; membership→In/Contains;
-  numeric promotion Integer<Long<Decimal<Quantity) and stamps `resultTypeName`. Errors are `cql-error`
-  (`cql/error.rkt`) in `err`.
-- `cql/interp.rkt` + `cql/value.rkt` — the ELM interpreter (`eval-elm`, the ELM analog of `fp-eval`),
-  **reusing** `fhirpath/{decimal,quantity,temporal-ops,equality,value}` and adding CQL's structured
-  carriers (`cql-interval`/`cql-tuple`/`cql-ratio`/`cql-code`/`cql-concept`) + the `cql-null` singleton.
-  Key semantic bridge: CQL is single-value-with-`null` (three-valued And/Or/Xor/Implies; null-propagating
-  arithmetic/comparison), not FHIRPath's always-collection model.
-- `#lang fhir/cql` (`cql/lang/reader.rkt` + `cql/base.rkt`): a `.cql` file is one library; the reader
-  parses it and emits `(cql-library-form <ast>)`; the custom `#%module-begin` compiles to ELM and
-  provides `library` (CQL AST), `elm` (ELM AST), `elm-json`, and `results` (define-name → interpreted
-  value); `main` prints the ELM JSON. `examples/demo.cql` runs it.
-- **Operator registry** (`cql/interp.rkt`): the interpreter core is a small structural recursion over
-  ELM nodes; operators are DATA in a hash registry (`def-op!`/`apply-op`, O(1) dispatch, `lazy?` flag for
-  short-circuit `and`/`or`/`implies`) — the CQL analog of `fhirpath/functions.rkt`. ~150 operators span
-  arithmetic, comparison, logical, string, list, aggregate, DateTime (constructors, `<prec> from`,
-  duration `+`/`-`, `between`/`difference in`, precision timing `before/after <prec> of`, `same … as`),
-  interval (start/end/width/point-from, contains/includes/meets/overlaps/starts/ends, union/intersect/
-  except/collapse/expand, precision-qualified timing), and a **query engine** (`from … where/return/sort/
-  aggregate` over lists → cartesian tuples). Values reuse the FHIRPath System carriers (`moment`,
-  `fp-decimal`, `fp-quantity`, `fp-long`) + CQL's `cql-interval`/`cql-tuple`/`cql-null`. Intervals are
-  normalized to closed bounds at construction (open→successor/predecessor); Integer results overflow to
-  null (32-bit). `cql/tests/bench.rkt` guards performance.
-- Conformance: `cql/tests/harness.rkt` runs the cqframework/cql-tests XML format
-  (`<test><expression [invalid=…]/><output/>`) via **compile→run-ELM→compare-expected** (the
-  FHIRPath-TCK philosophy: it evaluates the `<output>` literal as CQL and compares values, treating an
-  `invalid` expression as expected-to-fail and a `<library>` test as skipped). The **official HL7 suites
-  are vendored verbatim** in `cql/tests/vendor/cql-tests/` (from `cqframework/cql-tests`, commit
-  `36a47eb…`, see its SOURCE.txt); `raco fhir cql-tck` (→ `cql/tests/run.rkt`, floor-ratcheted) runs
-  them: **1819/1823 (99.8%)** — 11 of 16 suites at 100% (incl. Interval 410/411, DateTime 314/317,
-  Arithmetic 234/236, List/Comparison/String/Types near-full). Notable semantics implemented:
-  **uncertainty as Interval[min,max]** (operands filled to their full MILLISECOND low/high boundaries,
-  extremes over the four corners; comparisons do band comparison; uncertainty intervals participate in
-  `+`/`-`/`*`); **ratio literals** (`1'cm':2'cm'`, `=` componentwise / `~` cross-multiplied);
-  **instance selectors** (`Code{…}`/`Concept{…}`/`Quantity{…}` build their carriers; other classes a
-  typed `cql-obj` so `is Vocabulary` sees the ValueSet/CodeSystem hierarchy); **null-typed lists**
-  (`null as List<T>` = `cql-null-list`: Length 0, scalar membership false, list-list inclusion null);
-  **CQL ms-precision uncertainty** (a second-precision moment vs a ms-precision one agreeing through
-  seconds compares as 'empty — deliberately different from FHIRPath's missing-frac=.000, applied only
-  in cql/interp's cql-moment-compare, never in the shared fhirpath engine); calendar-duration `~`
-  (pairwise 1 year = 12 months AND = 365 days); literal domains enforced at compile (Integer 32-bit,
-  Decimal 28/8 digits); `X between A and B` desugars at the comparison level with the unit-word left
-  operand recognised as a duration (context-sensitive, like the reference grammar). The **4 remaining
-  misses are irreducible corpus edges**: `Floor(±2^31)` expects out-of-range literals to evaluate while
-  ValueLiteralsAndSelectors requires the SAME literals to error (corpus self-contradiction, 2); one
-  standalone uncertainty bound (`[17,44]`) contradicts the same corpus's arithmetic convention
-  (`[16,44]`-derived, 1); and the `starts 1 day or less on or after day of` timing-phrase family
-  (a whole grammar for 1 test). `cql/tests/coverage.rkt` reports the live per-suite/failure-bucket
-  breakdown each iteration; `cql/tests/vendor/cql-smoke.xml` is the harness's own self-test (not part of
-  the conformance number). `raco fhir cql <file.cql>` prints ELM JSON.
-- **Deferred CQL slices**: retrieves (`[Condition: "vs"]`) + a FHIR data-source/retrieve layer (absent —
-  `navigate.rkt` assumes in-memory roots), queries (`with`/`where`/`return`/`sort`/`aggregate`),
-  terminology-backed membership via the `tx-service`, FHIR model-info from `full-field-specs`, ELM XML
-  output, temporal literals as canonical ELM Date/DateTime/Time constructor nodes (slice-1 emits them as
-  a Literal carrying the lexeme — round-trips through our interpreter), and a reference-ELM structural
-  differential vs the Java `cql-to-elm` translator.
-
 ## SQL-on-FHIR lang (`#lang fhir/viewdef`, `viewdef/`)
 The first **IG-as-gen-target** (see the Codegen recipe above): `raco fhir regen sof` generates the
 ViewDefinition tower from `spec/hl7.fhir.uv.sql-on-fhir.tgz` (3.0.0-ballot, FHIR R6) with
@@ -470,51 +240,6 @@ store/cancel — documented). Wiring: `make-store-app #:package (list r5 sof) #:
 engine indexes `uri` params as system-less tokens so `url=` search works), and /metadata advertises
 the ops by their REAL canonicals (`rc-operation` grew a `canonical` field; `build-app` joins entry→OD
 by the derived urn OR the OD's `code`). `tests/sof-op-test.rkt` drives it over a socket.
-
-## FML / StructureMap lang (`#lang fhir/fml`, `fml/`)
-The FHIR Mapping Language as a lang: `fml/parser/grammar.rkt` is a `#lang brag` port of the
-**official `hl7.org/fhir/R5/mapping.g4`** (vendored alongside as `fml/parser/mapping.g4`). Where the
-g4 stubs FHIRPath ("insert reference to FhirPath grammar here"), the repo's FHIRPath cascade is
-INLINED with the same rule names — so `fhirpath/parser/ast.rkt`'s `lower` turns embedded expressions
-into REAL FHIRPath ASTs at parse time (`fml-fhirpath` carries the AST; nothing re-parses at
-runtime). Documented g4 deviations follow the reference implementation + the vendored suite: bare
-(unparenthesized) `where`/`check` expressions, `share <listRuleId>`, string rule-names,
-double-quoted strings inside expressions, and the fp `is`/`as` OPERATOR level omitted (`create('X')
-as var` must read as a target alias; the `.is()`/`.as()` function forms remain).
-`fml/fhirpath-print.rkt` prints ASTs back to canonical text (print∘parse fixpoint-tested) for the
-StructureMap emission. Two consumers: `fml/structuremap.rkt` (AST → the StructureMap resource
-jsexpr — the canonical compiled form, printed by `#lang fhir/fml`'s `main`) and `fml/transform.rkt`
-(the executor): a rule matches its source element(s) (where-filtered FHIRPath over typed nodes),
-binds `as` vars, then runs comma-chained target ops / `then` dependent group calls / nested rules. Targets build through TSLOTs — closures that mutate the jsexpr under
-construction up to the root — whose shape is **registry-driven** (`full-field-specs`: max>1 appends
-arrays, max-1 sets scalars, and a `create('T')` on a `value[x]` element picks the `value<T>` key).
-`share v` reuses one target element across rules. FML's FHIRPath dialect bridges: rule variables
-become `%externals` via a chain-head AST rewrite, and element-model `.value` steps retry stripped.
-Conformance (`raco fhir fml-tck` → `fml/tests/run.rkt`): the vendored
-`fhir-test-cases/r5/structure-mapping` suite — **6/6 executable JSON tests, 15/15 `.map` parses**;
-the 4 CDA/XML-output tests + the one StructureMap-as-JSON input are skipped (XML is out of scope
-repo-wide, documented in the vendor SOURCE.txt).
-
-## VCL lang (`#lang fhir/vcl`, `vcl/`)
-VCL — the ValueSet Compose Language (build.fhir.org/ig/FHIR/ig-guidance/vcl.html), a compact
-URL-embeddable syntax for ValueSet composes — as the 5th brag lang. `vcl/parser/vcl.g4` is the
-official ANTLR grammar vendored verbatim; `grammar.rkt` ports it rule-for-rule (documented
-deviations: a named `tail` rule; codeList accepts a singleton so decompiled one-code `in` filters
-round-trip). The lexer is faithful to the g4's deliberate URI greed (a URI token eats `;&^{}`
-until whitespace/paren — hence the bracketed `(system)` form). Prefab AST + `lower`
-(`parser/ast.rkt`), memoized `parse-vcl -> Result` (the cql pattern). `vcl/compile.rkt` maps AST →
-ValueSet.compose: disjunction → include entries, conjunction → one include's AND'd filters,
-top-level `-` → exclude, `(system)` distributes (codes collapse into one concept list), `^uri` →
-valueSet, the 11 filter ops + R6 `of`; NOT compose-expressible (nested exclusion, conjoined
-enumerations, bare `*`) errs clearly. `vcl-print` re-brackets compound members (the spec has NO
-`,`/`;` precedence). `vcl/decompile.rkt` is the reverse (compose→VCL; nested filter values
-reparse via the real grammar). Conformance: all **60 spec examples** (vendored,
-`vcl/tests/vendor/`) parse AND survive the print∘parse fixpoint; compose round-trip law tested.
-`#lang fhir/vcl` (one expression per file; parse errors are COMPILE errors) provides
-source/expression/compose/valueset; `raco fhir vcl <expr>` prints the ValueSet. **Implicit VCL
-ValueSets work in `$expand`**: `terminology/service.rkt` recognizes `http://fhir.org/VCL?v1=…`,
-percent-decodes (spec SHALL), compiles, and expands against its index — so `%terminologies` and
-the validator see VCL urls as real ValueSets.
 
 ## Persistence engine (`store/`, tests/fhir-store-test.rkt)
 An embedded, in-process FHIR store combining **SQLite** (transactional CRUD/versioning/search) and

@@ -76,10 +76,25 @@ Example (`examples/patient.fhir6`):
 
 `(birthDate "1974-13-40")`, `(notAField "x")`, or `(name (Coding …))` all fail to **compile**.
 
-## Layout
+## Layout — a family of packages
 
-`result/` `model/` `primitives/` `lang-gen/` `kernel/` `serialize/` — the foundation (Result type,
-typed-node model + registry, compile-time form macros, schema-driven JSON). `codegen/` reads the
-vendored `spec/*.tgz` and emits the towers (`r4/ r5/ r6/`, do not edit). Per-lang directories:
-`sd/ fhirpath/ fsh/ cql/ viewdef/ vcl/ fml/ capability/ omop/`. Cross-cutting: `terminology/`
-`conformance/` `http/` `store/`. `cli/` is `raco fhir`. See `CLAUDE.md` for the full map.
+The code is split into seven Racket packages, each its own git repo, all splicing into the one
+`fhir` collection (so every `fhir/...` module path and `#lang fhir/...` is unchanged):
+
+| repo | contents |
+|---|---|
+| [`fhir-core`](../fhir-core) | the foundation (`result/ model/ primitives/ kernel/ lang-gen/ serialize/ foundation/`), `codegen/` + vendored `spec/*.tgz`, the generated towers `r4/ r5/ r6/`, and `sd/` (`#lang fhir/sd` + snapshot generation) |
+| [`fhir-fhirpath`](../fhir-fhirpath) | the FHIRPath engine (with UCUM) |
+| [`fhir-vcl`](../fhir-vcl) | `#lang fhir/vcl` |
+| [`fhir-cql`](../fhir-cql) | `#lang fhir/cql` (CQL → ELM + interpreter) |
+| [`fhir-fml`](../fhir-fml) | `#lang fhir/fml` (FHIR Mapping Language) |
+| [`fhir-fsh`](../fhir-fsh) | `#lang fhir/fsh` (FHIR Shorthand, bidirectional) |
+| **`fhir`** (this repo) | the application layer: `capability/ http/ terminology/ conformance/ viewdef/ store/ omop/`, the `raco fhir` CLI (`cli/`), integration `tests/` and `examples/` |
+
+Install everything with the repos side by side (dependency order):
+
+```sh
+raco pkg install --link --auto fhir-core fhir-fhirpath fhir-vcl fhir-cql fhir-fml fhir-fsh fhir
+```
+
+See `CLAUDE.md` (Package map) for the dependency graph and the seams the split introduced.
