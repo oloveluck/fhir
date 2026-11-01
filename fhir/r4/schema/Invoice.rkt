@@ -1,0 +1,76 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r4.core#4.0.1 — DO NOT EDIT (verified by raco fhir check).
+(require fhir/model/schema fhir/model/registry)
+
+(register-type! 'Invoice (fhir-spec 'Invoice "https://hl7.org/fhir/R4/invoice.html#Invoice" 'type)
+  #:schema (type-schema 'Invoice #f 'DomainResource "https://hl7.org/fhir/R4/invoice.html#Invoice"
+             (list
+    (schema-field 'identifier 0 '* (vector 'type 'Identifier) #f "https://hl7.org/fhir/R4/invoice.html#Invoice.identifier" #f)
+    (schema-field 'status 1 1 (vector 'prim "code") #f "https://hl7.org/fhir/R4/invoice.html#Invoice.status" #f)
+    (schema-field 'cancelledReason 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/invoice.html#Invoice.cancelledReason" #f)
+    (schema-field 'type 0 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R4/invoice.html#Invoice.type" #f)
+    (schema-field 'subject 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R4/invoice.html#Invoice.subject" #f)
+    (schema-field 'recipient 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R4/invoice.html#Invoice.recipient" #f)
+    (schema-field 'date 0 1 (vector 'prim "dateTime") #f "https://hl7.org/fhir/R4/invoice.html#Invoice.date" #f)
+    (schema-field 'participant 0 '* (vector 'type 'InvoiceParticipant) #f "https://hl7.org/fhir/R4/invoice.html#Invoice.participant" #f)
+    (schema-field 'issuer 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R4/invoice.html#Invoice.issuer" #f)
+    (schema-field 'account 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R4/invoice.html#Invoice.account" #f)
+    (schema-field 'lineItem 0 '* (vector 'type 'InvoiceLineItem) #f "https://hl7.org/fhir/R4/invoice.html#Invoice.lineItem" #f)
+    (schema-field 'totalPriceComponent 0 '* (vector 'type 'InvoiceLineItemPriceComponent) #f "https://hl7.org/fhir/R4/invoice.html#Invoice.totalPriceComponent" #f)
+    (schema-field 'totalNet 0 1 (vector 'type 'Money) #f "https://hl7.org/fhir/R4/invoice.html#Invoice.totalNet" #f)
+    (schema-field 'totalGross 0 1 (vector 'type 'Money) #f "https://hl7.org/fhir/R4/invoice.html#Invoice.totalGross" #f)
+    (schema-field 'paymentTerms 0 1 (vector 'prim "markdown") #f "https://hl7.org/fhir/R4/invoice.html#Invoice.paymentTerms" #f)
+    (schema-field 'note 0 '* (vector 'type 'Annotation) #f "https://hl7.org/fhir/R4/invoice.html#Invoice.note" #f)
+             ) #f #f))
+(register-element! "Invoice.identifier" (fhir-spec (string->symbol "Invoice.identifier") "https://hl7.org/fhir/R4/invoice.html#Invoice.identifier" 'element))
+(register-element! "Invoice.status" (fhir-spec (string->symbol "Invoice.status") "https://hl7.org/fhir/R4/invoice.html#Invoice.status" 'element))
+(register-element! "Invoice.cancelledReason" (fhir-spec (string->symbol "Invoice.cancelledReason") "https://hl7.org/fhir/R4/invoice.html#Invoice.cancelledReason" 'element))
+(register-element! "Invoice.type" (fhir-spec (string->symbol "Invoice.type") "https://hl7.org/fhir/R4/invoice.html#Invoice.type" 'element))
+(register-element! "Invoice.subject" (fhir-spec (string->symbol "Invoice.subject") "https://hl7.org/fhir/R4/invoice.html#Invoice.subject" 'element))
+(register-element! "Invoice.recipient" (fhir-spec (string->symbol "Invoice.recipient") "https://hl7.org/fhir/R4/invoice.html#Invoice.recipient" 'element))
+(register-element! "Invoice.date" (fhir-spec (string->symbol "Invoice.date") "https://hl7.org/fhir/R4/invoice.html#Invoice.date" 'element))
+(register-element! "Invoice.participant" (fhir-spec (string->symbol "Invoice.participant") "https://hl7.org/fhir/R4/invoice.html#Invoice.participant" 'element))
+(register-element! "Invoice.issuer" (fhir-spec (string->symbol "Invoice.issuer") "https://hl7.org/fhir/R4/invoice.html#Invoice.issuer" 'element))
+(register-element! "Invoice.account" (fhir-spec (string->symbol "Invoice.account") "https://hl7.org/fhir/R4/invoice.html#Invoice.account" 'element))
+(register-element! "Invoice.lineItem" (fhir-spec (string->symbol "Invoice.lineItem") "https://hl7.org/fhir/R4/invoice.html#Invoice.lineItem" 'element))
+(register-element! "Invoice.totalPriceComponent" (fhir-spec (string->symbol "Invoice.totalPriceComponent") "https://hl7.org/fhir/R4/invoice.html#Invoice.totalPriceComponent" 'element))
+(register-element! "Invoice.totalNet" (fhir-spec (string->symbol "Invoice.totalNet") "https://hl7.org/fhir/R4/invoice.html#Invoice.totalNet" 'element))
+(register-element! "Invoice.totalGross" (fhir-spec (string->symbol "Invoice.totalGross") "https://hl7.org/fhir/R4/invoice.html#Invoice.totalGross" 'element))
+(register-element! "Invoice.paymentTerms" (fhir-spec (string->symbol "Invoice.paymentTerms") "https://hl7.org/fhir/R4/invoice.html#Invoice.paymentTerms" 'element))
+(register-element! "Invoice.note" (fhir-spec (string->symbol "Invoice.note") "https://hl7.org/fhir/R4/invoice.html#Invoice.note" 'element))
+
+(register-type! 'InvoiceParticipant (fhir-spec 'InvoiceParticipant "https://hl7.org/fhir/R4/invoice.html#Invoice.participant" 'type)
+  #:schema (type-schema 'InvoiceParticipant #f 'BackboneElement "https://hl7.org/fhir/R4/invoice.html#Invoice.participant"
+             (list
+    (schema-field 'role 0 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R4/invoice.html#Invoice.participant.role" #f)
+    (schema-field 'actor 1 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R4/invoice.html#Invoice.participant.actor" #f)
+             ) #f #f))
+(register-element! "Invoice.participant.role" (fhir-spec (string->symbol "Invoice.participant.role") "https://hl7.org/fhir/R4/invoice.html#Invoice.participant.role" 'element))
+(register-element! "Invoice.participant.actor" (fhir-spec (string->symbol "Invoice.participant.actor") "https://hl7.org/fhir/R4/invoice.html#Invoice.participant.actor" 'element))
+
+(register-type! 'InvoiceLineItem (fhir-spec 'InvoiceLineItem "https://hl7.org/fhir/R4/invoice.html#Invoice.lineItem" 'type)
+  #:schema (type-schema 'InvoiceLineItem #f 'BackboneElement "https://hl7.org/fhir/R4/invoice.html#Invoice.lineItem"
+             (list
+    (schema-field 'sequence 0 1 (vector 'prim "positiveInt") #f "https://hl7.org/fhir/R4/invoice.html#Invoice.lineItem.sequence" #f)
+    (schema-field 'priceComponent 0 '* (vector 'type 'InvoiceLineItemPriceComponent) #f "https://hl7.org/fhir/R4/invoice.html#Invoice.lineItem.priceComponent" #f)
+    (schema-field 'chargeItemReference 0 1 (vector 'type 'Reference) 'chargeItem "https://hl7.org/fhir/R4/invoice.html#Invoice.lineItem.chargeItem[x]" #f)
+    (schema-field 'chargeItemCodeableConcept 0 1 (vector 'type 'CodeableConcept) 'chargeItem "https://hl7.org/fhir/R4/invoice.html#Invoice.lineItem.chargeItem[x]" #f)
+             ) #f #f))
+(register-element! "Invoice.lineItem.sequence" (fhir-spec (string->symbol "Invoice.lineItem.sequence") "https://hl7.org/fhir/R4/invoice.html#Invoice.lineItem.sequence" 'element))
+(register-element! "Invoice.lineItem.priceComponent" (fhir-spec (string->symbol "Invoice.lineItem.priceComponent") "https://hl7.org/fhir/R4/invoice.html#Invoice.lineItem.priceComponent" 'element))
+(register-element! "Invoice.lineItem.chargeItem[x]" (fhir-spec (string->symbol "Invoice.lineItem.chargeItem[x]") "https://hl7.org/fhir/R4/invoice.html#Invoice.lineItem.chargeItem[x]" 'element))
+(register-element! "Invoice.lineItem.chargeItem[x]" (fhir-spec (string->symbol "Invoice.lineItem.chargeItem[x]") "https://hl7.org/fhir/R4/invoice.html#Invoice.lineItem.chargeItem[x]" 'element))
+
+(register-type! 'InvoiceLineItemPriceComponent (fhir-spec 'InvoiceLineItemPriceComponent "https://hl7.org/fhir/R4/invoice.html#Invoice.lineItem.priceComponent" 'type)
+  #:schema (type-schema 'InvoiceLineItemPriceComponent #f 'BackboneElement "https://hl7.org/fhir/R4/invoice.html#Invoice.lineItem.priceComponent"
+             (list
+    (schema-field 'type 1 1 (vector 'prim "code") #f "https://hl7.org/fhir/R4/invoice.html#Invoice.lineItem.priceComponent.type" #f)
+    (schema-field 'code 0 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R4/invoice.html#Invoice.lineItem.priceComponent.code" #f)
+    (schema-field 'factor 0 1 (vector 'prim "decimal") #f "https://hl7.org/fhir/R4/invoice.html#Invoice.lineItem.priceComponent.factor" #f)
+    (schema-field 'amount 0 1 (vector 'type 'Money) #f "https://hl7.org/fhir/R4/invoice.html#Invoice.lineItem.priceComponent.amount" #f)
+             ) #f #f))
+(register-element! "Invoice.lineItem.priceComponent.type" (fhir-spec (string->symbol "Invoice.lineItem.priceComponent.type") "https://hl7.org/fhir/R4/invoice.html#Invoice.lineItem.priceComponent.type" 'element))
+(register-element! "Invoice.lineItem.priceComponent.code" (fhir-spec (string->symbol "Invoice.lineItem.priceComponent.code") "https://hl7.org/fhir/R4/invoice.html#Invoice.lineItem.priceComponent.code" 'element))
+(register-element! "Invoice.lineItem.priceComponent.factor" (fhir-spec (string->symbol "Invoice.lineItem.priceComponent.factor") "https://hl7.org/fhir/R4/invoice.html#Invoice.lineItem.priceComponent.factor" 'element))
+(register-element! "Invoice.lineItem.priceComponent.amount" (fhir-spec (string->symbol "Invoice.lineItem.priceComponent.amount") "https://hl7.org/fhir/R4/invoice.html#Invoice.lineItem.priceComponent.amount" 'element))
+

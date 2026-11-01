@@ -1,0 +1,97 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r6.core#6.0.0-ballot4 — DO NOT EDIT (verified by raco fhir check).
+(require fhir/model/schema fhir/model/registry)
+
+(register-type! 'AdministrableProductDefinition (fhir-spec 'AdministrableProductDefinition "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition" 'type)
+  #:schema (type-schema 'AdministrableProductDefinition #f 'DomainResource "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition"
+             (list
+    (schema-field 'identifier 0 '* (vector 'type 'Identifier) #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.identifier" #f)
+    (schema-field 'status 1 1 (vector 'prim "code") #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.status" #f)
+    (schema-field 'formOf 0 '* (vector 'type 'Reference) #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.formOf" #f)
+    (schema-field 'administrableDoseForm 0 1 (vector 'type 'CodeableConcept) #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.administrableDoseForm" #f)
+    (schema-field 'unitOfPresentation 0 1 (vector 'type 'CodeableConcept) #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.unitOfPresentation" #f)
+    (schema-field 'producedFrom 0 '* (vector 'type 'Reference) #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.producedFrom" #f)
+    (schema-field 'ingredient 0 '* (vector 'type 'CodeableConcept) #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.ingredient" #f)
+    (schema-field 'device 0 1 (vector 'type 'Reference) #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.device" #f)
+    (schema-field 'description 0 1 (vector 'prim "markdown") #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.description" #f)
+    (schema-field 'code 0 '* (vector 'type 'Coding) #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.code" #f)
+    (schema-field 'property 0 '* (vector 'type 'AdministrableProductDefinitionProperty) #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.property" #f)
+    (schema-field 'routeOfAdministration 1 '* (vector 'type 'AdministrableProductDefinitionRouteOfAdministration) #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration" #f)
+             ) #f #f))
+(register-element! "AdministrableProductDefinition.identifier" (fhir-spec (string->symbol "AdministrableProductDefinition.identifier") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.identifier" 'element))
+(register-element! "AdministrableProductDefinition.status" (fhir-spec (string->symbol "AdministrableProductDefinition.status") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.status" 'element))
+(register-element! "AdministrableProductDefinition.formOf" (fhir-spec (string->symbol "AdministrableProductDefinition.formOf") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.formOf" 'element))
+(register-element! "AdministrableProductDefinition.administrableDoseForm" (fhir-spec (string->symbol "AdministrableProductDefinition.administrableDoseForm") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.administrableDoseForm" 'element))
+(register-element! "AdministrableProductDefinition.unitOfPresentation" (fhir-spec (string->symbol "AdministrableProductDefinition.unitOfPresentation") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.unitOfPresentation" 'element))
+(register-element! "AdministrableProductDefinition.producedFrom" (fhir-spec (string->symbol "AdministrableProductDefinition.producedFrom") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.producedFrom" 'element))
+(register-element! "AdministrableProductDefinition.ingredient" (fhir-spec (string->symbol "AdministrableProductDefinition.ingredient") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.ingredient" 'element))
+(register-element! "AdministrableProductDefinition.device" (fhir-spec (string->symbol "AdministrableProductDefinition.device") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.device" 'element))
+(register-element! "AdministrableProductDefinition.description" (fhir-spec (string->symbol "AdministrableProductDefinition.description") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.description" 'element))
+(register-element! "AdministrableProductDefinition.code" (fhir-spec (string->symbol "AdministrableProductDefinition.code") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.code" 'element))
+(register-element! "AdministrableProductDefinition.property" (fhir-spec (string->symbol "AdministrableProductDefinition.property") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.property" 'element))
+(register-element! "AdministrableProductDefinition.routeOfAdministration" (fhir-spec (string->symbol "AdministrableProductDefinition.routeOfAdministration") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration" 'element))
+
+(register-type! 'AdministrableProductDefinitionProperty (fhir-spec 'AdministrableProductDefinitionProperty "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.property" 'type)
+  #:schema (type-schema 'AdministrableProductDefinitionProperty #f 'BackboneElement "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.property"
+             (list
+    (schema-field 'type 1 1 (vector 'type 'CodeableConcept) #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.property.type" #f)
+    (schema-field 'status 0 1 (vector 'type 'CodeableConcept) #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.property.status" #f)
+    (schema-field 'valueCodeableConcept 0 1 (vector 'type 'CodeableConcept) 'value "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.property.value[x]" #f)
+    (schema-field 'valueQuantity 0 1 (vector 'type 'Quantity) 'value "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.property.value[x]" #f)
+    (schema-field 'valueRange 0 1 (vector 'type 'Range) 'value "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.property.value[x]" #f)
+    (schema-field 'valueDate 0 1 (vector 'prim "date") 'value "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.property.value[x]" #f)
+    (schema-field 'valueBoolean 0 1 (vector 'prim "boolean") 'value "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.property.value[x]" #f)
+    (schema-field 'valueMarkdown 0 1 (vector 'prim "markdown") 'value "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.property.value[x]" #f)
+    (schema-field 'valueAttachment 0 1 (vector 'type 'Attachment) 'value "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.property.value[x]" #f)
+    (schema-field 'valueReference 0 1 (vector 'type 'Reference) 'value "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.property.value[x]" #f)
+             ) #f #f))
+(register-element! "AdministrableProductDefinition.property.type" (fhir-spec (string->symbol "AdministrableProductDefinition.property.type") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.property.type" 'element))
+(register-element! "AdministrableProductDefinition.property.status" (fhir-spec (string->symbol "AdministrableProductDefinition.property.status") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.property.status" 'element))
+(register-element! "AdministrableProductDefinition.property.value[x]" (fhir-spec (string->symbol "AdministrableProductDefinition.property.value[x]") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.property.value[x]" 'element))
+(register-element! "AdministrableProductDefinition.property.value[x]" (fhir-spec (string->symbol "AdministrableProductDefinition.property.value[x]") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.property.value[x]" 'element))
+(register-element! "AdministrableProductDefinition.property.value[x]" (fhir-spec (string->symbol "AdministrableProductDefinition.property.value[x]") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.property.value[x]" 'element))
+(register-element! "AdministrableProductDefinition.property.value[x]" (fhir-spec (string->symbol "AdministrableProductDefinition.property.value[x]") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.property.value[x]" 'element))
+(register-element! "AdministrableProductDefinition.property.value[x]" (fhir-spec (string->symbol "AdministrableProductDefinition.property.value[x]") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.property.value[x]" 'element))
+(register-element! "AdministrableProductDefinition.property.value[x]" (fhir-spec (string->symbol "AdministrableProductDefinition.property.value[x]") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.property.value[x]" 'element))
+(register-element! "AdministrableProductDefinition.property.value[x]" (fhir-spec (string->symbol "AdministrableProductDefinition.property.value[x]") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.property.value[x]" 'element))
+(register-element! "AdministrableProductDefinition.property.value[x]" (fhir-spec (string->symbol "AdministrableProductDefinition.property.value[x]") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.property.value[x]" 'element))
+
+(register-type! 'AdministrableProductDefinitionRouteOfAdministration (fhir-spec 'AdministrableProductDefinitionRouteOfAdministration "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration" 'type)
+  #:schema (type-schema 'AdministrableProductDefinitionRouteOfAdministration #f 'BackboneElement "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration"
+             (list
+    (schema-field 'code 1 1 (vector 'type 'CodeableConcept) #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.code" #f)
+    (schema-field 'firstDose 0 1 (vector 'type 'Quantity) #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.firstDose" #f)
+    (schema-field 'maxSingleDose 0 1 (vector 'type 'Quantity) #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.maxSingleDose" #f)
+    (schema-field 'maxDosePerDay 0 1 (vector 'type 'Quantity) #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.maxDosePerDay" #f)
+    (schema-field 'maxDosePerTreatmentPeriod 0 1 (vector 'type 'Ratio) #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.maxDosePerTreatmentPeriod" #f)
+    (schema-field 'maxTreatmentPeriod 0 1 (vector 'type 'Duration) #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.maxTreatmentPeriod" #f)
+    (schema-field 'targetSpecies 0 '* (vector 'type 'AdministrableProductDefinitionRouteOfAdministrationTargetSpecies) #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.targetSpecies" #f)
+             ) #f #f))
+(register-element! "AdministrableProductDefinition.routeOfAdministration.code" (fhir-spec (string->symbol "AdministrableProductDefinition.routeOfAdministration.code") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.code" 'element))
+(register-element! "AdministrableProductDefinition.routeOfAdministration.firstDose" (fhir-spec (string->symbol "AdministrableProductDefinition.routeOfAdministration.firstDose") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.firstDose" 'element))
+(register-element! "AdministrableProductDefinition.routeOfAdministration.maxSingleDose" (fhir-spec (string->symbol "AdministrableProductDefinition.routeOfAdministration.maxSingleDose") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.maxSingleDose" 'element))
+(register-element! "AdministrableProductDefinition.routeOfAdministration.maxDosePerDay" (fhir-spec (string->symbol "AdministrableProductDefinition.routeOfAdministration.maxDosePerDay") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.maxDosePerDay" 'element))
+(register-element! "AdministrableProductDefinition.routeOfAdministration.maxDosePerTreatmentPeriod" (fhir-spec (string->symbol "AdministrableProductDefinition.routeOfAdministration.maxDosePerTreatmentPeriod") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.maxDosePerTreatmentPeriod" 'element))
+(register-element! "AdministrableProductDefinition.routeOfAdministration.maxTreatmentPeriod" (fhir-spec (string->symbol "AdministrableProductDefinition.routeOfAdministration.maxTreatmentPeriod") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.maxTreatmentPeriod" 'element))
+(register-element! "AdministrableProductDefinition.routeOfAdministration.targetSpecies" (fhir-spec (string->symbol "AdministrableProductDefinition.routeOfAdministration.targetSpecies") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.targetSpecies" 'element))
+
+(register-type! 'AdministrableProductDefinitionRouteOfAdministrationTargetSpecies (fhir-spec 'AdministrableProductDefinitionRouteOfAdministrationTargetSpecies "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.targetSpecies" 'type)
+  #:schema (type-schema 'AdministrableProductDefinitionRouteOfAdministrationTargetSpecies #f 'BackboneElement "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.targetSpecies"
+             (list
+    (schema-field 'code 1 1 (vector 'type 'CodeableConcept) #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.targetSpecies.code" #f)
+    (schema-field 'withdrawalPeriod 0 '* (vector 'type 'AdministrableProductDefinitionRouteOfAdministrationTargetSpeciesWithdrawalPeriod) #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.targetSpecies.withdrawalPeriod" #f)
+             ) #f #f))
+(register-element! "AdministrableProductDefinition.routeOfAdministration.targetSpecies.code" (fhir-spec (string->symbol "AdministrableProductDefinition.routeOfAdministration.targetSpecies.code") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.targetSpecies.code" 'element))
+(register-element! "AdministrableProductDefinition.routeOfAdministration.targetSpecies.withdrawalPeriod" (fhir-spec (string->symbol "AdministrableProductDefinition.routeOfAdministration.targetSpecies.withdrawalPeriod") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.targetSpecies.withdrawalPeriod" 'element))
+
+(register-type! 'AdministrableProductDefinitionRouteOfAdministrationTargetSpeciesWithdrawalPeriod (fhir-spec 'AdministrableProductDefinitionRouteOfAdministrationTargetSpeciesWithdrawalPeriod "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.targetSpecies.withdrawalPeriod" 'type)
+  #:schema (type-schema 'AdministrableProductDefinitionRouteOfAdministrationTargetSpeciesWithdrawalPeriod #f 'BackboneElement "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.targetSpecies.withdrawalPeriod"
+             (list
+    (schema-field 'tissue 1 1 (vector 'type 'CodeableConcept) #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.targetSpecies.withdrawalPeriod.tissue" #f)
+    (schema-field 'value 1 1 (vector 'type 'Quantity) #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.targetSpecies.withdrawalPeriod.value" #f)
+    (schema-field 'supportingInformation 0 1 (vector 'prim "string") #f "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.targetSpecies.withdrawalPeriod.supportingInformation" #f)
+             ) #f #f))
+(register-element! "AdministrableProductDefinition.routeOfAdministration.targetSpecies.withdrawalPeriod.tissue" (fhir-spec (string->symbol "AdministrableProductDefinition.routeOfAdministration.targetSpecies.withdrawalPeriod.tissue") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.targetSpecies.withdrawalPeriod.tissue" 'element))
+(register-element! "AdministrableProductDefinition.routeOfAdministration.targetSpecies.withdrawalPeriod.value" (fhir-spec (string->symbol "AdministrableProductDefinition.routeOfAdministration.targetSpecies.withdrawalPeriod.value") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.targetSpecies.withdrawalPeriod.value" 'element))
+(register-element! "AdministrableProductDefinition.routeOfAdministration.targetSpecies.withdrawalPeriod.supportingInformation" (fhir-spec (string->symbol "AdministrableProductDefinition.routeOfAdministration.targetSpecies.withdrawalPeriod.supportingInformation") "https://build.fhir.org/administrableproductdefinition.html#AdministrableProductDefinition.routeOfAdministration.targetSpecies.withdrawalPeriod.supportingInformation" 'element))
+

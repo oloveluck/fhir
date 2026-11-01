@@ -1,0 +1,67 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r4.core#4.0.1 — DO NOT EDIT (verified by raco fhir check).
+(require fhir/model/schema fhir/model/registry)
+
+(register-type! 'Location (fhir-spec 'Location "https://hl7.org/fhir/R4/location.html#Location" 'type)
+  #:schema (type-schema 'Location #f 'DomainResource "https://hl7.org/fhir/R4/location.html#Location"
+             (list
+    (schema-field 'identifier 0 '* (vector 'type 'Identifier) #f "https://hl7.org/fhir/R4/location.html#Location.identifier" #f)
+    (schema-field 'status 0 1 (vector 'prim "code") #f "https://hl7.org/fhir/R4/location.html#Location.status" #f)
+    (schema-field 'operationalStatus 0 1 (vector 'type 'Coding) #f "https://hl7.org/fhir/R4/location.html#Location.operationalStatus" #f)
+    (schema-field 'name 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/location.html#Location.name" #f)
+    (schema-field 'alias 0 '* (vector 'prim "string") #f "https://hl7.org/fhir/R4/location.html#Location.alias" #f)
+    (schema-field 'description 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/location.html#Location.description" #f)
+    (schema-field 'mode 0 1 (vector 'prim "code") #f "https://hl7.org/fhir/R4/location.html#Location.mode" #f)
+    (schema-field 'type 0 '* (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R4/location.html#Location.type" #f)
+    (schema-field 'telecom 0 '* (vector 'type 'ContactPoint) #f "https://hl7.org/fhir/R4/location.html#Location.telecom" #f)
+    (schema-field 'address 0 1 (vector 'type 'Address) #f "https://hl7.org/fhir/R4/location.html#Location.address" #f)
+    (schema-field 'physicalType 0 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R4/location.html#Location.physicalType" #f)
+    (schema-field 'position 0 1 (vector 'type 'LocationPosition) #f "https://hl7.org/fhir/R4/location.html#Location.position" #f)
+    (schema-field 'managingOrganization 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R4/location.html#Location.managingOrganization" #f)
+    (schema-field 'partOf 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R4/location.html#Location.partOf" #f)
+    (schema-field 'hoursOfOperation 0 '* (vector 'type 'LocationHoursOfOperation) #f "https://hl7.org/fhir/R4/location.html#Location.hoursOfOperation" #f)
+    (schema-field 'availabilityExceptions 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/location.html#Location.availabilityExceptions" #f)
+    (schema-field 'endpoint 0 '* (vector 'type 'Reference) #f "https://hl7.org/fhir/R4/location.html#Location.endpoint" #f)
+             ) #f #f))
+(register-element! "Location.identifier" (fhir-spec (string->symbol "Location.identifier") "https://hl7.org/fhir/R4/location.html#Location.identifier" 'element))
+(register-element! "Location.status" (fhir-spec (string->symbol "Location.status") "https://hl7.org/fhir/R4/location.html#Location.status" 'element))
+(register-element! "Location.operationalStatus" (fhir-spec (string->symbol "Location.operationalStatus") "https://hl7.org/fhir/R4/location.html#Location.operationalStatus" 'element))
+(register-element! "Location.name" (fhir-spec (string->symbol "Location.name") "https://hl7.org/fhir/R4/location.html#Location.name" 'element))
+(register-element! "Location.alias" (fhir-spec (string->symbol "Location.alias") "https://hl7.org/fhir/R4/location.html#Location.alias" 'element))
+(register-element! "Location.description" (fhir-spec (string->symbol "Location.description") "https://hl7.org/fhir/R4/location.html#Location.description" 'element))
+(register-element! "Location.mode" (fhir-spec (string->symbol "Location.mode") "https://hl7.org/fhir/R4/location.html#Location.mode" 'element))
+(register-element! "Location.type" (fhir-spec (string->symbol "Location.type") "https://hl7.org/fhir/R4/location.html#Location.type" 'element))
+(register-element! "Location.telecom" (fhir-spec (string->symbol "Location.telecom") "https://hl7.org/fhir/R4/location.html#Location.telecom" 'element))
+(register-element! "Location.address" (fhir-spec (string->symbol "Location.address") "https://hl7.org/fhir/R4/location.html#Location.address" 'element))
+(register-element! "Location.physicalType" (fhir-spec (string->symbol "Location.physicalType") "https://hl7.org/fhir/R4/location.html#Location.physicalType" 'element))
+(register-element! "Location.position" (fhir-spec (string->symbol "Location.position") "https://hl7.org/fhir/R4/location.html#Location.position" 'element))
+(register-element! "Location.managingOrganization" (fhir-spec (string->symbol "Location.managingOrganization") "https://hl7.org/fhir/R4/location.html#Location.managingOrganization" 'element))
+(register-element! "Location.partOf" (fhir-spec (string->symbol "Location.partOf") "https://hl7.org/fhir/R4/location.html#Location.partOf" 'element))
+(register-element! "Location.hoursOfOperation" (fhir-spec (string->symbol "Location.hoursOfOperation") "https://hl7.org/fhir/R4/location.html#Location.hoursOfOperation" 'element))
+(register-element! "Location.availabilityExceptions" (fhir-spec (string->symbol "Location.availabilityExceptions") "https://hl7.org/fhir/R4/location.html#Location.availabilityExceptions" 'element))
+(register-element! "Location.endpoint" (fhir-spec (string->symbol "Location.endpoint") "https://hl7.org/fhir/R4/location.html#Location.endpoint" 'element))
+
+(register-type! 'LocationPosition (fhir-spec 'LocationPosition "https://hl7.org/fhir/R4/location.html#Location.position" 'type)
+  #:schema (type-schema 'LocationPosition #f 'BackboneElement "https://hl7.org/fhir/R4/location.html#Location.position"
+             (list
+    (schema-field 'longitude 1 1 (vector 'prim "decimal") #f "https://hl7.org/fhir/R4/location.html#Location.position.longitude" #f)
+    (schema-field 'latitude 1 1 (vector 'prim "decimal") #f "https://hl7.org/fhir/R4/location.html#Location.position.latitude" #f)
+    (schema-field 'altitude 0 1 (vector 'prim "decimal") #f "https://hl7.org/fhir/R4/location.html#Location.position.altitude" #f)
+             ) #f #f))
+(register-element! "Location.position.longitude" (fhir-spec (string->symbol "Location.position.longitude") "https://hl7.org/fhir/R4/location.html#Location.position.longitude" 'element))
+(register-element! "Location.position.latitude" (fhir-spec (string->symbol "Location.position.latitude") "https://hl7.org/fhir/R4/location.html#Location.position.latitude" 'element))
+(register-element! "Location.position.altitude" (fhir-spec (string->symbol "Location.position.altitude") "https://hl7.org/fhir/R4/location.html#Location.position.altitude" 'element))
+
+(register-type! 'LocationHoursOfOperation (fhir-spec 'LocationHoursOfOperation "https://hl7.org/fhir/R4/location.html#Location.hoursOfOperation" 'type)
+  #:schema (type-schema 'LocationHoursOfOperation #f 'BackboneElement "https://hl7.org/fhir/R4/location.html#Location.hoursOfOperation"
+             (list
+    (schema-field 'daysOfWeek 0 '* (vector 'prim "code") #f "https://hl7.org/fhir/R4/location.html#Location.hoursOfOperation.daysOfWeek" #f)
+    (schema-field 'allDay 0 1 (vector 'prim "boolean") #f "https://hl7.org/fhir/R4/location.html#Location.hoursOfOperation.allDay" #f)
+    (schema-field 'openingTime 0 1 (vector 'prim "time") #f "https://hl7.org/fhir/R4/location.html#Location.hoursOfOperation.openingTime" #f)
+    (schema-field 'closingTime 0 1 (vector 'prim "time") #f "https://hl7.org/fhir/R4/location.html#Location.hoursOfOperation.closingTime" #f)
+             ) #f #f))
+(register-element! "Location.hoursOfOperation.daysOfWeek" (fhir-spec (string->symbol "Location.hoursOfOperation.daysOfWeek") "https://hl7.org/fhir/R4/location.html#Location.hoursOfOperation.daysOfWeek" 'element))
+(register-element! "Location.hoursOfOperation.allDay" (fhir-spec (string->symbol "Location.hoursOfOperation.allDay") "https://hl7.org/fhir/R4/location.html#Location.hoursOfOperation.allDay" 'element))
+(register-element! "Location.hoursOfOperation.openingTime" (fhir-spec (string->symbol "Location.hoursOfOperation.openingTime") "https://hl7.org/fhir/R4/location.html#Location.hoursOfOperation.openingTime" 'element))
+(register-element! "Location.hoursOfOperation.closingTime" (fhir-spec (string->symbol "Location.hoursOfOperation.closingTime") "https://hl7.org/fhir/R4/location.html#Location.hoursOfOperation.closingTime" 'element))
+

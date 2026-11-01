@@ -1,0 +1,22 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r6.core#6.0.0-ballot4 — DO NOT EDIT (verified by raco fhir check).
+(require (for-syntax racket/base fhir/lang-gen/form-syntax))
+(provide RelatedArtifact)
+(define-syntax (RelatedArtifact stx)
+  (build-fhir-form stx 'RelatedArtifact
+    '(#s(field-spec id 0 1 #(raw) #f)
+      #s(field-spec extension 0 * #(type Extension) #f)
+      #s(field-spec type 1 1 #(prim "code") (required "http://hl7.org/fhir/ValueSet/related-artifact-type"))
+      #s(field-spec label 0 1 #(prim "string") #f)
+      #s(field-spec display 0 1 #(prim "string") #f)
+      #s(field-spec citation 0 1 #(prim "markdown") #f)
+      #s(field-spec document 0 1 #(type Attachment) #f)
+      #s(field-spec resource 0 1 #(prim "canonical") #f)
+      #s(field-spec resourceReference 0 1 #(type Reference) #f)
+      #s(field-spec artifactMarkdown 0 1 #(prim "markdown") #f)
+      #s(field-spec artifactAttachment 0 1 #(type Attachment) #f)
+      #s(field-spec artifactCanonical 0 1 #(prim "canonical") #f)
+      #s(field-spec artifactReference 0 1 #(type Reference) #f)
+      #s(choice-group 0 1 (artifactMarkdown artifactAttachment artifactCanonical artifactReference))
+      )
+    #:parent 'DataType))

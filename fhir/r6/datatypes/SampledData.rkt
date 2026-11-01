@@ -1,0 +1,20 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r6.core#6.0.0-ballot4 — DO NOT EDIT (verified by raco fhir check).
+(require (for-syntax racket/base fhir/lang-gen/form-syntax))
+(provide SampledData)
+(define-syntax (SampledData stx)
+  (build-fhir-form stx 'SampledData
+    '(#s(field-spec id 0 1 #(raw) #f)
+      #s(field-spec extension 0 * #(type Extension) #f)
+      #s(field-spec origin 1 1 #(type Quantity) #f)
+      #s(field-spec interval 0 1 #(prim "decimal") #f)
+      #s(field-spec intervalUnit 1 1 #(prim "code") (required "http://hl7.org/fhir/ValueSet/ucum-units"))
+      #s(field-spec factor 0 1 #(prim "decimal") #f)
+      #s(field-spec lowerLimit 0 1 #(prim "decimal") #f)
+      #s(field-spec upperLimit 0 1 #(prim "decimal") #f)
+      #s(field-spec dimensions 1 1 #(prim "positiveInt") #f)
+      #s(field-spec codeMap 0 1 #(prim "canonical") #f)
+      #s(field-spec offsets 0 1 #(prim "string") #f)
+      #s(field-spec data 0 1 #(prim "string") #f)
+      )
+    #:parent 'DataType))

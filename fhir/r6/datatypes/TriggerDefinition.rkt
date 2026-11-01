@@ -1,0 +1,20 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r6.core#6.0.0-ballot4 — DO NOT EDIT (verified by raco fhir check).
+(require (for-syntax racket/base fhir/lang-gen/form-syntax))
+(provide TriggerDefinition)
+(define-syntax (TriggerDefinition stx)
+  (build-fhir-form stx 'TriggerDefinition
+    '(#s(field-spec id 0 1 #(raw) #f)
+      #s(field-spec extension 0 * #(type Extension) #f)
+      #s(field-spec type 1 1 #(prim "code") (required "http://hl7.org/fhir/ValueSet/trigger-type"))
+      #s(field-spec name 0 1 #(prim "string") #f)
+      #s(field-spec code 0 1 #(type CodeableConcept) #f)
+      #s(field-spec subscriptionTopic 0 1 #(prim "canonical") #f)
+      #s(field-spec data 0 * #(type DataRequirement) #f)
+      #s(field-spec condition 0 1 #(type Expression) #f)
+      #s(field-spec timingTiming 0 1 #(type Timing) #f)
+      #s(field-spec timingDate 0 1 #(prim "date") #f)
+      #s(field-spec timingDateTime 0 1 #(prim "dateTime") #f)
+      #s(choice-group 0 1 (timingTiming timingDate timingDateTime))
+      )
+    #:parent 'DataType))

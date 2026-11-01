@@ -5,46 +5,57 @@ vertical slice**; the grand vision is FHIR's type system as a collection of lang
 types, a StructureDefinition lang, per-IG generated langs, capability/operation langs, and separate
 FHIRPath/CQL/FML/FSH langs). JSON only, no XML.
 
-## Package map (the split)
-The family is seven Racket packages / git repos, all declaring `(define collection "fhir")` so they
-splice into ONE `fhir` collection — module paths and `#lang` names are exactly the monorepo's.
-Rule that makes this work: **cross-directory imports use collection paths** (`fhir/model/node`),
+## Package map (the family)
+Eight Racket packages in six git repos. The foundation keeps the `fhir` collection; each language is its
+own collection (`#lang cql`, `(require cql/compile)`), so a user who installs `cql` gets exactly CQL.
+Rule that makes directories movable: **cross-directory imports use collection paths** (`fhir/model/node`),
 never `../model/node.rkt`. Dependency order (base first):
 
-| package (repo) | directories | depends on |
-|---|---|---|
-| `fhir-core` | `result/ contracts.rkt model/ primitives/ kernel/ lang-gen/ serialize/ foundation/ codegen/ spec/ r4/ r5/ r6/ sd/` | base |
-| `fhir-fhirpath` | `fhirpath/` (incl. UCUM, `print.rkt`) | fhir-core |
-| `fhir-vcl` | `vcl/` | fhir-core |
-| `fhir-cql` | `cql/` | fhir-core, fhir-fhirpath |
-| `fhir-fml` | `fml/` | fhir-core, fhir-fhirpath, fhir-cql (`cql/error.rkt`) |
-| `fhir-fsh` | `fsh/` | fhir-core, fhir-fhirpath (snapshots via `fhir/sd/snapshot`) |
-| `fhir` (this repo) | `capability/ http/ terminology/ conformance/ viewdef/ store/ omop/ cli/ tests/ examples/` | all of the above (+ db-lib) |
+| package | repo / dir | contents | depends on |
+|---|---|---|---|
+| `fhir` | `oloveluck/fhir` → `fhir/` | foundation: `result/ contracts.rkt model/ primitives/ kernel/ lang-gen/ serialize/ foundation/ codegen/ sd/ r4/ r5/ r6/ spec-package.rkt` | base |
+| `fhir-spec` | `oloveluck/fhir` → `fhir-spec/` | the vendored HL7 NPM packages (`*.tgz`, 50 MB) — data only, located via `fhir/spec-package` | base |
+| `fhirpath` | `oloveluck/fhirpath` | the FHIRPath engine (with UCUM, `print.rkt`), `raco fhirpath` | fhir |
+| `vcl` | `oloveluck/vcl` | `#lang vcl`, `raco vcl` | fhir |
+| `cql` | `oloveluck/cql` | `#lang cql` (CQL → ELM + interpreter), `raco cql` | fhir, fhirpath |
+| `fml` | `oloveluck/fml` | `#lang fml` (FHIR Mapping Language), `raco fml` | fhir, fhirpath, cql (only `cql/error.rkt`, to be removed) |
+| `fsh` | `oloveluck/fsh` | `#lang fsh` (FHIR Shorthand, bidirectional), `raco fsh` | fhir, fhirpath (snapshots via `fhir/sd/snapshot`) |
+| `fhir-tools` | `oloveluck/fhir` → `fhir-tools/` | application layer: `capability/ http/ terminology/ conformance/ viewdef/ store/ omop/`, the `raco fhir` CLI, integration `tests/`, `examples/` | fhir, fhir-spec, fhirpath, vcl, db-lib (+ libduckdb at run time) |
+
+`fhir` and `fhir-tools` both contribute to the `fhir` collection and must stay module-disjoint. `fhir`
+does NOT depend on `fhir-spec`: `fhir/spec-package.rkt` locates the tarballs through the collection
+search path (`spec-package-path`, `#:optional? #t` for callers that can degrade), so codegen and full
+snapshot generation need `fhir-spec` while a `#lang cql` user never downloads it.
 
 Seams introduced by the split (each a one-module move, no behaviour change):
-- `kernel/operation-entry.rkt` (fhir-core) holds the struct generated `operations.rkt` files need,
-  so towers don't depend on `capability/`; `capability/runtime` re-exports it.
-- `fhirpath/print.rkt` (was `fml/fhirpath-print.rkt`) — the store narrows search-param
-  expressions with it; FML only consumed it.
+- `kernel/operation-entry.rkt` (fhir) holds the struct generated `operations.rkt` files need, so the
+  towers don't depend on `capability/`; `capability/runtime` re-exports it.
+- `fhirpath/print.rkt` (was `fml/fhirpath-print.rkt`) — the store narrows search-param expressions
+  with it; FML only consumed it.
 - `store/materialize.rkt` (was `viewdef/materialize.rkt`) — the DuckDB bottom half depends on
   `store/fhir-analytics`, so it lives with the store; `viewdef/` stays a pure lang + evaluator.
-- `sd/{sd-index,snapshot,element-index}.rkt` (were `conformance/`) — pure SD machinery, now in
-  fhir-core so `fsh` doesn't depend on the validator.
+- `sd/{sd-index,snapshot,element-index}.rkt` (were `conformance/`) — pure SD machinery, in the
+  foundation so `fsh` doesn't depend on the validator. `sd-index` reads fhir-spec's R5 core package
+  when present (`current-sd-package` overrides; `sd-index-available?` tells).
 - `fhirpath/tests/run-r5.rkt` `dynamic-require`s `fhir/terminology/service` (the %terminologies
-  backend) — terminology depends on fhirpath, so the TCK runner injects it at run time.
-- `spec/*.tgz` are located with `(collection-file-path "<pkg>.tgz" "fhir" "spec")` and codegen
-  writes towers to `(collection-path "fhir" "<tower>")` — both resolve across packages.
+  backend, in fhir-tools) and lowers its floor to 1041 when fhir-tools is absent — terminology depends
+  on fhirpath, so the TCK runner injects it at run time.
+- codegen writes towers to `(collection-path "fhir" "<tower>")`, so `raco fhir regen` lands in whichever
+  package owns the tower (`fhir` for r4/r5/r6, `fhir-tools` for viewdef/omop).
+- `store/fhir-analytics.rkt` loads libduckdb lazily (`DUCKDB_LIB` overrides the search path); requiring
+  it without DuckDB works, opening analytics does not.
 
 Each language repo carries its own `CLAUDE.md` with the architecture notes for that language.
 
 ## Package setup
-Seven linked packages (see Package map). From `~/Projects`, in dependency order:
+From `~/Projects` with the six repos side by side (dependency order):
 ```sh
-raco pkg install --link --auto fhir-core fhir-fhirpath fhir-vcl fhir-cql fhir-fml fhir-fsh fhir
-raco setup --check-pkg-deps --pkgs fhir-core fhir-fhirpath fhir-vcl fhir-cql fhir-fml fhir-fsh fhir
+raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl cql fml fsh fhir/fhir-tools
+raco setup --check-pkg-deps --pkgs fhir fhir-spec fhirpath vcl cql fml fsh fhir-tools
 ```
-This directory contributes `capability/ http/ terminology/ conformance/ viewdef/ store/ omop/ cli/
-tests/ examples/` to the `fhir` collection and owns the `raco fhir` CLI.
+This repo's root holds the family README/LICENSE and these notes; `fhir/`, `fhir-spec/` and `fhir-tools/`
+are the three packages. `fhir-tools/` owns the `raco fhir` CLI; the languages own `raco fhirpath`,
+`raco cql`, `raco fsh`, `raco vcl`, `raco fml`.
 
 ## How-to-use docs
 User-facing usage/how-to lives in `.claude/skills/` — `fhir-authoring` (write/run the langs),
@@ -85,14 +96,13 @@ This codebase is written in the **How to Design Programs** idiom; keep new code 
 
 ## Verify
 ```sh
-raco test terminology/ capability/ http/ conformance/ viewdef/ store/ omop/ tests/   # this repo
-(cd ../fhir-core && raco test result/ model/ primitives/ kernel/ lang-gen/ serialize/ codegen/ sd/)
-for p in fhirpath vcl cql fml fsh; do (cd ../fhir-$p && raco test $p/); done
-racket examples/patient.fhir6            # prints FHIR JSON
-racket examples/demo.cql                 # #lang fhir/cql — prints ELM JSON
+raco test -p fhir fhir-spec fhirpath vcl cql fml fsh      # the foundation + the languages
+(cd fhir-tools && raco test terminology/ capability/ http/ conformance/ viewdef/ tests/)  # store/ omop/ need libduckdb
+racket fhir-tools/examples/patient.fhir6 # prints FHIR JSON
+racket fhir-tools/examples/demo.cql      # #lang cql — prints ELM JSON
 raco fhir check all                      # determinism guard
-raco fhir fhirpath-tck r5                # FHIRPath conformance (or r4)
-raco fhir cql-tck                        # CQL expression conformance (compile→run ELM→compare)
+raco fhirpath --tck r5                   # FHIRPath conformance (or r4); raco fhirpath --ucum-tck
+raco cql --tck                           # CQL expression conformance (compile→run ELM→compare); raco fml --tck
 raco fhir roundtrip-tck r5               # parse+serialize round-trip the whole R5 corpus (or r4)
 ```
 

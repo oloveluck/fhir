@@ -1,0 +1,67 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r5.core#5.0.0 — DO NOT EDIT (verified by raco fhir check).
+(require fhir/model/schema fhir/model/registry)
+
+(register-type! 'Subscription (fhir-spec 'Subscription "https://hl7.org/fhir/R5/subscription.html#Subscription" 'type)
+  #:schema (type-schema 'Subscription #f 'DomainResource "https://hl7.org/fhir/R5/subscription.html#Subscription"
+             (list
+    (schema-field 'identifier 0 '* (vector 'type 'Identifier) #f "https://hl7.org/fhir/R5/subscription.html#Subscription.identifier" #f)
+    (schema-field 'name 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R5/subscription.html#Subscription.name" #f)
+    (schema-field 'status 1 1 (vector 'prim "code") #f "https://hl7.org/fhir/R5/subscription.html#Subscription.status" #f)
+    (schema-field 'topic 1 1 (vector 'prim "canonical") #f "https://hl7.org/fhir/R5/subscription.html#Subscription.topic" #f)
+    (schema-field 'contact 0 '* (vector 'type 'ContactPoint) #f "https://hl7.org/fhir/R5/subscription.html#Subscription.contact" #f)
+    (schema-field 'end 0 1 (vector 'prim "instant") #f "https://hl7.org/fhir/R5/subscription.html#Subscription.end" #f)
+    (schema-field 'managingEntity 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/subscription.html#Subscription.managingEntity" #f)
+    (schema-field 'reason 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R5/subscription.html#Subscription.reason" #f)
+    (schema-field 'filterBy 0 '* (vector 'type 'SubscriptionFilterBy) #f "https://hl7.org/fhir/R5/subscription.html#Subscription.filterBy" #f)
+    (schema-field 'channelType 1 1 (vector 'type 'Coding) #f "https://hl7.org/fhir/R5/subscription.html#Subscription.channelType" #f)
+    (schema-field 'endpoint 0 1 (vector 'prim "url") #f "https://hl7.org/fhir/R5/subscription.html#Subscription.endpoint" #f)
+    (schema-field 'parameter 0 '* (vector 'type 'SubscriptionParameter) #f "https://hl7.org/fhir/R5/subscription.html#Subscription.parameter" #f)
+    (schema-field 'heartbeatPeriod 0 1 (vector 'prim "unsignedInt") #f "https://hl7.org/fhir/R5/subscription.html#Subscription.heartbeatPeriod" #f)
+    (schema-field 'timeout 0 1 (vector 'prim "unsignedInt") #f "https://hl7.org/fhir/R5/subscription.html#Subscription.timeout" #f)
+    (schema-field 'contentType 0 1 (vector 'prim "code") #f "https://hl7.org/fhir/R5/subscription.html#Subscription.contentType" #f)
+    (schema-field 'content 0 1 (vector 'prim "code") #f "https://hl7.org/fhir/R5/subscription.html#Subscription.content" #f)
+    (schema-field 'maxCount 0 1 (vector 'prim "positiveInt") #f "https://hl7.org/fhir/R5/subscription.html#Subscription.maxCount" #f)
+             ) #f #f))
+(register-element! "Subscription.identifier" (fhir-spec (string->symbol "Subscription.identifier") "https://hl7.org/fhir/R5/subscription.html#Subscription.identifier" 'element))
+(register-element! "Subscription.name" (fhir-spec (string->symbol "Subscription.name") "https://hl7.org/fhir/R5/subscription.html#Subscription.name" 'element))
+(register-element! "Subscription.status" (fhir-spec (string->symbol "Subscription.status") "https://hl7.org/fhir/R5/subscription.html#Subscription.status" 'element))
+(register-element! "Subscription.topic" (fhir-spec (string->symbol "Subscription.topic") "https://hl7.org/fhir/R5/subscription.html#Subscription.topic" 'element))
+(register-element! "Subscription.contact" (fhir-spec (string->symbol "Subscription.contact") "https://hl7.org/fhir/R5/subscription.html#Subscription.contact" 'element))
+(register-element! "Subscription.end" (fhir-spec (string->symbol "Subscription.end") "https://hl7.org/fhir/R5/subscription.html#Subscription.end" 'element))
+(register-element! "Subscription.managingEntity" (fhir-spec (string->symbol "Subscription.managingEntity") "https://hl7.org/fhir/R5/subscription.html#Subscription.managingEntity" 'element))
+(register-element! "Subscription.reason" (fhir-spec (string->symbol "Subscription.reason") "https://hl7.org/fhir/R5/subscription.html#Subscription.reason" 'element))
+(register-element! "Subscription.filterBy" (fhir-spec (string->symbol "Subscription.filterBy") "https://hl7.org/fhir/R5/subscription.html#Subscription.filterBy" 'element))
+(register-element! "Subscription.channelType" (fhir-spec (string->symbol "Subscription.channelType") "https://hl7.org/fhir/R5/subscription.html#Subscription.channelType" 'element))
+(register-element! "Subscription.endpoint" (fhir-spec (string->symbol "Subscription.endpoint") "https://hl7.org/fhir/R5/subscription.html#Subscription.endpoint" 'element))
+(register-element! "Subscription.parameter" (fhir-spec (string->symbol "Subscription.parameter") "https://hl7.org/fhir/R5/subscription.html#Subscription.parameter" 'element))
+(register-element! "Subscription.heartbeatPeriod" (fhir-spec (string->symbol "Subscription.heartbeatPeriod") "https://hl7.org/fhir/R5/subscription.html#Subscription.heartbeatPeriod" 'element))
+(register-element! "Subscription.timeout" (fhir-spec (string->symbol "Subscription.timeout") "https://hl7.org/fhir/R5/subscription.html#Subscription.timeout" 'element))
+(register-element! "Subscription.contentType" (fhir-spec (string->symbol "Subscription.contentType") "https://hl7.org/fhir/R5/subscription.html#Subscription.contentType" 'element))
+(register-element! "Subscription.content" (fhir-spec (string->symbol "Subscription.content") "https://hl7.org/fhir/R5/subscription.html#Subscription.content" 'element))
+(register-element! "Subscription.maxCount" (fhir-spec (string->symbol "Subscription.maxCount") "https://hl7.org/fhir/R5/subscription.html#Subscription.maxCount" 'element))
+
+(register-type! 'SubscriptionFilterBy (fhir-spec 'SubscriptionFilterBy "https://hl7.org/fhir/R5/subscription.html#Subscription.filterBy" 'type)
+  #:schema (type-schema 'SubscriptionFilterBy #f 'BackboneElement "https://hl7.org/fhir/R5/subscription.html#Subscription.filterBy"
+             (list
+    (schema-field 'resourceType 0 1 (vector 'prim "uri") #f "https://hl7.org/fhir/R5/subscription.html#Subscription.filterBy.resourceType" #f)
+    (schema-field 'filterParameter 1 1 (vector 'prim "string") #f "https://hl7.org/fhir/R5/subscription.html#Subscription.filterBy.filterParameter" #f)
+    (schema-field 'comparator 0 1 (vector 'prim "code") #f "https://hl7.org/fhir/R5/subscription.html#Subscription.filterBy.comparator" #f)
+    (schema-field 'modifier 0 1 (vector 'prim "code") #f "https://hl7.org/fhir/R5/subscription.html#Subscription.filterBy.modifier" #f)
+    (schema-field 'value 1 1 (vector 'prim "string") #f "https://hl7.org/fhir/R5/subscription.html#Subscription.filterBy.value" #f)
+             ) #f #f))
+(register-element! "Subscription.filterBy.resourceType" (fhir-spec (string->symbol "Subscription.filterBy.resourceType") "https://hl7.org/fhir/R5/subscription.html#Subscription.filterBy.resourceType" 'element))
+(register-element! "Subscription.filterBy.filterParameter" (fhir-spec (string->symbol "Subscription.filterBy.filterParameter") "https://hl7.org/fhir/R5/subscription.html#Subscription.filterBy.filterParameter" 'element))
+(register-element! "Subscription.filterBy.comparator" (fhir-spec (string->symbol "Subscription.filterBy.comparator") "https://hl7.org/fhir/R5/subscription.html#Subscription.filterBy.comparator" 'element))
+(register-element! "Subscription.filterBy.modifier" (fhir-spec (string->symbol "Subscription.filterBy.modifier") "https://hl7.org/fhir/R5/subscription.html#Subscription.filterBy.modifier" 'element))
+(register-element! "Subscription.filterBy.value" (fhir-spec (string->symbol "Subscription.filterBy.value") "https://hl7.org/fhir/R5/subscription.html#Subscription.filterBy.value" 'element))
+
+(register-type! 'SubscriptionParameter (fhir-spec 'SubscriptionParameter "https://hl7.org/fhir/R5/subscription.html#Subscription.parameter" 'type)
+  #:schema (type-schema 'SubscriptionParameter #f 'BackboneElement "https://hl7.org/fhir/R5/subscription.html#Subscription.parameter"
+             (list
+    (schema-field 'name 1 1 (vector 'prim "string") #f "https://hl7.org/fhir/R5/subscription.html#Subscription.parameter.name" #f)
+    (schema-field 'value 1 1 (vector 'prim "string") #f "https://hl7.org/fhir/R5/subscription.html#Subscription.parameter.value" #f)
+             ) #f #f))
+(register-element! "Subscription.parameter.name" (fhir-spec (string->symbol "Subscription.parameter.name") "https://hl7.org/fhir/R5/subscription.html#Subscription.parameter.name" 'element))
+(register-element! "Subscription.parameter.value" (fhir-spec (string->symbol "Subscription.parameter.value") "https://hl7.org/fhir/R5/subscription.html#Subscription.parameter.value" 'element))
+

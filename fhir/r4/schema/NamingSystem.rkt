@@ -1,0 +1,50 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r4.core#4.0.1 — DO NOT EDIT (verified by raco fhir check).
+(require fhir/model/schema fhir/model/registry)
+
+(register-type! 'NamingSystem (fhir-spec 'NamingSystem "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem" 'type)
+  #:schema (type-schema 'NamingSystem #f 'DomainResource "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem"
+             (list
+    (schema-field 'name 1 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.name" #f)
+    (schema-field 'status 1 1 (vector 'prim "code") #f "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.status" #f)
+    (schema-field 'kind 1 1 (vector 'prim "code") #f "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.kind" #f)
+    (schema-field 'date 1 1 (vector 'prim "dateTime") #f "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.date" #f)
+    (schema-field 'publisher 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.publisher" #f)
+    (schema-field 'contact 0 '* (vector 'type 'ContactDetail) #f "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.contact" #f)
+    (schema-field 'responsible 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.responsible" #f)
+    (schema-field 'type 0 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.type" #f)
+    (schema-field 'description 0 1 (vector 'prim "markdown") #f "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.description" #f)
+    (schema-field 'useContext 0 '* (vector 'type 'UsageContext) #f "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.useContext" #f)
+    (schema-field 'jurisdiction 0 '* (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.jurisdiction" #f)
+    (schema-field 'usage 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.usage" #f)
+    (schema-field 'uniqueId 1 '* (vector 'type 'NamingSystemUniqueId) #f "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.uniqueId" #f)
+             ) #f #f))
+(register-element! "NamingSystem.name" (fhir-spec (string->symbol "NamingSystem.name") "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.name" 'element))
+(register-element! "NamingSystem.status" (fhir-spec (string->symbol "NamingSystem.status") "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.status" 'element))
+(register-element! "NamingSystem.kind" (fhir-spec (string->symbol "NamingSystem.kind") "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.kind" 'element))
+(register-element! "NamingSystem.date" (fhir-spec (string->symbol "NamingSystem.date") "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.date" 'element))
+(register-element! "NamingSystem.publisher" (fhir-spec (string->symbol "NamingSystem.publisher") "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.publisher" 'element))
+(register-element! "NamingSystem.contact" (fhir-spec (string->symbol "NamingSystem.contact") "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.contact" 'element))
+(register-element! "NamingSystem.responsible" (fhir-spec (string->symbol "NamingSystem.responsible") "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.responsible" 'element))
+(register-element! "NamingSystem.type" (fhir-spec (string->symbol "NamingSystem.type") "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.type" 'element))
+(register-element! "NamingSystem.description" (fhir-spec (string->symbol "NamingSystem.description") "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.description" 'element))
+(register-element! "NamingSystem.useContext" (fhir-spec (string->symbol "NamingSystem.useContext") "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.useContext" 'element))
+(register-element! "NamingSystem.jurisdiction" (fhir-spec (string->symbol "NamingSystem.jurisdiction") "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.jurisdiction" 'element))
+(register-element! "NamingSystem.usage" (fhir-spec (string->symbol "NamingSystem.usage") "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.usage" 'element))
+(register-element! "NamingSystem.uniqueId" (fhir-spec (string->symbol "NamingSystem.uniqueId") "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.uniqueId" 'element))
+
+(register-type! 'NamingSystemUniqueId (fhir-spec 'NamingSystemUniqueId "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.uniqueId" 'type)
+  #:schema (type-schema 'NamingSystemUniqueId #f 'BackboneElement "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.uniqueId"
+             (list
+    (schema-field 'type 1 1 (vector 'prim "code") #f "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.uniqueId.type" #f)
+    (schema-field 'value 1 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.uniqueId.value" #f)
+    (schema-field 'preferred 0 1 (vector 'prim "boolean") #f "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.uniqueId.preferred" #f)
+    (schema-field 'comment 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.uniqueId.comment" #f)
+    (schema-field 'period 0 1 (vector 'type 'Period) #f "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.uniqueId.period" #f)
+             ) #f #f))
+(register-element! "NamingSystem.uniqueId.type" (fhir-spec (string->symbol "NamingSystem.uniqueId.type") "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.uniqueId.type" 'element))
+(register-element! "NamingSystem.uniqueId.value" (fhir-spec (string->symbol "NamingSystem.uniqueId.value") "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.uniqueId.value" 'element))
+(register-element! "NamingSystem.uniqueId.preferred" (fhir-spec (string->symbol "NamingSystem.uniqueId.preferred") "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.uniqueId.preferred" 'element))
+(register-element! "NamingSystem.uniqueId.comment" (fhir-spec (string->symbol "NamingSystem.uniqueId.comment") "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.uniqueId.comment" 'element))
+(register-element! "NamingSystem.uniqueId.period" (fhir-spec (string->symbol "NamingSystem.uniqueId.period") "https://hl7.org/fhir/R4/namingsystem.html#NamingSystem.uniqueId.period" 'element))
+

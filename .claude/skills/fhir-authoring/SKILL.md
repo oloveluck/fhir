@@ -37,24 +37,24 @@ syntax error that lists the valid codes.
 `raco make examples/us-core.sd`. Profiles narrow a base type's cardinality (checked at phase 1) and
 compile to a **delegating** form macro; `#:base` may be another profile (multi-level delegation).
 
-## `#lang fhir/fsh` — FHIR Shorthand (bidirectional)
+## `#lang fsh` — FHIR Shorthand (bidirectional)
 
 A `.fsh` file is a module providing `document`/`compiled`/`resources`; `main` prints JSON.
 - `racket examples/patient.fsh` — compile one file.
-- `raco fhir fsh <dir>` — SUSHI-style batch compile a folder into `fsh-generated/`.
-- `raco fhir gofsh <file.json>` — **reverse** (FHIR → FSH text).
+- `raco fsh <dir>` — SUSHI-style batch compile a folder into `fsh-generated/`.
+- `raco fsh --decompile <file.json>` — **reverse** (FHIR → FSH text).
 
 Supports Profiles, Extensions (auto-scaffolded), ValueSets, CodeSystems (concept hierarchy),
 Instances, Invariants, Aliases, slicing (incl. reslicing + multi-discriminator), Logical models &
 custom Resources, Mappings, and RuleSets (incl. parameterized). Targets R5; emits differentials by
 default, full snapshots opt-in.
 
-## `#lang fhir/cql` — Clinical Quality Language → ELM
+## `#lang cql` — Clinical Quality Language → ELM
 
 CQL compiles to **ELM** and the ELM is run (never CQL directly). A `.cql` file provides the CQL AST,
 the ELM AST, the ELM JSON, and each define's interpreted value; `main` prints ELM JSON.
 - `racket examples/demo.cql`
-- `raco fhir cql <file.cql>` — print ELM JSON.
+- `raco cql <file.cql>` — print ELM JSON.
 
 ## `#lang fhir/viewdef` — SQL-on-FHIR ViewDefinition
 
@@ -62,13 +62,13 @@ Compile-time-validated ViewDefinition authoring (a generated IG tower over the R
 doubles as the validator (strict `from-json` rejects invalid views). Evaluate views over resources
 with `viewdef/eval.rkt`; serve `$sql-run`/`$sql-export` via `make-store-app #:sof? #t`.
 
-## `#lang fhir/vcl` — ValueSet Compose Language
+## `#lang vcl` — ValueSet Compose Language
 
 One expression per file; a parse error is a compile error. Provides `compose`/`valueset`.
-`raco fhir vcl '(http://loinc.org)(a;b)'` prints the ValueSet. Implicit
+`raco vcl '(http://loinc.org)(a;b)'` prints the ValueSet. Implicit
 `http://fhir.org/VCL?v1=…` URLs expand directly in `$expand`/`%terminologies`.
 
-## `#lang fhir/fml` — FHIR Mapping Language
+## `#lang fml` — FHIR Mapping Language
 
 Prints the compiled StructureMap. `fml->structuremap` is the compiler; `run-map` executes
 groups/rules over typed resources (JSON-only — CDA/XML tests are out of scope).

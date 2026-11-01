@@ -1,0 +1,65 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r4.core#4.0.1 — DO NOT EDIT (verified by raco fhir check).
+(require fhir/model/schema fhir/model/registry)
+
+(register-type! 'MedicinalProductPackaged (fhir-spec 'MedicinalProductPackaged "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged" 'type)
+  #:schema (type-schema 'MedicinalProductPackaged #f 'DomainResource "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged"
+             (list
+    (schema-field 'identifier 0 '* (vector 'type 'Identifier) #f "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.identifier" #f)
+    (schema-field 'subject 0 '* (vector 'type 'Reference) #f "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.subject" #f)
+    (schema-field 'description 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.description" #f)
+    (schema-field 'legalStatusOfSupply 0 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.legalStatusOfSupply" #f)
+    (schema-field 'marketingStatus 0 '* (vector 'type 'MarketingStatus) #f "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.marketingStatus" #f)
+    (schema-field 'marketingAuthorization 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.marketingAuthorization" #f)
+    (schema-field 'manufacturer 0 '* (vector 'type 'Reference) #f "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.manufacturer" #f)
+    (schema-field 'batchIdentifier 0 '* (vector 'type 'MedicinalProductPackagedBatchIdentifier) #f "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.batchIdentifier" #f)
+    (schema-field 'packageItem 1 '* (vector 'type 'MedicinalProductPackagedPackageItem) #f "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem" #f)
+             ) #f #f))
+(register-element! "MedicinalProductPackaged.identifier" (fhir-spec (string->symbol "MedicinalProductPackaged.identifier") "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.identifier" 'element))
+(register-element! "MedicinalProductPackaged.subject" (fhir-spec (string->symbol "MedicinalProductPackaged.subject") "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.subject" 'element))
+(register-element! "MedicinalProductPackaged.description" (fhir-spec (string->symbol "MedicinalProductPackaged.description") "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.description" 'element))
+(register-element! "MedicinalProductPackaged.legalStatusOfSupply" (fhir-spec (string->symbol "MedicinalProductPackaged.legalStatusOfSupply") "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.legalStatusOfSupply" 'element))
+(register-element! "MedicinalProductPackaged.marketingStatus" (fhir-spec (string->symbol "MedicinalProductPackaged.marketingStatus") "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.marketingStatus" 'element))
+(register-element! "MedicinalProductPackaged.marketingAuthorization" (fhir-spec (string->symbol "MedicinalProductPackaged.marketingAuthorization") "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.marketingAuthorization" 'element))
+(register-element! "MedicinalProductPackaged.manufacturer" (fhir-spec (string->symbol "MedicinalProductPackaged.manufacturer") "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.manufacturer" 'element))
+(register-element! "MedicinalProductPackaged.batchIdentifier" (fhir-spec (string->symbol "MedicinalProductPackaged.batchIdentifier") "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.batchIdentifier" 'element))
+(register-element! "MedicinalProductPackaged.packageItem" (fhir-spec (string->symbol "MedicinalProductPackaged.packageItem") "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem" 'element))
+
+(register-type! 'MedicinalProductPackagedBatchIdentifier (fhir-spec 'MedicinalProductPackagedBatchIdentifier "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.batchIdentifier" 'type)
+  #:schema (type-schema 'MedicinalProductPackagedBatchIdentifier #f 'BackboneElement "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.batchIdentifier"
+             (list
+    (schema-field 'outerPackaging 1 1 (vector 'type 'Identifier) #f "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.batchIdentifier.outerPackaging" #f)
+    (schema-field 'immediatePackaging 0 1 (vector 'type 'Identifier) #f "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.batchIdentifier.immediatePackaging" #f)
+             ) #f #f))
+(register-element! "MedicinalProductPackaged.batchIdentifier.outerPackaging" (fhir-spec (string->symbol "MedicinalProductPackaged.batchIdentifier.outerPackaging") "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.batchIdentifier.outerPackaging" 'element))
+(register-element! "MedicinalProductPackaged.batchIdentifier.immediatePackaging" (fhir-spec (string->symbol "MedicinalProductPackaged.batchIdentifier.immediatePackaging") "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.batchIdentifier.immediatePackaging" 'element))
+
+(register-type! 'MedicinalProductPackagedPackageItem (fhir-spec 'MedicinalProductPackagedPackageItem "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem" 'type)
+  #:schema (type-schema 'MedicinalProductPackagedPackageItem #f 'BackboneElement "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem"
+             (list
+    (schema-field 'identifier 0 '* (vector 'type 'Identifier) #f "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem.identifier" #f)
+    (schema-field 'type 1 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem.type" #f)
+    (schema-field 'quantity 1 1 (vector 'type 'Quantity) #f "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem.quantity" #f)
+    (schema-field 'material 0 '* (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem.material" #f)
+    (schema-field 'alternateMaterial 0 '* (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem.alternateMaterial" #f)
+    (schema-field 'device 0 '* (vector 'type 'Reference) #f "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem.device" #f)
+    (schema-field 'manufacturedItem 0 '* (vector 'type 'Reference) #f "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem.manufacturedItem" #f)
+    (schema-field 'packageItem 0 '* (vector 'type 'MedicinalProductPackagedPackageItem) #f "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem.packageItem" #f)
+    (schema-field 'physicalCharacteristics 0 1 (vector 'type 'ProdCharacteristic) #f "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem.physicalCharacteristics" #f)
+    (schema-field 'otherCharacteristics 0 '* (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem.otherCharacteristics" #f)
+    (schema-field 'shelfLifeStorage 0 '* (vector 'type 'ProductShelfLife) #f "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem.shelfLifeStorage" #f)
+    (schema-field 'manufacturer 0 '* (vector 'type 'Reference) #f "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem.manufacturer" #f)
+             ) #f #f))
+(register-element! "MedicinalProductPackaged.packageItem.identifier" (fhir-spec (string->symbol "MedicinalProductPackaged.packageItem.identifier") "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem.identifier" 'element))
+(register-element! "MedicinalProductPackaged.packageItem.type" (fhir-spec (string->symbol "MedicinalProductPackaged.packageItem.type") "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem.type" 'element))
+(register-element! "MedicinalProductPackaged.packageItem.quantity" (fhir-spec (string->symbol "MedicinalProductPackaged.packageItem.quantity") "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem.quantity" 'element))
+(register-element! "MedicinalProductPackaged.packageItem.material" (fhir-spec (string->symbol "MedicinalProductPackaged.packageItem.material") "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem.material" 'element))
+(register-element! "MedicinalProductPackaged.packageItem.alternateMaterial" (fhir-spec (string->symbol "MedicinalProductPackaged.packageItem.alternateMaterial") "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem.alternateMaterial" 'element))
+(register-element! "MedicinalProductPackaged.packageItem.device" (fhir-spec (string->symbol "MedicinalProductPackaged.packageItem.device") "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem.device" 'element))
+(register-element! "MedicinalProductPackaged.packageItem.manufacturedItem" (fhir-spec (string->symbol "MedicinalProductPackaged.packageItem.manufacturedItem") "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem.manufacturedItem" 'element))
+(register-element! "MedicinalProductPackaged.packageItem.packageItem" (fhir-spec (string->symbol "MedicinalProductPackaged.packageItem.packageItem") "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem.packageItem" 'element))
+(register-element! "MedicinalProductPackaged.packageItem.physicalCharacteristics" (fhir-spec (string->symbol "MedicinalProductPackaged.packageItem.physicalCharacteristics") "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem.physicalCharacteristics" 'element))
+(register-element! "MedicinalProductPackaged.packageItem.otherCharacteristics" (fhir-spec (string->symbol "MedicinalProductPackaged.packageItem.otherCharacteristics") "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem.otherCharacteristics" 'element))
+(register-element! "MedicinalProductPackaged.packageItem.shelfLifeStorage" (fhir-spec (string->symbol "MedicinalProductPackaged.packageItem.shelfLifeStorage") "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem.shelfLifeStorage" 'element))
+(register-element! "MedicinalProductPackaged.packageItem.manufacturer" (fhir-spec (string->symbol "MedicinalProductPackaged.packageItem.manufacturer") "https://hl7.org/fhir/R4/medicinalproductpackaged.html#MedicinalProductPackaged.packageItem.manufacturer" 'element))
+

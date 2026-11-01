@@ -16,11 +16,11 @@ slice** — one coherent end-to-end path proving the architecture, not breadth.
 |---|---|---|
 | `fhir/r6` · `fhir/r4` | FHIR resources (compile-time-validated) | `racket examples/patient.fhir6` |
 | `fhir/sd` | profiles that narrow a base type | `raco make examples/us-core.sd` |
-| `fhir/fsh` | FHIR Shorthand (bidirectional ↔ GoFSH) | `racket examples/patient.fsh` |
-| `fhir/cql` | Clinical Quality Language → ELM | `racket examples/demo.cql` |
+| `fsh` | FHIR Shorthand (bidirectional ↔ GoFSH) | `racket examples/patient.fsh` |
+| `cql` | Clinical Quality Language → ELM | `racket examples/demo.cql` |
 | `fhir/viewdef` | SQL-on-FHIR ViewDefinitions | `raco fhir sof-tck` |
-| `fhir/vcl` | ValueSet Compose Language | `raco fhir vcl '(http://loinc.org)(a;b)'` |
-| `fhir/fml` | FHIR Mapping Language → StructureMap | `raco fhir fml-tck` |
+| `vcl` | ValueSet Compose Language | `raco vcl '(http://loinc.org)(a;b)'` |
+| `fml` | FHIR Mapping Language → StructureMap | `raco fml --tck` |
 | `fhir/capability` | an app → CapabilityStatement + ops | `racket examples/patient-app.rkt` |
 | `fhir/omop` | OMOP CDM tables + FHIR→OMOP ETL | `raco fhir omop <store.db>` |
 
@@ -55,11 +55,12 @@ is skipped and why) and gated by a floor that only rises:
 ## Try it
 
 ```sh
+cd fhir-tools
 racket examples/patient.fhir6                  # author a Patient in #lang fhir/r6, print FHIR JSON
 raco fhir serve examples/server-app.rkt 8080   # serve a capability app (GET /metadata, CRUD, search)
-racket examples/patient.fsh                    # #lang fhir/fsh — compile FSH to FHIR JSON
-racket examples/demo.cql                        # #lang fhir/cql — compile CQL to ELM, print ELM JSON
-raco fhir fhirpath-tck r5                        # run the official FHIRPath R5 conformance suite
+racket examples/patient.fsh                    # #lang fsh — compile FSH to FHIR JSON
+racket examples/demo.cql                        # #lang cql — compile CQL to ELM, print ELM JSON
+raco fhirpath --tck r5                          # run the official FHIRPath R5 conformance suite
 raco fhir check all                             # verify the committed towers match a fresh regen
 ```
 
@@ -78,23 +79,24 @@ Example (`examples/patient.fhir6`):
 
 ## Layout — a family of packages
 
-The code is split into seven Racket packages, each its own git repo, all splicing into the one
-`fhir` collection (so every `fhir/...` module path and `#lang fhir/...` is unchanged):
+Eight Racket packages in six repos. The foundation keeps the `fhir` collection; each language is its own
+collection, so `raco pkg install cql` gives you `#lang cql` and `raco cql` and nothing else.
 
-| repo | contents |
-|---|---|
-| [`fhir-core`](../fhir-core) | the foundation (`result/ model/ primitives/ kernel/ lang-gen/ serialize/ foundation/`), `codegen/` + vendored `spec/*.tgz`, the generated towers `r4/ r5/ r6/`, and `sd/` (`#lang fhir/sd` + snapshot generation) |
-| [`fhir-fhirpath`](../fhir-fhirpath) | the FHIRPath engine (with UCUM) |
-| [`fhir-vcl`](../fhir-vcl) | `#lang fhir/vcl` |
-| [`fhir-cql`](../fhir-cql) | `#lang fhir/cql` (CQL → ELM + interpreter) |
-| [`fhir-fml`](../fhir-fml) | `#lang fhir/fml` (FHIR Mapping Language) |
-| [`fhir-fsh`](../fhir-fsh) | `#lang fhir/fsh` (FHIR Shorthand, bidirectional) |
-| **`fhir`** (this repo) | the application layer: `capability/ http/ terminology/ conformance/ viewdef/ store/ omop/`, the `raco fhir` CLI (`cli/`), integration `tests/` and `examples/` |
+| package | where | contents |
+|---|---|---|
+| `fhir` | this repo, `fhir/` | the foundation: Result type, typed-node model, primitives, compile-time form macros, JSON (de)serializer, `#lang fhir/sd` + snapshot generation, `codegen/`, the generated towers `r4/ r5/ r6/` (`#lang fhir/r6`, `#lang fhir/r4`) |
+| `fhir-spec` | this repo, `fhir-spec/` | the vendored HL7 NPM packages (50 MB of `.tgz`) read by codegen, snapshots, terminology and the suites — install only when you need them |
+| [`fhirpath`](https://github.com/oloveluck/fhirpath) | own repo | the FHIRPath engine (with UCUM); `raco fhirpath` |
+| [`vcl`](https://github.com/oloveluck/vcl) | own repo | `#lang vcl` (ValueSet Compose Language); `raco vcl` |
+| [`cql`](https://github.com/oloveluck/cql) | own repo | `#lang cql` (CQL → ELM + interpreter); `raco cql` |
+| [`fml`](https://github.com/oloveluck/fml) | own repo | `#lang fml` (FHIR Mapping Language); `raco fml` |
+| [`fsh`](https://github.com/oloveluck/fsh) | own repo | `#lang fsh` (FHIR Shorthand, bidirectional); `raco fsh` |
+| `fhir-tools` | this repo, `fhir-tools/` | the application layer: `#lang fhir/capability` + HTTP, terminology service, validator, `#lang fhir/viewdef` (SQL-on-FHIR), `#lang fhir/omop`, SQLite/DuckDB store, the `raco fhir` CLI, integration tests and the examples |
 
-Install everything with the repos side by side (dependency order):
+Install from source with the repos side by side (dependency order):
 
 ```sh
-raco pkg install --link --auto fhir-core fhir-fhirpath fhir-vcl fhir-cql fhir-fml fhir-fsh fhir
+raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl cql fml fsh fhir/fhir-tools
 ```
 
 See `CLAUDE.md` (Package map) for the dependency graph and the seams the split introduced.

@@ -1,0 +1,35 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r6.core#6.0.0-ballot4 — DO NOT EDIT (verified by raco fhir check).
+(require fhir/model/schema fhir/model/registry)
+
+(register-type! 'PaymentNotice (fhir-spec 'PaymentNotice "https://build.fhir.org/paymentnotice.html#PaymentNotice" 'type)
+  #:schema (type-schema 'PaymentNotice #f 'DomainResource "https://build.fhir.org/paymentnotice.html#PaymentNotice"
+             (list
+    (schema-field 'identifier 0 '* (vector 'type 'Identifier) #f "https://build.fhir.org/paymentnotice.html#PaymentNotice.identifier" #f)
+    (schema-field 'status 1 1 (vector 'prim "code") #f "https://build.fhir.org/paymentnotice.html#PaymentNotice.status" #f)
+    (schema-field 'statusReason 0 1 (vector 'prim "string") #f "https://build.fhir.org/paymentnotice.html#PaymentNotice.statusReason" #f)
+    (schema-field 'request 0 1 (vector 'type 'Reference) #f "https://build.fhir.org/paymentnotice.html#PaymentNotice.request" #f)
+    (schema-field 'response 0 1 (vector 'type 'Reference) #f "https://build.fhir.org/paymentnotice.html#PaymentNotice.response" #f)
+    (schema-field 'created 1 1 (vector 'prim "dateTime") #f "https://build.fhir.org/paymentnotice.html#PaymentNotice.created" #f)
+    (schema-field 'reporter 0 1 (vector 'type 'Reference) #f "https://build.fhir.org/paymentnotice.html#PaymentNotice.reporter" #f)
+    (schema-field 'payment 0 1 (vector 'type 'Reference) #f "https://build.fhir.org/paymentnotice.html#PaymentNotice.payment" #f)
+    (schema-field 'paymentDate 0 1 (vector 'prim "date") #f "https://build.fhir.org/paymentnotice.html#PaymentNotice.paymentDate" #f)
+    (schema-field 'payee 0 1 (vector 'type 'Reference) #f "https://build.fhir.org/paymentnotice.html#PaymentNotice.payee" #f)
+    (schema-field 'recipient 1 1 (vector 'type 'Reference) #f "https://build.fhir.org/paymentnotice.html#PaymentNotice.recipient" #f)
+    (schema-field 'amount 1 1 (vector 'type 'Money) #f "https://build.fhir.org/paymentnotice.html#PaymentNotice.amount" #f)
+    (schema-field 'paymentStatus 0 1 (vector 'type 'CodeableConcept) #f "https://build.fhir.org/paymentnotice.html#PaymentNotice.paymentStatus" #f)
+             ) #f #f))
+(register-element! "PaymentNotice.identifier" (fhir-spec (string->symbol "PaymentNotice.identifier") "https://build.fhir.org/paymentnotice.html#PaymentNotice.identifier" 'element))
+(register-element! "PaymentNotice.status" (fhir-spec (string->symbol "PaymentNotice.status") "https://build.fhir.org/paymentnotice.html#PaymentNotice.status" 'element))
+(register-element! "PaymentNotice.statusReason" (fhir-spec (string->symbol "PaymentNotice.statusReason") "https://build.fhir.org/paymentnotice.html#PaymentNotice.statusReason" 'element))
+(register-element! "PaymentNotice.request" (fhir-spec (string->symbol "PaymentNotice.request") "https://build.fhir.org/paymentnotice.html#PaymentNotice.request" 'element))
+(register-element! "PaymentNotice.response" (fhir-spec (string->symbol "PaymentNotice.response") "https://build.fhir.org/paymentnotice.html#PaymentNotice.response" 'element))
+(register-element! "PaymentNotice.created" (fhir-spec (string->symbol "PaymentNotice.created") "https://build.fhir.org/paymentnotice.html#PaymentNotice.created" 'element))
+(register-element! "PaymentNotice.reporter" (fhir-spec (string->symbol "PaymentNotice.reporter") "https://build.fhir.org/paymentnotice.html#PaymentNotice.reporter" 'element))
+(register-element! "PaymentNotice.payment" (fhir-spec (string->symbol "PaymentNotice.payment") "https://build.fhir.org/paymentnotice.html#PaymentNotice.payment" 'element))
+(register-element! "PaymentNotice.paymentDate" (fhir-spec (string->symbol "PaymentNotice.paymentDate") "https://build.fhir.org/paymentnotice.html#PaymentNotice.paymentDate" 'element))
+(register-element! "PaymentNotice.payee" (fhir-spec (string->symbol "PaymentNotice.payee") "https://build.fhir.org/paymentnotice.html#PaymentNotice.payee" 'element))
+(register-element! "PaymentNotice.recipient" (fhir-spec (string->symbol "PaymentNotice.recipient") "https://build.fhir.org/paymentnotice.html#PaymentNotice.recipient" 'element))
+(register-element! "PaymentNotice.amount" (fhir-spec (string->symbol "PaymentNotice.amount") "https://build.fhir.org/paymentnotice.html#PaymentNotice.amount" 'element))
+(register-element! "PaymentNotice.paymentStatus" (fhir-spec (string->symbol "PaymentNotice.paymentStatus") "https://build.fhir.org/paymentnotice.html#PaymentNotice.paymentStatus" 'element))
+

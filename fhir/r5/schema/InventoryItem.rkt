@@ -1,0 +1,125 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r5.core#5.0.0 — DO NOT EDIT (verified by raco fhir check).
+(require fhir/model/schema fhir/model/registry)
+
+(register-type! 'InventoryItem (fhir-spec 'InventoryItem "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem" 'type)
+  #:schema (type-schema 'InventoryItem #f 'DomainResource "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem"
+             (list
+    (schema-field 'identifier 0 '* (vector 'type 'Identifier) #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.identifier" #f)
+    (schema-field 'status 1 1 (vector 'prim "code") #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.status" #f)
+    (schema-field 'category 0 '* (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.category" #f)
+    (schema-field 'code 0 '* (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.code" #f)
+    (schema-field 'name 0 '* (vector 'type 'InventoryItemName) #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.name" #f)
+    (schema-field 'responsibleOrganization 0 '* (vector 'type 'InventoryItemResponsibleOrganization) #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.responsibleOrganization" #f)
+    (schema-field 'description 0 1 (vector 'type 'InventoryItemDescription) #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.description" #f)
+    (schema-field 'inventoryStatus 0 '* (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.inventoryStatus" #f)
+    (schema-field 'baseUnit 0 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.baseUnit" #f)
+    (schema-field 'netContent 0 1 (vector 'type 'Quantity) #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.netContent" #f)
+    (schema-field 'association 0 '* (vector 'type 'InventoryItemAssociation) #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.association" #f)
+    (schema-field 'characteristic 0 '* (vector 'type 'InventoryItemCharacteristic) #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic" #f)
+    (schema-field 'instance 0 1 (vector 'type 'InventoryItemInstance) #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.instance" #f)
+    (schema-field 'productReference 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.productReference" #f)
+             ) #f #f))
+(register-element! "InventoryItem.identifier" (fhir-spec (string->symbol "InventoryItem.identifier") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.identifier" 'element))
+(register-element! "InventoryItem.status" (fhir-spec (string->symbol "InventoryItem.status") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.status" 'element))
+(register-element! "InventoryItem.category" (fhir-spec (string->symbol "InventoryItem.category") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.category" 'element))
+(register-element! "InventoryItem.code" (fhir-spec (string->symbol "InventoryItem.code") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.code" 'element))
+(register-element! "InventoryItem.name" (fhir-spec (string->symbol "InventoryItem.name") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.name" 'element))
+(register-element! "InventoryItem.responsibleOrganization" (fhir-spec (string->symbol "InventoryItem.responsibleOrganization") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.responsibleOrganization" 'element))
+(register-element! "InventoryItem.description" (fhir-spec (string->symbol "InventoryItem.description") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.description" 'element))
+(register-element! "InventoryItem.inventoryStatus" (fhir-spec (string->symbol "InventoryItem.inventoryStatus") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.inventoryStatus" 'element))
+(register-element! "InventoryItem.baseUnit" (fhir-spec (string->symbol "InventoryItem.baseUnit") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.baseUnit" 'element))
+(register-element! "InventoryItem.netContent" (fhir-spec (string->symbol "InventoryItem.netContent") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.netContent" 'element))
+(register-element! "InventoryItem.association" (fhir-spec (string->symbol "InventoryItem.association") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.association" 'element))
+(register-element! "InventoryItem.characteristic" (fhir-spec (string->symbol "InventoryItem.characteristic") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic" 'element))
+(register-element! "InventoryItem.instance" (fhir-spec (string->symbol "InventoryItem.instance") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.instance" 'element))
+(register-element! "InventoryItem.productReference" (fhir-spec (string->symbol "InventoryItem.productReference") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.productReference" 'element))
+
+(register-type! 'InventoryItemName (fhir-spec 'InventoryItemName "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.name" 'type)
+  #:schema (type-schema 'InventoryItemName #f 'BackboneElement "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.name"
+             (list
+    (schema-field 'nameType 1 1 (vector 'type 'Coding) #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.name.nameType" #f)
+    (schema-field 'language 1 1 (vector 'prim "code") #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.name.language" #f)
+    (schema-field 'name 1 1 (vector 'prim "string") #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.name.name" #f)
+             ) #f #f))
+(register-element! "InventoryItem.name.nameType" (fhir-spec (string->symbol "InventoryItem.name.nameType") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.name.nameType" 'element))
+(register-element! "InventoryItem.name.language" (fhir-spec (string->symbol "InventoryItem.name.language") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.name.language" 'element))
+(register-element! "InventoryItem.name.name" (fhir-spec (string->symbol "InventoryItem.name.name") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.name.name" 'element))
+
+(register-type! 'InventoryItemResponsibleOrganization (fhir-spec 'InventoryItemResponsibleOrganization "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.responsibleOrganization" 'type)
+  #:schema (type-schema 'InventoryItemResponsibleOrganization #f 'BackboneElement "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.responsibleOrganization"
+             (list
+    (schema-field 'role 1 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.responsibleOrganization.role" #f)
+    (schema-field 'organization 1 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.responsibleOrganization.organization" #f)
+             ) #f #f))
+(register-element! "InventoryItem.responsibleOrganization.role" (fhir-spec (string->symbol "InventoryItem.responsibleOrganization.role") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.responsibleOrganization.role" 'element))
+(register-element! "InventoryItem.responsibleOrganization.organization" (fhir-spec (string->symbol "InventoryItem.responsibleOrganization.organization") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.responsibleOrganization.organization" 'element))
+
+(register-type! 'InventoryItemDescription (fhir-spec 'InventoryItemDescription "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.description" 'type)
+  #:schema (type-schema 'InventoryItemDescription #f 'BackboneElement "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.description"
+             (list
+    (schema-field 'language 0 1 (vector 'prim "code") #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.description.language" #f)
+    (schema-field 'description 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.description.description" #f)
+             ) #f #f))
+(register-element! "InventoryItem.description.language" (fhir-spec (string->symbol "InventoryItem.description.language") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.description.language" 'element))
+(register-element! "InventoryItem.description.description" (fhir-spec (string->symbol "InventoryItem.description.description") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.description.description" 'element))
+
+(register-type! 'InventoryItemAssociation (fhir-spec 'InventoryItemAssociation "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.association" 'type)
+  #:schema (type-schema 'InventoryItemAssociation #f 'BackboneElement "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.association"
+             (list
+    (schema-field 'associationType 1 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.association.associationType" #f)
+    (schema-field 'relatedItem 1 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.association.relatedItem" #f)
+    (schema-field 'quantity 1 1 (vector 'type 'Ratio) #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.association.quantity" #f)
+             ) #f #f))
+(register-element! "InventoryItem.association.associationType" (fhir-spec (string->symbol "InventoryItem.association.associationType") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.association.associationType" 'element))
+(register-element! "InventoryItem.association.relatedItem" (fhir-spec (string->symbol "InventoryItem.association.relatedItem") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.association.relatedItem" 'element))
+(register-element! "InventoryItem.association.quantity" (fhir-spec (string->symbol "InventoryItem.association.quantity") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.association.quantity" 'element))
+
+(register-type! 'InventoryItemCharacteristic (fhir-spec 'InventoryItemCharacteristic "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic" 'type)
+  #:schema (type-schema 'InventoryItemCharacteristic #f 'BackboneElement "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic"
+             (list
+    (schema-field 'characteristicType 1 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.characteristicType" #f)
+    (schema-field 'valueString 0 1 (vector 'prim "string") 'value "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" #f)
+    (schema-field 'valueInteger 0 1 (vector 'prim "integer") 'value "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" #f)
+    (schema-field 'valueDecimal 0 1 (vector 'prim "decimal") 'value "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" #f)
+    (schema-field 'valueBoolean 0 1 (vector 'prim "boolean") 'value "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" #f)
+    (schema-field 'valueUrl 0 1 (vector 'prim "url") 'value "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" #f)
+    (schema-field 'valueDateTime 0 1 (vector 'prim "dateTime") 'value "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" #f)
+    (schema-field 'valueQuantity 0 1 (vector 'type 'Quantity) 'value "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" #f)
+    (schema-field 'valueRange 0 1 (vector 'type 'Range) 'value "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" #f)
+    (schema-field 'valueRatio 0 1 (vector 'type 'Ratio) 'value "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" #f)
+    (schema-field 'valueAnnotation 0 1 (vector 'type 'Annotation) 'value "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" #f)
+    (schema-field 'valueAddress 0 1 (vector 'type 'Address) 'value "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" #f)
+    (schema-field 'valueDuration 0 1 (vector 'type 'Duration) 'value "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" #f)
+    (schema-field 'valueCodeableConcept 0 1 (vector 'type 'CodeableConcept) 'value "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" #f)
+             ) #f #f))
+(register-element! "InventoryItem.characteristic.characteristicType" (fhir-spec (string->symbol "InventoryItem.characteristic.characteristicType") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.characteristicType" 'element))
+(register-element! "InventoryItem.characteristic.value[x]" (fhir-spec (string->symbol "InventoryItem.characteristic.value[x]") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" 'element))
+(register-element! "InventoryItem.characteristic.value[x]" (fhir-spec (string->symbol "InventoryItem.characteristic.value[x]") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" 'element))
+(register-element! "InventoryItem.characteristic.value[x]" (fhir-spec (string->symbol "InventoryItem.characteristic.value[x]") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" 'element))
+(register-element! "InventoryItem.characteristic.value[x]" (fhir-spec (string->symbol "InventoryItem.characteristic.value[x]") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" 'element))
+(register-element! "InventoryItem.characteristic.value[x]" (fhir-spec (string->symbol "InventoryItem.characteristic.value[x]") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" 'element))
+(register-element! "InventoryItem.characteristic.value[x]" (fhir-spec (string->symbol "InventoryItem.characteristic.value[x]") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" 'element))
+(register-element! "InventoryItem.characteristic.value[x]" (fhir-spec (string->symbol "InventoryItem.characteristic.value[x]") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" 'element))
+(register-element! "InventoryItem.characteristic.value[x]" (fhir-spec (string->symbol "InventoryItem.characteristic.value[x]") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" 'element))
+(register-element! "InventoryItem.characteristic.value[x]" (fhir-spec (string->symbol "InventoryItem.characteristic.value[x]") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" 'element))
+(register-element! "InventoryItem.characteristic.value[x]" (fhir-spec (string->symbol "InventoryItem.characteristic.value[x]") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" 'element))
+(register-element! "InventoryItem.characteristic.value[x]" (fhir-spec (string->symbol "InventoryItem.characteristic.value[x]") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" 'element))
+(register-element! "InventoryItem.characteristic.value[x]" (fhir-spec (string->symbol "InventoryItem.characteristic.value[x]") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" 'element))
+(register-element! "InventoryItem.characteristic.value[x]" (fhir-spec (string->symbol "InventoryItem.characteristic.value[x]") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.characteristic.value[x]" 'element))
+
+(register-type! 'InventoryItemInstance (fhir-spec 'InventoryItemInstance "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.instance" 'type)
+  #:schema (type-schema 'InventoryItemInstance #f 'BackboneElement "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.instance"
+             (list
+    (schema-field 'identifier 0 '* (vector 'type 'Identifier) #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.instance.identifier" #f)
+    (schema-field 'lotNumber 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.instance.lotNumber" #f)
+    (schema-field 'expiry 0 1 (vector 'prim "dateTime") #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.instance.expiry" #f)
+    (schema-field 'subject 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.instance.subject" #f)
+    (schema-field 'location 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.instance.location" #f)
+             ) #f #f))
+(register-element! "InventoryItem.instance.identifier" (fhir-spec (string->symbol "InventoryItem.instance.identifier") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.instance.identifier" 'element))
+(register-element! "InventoryItem.instance.lotNumber" (fhir-spec (string->symbol "InventoryItem.instance.lotNumber") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.instance.lotNumber" 'element))
+(register-element! "InventoryItem.instance.expiry" (fhir-spec (string->symbol "InventoryItem.instance.expiry") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.instance.expiry" 'element))
+(register-element! "InventoryItem.instance.subject" (fhir-spec (string->symbol "InventoryItem.instance.subject") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.instance.subject" 'element))
+(register-element! "InventoryItem.instance.location" (fhir-spec (string->symbol "InventoryItem.instance.location") "https://hl7.org/fhir/R5/inventoryitem.html#InventoryItem.instance.location" 'element))
+

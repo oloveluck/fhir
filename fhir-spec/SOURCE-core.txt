@@ -1,0 +1,14 @@
+SOURCE-core.txt — provenance of the HL7 core packages vendored in fhir-spec
+
+hl7.fhir.r4.core.tgz: name=hl7.fhir.r4.core version=4.0.1 fhirVersions=['4.0.1'] license=CC0-1.0
+hl7.fhir.r5.core.tgz: name=hl7.fhir.r5.core version=5.0.0 fhirVersions=['5.0.0'] license=CC0-1.0
+hl7.fhir.r6.core.tgz: name=hl7.fhir.r6.core version=6.0.0-ballot4 fhirVersions=['6.0.0-ballot4'] license=CC0-1.0
+hl7.fhir.us.core.tgz: name=hl7.fhir.us.core version=9.0.0 fhirVersions=['4.0.1'] license=CC0-1.0
+hl7.fhir.uv.ips.tgz: name=hl7.fhir.uv.ips version=2.0.1 fhirVersions=['4.0.1'] license=CC0-1.0
+hl7.fhir.uv.omop.tgz: name=hl7.fhir.uv.omop version=2.0.0-ballot fhirVersions=['5.0.0'] license=CC0-1.0
+hl7.fhir.uv.sql-on-fhir.tgz: name=hl7.fhir.uv.sql-on-fhir version=3.0.0-ballot fhirVersions=['6.0.0-ballot5'] license=CC0-1.0
+hl7.fhir.uv.tx-ecosystem.tgz: name=hl7.fhir.uv.tx-ecosystem version=1.9.3 fhirVersions=['5.0.0'] license=CC0-1.0
+
+All packages were retrieved from packages2.fhir.org (see SOURCE-igs.txt / SOURCE-tx-ecosystem.txt for the
+IG packages' URLs and dates). The core packages are HL7's official releases: R4 4.0.1, R5 5.0.0 and the R6
+ballot build. Every package.json declares CC0-1.0; this packaging is MIT (see ../LICENSE).

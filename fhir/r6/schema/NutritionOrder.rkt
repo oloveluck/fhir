@@ -1,0 +1,185 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r6.core#6.0.0-ballot4 — DO NOT EDIT (verified by raco fhir check).
+(require fhir/model/schema fhir/model/registry)
+
+(register-type! 'NutritionOrder (fhir-spec 'NutritionOrder "https://build.fhir.org/nutritionorder.html#NutritionOrder" 'type)
+  #:schema (type-schema 'NutritionOrder #f 'DomainResource "https://build.fhir.org/nutritionorder.html#NutritionOrder"
+             (list
+    (schema-field 'identifier 0 '* (vector 'type 'Identifier) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.identifier" #f)
+    (schema-field 'basedOn 0 '* (vector 'type 'Reference) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.basedOn" #f)
+    (schema-field 'groupIdentifier 0 1 (vector 'type 'Identifier) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.groupIdentifier" #f)
+    (schema-field 'status 1 1 (vector 'prim "code") #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.status" #f)
+    (schema-field 'intent 1 1 (vector 'prim "code") #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.intent" #f)
+    (schema-field 'priority 0 1 (vector 'prim "code") #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.priority" #f)
+    (schema-field 'subject 1 1 (vector 'type 'Reference) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.subject" #f)
+    (schema-field 'encounter 0 1 (vector 'type 'Reference) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.encounter" #f)
+    (schema-field 'supportingInformation 0 '* (vector 'type 'Reference) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.supportingInformation" #f)
+    (schema-field 'dateTime 1 1 (vector 'prim "dateTime") #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.dateTime" #f)
+    (schema-field 'requester 0 1 (vector 'type 'Reference) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.requester" #f)
+    (schema-field 'performer 0 '* (vector 'type 'CodeableReference) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.performer" #f)
+    (schema-field 'allergyIntolerance 0 '* (vector 'type 'Reference) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.allergyIntolerance" #f)
+    (schema-field 'foodPreferenceModifier 0 '* (vector 'type 'CodeableConcept) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.foodPreferenceModifier" #f)
+    (schema-field 'excludeFoodModifier 0 '* (vector 'type 'CodeableConcept) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.excludeFoodModifier" #f)
+    (schema-field 'outsideFoodAllowed 0 1 (vector 'prim "boolean") #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.outsideFoodAllowed" #f)
+    (schema-field 'oralDiet 0 1 (vector 'type 'NutritionOrderOralDiet) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet" #f)
+    (schema-field 'supplement 0 '* (vector 'type 'NutritionOrderSupplement) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.supplement" #f)
+    (schema-field 'enteralFormula 0 1 (vector 'type 'NutritionOrderEnteralFormula) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula" #f)
+    (schema-field 'additive 0 '* (vector 'type 'NutritionOrderAdditive) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.additive" #f)
+    (schema-field 'note 0 '* (vector 'type 'Annotation) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.note" #f)
+             ) #f #f))
+(register-element! "NutritionOrder.identifier" (fhir-spec (string->symbol "NutritionOrder.identifier") "https://build.fhir.org/nutritionorder.html#NutritionOrder.identifier" 'element))
+(register-element! "NutritionOrder.basedOn" (fhir-spec (string->symbol "NutritionOrder.basedOn") "https://build.fhir.org/nutritionorder.html#NutritionOrder.basedOn" 'element))
+(register-element! "NutritionOrder.groupIdentifier" (fhir-spec (string->symbol "NutritionOrder.groupIdentifier") "https://build.fhir.org/nutritionorder.html#NutritionOrder.groupIdentifier" 'element))
+(register-element! "NutritionOrder.status" (fhir-spec (string->symbol "NutritionOrder.status") "https://build.fhir.org/nutritionorder.html#NutritionOrder.status" 'element))
+(register-element! "NutritionOrder.intent" (fhir-spec (string->symbol "NutritionOrder.intent") "https://build.fhir.org/nutritionorder.html#NutritionOrder.intent" 'element))
+(register-element! "NutritionOrder.priority" (fhir-spec (string->symbol "NutritionOrder.priority") "https://build.fhir.org/nutritionorder.html#NutritionOrder.priority" 'element))
+(register-element! "NutritionOrder.subject" (fhir-spec (string->symbol "NutritionOrder.subject") "https://build.fhir.org/nutritionorder.html#NutritionOrder.subject" 'element))
+(register-element! "NutritionOrder.encounter" (fhir-spec (string->symbol "NutritionOrder.encounter") "https://build.fhir.org/nutritionorder.html#NutritionOrder.encounter" 'element))
+(register-element! "NutritionOrder.supportingInformation" (fhir-spec (string->symbol "NutritionOrder.supportingInformation") "https://build.fhir.org/nutritionorder.html#NutritionOrder.supportingInformation" 'element))
+(register-element! "NutritionOrder.dateTime" (fhir-spec (string->symbol "NutritionOrder.dateTime") "https://build.fhir.org/nutritionorder.html#NutritionOrder.dateTime" 'element))
+(register-element! "NutritionOrder.requester" (fhir-spec (string->symbol "NutritionOrder.requester") "https://build.fhir.org/nutritionorder.html#NutritionOrder.requester" 'element))
+(register-element! "NutritionOrder.performer" (fhir-spec (string->symbol "NutritionOrder.performer") "https://build.fhir.org/nutritionorder.html#NutritionOrder.performer" 'element))
+(register-element! "NutritionOrder.allergyIntolerance" (fhir-spec (string->symbol "NutritionOrder.allergyIntolerance") "https://build.fhir.org/nutritionorder.html#NutritionOrder.allergyIntolerance" 'element))
+(register-element! "NutritionOrder.foodPreferenceModifier" (fhir-spec (string->symbol "NutritionOrder.foodPreferenceModifier") "https://build.fhir.org/nutritionorder.html#NutritionOrder.foodPreferenceModifier" 'element))
+(register-element! "NutritionOrder.excludeFoodModifier" (fhir-spec (string->symbol "NutritionOrder.excludeFoodModifier") "https://build.fhir.org/nutritionorder.html#NutritionOrder.excludeFoodModifier" 'element))
+(register-element! "NutritionOrder.outsideFoodAllowed" (fhir-spec (string->symbol "NutritionOrder.outsideFoodAllowed") "https://build.fhir.org/nutritionorder.html#NutritionOrder.outsideFoodAllowed" 'element))
+(register-element! "NutritionOrder.oralDiet" (fhir-spec (string->symbol "NutritionOrder.oralDiet") "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet" 'element))
+(register-element! "NutritionOrder.supplement" (fhir-spec (string->symbol "NutritionOrder.supplement") "https://build.fhir.org/nutritionorder.html#NutritionOrder.supplement" 'element))
+(register-element! "NutritionOrder.enteralFormula" (fhir-spec (string->symbol "NutritionOrder.enteralFormula") "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula" 'element))
+(register-element! "NutritionOrder.additive" (fhir-spec (string->symbol "NutritionOrder.additive") "https://build.fhir.org/nutritionorder.html#NutritionOrder.additive" 'element))
+(register-element! "NutritionOrder.note" (fhir-spec (string->symbol "NutritionOrder.note") "https://build.fhir.org/nutritionorder.html#NutritionOrder.note" 'element))
+
+(register-type! 'NutritionOrderOralDiet (fhir-spec 'NutritionOrderOralDiet "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet" 'type)
+  #:schema (type-schema 'NutritionOrderOralDiet #f 'BackboneElement "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet"
+             (list
+    (schema-field 'type 0 '* (vector 'type 'CodeableConcept) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.type" #f)
+    (schema-field 'schedule 0 1 (vector 'type 'NutritionOrderOralDietSchedule) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.schedule" #f)
+    (schema-field 'nutrient 0 '* (vector 'type 'NutritionOrderOralDietNutrient) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.nutrient" #f)
+    (schema-field 'texture 0 '* (vector 'type 'NutritionOrderOralDietTexture) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.texture" #f)
+    (schema-field 'instruction 0 1 (vector 'prim "string") #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.instruction" #f)
+    (schema-field 'caloricDensity 0 1 (vector 'type 'Quantity) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.caloricDensity" #f)
+             ) #f #f))
+(register-element! "NutritionOrder.oralDiet.type" (fhir-spec (string->symbol "NutritionOrder.oralDiet.type") "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.type" 'element))
+(register-element! "NutritionOrder.oralDiet.schedule" (fhir-spec (string->symbol "NutritionOrder.oralDiet.schedule") "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.schedule" 'element))
+(register-element! "NutritionOrder.oralDiet.nutrient" (fhir-spec (string->symbol "NutritionOrder.oralDiet.nutrient") "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.nutrient" 'element))
+(register-element! "NutritionOrder.oralDiet.texture" (fhir-spec (string->symbol "NutritionOrder.oralDiet.texture") "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.texture" 'element))
+(register-element! "NutritionOrder.oralDiet.instruction" (fhir-spec (string->symbol "NutritionOrder.oralDiet.instruction") "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.instruction" 'element))
+(register-element! "NutritionOrder.oralDiet.caloricDensity" (fhir-spec (string->symbol "NutritionOrder.oralDiet.caloricDensity") "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.caloricDensity" 'element))
+
+(register-type! 'NutritionOrderOralDietSchedule (fhir-spec 'NutritionOrderOralDietSchedule "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.schedule" 'type)
+  #:schema (type-schema 'NutritionOrderOralDietSchedule #f 'BackboneElement "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.schedule"
+             (list
+    (schema-field 'timing 0 '* (vector 'type 'Timing) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.schedule.timing" #f)
+    (schema-field 'asNeeded 0 1 (vector 'prim "boolean") #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.schedule.asNeeded" #f)
+    (schema-field 'asNeededFor 0 1 (vector 'type 'CodeableConcept) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.schedule.asNeededFor" #f)
+             ) #f #f))
+(register-element! "NutritionOrder.oralDiet.schedule.timing" (fhir-spec (string->symbol "NutritionOrder.oralDiet.schedule.timing") "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.schedule.timing" 'element))
+(register-element! "NutritionOrder.oralDiet.schedule.asNeeded" (fhir-spec (string->symbol "NutritionOrder.oralDiet.schedule.asNeeded") "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.schedule.asNeeded" 'element))
+(register-element! "NutritionOrder.oralDiet.schedule.asNeededFor" (fhir-spec (string->symbol "NutritionOrder.oralDiet.schedule.asNeededFor") "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.schedule.asNeededFor" 'element))
+
+(register-type! 'NutritionOrderOralDietNutrient (fhir-spec 'NutritionOrderOralDietNutrient "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.nutrient" 'type)
+  #:schema (type-schema 'NutritionOrderOralDietNutrient #f 'BackboneElement "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.nutrient"
+             (list
+    (schema-field 'modifier 0 1 (vector 'type 'CodeableConcept) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.nutrient.modifier" #f)
+    (schema-field 'amount 0 1 (vector 'type 'Quantity) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.nutrient.amount" #f)
+             ) #f #f))
+(register-element! "NutritionOrder.oralDiet.nutrient.modifier" (fhir-spec (string->symbol "NutritionOrder.oralDiet.nutrient.modifier") "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.nutrient.modifier" 'element))
+(register-element! "NutritionOrder.oralDiet.nutrient.amount" (fhir-spec (string->symbol "NutritionOrder.oralDiet.nutrient.amount") "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.nutrient.amount" 'element))
+
+(register-type! 'NutritionOrderOralDietTexture (fhir-spec 'NutritionOrderOralDietTexture "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.texture" 'type)
+  #:schema (type-schema 'NutritionOrderOralDietTexture #f 'BackboneElement "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.texture"
+             (list
+    (schema-field 'modifier 0 1 (vector 'type 'CodeableConcept) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.texture.modifier" #f)
+    (schema-field 'type 0 1 (vector 'type 'CodeableConcept) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.texture.type" #f)
+             ) #f #f))
+(register-element! "NutritionOrder.oralDiet.texture.modifier" (fhir-spec (string->symbol "NutritionOrder.oralDiet.texture.modifier") "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.texture.modifier" 'element))
+(register-element! "NutritionOrder.oralDiet.texture.type" (fhir-spec (string->symbol "NutritionOrder.oralDiet.texture.type") "https://build.fhir.org/nutritionorder.html#NutritionOrder.oralDiet.texture.type" 'element))
+
+(register-type! 'NutritionOrderSupplement (fhir-spec 'NutritionOrderSupplement "https://build.fhir.org/nutritionorder.html#NutritionOrder.supplement" 'type)
+  #:schema (type-schema 'NutritionOrderSupplement #f 'BackboneElement "https://build.fhir.org/nutritionorder.html#NutritionOrder.supplement"
+             (list
+    (schema-field 'type 0 1 (vector 'type 'CodeableReference) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.supplement.type" #f)
+    (schema-field 'productName 0 1 (vector 'prim "string") #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.supplement.productName" #f)
+    (schema-field 'schedule 0 1 (vector 'type 'NutritionOrderSupplementSchedule) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.supplement.schedule" #f)
+    (schema-field 'quantity 0 1 (vector 'type 'Quantity) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.supplement.quantity" #f)
+    (schema-field 'instruction 0 1 (vector 'prim "string") #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.supplement.instruction" #f)
+    (schema-field 'caloricDensity 0 1 (vector 'type 'Quantity) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.supplement.caloricDensity" #f)
+             ) #f #f))
+(register-element! "NutritionOrder.supplement.type" (fhir-spec (string->symbol "NutritionOrder.supplement.type") "https://build.fhir.org/nutritionorder.html#NutritionOrder.supplement.type" 'element))
+(register-element! "NutritionOrder.supplement.productName" (fhir-spec (string->symbol "NutritionOrder.supplement.productName") "https://build.fhir.org/nutritionorder.html#NutritionOrder.supplement.productName" 'element))
+(register-element! "NutritionOrder.supplement.schedule" (fhir-spec (string->symbol "NutritionOrder.supplement.schedule") "https://build.fhir.org/nutritionorder.html#NutritionOrder.supplement.schedule" 'element))
+(register-element! "NutritionOrder.supplement.quantity" (fhir-spec (string->symbol "NutritionOrder.supplement.quantity") "https://build.fhir.org/nutritionorder.html#NutritionOrder.supplement.quantity" 'element))
+(register-element! "NutritionOrder.supplement.instruction" (fhir-spec (string->symbol "NutritionOrder.supplement.instruction") "https://build.fhir.org/nutritionorder.html#NutritionOrder.supplement.instruction" 'element))
+(register-element! "NutritionOrder.supplement.caloricDensity" (fhir-spec (string->symbol "NutritionOrder.supplement.caloricDensity") "https://build.fhir.org/nutritionorder.html#NutritionOrder.supplement.caloricDensity" 'element))
+
+(register-type! 'NutritionOrderSupplementSchedule (fhir-spec 'NutritionOrderSupplementSchedule "https://build.fhir.org/nutritionorder.html#NutritionOrder.supplement.schedule" 'type)
+  #:schema (type-schema 'NutritionOrderSupplementSchedule #f 'BackboneElement "https://build.fhir.org/nutritionorder.html#NutritionOrder.supplement.schedule"
+             (list
+    (schema-field 'timing 0 '* (vector 'type 'Timing) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.supplement.schedule.timing" #f)
+    (schema-field 'asNeeded 0 1 (vector 'prim "boolean") #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.supplement.schedule.asNeeded" #f)
+    (schema-field 'asNeededFor 0 1 (vector 'type 'CodeableConcept) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.supplement.schedule.asNeededFor" #f)
+             ) #f #f))
+(register-element! "NutritionOrder.supplement.schedule.timing" (fhir-spec (string->symbol "NutritionOrder.supplement.schedule.timing") "https://build.fhir.org/nutritionorder.html#NutritionOrder.supplement.schedule.timing" 'element))
+(register-element! "NutritionOrder.supplement.schedule.asNeeded" (fhir-spec (string->symbol "NutritionOrder.supplement.schedule.asNeeded") "https://build.fhir.org/nutritionorder.html#NutritionOrder.supplement.schedule.asNeeded" 'element))
+(register-element! "NutritionOrder.supplement.schedule.asNeededFor" (fhir-spec (string->symbol "NutritionOrder.supplement.schedule.asNeededFor") "https://build.fhir.org/nutritionorder.html#NutritionOrder.supplement.schedule.asNeededFor" 'element))
+
+(register-type! 'NutritionOrderEnteralFormula (fhir-spec 'NutritionOrderEnteralFormula "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula" 'type)
+  #:schema (type-schema 'NutritionOrderEnteralFormula #f 'BackboneElement "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula"
+             (list
+    (schema-field 'type 0 1 (vector 'type 'CodeableReference) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.type" #f)
+    (schema-field 'productName 0 1 (vector 'prim "string") #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.productName" #f)
+    (schema-field 'caloricDensity 0 1 (vector 'type 'Quantity) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.caloricDensity" #f)
+    (schema-field 'routeOfAdministration 0 '* (vector 'type 'CodeableConcept) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.routeOfAdministration" #f)
+    (schema-field 'administration 0 '* (vector 'type 'NutritionOrderEnteralFormulaAdministration) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.administration" #f)
+    (schema-field 'maxVolumeToAdminister 0 1 (vector 'type 'Quantity) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.maxVolumeToAdminister" #f)
+    (schema-field 'administrationInstruction 0 1 (vector 'prim "markdown") #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.administrationInstruction" #f)
+    (schema-field 'deliveryDeviceCodeableConcept 0 1 (vector 'type 'CodeableConcept) 'deliveryDevice "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.deliveryDevice[x]" #f)
+    (schema-field 'deliveryDeviceCanonical 0 1 (vector 'prim "canonical") 'deliveryDevice "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.deliveryDevice[x]" #f)
+             ) #f #f))
+(register-element! "NutritionOrder.enteralFormula.type" (fhir-spec (string->symbol "NutritionOrder.enteralFormula.type") "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.type" 'element))
+(register-element! "NutritionOrder.enteralFormula.productName" (fhir-spec (string->symbol "NutritionOrder.enteralFormula.productName") "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.productName" 'element))
+(register-element! "NutritionOrder.enteralFormula.caloricDensity" (fhir-spec (string->symbol "NutritionOrder.enteralFormula.caloricDensity") "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.caloricDensity" 'element))
+(register-element! "NutritionOrder.enteralFormula.routeOfAdministration" (fhir-spec (string->symbol "NutritionOrder.enteralFormula.routeOfAdministration") "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.routeOfAdministration" 'element))
+(register-element! "NutritionOrder.enteralFormula.administration" (fhir-spec (string->symbol "NutritionOrder.enteralFormula.administration") "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.administration" 'element))
+(register-element! "NutritionOrder.enteralFormula.maxVolumeToAdminister" (fhir-spec (string->symbol "NutritionOrder.enteralFormula.maxVolumeToAdminister") "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.maxVolumeToAdminister" 'element))
+(register-element! "NutritionOrder.enteralFormula.administrationInstruction" (fhir-spec (string->symbol "NutritionOrder.enteralFormula.administrationInstruction") "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.administrationInstruction" 'element))
+(register-element! "NutritionOrder.enteralFormula.deliveryDevice[x]" (fhir-spec (string->symbol "NutritionOrder.enteralFormula.deliveryDevice[x]") "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.deliveryDevice[x]" 'element))
+(register-element! "NutritionOrder.enteralFormula.deliveryDevice[x]" (fhir-spec (string->symbol "NutritionOrder.enteralFormula.deliveryDevice[x]") "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.deliveryDevice[x]" 'element))
+
+(register-type! 'NutritionOrderEnteralFormulaAdministration (fhir-spec 'NutritionOrderEnteralFormulaAdministration "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.administration" 'type)
+  #:schema (type-schema 'NutritionOrderEnteralFormulaAdministration #f 'BackboneElement "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.administration"
+             (list
+    (schema-field 'schedule 0 1 (vector 'type 'NutritionOrderEnteralFormulaAdministrationSchedule) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.administration.schedule" #f)
+    (schema-field 'quantity 0 1 (vector 'type 'Quantity) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.administration.quantity" #f)
+    (schema-field 'rateQuantity 0 1 (vector 'type 'Quantity) 'rate "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.administration.rate[x]" #f)
+    (schema-field 'rateRatio 0 1 (vector 'type 'Ratio) 'rate "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.administration.rate[x]" #f)
+             ) #f #f))
+(register-element! "NutritionOrder.enteralFormula.administration.schedule" (fhir-spec (string->symbol "NutritionOrder.enteralFormula.administration.schedule") "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.administration.schedule" 'element))
+(register-element! "NutritionOrder.enteralFormula.administration.quantity" (fhir-spec (string->symbol "NutritionOrder.enteralFormula.administration.quantity") "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.administration.quantity" 'element))
+(register-element! "NutritionOrder.enteralFormula.administration.rate[x]" (fhir-spec (string->symbol "NutritionOrder.enteralFormula.administration.rate[x]") "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.administration.rate[x]" 'element))
+(register-element! "NutritionOrder.enteralFormula.administration.rate[x]" (fhir-spec (string->symbol "NutritionOrder.enteralFormula.administration.rate[x]") "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.administration.rate[x]" 'element))
+
+(register-type! 'NutritionOrderEnteralFormulaAdministrationSchedule (fhir-spec 'NutritionOrderEnteralFormulaAdministrationSchedule "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.administration.schedule" 'type)
+  #:schema (type-schema 'NutritionOrderEnteralFormulaAdministrationSchedule #f 'BackboneElement "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.administration.schedule"
+             (list
+    (schema-field 'timing 0 '* (vector 'type 'Timing) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.administration.schedule.timing" #f)
+    (schema-field 'asNeeded 0 1 (vector 'prim "boolean") #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.administration.schedule.asNeeded" #f)
+    (schema-field 'asNeededFor 0 1 (vector 'type 'CodeableConcept) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.administration.schedule.asNeededFor" #f)
+             ) #f #f))
+(register-element! "NutritionOrder.enteralFormula.administration.schedule.timing" (fhir-spec (string->symbol "NutritionOrder.enteralFormula.administration.schedule.timing") "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.administration.schedule.timing" 'element))
+(register-element! "NutritionOrder.enteralFormula.administration.schedule.asNeeded" (fhir-spec (string->symbol "NutritionOrder.enteralFormula.administration.schedule.asNeeded") "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.administration.schedule.asNeeded" 'element))
+(register-element! "NutritionOrder.enteralFormula.administration.schedule.asNeededFor" (fhir-spec (string->symbol "NutritionOrder.enteralFormula.administration.schedule.asNeededFor") "https://build.fhir.org/nutritionorder.html#NutritionOrder.enteralFormula.administration.schedule.asNeededFor" 'element))
+
+(register-type! 'NutritionOrderAdditive (fhir-spec 'NutritionOrderAdditive "https://build.fhir.org/nutritionorder.html#NutritionOrder.additive" 'type)
+  #:schema (type-schema 'NutritionOrderAdditive #f 'BackboneElement "https://build.fhir.org/nutritionorder.html#NutritionOrder.additive"
+             (list
+    (schema-field 'modularType 0 1 (vector 'type 'CodeableReference) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.additive.modularType" #f)
+    (schema-field 'productName 0 1 (vector 'prim "string") #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.additive.productName" #f)
+    (schema-field 'quantity 0 1 (vector 'type 'Quantity) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.additive.quantity" #f)
+    (schema-field 'routeOfAdministration 0 '* (vector 'type 'CodeableConcept) #f "https://build.fhir.org/nutritionorder.html#NutritionOrder.additive.routeOfAdministration" #f)
+             ) #f #f))
+(register-element! "NutritionOrder.additive.modularType" (fhir-spec (string->symbol "NutritionOrder.additive.modularType") "https://build.fhir.org/nutritionorder.html#NutritionOrder.additive.modularType" 'element))
+(register-element! "NutritionOrder.additive.productName" (fhir-spec (string->symbol "NutritionOrder.additive.productName") "https://build.fhir.org/nutritionorder.html#NutritionOrder.additive.productName" 'element))
+(register-element! "NutritionOrder.additive.quantity" (fhir-spec (string->symbol "NutritionOrder.additive.quantity") "https://build.fhir.org/nutritionorder.html#NutritionOrder.additive.quantity" 'element))
+(register-element! "NutritionOrder.additive.routeOfAdministration" (fhir-spec (string->symbol "NutritionOrder.additive.routeOfAdministration") "https://build.fhir.org/nutritionorder.html#NutritionOrder.additive.routeOfAdministration" 'element))
+

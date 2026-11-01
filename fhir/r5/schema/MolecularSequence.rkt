@@ -1,0 +1,80 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r5.core#5.0.0 — DO NOT EDIT (verified by raco fhir check).
+(require fhir/model/schema fhir/model/registry)
+
+(register-type! 'MolecularSequence (fhir-spec 'MolecularSequence "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence" 'type)
+  #:schema (type-schema 'MolecularSequence #f 'DomainResource "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence"
+             (list
+    (schema-field 'identifier 0 '* (vector 'type 'Identifier) #f "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.identifier" #f)
+    (schema-field 'type 0 1 (vector 'prim "code") #f "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.type" #f)
+    (schema-field 'subject 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.subject" #f)
+    (schema-field 'focus 0 '* (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.focus" #f)
+    (schema-field 'specimen 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.specimen" #f)
+    (schema-field 'device 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.device" #f)
+    (schema-field 'performer 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.performer" #f)
+    (schema-field 'literal 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.literal" #f)
+    (schema-field 'formatted 0 '* (vector 'type 'Attachment) #f "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.formatted" #f)
+    (schema-field 'relative 0 '* (vector 'type 'MolecularSequenceRelative) #f "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative" #f)
+             ) #f #f))
+(register-element! "MolecularSequence.identifier" (fhir-spec (string->symbol "MolecularSequence.identifier") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.identifier" 'element))
+(register-element! "MolecularSequence.type" (fhir-spec (string->symbol "MolecularSequence.type") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.type" 'element))
+(register-element! "MolecularSequence.subject" (fhir-spec (string->symbol "MolecularSequence.subject") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.subject" 'element))
+(register-element! "MolecularSequence.focus" (fhir-spec (string->symbol "MolecularSequence.focus") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.focus" 'element))
+(register-element! "MolecularSequence.specimen" (fhir-spec (string->symbol "MolecularSequence.specimen") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.specimen" 'element))
+(register-element! "MolecularSequence.device" (fhir-spec (string->symbol "MolecularSequence.device") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.device" 'element))
+(register-element! "MolecularSequence.performer" (fhir-spec (string->symbol "MolecularSequence.performer") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.performer" 'element))
+(register-element! "MolecularSequence.literal" (fhir-spec (string->symbol "MolecularSequence.literal") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.literal" 'element))
+(register-element! "MolecularSequence.formatted" (fhir-spec (string->symbol "MolecularSequence.formatted") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.formatted" 'element))
+(register-element! "MolecularSequence.relative" (fhir-spec (string->symbol "MolecularSequence.relative") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative" 'element))
+
+(register-type! 'MolecularSequenceRelative (fhir-spec 'MolecularSequenceRelative "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative" 'type)
+  #:schema (type-schema 'MolecularSequenceRelative #f 'BackboneElement "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative"
+             (list
+    (schema-field 'coordinateSystem 1 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.coordinateSystem" #f)
+    (schema-field 'ordinalPosition 0 1 (vector 'prim "integer") #f "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.ordinalPosition" #f)
+    (schema-field 'sequenceRange 0 1 (vector 'type 'Range) #f "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.sequenceRange" #f)
+    (schema-field 'startingSequence 0 1 (vector 'type 'MolecularSequenceRelativeStartingSequence) #f "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.startingSequence" #f)
+    (schema-field 'edit 0 '* (vector 'type 'MolecularSequenceRelativeEdit) #f "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.edit" #f)
+             ) #f #f))
+(register-element! "MolecularSequence.relative.coordinateSystem" (fhir-spec (string->symbol "MolecularSequence.relative.coordinateSystem") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.coordinateSystem" 'element))
+(register-element! "MolecularSequence.relative.ordinalPosition" (fhir-spec (string->symbol "MolecularSequence.relative.ordinalPosition") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.ordinalPosition" 'element))
+(register-element! "MolecularSequence.relative.sequenceRange" (fhir-spec (string->symbol "MolecularSequence.relative.sequenceRange") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.sequenceRange" 'element))
+(register-element! "MolecularSequence.relative.startingSequence" (fhir-spec (string->symbol "MolecularSequence.relative.startingSequence") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.startingSequence" 'element))
+(register-element! "MolecularSequence.relative.edit" (fhir-spec (string->symbol "MolecularSequence.relative.edit") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.edit" 'element))
+
+(register-type! 'MolecularSequenceRelativeStartingSequence (fhir-spec 'MolecularSequenceRelativeStartingSequence "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.startingSequence" 'type)
+  #:schema (type-schema 'MolecularSequenceRelativeStartingSequence #f 'BackboneElement "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.startingSequence"
+             (list
+    (schema-field 'genomeAssembly 0 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.startingSequence.genomeAssembly" #f)
+    (schema-field 'chromosome 0 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.startingSequence.chromosome" #f)
+    (schema-field 'windowStart 0 1 (vector 'prim "integer") #f "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.startingSequence.windowStart" #f)
+    (schema-field 'windowEnd 0 1 (vector 'prim "integer") #f "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.startingSequence.windowEnd" #f)
+    (schema-field 'orientation 0 1 (vector 'prim "code") #f "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.startingSequence.orientation" #f)
+    (schema-field 'strand 0 1 (vector 'prim "code") #f "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.startingSequence.strand" #f)
+    (schema-field 'sequenceCodeableConcept 0 1 (vector 'type 'CodeableConcept) 'sequence "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.startingSequence.sequence[x]" #f)
+    (schema-field 'sequenceString 0 1 (vector 'prim "string") 'sequence "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.startingSequence.sequence[x]" #f)
+    (schema-field 'sequenceReference 0 1 (vector 'type 'Reference) 'sequence "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.startingSequence.sequence[x]" #f)
+             ) #f #f))
+(register-element! "MolecularSequence.relative.startingSequence.genomeAssembly" (fhir-spec (string->symbol "MolecularSequence.relative.startingSequence.genomeAssembly") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.startingSequence.genomeAssembly" 'element))
+(register-element! "MolecularSequence.relative.startingSequence.chromosome" (fhir-spec (string->symbol "MolecularSequence.relative.startingSequence.chromosome") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.startingSequence.chromosome" 'element))
+(register-element! "MolecularSequence.relative.startingSequence.windowStart" (fhir-spec (string->symbol "MolecularSequence.relative.startingSequence.windowStart") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.startingSequence.windowStart" 'element))
+(register-element! "MolecularSequence.relative.startingSequence.windowEnd" (fhir-spec (string->symbol "MolecularSequence.relative.startingSequence.windowEnd") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.startingSequence.windowEnd" 'element))
+(register-element! "MolecularSequence.relative.startingSequence.orientation" (fhir-spec (string->symbol "MolecularSequence.relative.startingSequence.orientation") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.startingSequence.orientation" 'element))
+(register-element! "MolecularSequence.relative.startingSequence.strand" (fhir-spec (string->symbol "MolecularSequence.relative.startingSequence.strand") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.startingSequence.strand" 'element))
+(register-element! "MolecularSequence.relative.startingSequence.sequence[x]" (fhir-spec (string->symbol "MolecularSequence.relative.startingSequence.sequence[x]") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.startingSequence.sequence[x]" 'element))
+(register-element! "MolecularSequence.relative.startingSequence.sequence[x]" (fhir-spec (string->symbol "MolecularSequence.relative.startingSequence.sequence[x]") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.startingSequence.sequence[x]" 'element))
+(register-element! "MolecularSequence.relative.startingSequence.sequence[x]" (fhir-spec (string->symbol "MolecularSequence.relative.startingSequence.sequence[x]") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.startingSequence.sequence[x]" 'element))
+
+(register-type! 'MolecularSequenceRelativeEdit (fhir-spec 'MolecularSequenceRelativeEdit "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.edit" 'type)
+  #:schema (type-schema 'MolecularSequenceRelativeEdit #f 'BackboneElement "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.edit"
+             (list
+    (schema-field 'start 0 1 (vector 'prim "integer") #f "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.edit.start" #f)
+    (schema-field 'end 0 1 (vector 'prim "integer") #f "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.edit.end" #f)
+    (schema-field 'replacementSequence 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.edit.replacementSequence" #f)
+    (schema-field 'replacedSequence 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.edit.replacedSequence" #f)
+             ) #f #f))
+(register-element! "MolecularSequence.relative.edit.start" (fhir-spec (string->symbol "MolecularSequence.relative.edit.start") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.edit.start" 'element))
+(register-element! "MolecularSequence.relative.edit.end" (fhir-spec (string->symbol "MolecularSequence.relative.edit.end") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.edit.end" 'element))
+(register-element! "MolecularSequence.relative.edit.replacementSequence" (fhir-spec (string->symbol "MolecularSequence.relative.edit.replacementSequence") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.edit.replacementSequence" 'element))
+(register-element! "MolecularSequence.relative.edit.replacedSequence" (fhir-spec (string->symbol "MolecularSequence.relative.edit.replacedSequence") "https://hl7.org/fhir/R5/molecularsequence.html#MolecularSequence.relative.edit.replacedSequence" 'element))
+

@@ -1,0 +1,112 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r4.core#4.0.1 — DO NOT EDIT (verified by raco fhir check).
+(require fhir/model/schema fhir/model/registry)
+
+(register-type! 'AuditEvent (fhir-spec 'AuditEvent "https://hl7.org/fhir/R4/auditevent.html#AuditEvent" 'type)
+  #:schema (type-schema 'AuditEvent #f 'DomainResource "https://hl7.org/fhir/R4/auditevent.html#AuditEvent"
+             (list
+    (schema-field 'type 1 1 (vector 'type 'Coding) #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.type" #f)
+    (schema-field 'subtype 0 '* (vector 'type 'Coding) #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.subtype" #f)
+    (schema-field 'action 0 1 (vector 'prim "code") #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.action" #f)
+    (schema-field 'period 0 1 (vector 'type 'Period) #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.period" #f)
+    (schema-field 'recorded 1 1 (vector 'prim "instant") #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.recorded" #f)
+    (schema-field 'outcome 0 1 (vector 'prim "code") #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.outcome" #f)
+    (schema-field 'outcomeDesc 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.outcomeDesc" #f)
+    (schema-field 'purposeOfEvent 0 '* (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.purposeOfEvent" #f)
+    (schema-field 'agent 1 '* (vector 'type 'AuditEventAgent) #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent" #f)
+    (schema-field 'source 1 1 (vector 'type 'AuditEventSource) #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.source" #f)
+    (schema-field 'entity 0 '* (vector 'type 'AuditEventEntity) #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity" #f)
+             ) #f #f))
+(register-element! "AuditEvent.type" (fhir-spec (string->symbol "AuditEvent.type") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.type" 'element))
+(register-element! "AuditEvent.subtype" (fhir-spec (string->symbol "AuditEvent.subtype") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.subtype" 'element))
+(register-element! "AuditEvent.action" (fhir-spec (string->symbol "AuditEvent.action") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.action" 'element))
+(register-element! "AuditEvent.period" (fhir-spec (string->symbol "AuditEvent.period") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.period" 'element))
+(register-element! "AuditEvent.recorded" (fhir-spec (string->symbol "AuditEvent.recorded") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.recorded" 'element))
+(register-element! "AuditEvent.outcome" (fhir-spec (string->symbol "AuditEvent.outcome") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.outcome" 'element))
+(register-element! "AuditEvent.outcomeDesc" (fhir-spec (string->symbol "AuditEvent.outcomeDesc") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.outcomeDesc" 'element))
+(register-element! "AuditEvent.purposeOfEvent" (fhir-spec (string->symbol "AuditEvent.purposeOfEvent") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.purposeOfEvent" 'element))
+(register-element! "AuditEvent.agent" (fhir-spec (string->symbol "AuditEvent.agent") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent" 'element))
+(register-element! "AuditEvent.source" (fhir-spec (string->symbol "AuditEvent.source") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.source" 'element))
+(register-element! "AuditEvent.entity" (fhir-spec (string->symbol "AuditEvent.entity") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity" 'element))
+
+(register-type! 'AuditEventAgent (fhir-spec 'AuditEventAgent "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent" 'type)
+  #:schema (type-schema 'AuditEventAgent #f 'BackboneElement "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent"
+             (list
+    (schema-field 'type 0 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.type" #f)
+    (schema-field 'role 0 '* (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.role" #f)
+    (schema-field 'who 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.who" #f)
+    (schema-field 'altId 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.altId" #f)
+    (schema-field 'name 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.name" #f)
+    (schema-field 'requestor 1 1 (vector 'prim "boolean") #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.requestor" #f)
+    (schema-field 'location 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.location" #f)
+    (schema-field 'policy 0 '* (vector 'prim "uri") #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.policy" #f)
+    (schema-field 'media 0 1 (vector 'type 'Coding) #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.media" #f)
+    (schema-field 'network 0 1 (vector 'type 'AuditEventAgentNetwork) #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.network" #f)
+    (schema-field 'purposeOfUse 0 '* (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.purposeOfUse" #f)
+             ) #f #f))
+(register-element! "AuditEvent.agent.type" (fhir-spec (string->symbol "AuditEvent.agent.type") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.type" 'element))
+(register-element! "AuditEvent.agent.role" (fhir-spec (string->symbol "AuditEvent.agent.role") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.role" 'element))
+(register-element! "AuditEvent.agent.who" (fhir-spec (string->symbol "AuditEvent.agent.who") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.who" 'element))
+(register-element! "AuditEvent.agent.altId" (fhir-spec (string->symbol "AuditEvent.agent.altId") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.altId" 'element))
+(register-element! "AuditEvent.agent.name" (fhir-spec (string->symbol "AuditEvent.agent.name") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.name" 'element))
+(register-element! "AuditEvent.agent.requestor" (fhir-spec (string->symbol "AuditEvent.agent.requestor") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.requestor" 'element))
+(register-element! "AuditEvent.agent.location" (fhir-spec (string->symbol "AuditEvent.agent.location") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.location" 'element))
+(register-element! "AuditEvent.agent.policy" (fhir-spec (string->symbol "AuditEvent.agent.policy") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.policy" 'element))
+(register-element! "AuditEvent.agent.media" (fhir-spec (string->symbol "AuditEvent.agent.media") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.media" 'element))
+(register-element! "AuditEvent.agent.network" (fhir-spec (string->symbol "AuditEvent.agent.network") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.network" 'element))
+(register-element! "AuditEvent.agent.purposeOfUse" (fhir-spec (string->symbol "AuditEvent.agent.purposeOfUse") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.purposeOfUse" 'element))
+
+(register-type! 'AuditEventAgentNetwork (fhir-spec 'AuditEventAgentNetwork "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.network" 'type)
+  #:schema (type-schema 'AuditEventAgentNetwork #f 'BackboneElement "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.network"
+             (list
+    (schema-field 'address 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.network.address" #f)
+    (schema-field 'type 0 1 (vector 'prim "code") #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.network.type" #f)
+             ) #f #f))
+(register-element! "AuditEvent.agent.network.address" (fhir-spec (string->symbol "AuditEvent.agent.network.address") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.network.address" 'element))
+(register-element! "AuditEvent.agent.network.type" (fhir-spec (string->symbol "AuditEvent.agent.network.type") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.agent.network.type" 'element))
+
+(register-type! 'AuditEventSource (fhir-spec 'AuditEventSource "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.source" 'type)
+  #:schema (type-schema 'AuditEventSource #f 'BackboneElement "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.source"
+             (list
+    (schema-field 'site 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.source.site" #f)
+    (schema-field 'observer 1 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.source.observer" #f)
+    (schema-field 'type 0 '* (vector 'type 'Coding) #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.source.type" #f)
+             ) #f #f))
+(register-element! "AuditEvent.source.site" (fhir-spec (string->symbol "AuditEvent.source.site") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.source.site" 'element))
+(register-element! "AuditEvent.source.observer" (fhir-spec (string->symbol "AuditEvent.source.observer") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.source.observer" 'element))
+(register-element! "AuditEvent.source.type" (fhir-spec (string->symbol "AuditEvent.source.type") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.source.type" 'element))
+
+(register-type! 'AuditEventEntity (fhir-spec 'AuditEventEntity "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity" 'type)
+  #:schema (type-schema 'AuditEventEntity #f 'BackboneElement "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity"
+             (list
+    (schema-field 'what 0 1 (vector 'type 'Reference) #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.what" #f)
+    (schema-field 'type 0 1 (vector 'type 'Coding) #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.type" #f)
+    (schema-field 'role 0 1 (vector 'type 'Coding) #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.role" #f)
+    (schema-field 'lifecycle 0 1 (vector 'type 'Coding) #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.lifecycle" #f)
+    (schema-field 'securityLabel 0 '* (vector 'type 'Coding) #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.securityLabel" #f)
+    (schema-field 'name 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.name" #f)
+    (schema-field 'description 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.description" #f)
+    (schema-field 'query 0 1 (vector 'prim "base64Binary") #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.query" #f)
+    (schema-field 'detail 0 '* (vector 'type 'AuditEventEntityDetail) #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.detail" #f)
+             ) #f #f))
+(register-element! "AuditEvent.entity.what" (fhir-spec (string->symbol "AuditEvent.entity.what") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.what" 'element))
+(register-element! "AuditEvent.entity.type" (fhir-spec (string->symbol "AuditEvent.entity.type") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.type" 'element))
+(register-element! "AuditEvent.entity.role" (fhir-spec (string->symbol "AuditEvent.entity.role") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.role" 'element))
+(register-element! "AuditEvent.entity.lifecycle" (fhir-spec (string->symbol "AuditEvent.entity.lifecycle") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.lifecycle" 'element))
+(register-element! "AuditEvent.entity.securityLabel" (fhir-spec (string->symbol "AuditEvent.entity.securityLabel") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.securityLabel" 'element))
+(register-element! "AuditEvent.entity.name" (fhir-spec (string->symbol "AuditEvent.entity.name") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.name" 'element))
+(register-element! "AuditEvent.entity.description" (fhir-spec (string->symbol "AuditEvent.entity.description") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.description" 'element))
+(register-element! "AuditEvent.entity.query" (fhir-spec (string->symbol "AuditEvent.entity.query") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.query" 'element))
+(register-element! "AuditEvent.entity.detail" (fhir-spec (string->symbol "AuditEvent.entity.detail") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.detail" 'element))
+
+(register-type! 'AuditEventEntityDetail (fhir-spec 'AuditEventEntityDetail "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.detail" 'type)
+  #:schema (type-schema 'AuditEventEntityDetail #f 'BackboneElement "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.detail"
+             (list
+    (schema-field 'type 1 1 (vector 'prim "string") #f "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.detail.type" #f)
+    (schema-field 'valueString 0 1 (vector 'prim "string") 'value "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.detail.value[x]" #f)
+    (schema-field 'valueBase64Binary 0 1 (vector 'prim "base64Binary") 'value "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.detail.value[x]" #f)
+             ) #f #f))
+(register-element! "AuditEvent.entity.detail.type" (fhir-spec (string->symbol "AuditEvent.entity.detail.type") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.detail.type" 'element))
+(register-element! "AuditEvent.entity.detail.value[x]" (fhir-spec (string->symbol "AuditEvent.entity.detail.value[x]") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.detail.value[x]" 'element))
+(register-element! "AuditEvent.entity.detail.value[x]" (fhir-spec (string->symbol "AuditEvent.entity.detail.value[x]") "https://hl7.org/fhir/R4/auditevent.html#AuditEvent.entity.detail.value[x]" 'element))
+

@@ -1,0 +1,11 @@
+Vendored IG packages (FHIR NPM tarballs from packages2.fhir.org), retrieved 2026-08-24:
+
+  hl7.fhir.us.core.tgz        US Core 9.0.0        (FHIR 4.0.1) — 230 examples
+  hl7.fhir.uv.ips.tgz         IPS 2.0.1            (FHIR 4.0.1) —  44 examples
+  hl7.fhir.uv.sql-on-fhir.tgz SQL-on-FHIR 3.0.0-ballot (FHIR R6) — generated tower + 17 examples
+  hl7.fhir.uv.omop.tgz        FHIR-to-OMOP 2.0.0-ballot (FHIR R5) — generated tower
+
+US Core and IPS are vendored as REAL-WORLD EXAMPLE CORPORA (not generated towers): their
+`package/example/*.json` instances are authored by the IG editors against real profiles, which
+makes them a harsher parse/round-trip corpus than the spec's own examples. Driven by
+tests/ig-examples-r4-test.rkt (R4 tower, its own process) through tests/ig-example-harness.rkt.

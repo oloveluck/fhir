@@ -1,0 +1,80 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r5.core#5.0.0 — DO NOT EDIT (verified by raco fhir check).
+(require fhir/model/schema fhir/model/registry)
+
+(register-type! 'ManufacturedItemDefinition (fhir-spec 'ManufacturedItemDefinition "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition" 'type)
+  #:schema (type-schema 'ManufacturedItemDefinition #f 'DomainResource "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition"
+             (list
+    (schema-field 'identifier 0 '* (vector 'type 'Identifier) #f "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.identifier" #f)
+    (schema-field 'status 1 1 (vector 'prim "code") #f "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.status" #f)
+    (schema-field 'name 0 1 (vector 'prim "string") #f "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.name" #f)
+    (schema-field 'manufacturedDoseForm 1 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.manufacturedDoseForm" #f)
+    (schema-field 'unitOfPresentation 0 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.unitOfPresentation" #f)
+    (schema-field 'manufacturer 0 '* (vector 'type 'Reference) #f "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.manufacturer" #f)
+    (schema-field 'marketingStatus 0 '* (vector 'type 'MarketingStatus) #f "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.marketingStatus" #f)
+    (schema-field 'ingredient 0 '* (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.ingredient" #f)
+    (schema-field 'property 0 '* (vector 'type 'ManufacturedItemDefinitionProperty) #f "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.property" #f)
+    (schema-field 'component 0 '* (vector 'type 'ManufacturedItemDefinitionComponent) #f "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component" #f)
+             ) #f #f))
+(register-element! "ManufacturedItemDefinition.identifier" (fhir-spec (string->symbol "ManufacturedItemDefinition.identifier") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.identifier" 'element))
+(register-element! "ManufacturedItemDefinition.status" (fhir-spec (string->symbol "ManufacturedItemDefinition.status") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.status" 'element))
+(register-element! "ManufacturedItemDefinition.name" (fhir-spec (string->symbol "ManufacturedItemDefinition.name") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.name" 'element))
+(register-element! "ManufacturedItemDefinition.manufacturedDoseForm" (fhir-spec (string->symbol "ManufacturedItemDefinition.manufacturedDoseForm") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.manufacturedDoseForm" 'element))
+(register-element! "ManufacturedItemDefinition.unitOfPresentation" (fhir-spec (string->symbol "ManufacturedItemDefinition.unitOfPresentation") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.unitOfPresentation" 'element))
+(register-element! "ManufacturedItemDefinition.manufacturer" (fhir-spec (string->symbol "ManufacturedItemDefinition.manufacturer") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.manufacturer" 'element))
+(register-element! "ManufacturedItemDefinition.marketingStatus" (fhir-spec (string->symbol "ManufacturedItemDefinition.marketingStatus") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.marketingStatus" 'element))
+(register-element! "ManufacturedItemDefinition.ingredient" (fhir-spec (string->symbol "ManufacturedItemDefinition.ingredient") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.ingredient" 'element))
+(register-element! "ManufacturedItemDefinition.property" (fhir-spec (string->symbol "ManufacturedItemDefinition.property") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.property" 'element))
+(register-element! "ManufacturedItemDefinition.component" (fhir-spec (string->symbol "ManufacturedItemDefinition.component") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component" 'element))
+
+(register-type! 'ManufacturedItemDefinitionProperty (fhir-spec 'ManufacturedItemDefinitionProperty "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.property" 'type)
+  #:schema (type-schema 'ManufacturedItemDefinitionProperty #f 'BackboneElement "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.property"
+             (list
+    (schema-field 'type 1 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.property.type" #f)
+    (schema-field 'valueCodeableConcept 0 1 (vector 'type 'CodeableConcept) 'value "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.property.value[x]" #f)
+    (schema-field 'valueQuantity 0 1 (vector 'type 'Quantity) 'value "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.property.value[x]" #f)
+    (schema-field 'valueDate 0 1 (vector 'prim "date") 'value "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.property.value[x]" #f)
+    (schema-field 'valueBoolean 0 1 (vector 'prim "boolean") 'value "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.property.value[x]" #f)
+    (schema-field 'valueMarkdown 0 1 (vector 'prim "markdown") 'value "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.property.value[x]" #f)
+    (schema-field 'valueAttachment 0 1 (vector 'type 'Attachment) 'value "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.property.value[x]" #f)
+    (schema-field 'valueReference 0 1 (vector 'type 'Reference) 'value "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.property.value[x]" #f)
+             ) #f #f))
+(register-element! "ManufacturedItemDefinition.property.type" (fhir-spec (string->symbol "ManufacturedItemDefinition.property.type") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.property.type" 'element))
+(register-element! "ManufacturedItemDefinition.property.value[x]" (fhir-spec (string->symbol "ManufacturedItemDefinition.property.value[x]") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.property.value[x]" 'element))
+(register-element! "ManufacturedItemDefinition.property.value[x]" (fhir-spec (string->symbol "ManufacturedItemDefinition.property.value[x]") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.property.value[x]" 'element))
+(register-element! "ManufacturedItemDefinition.property.value[x]" (fhir-spec (string->symbol "ManufacturedItemDefinition.property.value[x]") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.property.value[x]" 'element))
+(register-element! "ManufacturedItemDefinition.property.value[x]" (fhir-spec (string->symbol "ManufacturedItemDefinition.property.value[x]") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.property.value[x]" 'element))
+(register-element! "ManufacturedItemDefinition.property.value[x]" (fhir-spec (string->symbol "ManufacturedItemDefinition.property.value[x]") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.property.value[x]" 'element))
+(register-element! "ManufacturedItemDefinition.property.value[x]" (fhir-spec (string->symbol "ManufacturedItemDefinition.property.value[x]") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.property.value[x]" 'element))
+(register-element! "ManufacturedItemDefinition.property.value[x]" (fhir-spec (string->symbol "ManufacturedItemDefinition.property.value[x]") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.property.value[x]" 'element))
+
+(register-type! 'ManufacturedItemDefinitionComponent (fhir-spec 'ManufacturedItemDefinitionComponent "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component" 'type)
+  #:schema (type-schema 'ManufacturedItemDefinitionComponent #f 'BackboneElement "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component"
+             (list
+    (schema-field 'type 1 1 (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component.type" #f)
+    (schema-field 'function 0 '* (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component.function" #f)
+    (schema-field 'amount 0 '* (vector 'type 'Quantity) #f "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component.amount" #f)
+    (schema-field 'constituent 0 '* (vector 'type 'ManufacturedItemDefinitionComponentConstituent) #f "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component.constituent" #f)
+    (schema-field 'property 0 '* (vector 'type 'ManufacturedItemDefinitionProperty) #f "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component.property" #f)
+    (schema-field 'component 0 '* (vector 'type 'ManufacturedItemDefinitionComponent) #f "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component.component" #f)
+             ) #f #f))
+(register-element! "ManufacturedItemDefinition.component.type" (fhir-spec (string->symbol "ManufacturedItemDefinition.component.type") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component.type" 'element))
+(register-element! "ManufacturedItemDefinition.component.function" (fhir-spec (string->symbol "ManufacturedItemDefinition.component.function") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component.function" 'element))
+(register-element! "ManufacturedItemDefinition.component.amount" (fhir-spec (string->symbol "ManufacturedItemDefinition.component.amount") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component.amount" 'element))
+(register-element! "ManufacturedItemDefinition.component.constituent" (fhir-spec (string->symbol "ManufacturedItemDefinition.component.constituent") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component.constituent" 'element))
+(register-element! "ManufacturedItemDefinition.component.property" (fhir-spec (string->symbol "ManufacturedItemDefinition.component.property") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component.property" 'element))
+(register-element! "ManufacturedItemDefinition.component.component" (fhir-spec (string->symbol "ManufacturedItemDefinition.component.component") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component.component" 'element))
+
+(register-type! 'ManufacturedItemDefinitionComponentConstituent (fhir-spec 'ManufacturedItemDefinitionComponentConstituent "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component.constituent" 'type)
+  #:schema (type-schema 'ManufacturedItemDefinitionComponentConstituent #f 'BackboneElement "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component.constituent"
+             (list
+    (schema-field 'amount 0 '* (vector 'type 'Quantity) #f "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component.constituent.amount" #f)
+    (schema-field 'location 0 '* (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component.constituent.location" #f)
+    (schema-field 'function 0 '* (vector 'type 'CodeableConcept) #f "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component.constituent.function" #f)
+    (schema-field 'hasIngredient 0 '* (vector 'type 'CodeableReference) #f "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component.constituent.hasIngredient" #f)
+             ) #f #f))
+(register-element! "ManufacturedItemDefinition.component.constituent.amount" (fhir-spec (string->symbol "ManufacturedItemDefinition.component.constituent.amount") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component.constituent.amount" 'element))
+(register-element! "ManufacturedItemDefinition.component.constituent.location" (fhir-spec (string->symbol "ManufacturedItemDefinition.component.constituent.location") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component.constituent.location" 'element))
+(register-element! "ManufacturedItemDefinition.component.constituent.function" (fhir-spec (string->symbol "ManufacturedItemDefinition.component.constituent.function") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component.constituent.function" 'element))
+(register-element! "ManufacturedItemDefinition.component.constituent.hasIngredient" (fhir-spec (string->symbol "ManufacturedItemDefinition.component.constituent.hasIngredient") "https://hl7.org/fhir/R5/manufactureditemdefinition.html#ManufacturedItemDefinition.component.constituent.hasIngredient" 'element))
+

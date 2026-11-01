@@ -1,0 +1,26 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r6.core#6.0.0-ballot4 — DO NOT EDIT (verified by raco fhir check).
+(require (for-syntax racket/base fhir/lang-gen/form-syntax))
+(provide DosageDetails DosageDetailsStep)
+(define-syntax (DosageDetails stx)
+  (build-fhir-form stx 'DosageDetails
+    '(#s(field-spec id 0 1 #(raw) #f)
+      #s(field-spec extension 0 * #(type Extension) #f)
+      #s(field-spec modifierExtension 0 * #(type Extension) #f)
+      #s(field-spec renderedInstruction 1 1 #(prim "markdown") #f)
+      #s(field-spec step 0 * #(type DosageDetailsStep) #f)
+      #s(field-spec safety 0 1 #(type DosageSafety) #f)
+      )
+    #:parent 'BackboneType))
+(define-syntax (DosageDetailsStep stx)
+  (build-fhir-form stx 'DosageDetailsStep
+    '(#s(field-spec id 0 1 #(raw) #f)
+      #s(field-spec extension 0 * #(type Extension) #f)
+      #s(field-spec modifierExtension 0 * #(type Extension) #f)
+      #s(field-spec start 0 1 #(type RelativeTime) #f)
+      #s(field-spec end 0 1 #(type RelativeTime) #f)
+      #s(field-spec count 0 1 #(prim "integer") #f)
+      #s(field-spec component 1 * #(type Dosage) #f)
+      #s(field-spec safety 0 1 #(type DosageSafety) #f)
+      )
+    #:parent 'BackboneElement))

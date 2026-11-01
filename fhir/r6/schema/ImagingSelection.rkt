@@ -1,0 +1,97 @@
+#lang racket/base
+;;; GENERATED from hl7.fhir.r6.core#6.0.0-ballot4 — DO NOT EDIT (verified by raco fhir check).
+(require fhir/model/schema fhir/model/registry)
+
+(register-type! 'ImagingSelection (fhir-spec 'ImagingSelection "https://build.fhir.org/imagingselection.html#ImagingSelection" 'type)
+  #:schema (type-schema 'ImagingSelection #f 'DomainResource "https://build.fhir.org/imagingselection.html#ImagingSelection"
+             (list
+    (schema-field 'identifier 0 '* (vector 'type 'Identifier) #f "https://build.fhir.org/imagingselection.html#ImagingSelection.identifier" #f)
+    (schema-field 'status 1 1 (vector 'prim "code") #f "https://build.fhir.org/imagingselection.html#ImagingSelection.status" #f)
+    (schema-field 'category 0 '* (vector 'type 'CodeableConcept) #f "https://build.fhir.org/imagingselection.html#ImagingSelection.category" #f)
+    (schema-field 'modality 0 1 (vector 'type 'CodeableConcept) #f "https://build.fhir.org/imagingselection.html#ImagingSelection.modality" #f)
+    (schema-field 'code 1 1 (vector 'type 'CodeableConcept) #f "https://build.fhir.org/imagingselection.html#ImagingSelection.code" #f)
+    (schema-field 'subject 0 1 (vector 'type 'Reference) #f "https://build.fhir.org/imagingselection.html#ImagingSelection.subject" #f)
+    (schema-field 'issued 0 1 (vector 'prim "instant") #f "https://build.fhir.org/imagingselection.html#ImagingSelection.issued" #f)
+    (schema-field 'performer 0 '* (vector 'type 'ImagingSelectionPerformer) #f "https://build.fhir.org/imagingselection.html#ImagingSelection.performer" #f)
+    (schema-field 'basedOn 0 '* (vector 'type 'Reference) #f "https://build.fhir.org/imagingselection.html#ImagingSelection.basedOn" #f)
+    (schema-field 'derivedFrom 0 1 (vector 'type 'Reference) #f "https://build.fhir.org/imagingselection.html#ImagingSelection.derivedFrom" #f)
+    (schema-field 'studyUid 0 1 (vector 'prim "id") #f "https://build.fhir.org/imagingselection.html#ImagingSelection.studyUid" #f)
+    (schema-field 'seriesUid 0 1 (vector 'prim "id") #f "https://build.fhir.org/imagingselection.html#ImagingSelection.seriesUid" #f)
+    (schema-field 'seriesNumber 0 1 (vector 'prim "unsignedInt") #f "https://build.fhir.org/imagingselection.html#ImagingSelection.seriesNumber" #f)
+    (schema-field 'frameOfReferenceUid 0 1 (vector 'prim "id") #f "https://build.fhir.org/imagingselection.html#ImagingSelection.frameOfReferenceUid" #f)
+    (schema-field 'bodySite 0 '* (vector 'type 'CodeableReference) #f "https://build.fhir.org/imagingselection.html#ImagingSelection.bodySite" #f)
+    (schema-field 'focus 0 '* (vector 'type 'Reference) #f "https://build.fhir.org/imagingselection.html#ImagingSelection.focus" #f)
+    (schema-field 'endpoint 0 '* (vector 'type 'Reference) #f "https://build.fhir.org/imagingselection.html#ImagingSelection.endpoint" #f)
+    (schema-field 'instance 0 '* (vector 'type 'ImagingSelectionInstance) #f "https://build.fhir.org/imagingselection.html#ImagingSelection.instance" #f)
+    (schema-field 'imageRegion3D 0 '* (vector 'type 'ImagingSelectionImageRegion3D) #f "https://build.fhir.org/imagingselection.html#ImagingSelection.imageRegion3D" #f)
+             ) #f #f))
+(register-element! "ImagingSelection.identifier" (fhir-spec (string->symbol "ImagingSelection.identifier") "https://build.fhir.org/imagingselection.html#ImagingSelection.identifier" 'element))
+(register-element! "ImagingSelection.status" (fhir-spec (string->symbol "ImagingSelection.status") "https://build.fhir.org/imagingselection.html#ImagingSelection.status" 'element))
+(register-element! "ImagingSelection.category" (fhir-spec (string->symbol "ImagingSelection.category") "https://build.fhir.org/imagingselection.html#ImagingSelection.category" 'element))
+(register-element! "ImagingSelection.modality" (fhir-spec (string->symbol "ImagingSelection.modality") "https://build.fhir.org/imagingselection.html#ImagingSelection.modality" 'element))
+(register-element! "ImagingSelection.code" (fhir-spec (string->symbol "ImagingSelection.code") "https://build.fhir.org/imagingselection.html#ImagingSelection.code" 'element))
+(register-element! "ImagingSelection.subject" (fhir-spec (string->symbol "ImagingSelection.subject") "https://build.fhir.org/imagingselection.html#ImagingSelection.subject" 'element))
+(register-element! "ImagingSelection.issued" (fhir-spec (string->symbol "ImagingSelection.issued") "https://build.fhir.org/imagingselection.html#ImagingSelection.issued" 'element))
+(register-element! "ImagingSelection.performer" (fhir-spec (string->symbol "ImagingSelection.performer") "https://build.fhir.org/imagingselection.html#ImagingSelection.performer" 'element))
+(register-element! "ImagingSelection.basedOn" (fhir-spec (string->symbol "ImagingSelection.basedOn") "https://build.fhir.org/imagingselection.html#ImagingSelection.basedOn" 'element))
+(register-element! "ImagingSelection.derivedFrom" (fhir-spec (string->symbol "ImagingSelection.derivedFrom") "https://build.fhir.org/imagingselection.html#ImagingSelection.derivedFrom" 'element))
+(register-element! "ImagingSelection.studyUid" (fhir-spec (string->symbol "ImagingSelection.studyUid") "https://build.fhir.org/imagingselection.html#ImagingSelection.studyUid" 'element))
+(register-element! "ImagingSelection.seriesUid" (fhir-spec (string->symbol "ImagingSelection.seriesUid") "https://build.fhir.org/imagingselection.html#ImagingSelection.seriesUid" 'element))
+(register-element! "ImagingSelection.seriesNumber" (fhir-spec (string->symbol "ImagingSelection.seriesNumber") "https://build.fhir.org/imagingselection.html#ImagingSelection.seriesNumber" 'element))
+(register-element! "ImagingSelection.frameOfReferenceUid" (fhir-spec (string->symbol "ImagingSelection.frameOfReferenceUid") "https://build.fhir.org/imagingselection.html#ImagingSelection.frameOfReferenceUid" 'element))
+(register-element! "ImagingSelection.bodySite" (fhir-spec (string->symbol "ImagingSelection.bodySite") "https://build.fhir.org/imagingselection.html#ImagingSelection.bodySite" 'element))
+(register-element! "ImagingSelection.focus" (fhir-spec (string->symbol "ImagingSelection.focus") "https://build.fhir.org/imagingselection.html#ImagingSelection.focus" 'element))
+(register-element! "ImagingSelection.endpoint" (fhir-spec (string->symbol "ImagingSelection.endpoint") "https://build.fhir.org/imagingselection.html#ImagingSelection.endpoint" 'element))
+(register-element! "ImagingSelection.instance" (fhir-spec (string->symbol "ImagingSelection.instance") "https://build.fhir.org/imagingselection.html#ImagingSelection.instance" 'element))
+(register-element! "ImagingSelection.imageRegion3D" (fhir-spec (string->symbol "ImagingSelection.imageRegion3D") "https://build.fhir.org/imagingselection.html#ImagingSelection.imageRegion3D" 'element))
+
+(register-type! 'ImagingSelectionPerformer (fhir-spec 'ImagingSelectionPerformer "https://build.fhir.org/imagingselection.html#ImagingSelection.performer" 'type)
+  #:schema (type-schema 'ImagingSelectionPerformer #f 'BackboneElement "https://build.fhir.org/imagingselection.html#ImagingSelection.performer"
+             (list
+    (schema-field 'function 0 1 (vector 'type 'CodeableConcept) #f "https://build.fhir.org/imagingselection.html#ImagingSelection.performer.function" #f)
+    (schema-field 'actor 1 1 (vector 'type 'Reference) #f "https://build.fhir.org/imagingselection.html#ImagingSelection.performer.actor" #f)
+             ) #f #f))
+(register-element! "ImagingSelection.performer.function" (fhir-spec (string->symbol "ImagingSelection.performer.function") "https://build.fhir.org/imagingselection.html#ImagingSelection.performer.function" 'element))
+(register-element! "ImagingSelection.performer.actor" (fhir-spec (string->symbol "ImagingSelection.performer.actor") "https://build.fhir.org/imagingselection.html#ImagingSelection.performer.actor" 'element))
+
+(register-type! 'ImagingSelectionInstance (fhir-spec 'ImagingSelectionInstance "https://build.fhir.org/imagingselection.html#ImagingSelection.instance" 'type)
+  #:schema (type-schema 'ImagingSelectionInstance #f 'BackboneElement "https://build.fhir.org/imagingselection.html#ImagingSelection.instance"
+             (list
+    (schema-field 'uid 1 1 (vector 'prim "id") #f "https://build.fhir.org/imagingselection.html#ImagingSelection.instance.uid" #f)
+    (schema-field 'number 0 1 (vector 'prim "unsignedInt") #f "https://build.fhir.org/imagingselection.html#ImagingSelection.instance.number" #f)
+    (schema-field 'sopClass 0 1 (vector 'prim "oid") #f "https://build.fhir.org/imagingselection.html#ImagingSelection.instance.sopClass" #f)
+    (schema-field 'frameNumber 0 '* (vector 'prim "positiveInt") #f "https://build.fhir.org/imagingselection.html#ImagingSelection.instance.frameNumber" #f)
+    (schema-field 'referencedContentItemIdentifier 0 '* (vector 'prim "positiveInt") #f "https://build.fhir.org/imagingselection.html#ImagingSelection.instance.referencedContentItemIdentifier" #f)
+    (schema-field 'segmentNumber 0 '* (vector 'prim "positiveInt") #f "https://build.fhir.org/imagingselection.html#ImagingSelection.instance.segmentNumber" #f)
+    (schema-field 'regionOfInterest 0 '* (vector 'prim "positiveInt") #f "https://build.fhir.org/imagingselection.html#ImagingSelection.instance.regionOfInterest" #f)
+    (schema-field 'waveFormChannel 0 '* (vector 'prim "positiveInt") #f "https://build.fhir.org/imagingselection.html#ImagingSelection.instance.waveFormChannel" #f)
+    (schema-field 'imageRegion2D 0 '* (vector 'type 'ImagingSelectionInstanceImageRegion2D) #f "https://build.fhir.org/imagingselection.html#ImagingSelection.instance.imageRegion2D" #f)
+             ) #f #f))
+(register-element! "ImagingSelection.instance.uid" (fhir-spec (string->symbol "ImagingSelection.instance.uid") "https://build.fhir.org/imagingselection.html#ImagingSelection.instance.uid" 'element))
+(register-element! "ImagingSelection.instance.number" (fhir-spec (string->symbol "ImagingSelection.instance.number") "https://build.fhir.org/imagingselection.html#ImagingSelection.instance.number" 'element))
+(register-element! "ImagingSelection.instance.sopClass" (fhir-spec (string->symbol "ImagingSelection.instance.sopClass") "https://build.fhir.org/imagingselection.html#ImagingSelection.instance.sopClass" 'element))
+(register-element! "ImagingSelection.instance.frameNumber" (fhir-spec (string->symbol "ImagingSelection.instance.frameNumber") "https://build.fhir.org/imagingselection.html#ImagingSelection.instance.frameNumber" 'element))
+(register-element! "ImagingSelection.instance.referencedContentItemIdentifier" (fhir-spec (string->symbol "ImagingSelection.instance.referencedContentItemIdentifier") "https://build.fhir.org/imagingselection.html#ImagingSelection.instance.referencedContentItemIdentifier" 'element))
+(register-element! "ImagingSelection.instance.segmentNumber" (fhir-spec (string->symbol "ImagingSelection.instance.segmentNumber") "https://build.fhir.org/imagingselection.html#ImagingSelection.instance.segmentNumber" 'element))
+(register-element! "ImagingSelection.instance.regionOfInterest" (fhir-spec (string->symbol "ImagingSelection.instance.regionOfInterest") "https://build.fhir.org/imagingselection.html#ImagingSelection.instance.regionOfInterest" 'element))
+(register-element! "ImagingSelection.instance.waveFormChannel" (fhir-spec (string->symbol "ImagingSelection.instance.waveFormChannel") "https://build.fhir.org/imagingselection.html#ImagingSelection.instance.waveFormChannel" 'element))
+(register-element! "ImagingSelection.instance.imageRegion2D" (fhir-spec (string->symbol "ImagingSelection.instance.imageRegion2D") "https://build.fhir.org/imagingselection.html#ImagingSelection.instance.imageRegion2D" 'element))
+
+(register-type! 'ImagingSelectionInstanceImageRegion2D (fhir-spec 'ImagingSelectionInstanceImageRegion2D "https://build.fhir.org/imagingselection.html#ImagingSelection.instance.imageRegion2D" 'type)
+  #:schema (type-schema 'ImagingSelectionInstanceImageRegion2D #f 'BackboneElement "https://build.fhir.org/imagingselection.html#ImagingSelection.instance.imageRegion2D"
+             (list
+    (schema-field 'regionType 1 1 (vector 'prim "code") #f "https://build.fhir.org/imagingselection.html#ImagingSelection.instance.imageRegion2D.regionType" #f)
+    (schema-field 'coordinate 1 '* (vector 'prim "decimal") #f "https://build.fhir.org/imagingselection.html#ImagingSelection.instance.imageRegion2D.coordinate" #f)
+             ) #f #f))
+(register-element! "ImagingSelection.instance.imageRegion2D.regionType" (fhir-spec (string->symbol "ImagingSelection.instance.imageRegion2D.regionType") "https://build.fhir.org/imagingselection.html#ImagingSelection.instance.imageRegion2D.regionType" 'element))
+(register-element! "ImagingSelection.instance.imageRegion2D.coordinate" (fhir-spec (string->symbol "ImagingSelection.instance.imageRegion2D.coordinate") "https://build.fhir.org/imagingselection.html#ImagingSelection.instance.imageRegion2D.coordinate" 'element))
+
+(register-type! 'ImagingSelectionImageRegion3D (fhir-spec 'ImagingSelectionImageRegion3D "https://build.fhir.org/imagingselection.html#ImagingSelection.imageRegion3D" 'type)
+  #:schema (type-schema 'ImagingSelectionImageRegion3D #f 'BackboneElement "https://build.fhir.org/imagingselection.html#ImagingSelection.imageRegion3D"
+             (list
+    (schema-field 'regionType 1 1 (vector 'prim "code") #f "https://build.fhir.org/imagingselection.html#ImagingSelection.imageRegion3D.regionType" #f)
+    (schema-field 'coordinate 1 '* (vector 'prim "decimal") #f "https://build.fhir.org/imagingselection.html#ImagingSelection.imageRegion3D.coordinate" #f)
+             ) #f #f))
+(register-element! "ImagingSelection.imageRegion3D.regionType" (fhir-spec (string->symbol "ImagingSelection.imageRegion3D.regionType") "https://build.fhir.org/imagingselection.html#ImagingSelection.imageRegion3D.regionType" 'element))
+(register-element! "ImagingSelection.imageRegion3D.coordinate" (fhir-spec (string->symbol "ImagingSelection.imageRegion3D.coordinate") "https://build.fhir.org/imagingselection.html#ImagingSelection.imageRegion3D.coordinate" 'element))
+
