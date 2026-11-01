@@ -100,7 +100,27 @@
    "CREATE INDEX IF NOT EXISTS idx_ref_lookup
       ON fhir_reference_index (resource_type, param_name, target_type, target_id)"
    "CREATE INDEX IF NOT EXISTS idx_ref_owner
-      ON fhir_reference_index (resource_type, resource_id)"))
+      ON fhir_reference_index (resource_type, resource_id)"
+   ;; string params: value_norm is case/accent-folded (default + :contains), value_exact for :exact
+   "CREATE TABLE IF NOT EXISTS fhir_string_index (
+      resource_type TEXT NOT NULL, resource_id TEXT NOT NULL, param_name TEXT NOT NULL,
+      value_norm TEXT NOT NULL, value_exact TEXT NOT NULL)"
+   "CREATE INDEX IF NOT EXISTS idx_string_lookup ON fhir_string_index (resource_type, param_name, value_norm)"
+   "CREATE INDEX IF NOT EXISTS idx_string_owner ON fhir_string_index (resource_type, resource_id)"
+   ;; date params: every value is a RANGE [low, high], full-precision ISO text (compares lexically)
+   "CREATE TABLE IF NOT EXISTS fhir_date_index (
+      resource_type TEXT NOT NULL, resource_id TEXT NOT NULL, param_name TEXT NOT NULL,
+      low TEXT NOT NULL, high TEXT NOT NULL)"
+   "CREATE INDEX IF NOT EXISTS idx_date_lookup ON fhir_date_index (resource_type, param_name, low, high)"
+   "CREATE INDEX IF NOT EXISTS idx_date_owner ON fhir_date_index (resource_type, resource_id)"
+   "CREATE TABLE IF NOT EXISTS fhir_number_index (
+      resource_type TEXT NOT NULL, resource_id TEXT NOT NULL, param_name TEXT NOT NULL,
+      value REAL NOT NULL)"
+   "CREATE INDEX IF NOT EXISTS idx_number_owner ON fhir_number_index (resource_type, resource_id)"
+   "CREATE TABLE IF NOT EXISTS fhir_quantity_index (
+      resource_type TEXT NOT NULL, resource_id TEXT NOT NULL, param_name TEXT NOT NULL,
+      value REAL NOT NULL, system TEXT, code TEXT)"
+   "CREATE INDEX IF NOT EXISTS idx_quantity_owner ON fhir_quantity_index (resource_type, resource_id)"))
 
 (define (ensure-schema! c)
   (for ([stmt (in-list schema-statements)]) (query-exec c stmt)))

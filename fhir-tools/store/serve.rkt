@@ -16,6 +16,7 @@
 (require racket/contract racket/list racket/string racket/match
          json
          "fhir-sqlite.rkt" "fhir-engine.rkt" "ig-params.rkt" "bundle.rkt"
+         (only-in "search-index.rkt" indexed-kind?)
          (only-in fhir/capability/derive derive-capability-statement rc-server rc-resource
                   rc-operation)
          (only-in fhir/capability/runtime make-repository build-app app?)
@@ -72,7 +73,8 @@
    #:search (lambda (params)
               (for/list ([js (in-list (fhir-search store rtype
                                                    (for/list ([p (in-list params)])
-                                                     (cons (symbol->string (car p)) (cdr p)))))])
+                                                     (cons (symbol->string (car p)) (cdr p)))
+                                                   #:search-params catalog))])
                 (js->node js)))))
 
 ;; ---- audit / provenance recording --------------------------------------------
@@ -150,7 +152,10 @@
   (define resources
     (for/list ([ty (in-list types)])
       (rc-resource ty default-interactions
-                   (for/list ([sp (in-list (hash-ref catalog ty '()))])
+                   ;; advertise exactly what the engine executes (composite/special are
+                   ;; cataloged but ignored by search — claiming them would overstate support)
+                   (for/list ([sp (in-list (hash-ref catalog ty '()))]
+                              #:when (indexed-kind? (search-param-kind sp)))
                      (list (string->symbol (search-param-name sp))
                            (search-param-kind sp)
                            (search-param-path sp)))
@@ -184,7 +189,7 @@
        (define parts (string-split v "|"))
        (define params (cons (cons "url" (car parts))
                             (if (pair? (cdr parts)) (list (cons "version" (cadr parts))) '())))
-       (define hits (fhir-search store "ViewDefinition" params))
+       (define hits (fhir-search store "ViewDefinition" params #:search-params catalog))
        (and (pair? hits) (js->node (car hits)))]
       [else #f]))
   (define (resources-of typestr)

@@ -3,26 +3,23 @@
 ;;; fhir-engine.rkt — FHIR CRUD + search over the SQLite store.
 ;;;
 ;;; A SearchParam is (search-param name kind path):
-;;;   kind : 'token | 'reference   path : a FHIRPath expression over the resource
-;;; The per-type catalog is DATA (`default-search-params`, extensible via #:search-params) — the
-;;; indexer parses each stored resource leniently into a typed node and evaluates every declared
-;;; param's path with the repo's FHIRPath engine, decomposing the items into index rows:
-;;;   token     : CodeableConcept -> each coding's (system, code); Coding -> (system, code);
-;;;               Identifier -> (system, value); a bare code/string -> (#f, value)
-;;;   reference : Reference.reference "Type/id" -> (target_type, target_id)
-;;; Both index tables are rebuilt for a resource inside the SAME transaction as the write, so the
-;;; indexes can never drift from the store.
+;;;   kind : 'token | 'reference | 'string | 'date | 'number | 'quantity | 'uri  (the SearchParameter's
+;;;          `type`; 'composite/'special are cataloged but not indexed)   path : a FHIRPath expression
+;;; The per-type catalog is DATA (`default-search-params`, or the IG's SearchParameters via
+;;; ig-params.rkt) — the indexer parses each stored resource leniently into a typed node, evaluates
+;;; every declared param's path with the repo's FHIRPath engine, and turns the items into index rows
+;;; by the param's KIND (search-index.rkt). All index tables are rebuilt for a resource inside the
+;;; SAME transaction as the write, so the indexes can never drift from the store.
 ;;;
-;;; Search grammar (the supported subset):
-;;;   token     : `code=system|value` | `code=|value` (no system) | `code=value` (any system)
-;;;   reference : `patient=Patient/123` | `patient=123`
-;;;   date      : `_lastUpdated=ge2024-01-01` (prefixes ge/gt/le/lt/eq over ISO-8601, which
-;;;               compares lexicographically)
-;;; Multiple parameters AND together (each an EXISTS subquery against its index).
+;;; Search: each query parameter is compiled by its catalog KIND (search-index.rkt documents the
+;;; supported grammar: modifiers, comma-OR, prefixes, date ranges). Built in: `_id`, `_lastUpdated`.
+;;; Parameters the catalog doesn't know, or uses an unsupported modifier on, are IGNORED (the FHIR
+;;; default "lenient" handling) and reported by `fhir-search/ignored`. Multiple parameters AND.
 
-(require racket/contract racket/string racket/list racket/random
+(require racket/contract racket/string racket/list racket/random racket/match
          db json file/sha1
          "fhir-sqlite.rkt"
+         "search-index.rkt"
          (only-in fhir/serialize/from-json from-json)
          (only-in fhir/result/result ok? ok-value)
          (only-in fhirpath/parser/parse parse-fhirpath)
@@ -42,7 +39,11 @@
   [fhir-history  (-> fhir-store? string? string? (listof jsexpr?))]
   [fhir-vread    (-> fhir-store? string? string? exact-positive-integer? (or/c jsexpr? #f))]
   [fhir-delete!  (-> fhir-store? string? string? boolean?)]
-  [fhir-search   (-> fhir-store? string? (listof (cons/c string? string?)) (listof jsexpr?))]
+  [fhir-search   (->* (fhir-store? string? (listof (cons/c string? string?)))
+                      (#:search-params hash?) (listof jsexpr?))]
+  ;; the same search, also returning the query parameters that were IGNORED (unknown/unsupported)
+  [fhir-search/ignored (->* (fhir-store? string? (listof (cons/c string? string?)))
+                            (#:search-params hash?) (values (listof jsexpr?) (listof string?)))]
   ;; connection-taking write variants: compose several writes into ONE transaction
   ;; (call-with-store-transaction + these = an atomic FHIR transaction Bundle)
   [create-in!    (-> connection? jsexpr? hash? (values string? string? exact-positive-integer?))]
@@ -165,101 +166,82 @@
           (p2 (date-hour d)) (p2 (date-minute d)) (p2 (date-second d))))
 
 ;; ---- indexing ---------------------------------------------------------------
-;; rebuild both index tables for one resource (runs inside the write transaction)
+;; rebuild every index table for one resource (runs inside the write transaction)
 (define (reindex! c rtype id stored sps)
-  (query-exec c "DELETE FROM fhir_token_index WHERE resource_type=? AND resource_id=?" rtype id)
-  (query-exec c "DELETE FROM fhir_reference_index WHERE resource_type=? AND resource_id=?" rtype id)
+  (for ([t (in-list index-tables)])
+    (query-exec c (format "DELETE FROM ~a WHERE resource_type=? AND resource_id=?" (car t)) rtype id))
   (define node (let ([r (from-json stored #:lenient? #t)]) (and (ok? r) (ok-value r))))
   (when node
-    (for ([sp (in-list (hash-ref sps (string->symbol rtype) '()))])
+    (for ([sp (in-list (hash-ref sps (string->symbol rtype) '()))]
+          #:when (indexed-kind? (search-param-kind sp)))
       (define items (with-handlers ([exn:fail? (lambda (_) '())])
                       (eval-fhirpath (parse-fhirpath (search-param-path sp)) (list node) #:strict? #f)))
-      (case (search-param-kind sp)
-        ;; uri params (canonical urls, e.g. ViewDefinition.url) index like system-less tokens —
-        ;; `tokens-of` already renders a bare primitive as (#f . value)
-        [(token uri)
-         (for ([(sys code) (in-parallel (map car (tokens-of items)) (map cdr (tokens-of items)))])
-           (query-exec c "INSERT INTO fhir_token_index (resource_type,resource_id,param_name,system,code)
-                          VALUES (?,?,?,?,?)" rtype id (search-param-name sp) (or sys sql-null) code))]
-        [(reference)
-         (for ([tgt (in-list (references-of items))])
-           (query-exec c "INSERT INTO fhir_reference_index (resource_type,resource_id,param_name,target_type,target_id)
-                          VALUES (?,?,?,?,?)"
-                       rtype id (search-param-name sp) (or (car tgt) sql-null) (cdr tgt)))]))))
-
-;; tokens-of : items -> (Listof (cons system|#f code))   decompose token-typed items
-(define (tokens-of items)
-  (append*
-   (for/list ([it (in-list items)])
-     (cond
-       [(primitive-type? it) (list (cons #f (format "~a" (primitive-type-value it))))]
-       [(and (fhir? it) (eq? (fhir-type it) 'CodeableConcept))
-        (append* (for/list ([cd (in-list (listify (fhir-ref it 'coding '())))]) (coding->tokens cd)))]
-       [(and (fhir? it) (eq? (fhir-type it) 'Coding)) (coding->tokens it)]
-       [(and (fhir? it) (eq? (fhir-type it) 'Identifier))
-        (let ([sys (pv (fhir-ref it 'system #f))] [val (pv (fhir-ref it 'value #f))])
-          (if val (list (cons sys val)) '()))]
-       [else '()]))))
-(define (coding->tokens cd)
-  (let ([sys (pv (fhir-ref cd 'system #f))] [code (pv (fhir-ref cd 'code #f))])
-    (if code (list (cons sys code)) '())))
-
-;; references-of : items -> (Listof (cons target-type|#f target-id))
-(define (references-of items)
-  (append*
-   (for/list ([it (in-list items)])
-     (cond
-       [(and (fhir? it) (eq? (fhir-type it) 'Reference))
-        (define ref (pv (fhir-ref it 'reference #f)))
-        (cond [(and ref (regexp-match #px"^([A-Za-z]+)/(.+)$" ref))
-               => (lambda (m) (list (cons (cadr m) (caddr m))))]
-              [ref (list (cons #f ref))]
-              [else '()])]
-       [else '()]))))
-
+      (for ([row (in-list (rows-for (search-param-kind sp) items))])
+        (define-values (table vals) (row-table+values row))
+        (define cols (cdr (assoc table index-tables)))
+        (apply query-exec c
+               (format "INSERT INTO ~a (resource_type,resource_id,param_name,~a) VALUES (?,?,?,~a)"
+                       table (string-join (map symbol->string cols) ",")
+                       (string-join (map (lambda (_) "?") cols) ","))
+               rtype id (search-param-name sp)
+               (map (lambda (v) (or v sql-null)) vals))))))
 
 ;; ---- search -----------------------------------------------------------------
-(define (fhir-search store rtype query-params)
-  (define-values (clauses args)
-    (for/fold ([cs '()] [as '()]) ([qp (in-list query-params)])
-      (define-values (c a) (param->clause rtype (car qp) (cdr qp)))
-      (values (cons c cs) (append as a))))
+(define (fhir-search store rtype query-params #:search-params [sps default-search-params])
+  (define-values (rs _ignored) (fhir-search/ignored store rtype query-params #:search-params sps))
+  rs)
+
+(define (fhir-search/ignored store rtype query-params #:search-params [sps default-search-params])
+  (define catalog (hash-ref sps (string->symbol rtype) '()))
+  (define-values (clauses ignored)
+    (for/fold ([cs '()] [ig '()]) ([qp (in-list query-params)])
+      (define c (param->clause catalog (car qp) (cdr qp)))
+      (if c (values (cons c cs) ig) (values cs (cons (car qp) ig)))))
+  (define count (let ([c (assoc "_count" query-params)]) (and c (string->number (cdr c)))))
   (define sql
     (string-append "SELECT raw_resource FROM fhir_resources r WHERE r.resource_type=?"
-                   (apply string-append (for/list ([c (in-list (reverse clauses))]) (string-append " AND " c)))))
-  (call-with-store-connection store
-    (lambda (c)
-      (for/list ([raw (in-list (apply query-list c sql rtype args))])
-        (string->jsexpr raw)))))
+                   (apply string-append (for/list ([c (in-list (reverse clauses))])
+                                          (string-append " AND " (clause-sql c))))
+                   " ORDER BY r.last_updated, r.id"
+                   (if (exact-nonnegative-integer? count) (format " LIMIT ~a" count) "")))
+  (values
+   (call-with-store-connection store
+     (lambda (c)
+       (for/list ([raw (in-list (apply query-list c sql rtype (append-map clause-args (reverse clauses))))])
+         (string->jsexpr raw))))
+   (filter (lambda (n) (not (member n '("_count")))) (reverse ignored))))
 
-;; param->clause : one query parameter -> (values sql-fragment args)
-(define (param->clause rtype name value)
+;; param->clause : catalog name value -> Clause | #f   (#f = ignore: unknown or unsupported)
+(define (param->clause catalog full-name value)
+  (define-values (name modifier)
+    (match (regexp-match #px"^([^:]+)(?::(.+))?$" full-name)
+      [(list _ n m) (values n m)] [#f (values full-name #f)]))
   (cond
+    [(equal? name "_count") #f]
+    [(equal? name "_id")
+     (clause (string-append "r.id IN (" (string-join (map (lambda (_) "?") (string-split value ",")) ",") ")")
+             (string-split value ","))]
     [(equal? name "_lastUpdated")
-     (define m (regexp-match #px"^(ge|gt|le|lt|eq)?(.+)$" value))
-     (define op (case (cadr m) [("ge") ">="] [("gt") ">"] [("le") "<="] [("lt") "<"] [else "="]))
-     (values (format "r.last_updated ~a ?" op) (list (caddr m)))]
-    [(regexp-match #px"^([^|]*)\\|(.+)$" value)
-     => (lambda (m)   ; token with system: `system|code` (empty system = "no system")
-          (define sys (cadr m)) (define code (caddr m))
-          (if (string=? sys "")
-              (values "EXISTS (SELECT 1 FROM fhir_token_index t WHERE t.resource_type=r.resource_type
-                       AND t.resource_id=r.id AND t.param_name=? AND t.code=? AND t.system IS NULL)"
-                      (list name code))
-              (values "EXISTS (SELECT 1 FROM fhir_token_index t WHERE t.resource_type=r.resource_type
-                       AND t.resource_id=r.id AND t.param_name=? AND t.code=? AND t.system=?)"
-                      (list name code sys))))]
-    [(regexp-match #px"^([A-Z][A-Za-z]+)/(.+)$" value)
-     => (lambda (m)   ; reference: Type/id
-          (values "EXISTS (SELECT 1 FROM fhir_reference_index f WHERE f.resource_type=r.resource_type
-                   AND f.resource_id=r.id AND f.param_name=? AND f.target_type=? AND f.target_id=?)"
-                  (list name (cadr m) (caddr m))))]
-    [else            ; bare value: token any-system OR reference by id — try both indexes
-     (values "(EXISTS (SELECT 1 FROM fhir_token_index t WHERE t.resource_type=r.resource_type
-               AND t.resource_id=r.id AND t.param_name=? AND t.code=?)
-               OR EXISTS (SELECT 1 FROM fhir_reference_index f WHERE f.resource_type=r.resource_type
-               AND f.resource_id=r.id AND f.param_name=? AND f.target_id=?))"
-             (list name value name value))]))
+     ;; reads the row's own column (stored to the second, e.g. "…T10:00:00Z"): compare the
+     ;; 19-character second-precision prefix of both sides
+     (match (regexp-match #px"^(eq|ne|gt|lt|ge|le|sa|eb|ap)?(.+)$" value)
+       [(list _ p v)
+        (define rng (date-range v))
+        (define lo (and rng (substring (car rng) 0 19)))
+        (define hi (and rng (substring (cdr rng) 0 19)))
+        (define col "substr(r.last_updated,1,19)")
+        (and rng
+             (case (string->symbol (or p "eq"))
+               [(gt sa) (clause (string-append col " > ?") (list hi))]
+               [(ge)    (clause (string-append col " >= ?") (list lo))]
+               [(lt eb) (clause (string-append col " < ?") (list lo))]
+               [(le)    (clause (string-append col " <= ?") (list hi))]
+               [(ne)    (clause (string-append "NOT (" col " >= ? AND " col " <= ?)") (list lo hi))]
+               [else    (clause (string-append col " >= ? AND " col " <= ?") (list lo hi))]))]
+       [#f #f])]
+    [(findf (lambda (sp) (equal? (search-param-name sp) name)) catalog)
+     => (lambda (sp) (compile-param name (search-param-kind sp) modifier value))]
+    [else #f]))
 
 (module+ test
   (require rackunit racket/file (only-in fhir/r5/schemas))
@@ -299,5 +281,69 @@
   (check-equal? (length (fhir-search store "Patient" (list (cons "identifier" "urn:mrn|123")))) 0)
   (check-equal? (length (fhir-history store "Patient" id)) 2)  ; history survives delete
   (check-false (fhir-delete! store "Patient" id))              ; second delete -> nothing to do
+
+  ;; ---- type-driven search semantics: what must NOT match matters as much as what must ----
+  (define cat
+    (hash 'Patient (list (search-param "family" 'string "name.family")
+                         (search-param "name" 'string "name")
+                         (search-param "birthdate" 'date "birthDate")
+                         (search-param "gender" 'token "gender")
+                         (search-param "active" 'token "active"))
+          'Observation (list (search-param "value-quantity" 'quantity "value.ofType(Quantity)")
+                             (search-param "date" 'date "effective"))))
+  (define (pat family given birth [extra (hasheq)])
+    (define-values (_t i _v)
+      (fhir-create! store (for/fold ([h (hasheq 'resourceType "Patient" 'birthDate birth
+                                               'name (list (hasheq 'family family 'given (list given))))])
+                                    ([(k v) (in-hash extra)]) (hash-set h k v))
+                    #:search-params cat))
+    i)
+  (define chalmers (pat "Chalmers" "Peter" "1974-12-25" (hasheq 'gender "male" 'active #t)))
+  (define marche (pat "du Marché" "Bénédicte" "1974" (hasheq 'gender "female")))
+  (define windsor (pat "Windsor" "Charles" "1948-11-14"))
+  (define (ids q) (sort (for/list ([js (in-list (fhir-search store "Patient" q #:search-params cat))])
+                          (hash-ref js 'id)) string<?))
+  (define (only . xs) (sort xs string<?))
+  ;; string: case/accent-insensitive STARTS-WITH by default; :contains; :exact
+  (check-equal? (ids '(("family" . "chal"))) (only chalmers))
+  (check-equal? (ids '(("family" . "almers"))) '())                       ; not a prefix
+  (check-equal? (ids '(("family:contains" . "almers"))) (only chalmers))
+  (check-equal? (ids '(("family:exact" . "chalmers"))) '())               ; exact is case-sensitive
+  (check-equal? (ids '(("family:exact" . "Chalmers"))) (only chalmers))
+  (check-equal? (ids '(("name" . "benedicte"))) (only marche))            ; accents folded; given counts
+  ;; token: comma = OR; :not; boolean tokens render as true/false
+  (check-equal? (ids '(("gender" . "male,female"))) (only chalmers marche))
+  (check-equal? (ids '(("gender:not" . "male"))) (only marche windsor))   ; :not includes the unset
+  (check-equal? (ids '(("active" . "true"))) (only chalmers))
+  ;; :missing
+  (check-equal? (ids '(("gender:missing" . "true"))) (only windsor))
+  (check-equal? (ids '(("gender:missing" . "false"))) (only chalmers marche))
+  ;; date: implicit ranges and prefixes (du Marché's birthDate is the whole of 1974)
+  (check-equal? (ids '(("birthdate" . "1974"))) (only chalmers marche))
+  (check-equal? (ids '(("birthdate" . "1974-12-25"))) (only chalmers))    ; 1974 is not WITHIN that day
+  (check-equal? (ids '(("birthdate" . "ap1974-12-25"))) (only chalmers marche)) ; but overlaps it
+  (check-equal? (ids '(("birthdate" . "lt1950"))) (only windsor))
+  (check-equal? (ids '(("birthdate" . "ge1974-06"))) (only chalmers marche))
+  (check-equal? (ids '(("birthdate" . "sa1974"))) '())
+  (check-equal? (ids '(("birthdate" . "eb1974"))) (only windsor))
+  ;; AND across parameters; unknown parameters are ignored and reported
+  (check-equal? (ids '(("gender" . "male") ("birthdate" . "1974"))) (only chalmers))
+  (define-values (_r ignored)
+    (fhir-search/ignored store "Patient" '(("nonsense" . "x") ("family:text" . "y")) #:search-params cat))
+  (check-equal? ignored '("nonsense" "family:text"))
+  ;; _id and _count
+  (check-equal? (ids (list (cons "_id" (string-append chalmers "," windsor)))) (only chalmers windsor))
+  (check-equal? (length (fhir-search store "Patient" '(("_count" . "1")) #:search-params cat)) 1)
+  ;; quantity: precision-aware eq, prefixes, system|code
+  (define-values (_q qid _qv)
+    (fhir-create! store (hasheq 'resourceType "Observation" 'status "final" 'code (hasheq 'text "wt")
+                                'valueQuantity (hasheq 'value 72.4 'system "http://unitsofmeasure.org" 'code "kg"))
+                  #:search-params cat))
+  (define (obs q) (length (fhir-search store "Observation" q #:search-params cat)))
+  (check-equal? (obs '(("value-quantity" . "72.4|http://unitsofmeasure.org|kg"))) 1)
+  (check-equal? (obs '(("value-quantity" . "72|http://unitsofmeasure.org|kg"))) 1)   ; 72 means [71.5,72.5)
+  (check-equal? (obs '(("value-quantity" . "72.0|http://unitsofmeasure.org|kg"))) 0) ; [71.95,72.05)
+  (check-equal? (obs '(("value-quantity" . "gt70||kg"))) 1)
+  (check-equal? (obs '(("value-quantity" . "72.4||g"))) 0)
   (close-fhir-store store)
   (delete-file tmp))

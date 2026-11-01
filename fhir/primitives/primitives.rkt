@@ -15,7 +15,8 @@
          "temporal.rkt"
          fhir/result/result
          fhir/model/registry
-         fhir/model/base)
+         fhir/model/base
+         (only-in "absent.rkt" absent?))
 
 ;; Re-export the Result type, the spec-linking API, and the precision-aware temporal values, so a
 ;; single (require fhir/primitives/primitives) is enough to construct and inspect values.
@@ -23,7 +24,8 @@
          (all-from-out fhir/model/registry)
          (all-from-out "temporal.rkt")
          (contract-out
-          [primitive->jsexpr (-> primitive-type? (or/c string? boolean? real?))]))
+          ;; 'null for an extension-only primitive (no value — only `_field` extensions)
+          [primitive->jsexpr (-> primitive-type? (or/c string? boolean? real? 'null))]))
 
 ;; --- string-like --------------------------------------------------------------------
 (define-fhir-primitive string #:pattern px:string #:length 1048576
@@ -83,6 +85,7 @@
 (define (primitive->jsexpr p)
   (define v (primitive-type-value p))
   (cond
+    [(absent? v) 'null]                                 ; extension-only: there is no JSON value
     [(fhir-decimal? p) (string->number v)]
     [(or (t-date? v) (t-time? v) (t-datetime? v)) (temporal->string v)]
     [else v]))

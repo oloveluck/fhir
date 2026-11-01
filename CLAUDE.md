@@ -391,6 +391,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | round-trip | HL7 examples + R4/R5 core packages | `raco fhir roundtrip-tck r5\|r4` | 2968+77, 4581+72 |
 | **IG examples** | **US Core 9.0.0, IPS 2.0.1 packages** | `tests/ig-examples-r4-test.rkt` | **274/274 parse+round-trip** |
 | **IG validation** | **US Core 9.0.0, IPS 2.0.1: every example vs the IG profiles it claims** | `tests/ig-validation-r4-test.rkt` | **260/260 clean** (0 false positives) |
+| **IG search** | **US Core 9.0.0 examples, R4 core + US Core SearchParameters: each example found by its own values** | `tests/ig-search-r4-test.rkt` | **2368/2368 probes** |
 | **IG FHIRPath** | **the same IGs: profile invariants on their examples + SearchParameter expressions** | `tests/ig-fhirpath-r4-test.rkt` | **6082 invariant checks, 0 fail** (2 dom-3 spec-conflict errors); **1330/1330 search** |
 | SOF examples | the SOF IG's own package | `tests/ig-examples-sof-test.rkt` | 17/17 (1 documented IG defect) |
 | **snapshot** | **fhir-test-cases rX/snapshot-generation** | `conformance/tests/snapshot-conformance-test.rkt` | **paths 80/80, card 143/148, types 70/71** (id-matched) |
@@ -473,6 +474,16 @@ first, then the core it builds on). Defects these corpora found and fixed:
 - Cardinality ignored extension-only primitives (`_performedDateTime` + data-absent-reason); they
   count as present, per the JSON format.
 Known and deliberate: dom-3 uses multi-item `as()`, an execution error per the FHIRPath spec and TCK.
+
+Search is TYPE-DRIVEN (`store/search-index.rkt`): each parameter's declared SearchParameter.type
+picks its index table (token / reference / string / date / number / quantity / uri) and its
+matching rules — string = case+accent-folded starts-with (`:exact`, `:contains`), date = the value's
+implicit RANGE with eq/ne/gt/lt/ge/le/sa/eb/ap (zoned values shifted to UTC), number/quantity =
+precision-aware eq + prefixes, comma = OR, `:missing`, token `:not`, `_id`, `_lastUpdated`, `_count`.
+Unknown parameters and unsupported modifiers are ignored (FHIR's lenient default) and reported by
+`fhir-search/ignored`; the derived CapabilityStatement advertises only executable kinds (composite and
+special are not). Before this, search guessed token-vs-reference from the VALUE's shape and string/
+date/number/quantity parameters silently matched nothing.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
