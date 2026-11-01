@@ -14,8 +14,9 @@ The CLI lives in `cli/`. All commands run from the repo root.
 | `raco fhir regen [r6\|r4\|all\|<ig>]` | regenerate a tower from the vendored spec `.tgz` |
 | `raco fhir check [r6\|r4\|all\|<ig>]` | regenerate purely and byte-diff vs disk (CI determinism guard) |
 
-Generated files (`r4/ r5/ r6/`, IG towers) carry a `DO NOT EDIT` banner — never hand-edit; run
-`regen`. IG targets (`sof`, `omop`, …) are defined in `codegen/target.rkt`.
+Generated files (`r4/ r5/ r6/` in the `fhir-core` repo, IG towers `viewdef/ omop/` here) carry a
+`DO NOT EDIT` banner — never hand-edit; run `regen`. IG targets (`sof`, `omop`, …) are defined in
+`fhir-core`'s `codegen/target.rkt`; regen writes into whichever linked package holds the tower.
 
 ## Conformance suites (every floor only rises)
 
@@ -46,6 +47,7 @@ Generated files (`r4/ r5/ r6/`, IG towers) carry a `DO NOT EDIT` banner — neve
 ## Unit tests
 
 ```sh
-raco test result/ model/ primitives/ kernel/ lang-gen/ serialize/ codegen/ terminology/ \
-          capability/ http/ fsh/ cql/ tests/
+raco test terminology/ capability/ http/ conformance/ viewdef/ store/ omop/ tests/   # this repo
+(cd ../fhir-core && raco test result/ model/ primitives/ kernel/ lang-gen/ serialize/ codegen/ sd/)
+for p in fhirpath vcl cql fml fsh; do (cd ../fhir-$p && raco test $p/); done
 ```
