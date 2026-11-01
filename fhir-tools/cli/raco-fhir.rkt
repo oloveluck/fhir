@@ -77,7 +77,7 @@
   (define snap (generate-snapshot sd))
   (displayln (jsexpr->string (hash-set sd 'snapshot (hasheq 'element snap)))))
 
-;; raco fhir serve-ig <ig> [--db store.db] [--port 8080] [--no-examples] [--no-validate] [--gaps]
+;; raco fhir serve-ig <ig> [--db store.db] [--port 8080] [--bearer token] [--no-examples] [--no-validate] [--gaps]
 ;; Generate a FHIR server FROM an Implementation Guide package (store/ig-server.rkt): the IG's FHIR
 ;; version picks the tower, its server CapabilityStatement the types/interactions/parameters, its
 ;; SearchParameters (over core) the search catalog; writes are validated against claimed profiles.
@@ -112,7 +112,9 @@
        (for ([r (in-list rejected)]) (printf "  ~a: ~a\n" (car r) (cdr r))))
      (printf "~a IG requirement(s) not met (raco fhir serve-ig ~a --gaps); ~a of them SHALL\n"
              (length gaps) ig (length (filter (lambda (g) (equal? (list-ref (gap->list g) 3) "SHALL")) gaps)))
-     (define stop (serve-app (srv-app srv) #:port port))
+     (define bearer (opt "--bearer" #f))
+     (define stop (serve-app (srv-app srv) #:port port #:bearer bearer))
+     (when bearer (printf "requests need: Authorization: Bearer ~a  (GET /metadata is public)\n" bearer))
      (printf "FHIR server for ~a on http://localhost:~a  (store: ~a; Ctrl-C to stop)\n" ig port db)
      (with-handlers ([exn:break? (lambda (_) (stop))]) (sync/enable-break never-evt))]))
 
@@ -185,7 +187,7 @@
      (define v (or (arg 1) "r5"))
      (unless (member v '("r4" "r5")) (eprintf "usage: raco fhir roundtrip-tck [r4|r5]\n") (exit 2))
      (dynamic-require `(submod ,(string->symbol (string-append "fhir/tests/example-roundtrip-" v)) main) #f)]
-    [("serve-ig") (unless (arg 1) (eprintf "usage: raco fhir serve-ig <ig> [--db store.db] [--port 8080] [--no-examples] [--no-validate] [--gaps]\n") (exit 2))
+    [("serve-ig") (unless (arg 1) (eprintf "usage: raco fhir serve-ig <ig> [--db store.db] [--port 8080] [--bearer token] [--no-examples] [--no-validate] [--gaps]\n") (exit 2))
                   (cmd-serve-ig (cdr args))]
     [("serve") (unless (arg 1) (eprintf "usage: raco fhir serve <app.rkt> [port]\n") (exit 2))
                (cmd-serve (arg 1) (arg 2))]

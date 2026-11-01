@@ -17,10 +17,13 @@
 
 (provide
  (contract-out
-  [serve-app (->* (app?) (#:port (integer-in 1 65535) #:host (or/c string? #f)) (-> void))]))
+  ;; #:bearer token — require `Authorization: Bearer <token>` on every request except GET /metadata
+  ;; (a static token: enough for test kits that take a manually supplied access token; NOT SMART)
+  [serve-app (->* (app?) (#:port (integer-in 1 65535) #:host (or/c string? #f) #:bearer (or/c string? #f))
+                  (-> void))]))
 
 ;; start serving `app` on `port`; returns a thunk that stops the server.
-(define (serve-app app #:port [port 8080] #:host [host #f])
+(define (serve-app app #:port [port 8080] #:host [host #f] #:bearer [bearer #f])
   (define listener (tcp-listen port 128 #t host))
   (define stopped? (box #f))
   (define (accept-loop)
@@ -28,7 +31,7 @@
       (with-handlers ([exn:fail? (lambda (_) #f)])
         (call-with-values (lambda () (tcp-accept listener)) list)))
     (when (and conn (not (unbox stopped?)))
-      (thread (lambda () (serve-conn app (car conn) (cadr conn))))
+      (thread (lambda () (serve-conn app (car conn) (cadr conn) bearer)))
       (accept-loop)))
   (define worker (thread accept-loop))
   (lambda ()
@@ -37,7 +40,7 @@
     (kill-thread worker)))
 
 ;; serve exactly one request on this connection, then close it
-(define (serve-conn app in out)
+(define (serve-conn app in out [bearer #f])
   (with-handlers ([exn:fail? (lambda (e) (write-response out 500 (oo-json "exception" (exn-message e))))])
     (define reqline (read-line in 'any))
     (when (string? reqline)
@@ -53,11 +56,23 @@
                           (bytes->string/utf-8 (or (read-bytes clen in) #"") #\?)
                           ""))
          (define-values (path query) (split-target target))
-         (define-values (status bytes ctype) (handle/raw app method path (parse-query query) body))
-         (write-raw-response out status bytes ctype)])))
+         (cond
+           [(and bearer (not (authorized? headers bearer)) (not (metadata-request? method path)))
+            (write-response out 401 (oo-json "login" "a valid bearer token is required"))]
+           [else
+            (define-values (status bytes ctype) (handle/raw app method path (parse-query query) body))
+            (write-raw-response out status bytes ctype)])])))
   (flush-output out)
   (close-output-port out)
   (close-input-port in))
+
+;; authorized? : headers token -> boolean   `Authorization: Bearer <token>` (scheme case-insensitive)
+(define (authorized? headers token)
+  (define v (assoc "authorization" headers))
+  (and v (let ([m (regexp-match #px"^(?i:bearer)\\s+(\\S+)\\s*$" (cdr v))]) (and m (equal? (cadr m) token)))))
+;; the CapabilityStatement stays public (clients discover the server before authenticating)
+(define (metadata-request? method path)
+  (and (equal? method "GET") (regexp-match? #rx"^/?metadata/?$" path)))
 
 ;; read header lines until the blank line -> (listof (cons lowercased-name value))
 (define (read-headers in)

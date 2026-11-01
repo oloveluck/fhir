@@ -9,3 +9,8 @@ US Core and IPS are vendored as REAL-WORLD EXAMPLE CORPORA (not generated towers
 `package/example/*.json` instances are authored by the IG editors against real profiles, which
 makes them a harsher parse/round-trip corpus than the spec's own examples. Driven by
 tests/ig-examples-r4-test.rkt (R4 tower, its own process) through tests/ig-example-harness.rkt.
+
+hl7.fhir.us.core-8.0.0.tgz — US Core 8.0.0 (FHIR 4.0.1), from https://packages.fhir.org/hl7.fhir.us.core/8.0.0
+  retrieved 2026-11-01. Kept beside 9.0.0 because the ONC Inferno US Core test kit (v1.2.0,
+  2026-10-27) tests US Core up to 8.0.0: `raco fhir serve-ig hl7.fhir.us.core-8.0.0.tgz` builds the
+  server that kit can check.
