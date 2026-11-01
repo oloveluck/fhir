@@ -18,12 +18,12 @@
 (require racket/contract racket/string racket/list
          json file/gunzip file/untar
          "fhir-engine.rkt"
-         (only-in "../fhirpath/parser/parse.rkt" parse-fhirpath)
-         (only-in "../fhirpath/parser/ast.rkt" fp-binop fp-binop? fp-binop-op fp-binop-lhs fp-binop-rhs
+         (only-in fhir/fhirpath/parser/parse parse-fhirpath)
+         (only-in fhir/fhirpath/parser/ast fp-binop fp-binop? fp-binop-op fp-binop-lhs fp-binop-rhs
                   fp-invoke fp-invoke? fp-invoke-target fp-invoke-name
                   fp-call fp-call? fp-call-target fp-call-name fp-call-args
                   fp-typeop? fp-typeop-op fp-typeop-operand)
-         (only-in "../fml/fhirpath-print.rkt" fhirpath->string))
+         (only-in fhir/fhirpath/print fhirpath->string))
 
 (provide
  (contract-out
@@ -126,7 +126,7 @@
 
 (module+ test
   (require rackunit racket/runtime-path)
-  (define-runtime-path r5 "../spec/hl7.fhir.r5.core.tgz")
+  (define r5 (collection-file-path "hl7.fhir.r5.core.tgz" "fhir" "spec"))
   (define cat (search-params-from-package r5 #:types '(Patient Observation)))
   (define (names ty) (map search-param-name (hash-ref cat ty '())))
   ;; the core package's own SearchParameters drive the catalog

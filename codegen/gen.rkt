@@ -37,10 +37,12 @@
   ;; committed-path : relpath -> absolute path under the fhir collection root
   [committed-path (-> (listof string?) path?)]))
 
-(define-runtime-path here ".")
-(define fhir-root (build-path here 'up))   ; the `fhir` collection root
-
-(define (committed-path relpath) (apply build-path fhir-root relpath))
+;; committed-path : (listof string) -> path
+;; relpath's first segment names a sub-collection of `fhir` (r6, viewdef, omop, ...); it is located
+;; through the collection search path, so a tower regenerates in place in whichever package
+;; (fhir-core for the core towers, fhir for the IG towers) it lives in.
+(define (committed-path relpath)
+  (apply build-path (collection-path "fhir" (car relpath)) (cdr relpath)))
 
 (define (write-file! relpath content)
   (define p (committed-path relpath))
@@ -375,7 +377,7 @@
    ";; The package's OperationDefinitions as data + scaffold constructors: each\n"
    ";; <code>-operation takes ONLY the handler `(in req) -> node` and yields the\n"
    ";; operation-entry list for build-app's #:operations (levels/targets from the OD).\n"
-   "(require json (only-in fhir/capability/runtime operation-entry))\n"
+   "(require json (only-in fhir/kernel/operation-entry operation-entry))\n"
    "(provide operation-definitions\n"
    (string-join (for/list ([od (in-list ods)])
                   (define-values (_c def-id ctor-id _e) (od-parts od ods))

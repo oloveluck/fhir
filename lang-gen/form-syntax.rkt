@@ -18,19 +18,19 @@
 (require racket/list
          syntax/parse
          racket/contract
-         (only-in "../model/schema.rkt"
+         (only-in fhir/model/schema
                   schema-entry/c
                   ftype-tag ftype-prim-code ftype-type-name ftype-prim? ftype-raw?
                   fs-name fs-kind fs-ftype fs-req fs-extra fs-choice?
                   choice-min choice-max choice-members)
-         (only-in "../model/registry.rkt" constructor-of)
-         (only-in "../model/binding.rkt" binding-expansion binding-expansion-codes)
-         (only-in "../result/result.rkt" err?)
-         (only-in "../primitives/primitives.rkt")   ; register primitive constructors (phase-1 here)
+         (only-in fhir/model/registry constructor-of)
+         (only-in fhir/model/binding binding-expansion binding-expansion-codes)
+         (only-in fhir/result/result err?)
+         (only-in fhir/primitives/primitives)   ; register primitive constructors (phase-1 here)
          ;; the expansion uses node-build (the runtime sink that builds a typed node) + build-prim
          ;; (a validated primitive leaf) -> bind them at the template phase.
          (for-template racket/base
-                       (only-in "../kernel/node-build.rkt" node-build build-prim)))
+                       (only-in fhir/kernel/node-build node-build build-prim)))
 
 ;; build-fhir-form runs at macro-expansion time (compile time), so contracting it is free at
 ;; runtime — it validates the generated define-syntax call sites.

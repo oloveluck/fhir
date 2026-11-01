@@ -13,11 +13,11 @@
 ;;; `item-system-type` classify an item for the type system (types.rkt).
 
 (require racket/contract
-         (only-in "../model/node.rkt" fhir fhir? fhir-type fhir-ref)
-         (only-in "../model/base.rkt" primitive-type? primitive-type-value)
-         (only-in "../model/registry.rkt" value->fhir-spec fhir-spec-name)
-         (only-in "../primitives/absent.rkt" absent?)
-         (only-in "../primitives/primitives.rkt" t-date? t-time? t-datetime?)
+         (only-in fhir/model/node fhir fhir? fhir-type fhir-ref)
+         (only-in fhir/model/base primitive-type? primitive-type-value)
+         (only-in fhir/model/registry value->fhir-spec fhir-spec-name)
+         (only-in fhir/primitives/absent absent?)
+         (only-in fhir/primitives/primitives t-date? t-time? t-datetime?)
          (only-in "temporal-ops.rkt" moment? moment-kind)
          (only-in "decimal.rkt" fp-decimal? parse-decimal integer->decimal))
 

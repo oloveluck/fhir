@@ -9,7 +9,7 @@
 
 (require rackunit racket/runtime-path racket/file racket/string
          (only-in "../parser/parse.rkt" parse-vcl)
-         (only-in "../../result/result.rkt" ok? err-error))
+         (only-in fhir/result/result ok? err-error))
 
 (define-runtime-path examples "vendor/examples.txt")
 
@@ -28,7 +28,7 @@
 ;; print ∘ parse is a fixpoint on the WHOLE corpus: re-parsing the canonical print of any
 ;; spec expression yields the identical AST
 (require (only-in "../compile.rkt" vcl-print)
-         (only-in "../../result/result.rkt" ok-value))
+         (only-in fhir/result/result ok-value))
 (for ([e (in-list exprs)])
   (define ast (ok-value (parse-vcl (normalize e))))
   (check-equal? (ok-value (parse-vcl (vcl-print ast))) ast

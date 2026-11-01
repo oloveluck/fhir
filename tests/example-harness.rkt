@@ -11,11 +11,11 @@
          json
          file/gunzip
          file/untar
-         (only-in "../serialize/from-json.rkt" from-json)
-         (only-in "../serialize/to-json.rkt" node->jsexpr)
-         (only-in "../serialize/read-json.rkt" read-fhir-json)
-         (only-in "../result/result.rkt" ok? ok-value)
-         (only-in "../model/registry.rkt" type-registered?))
+         (only-in fhir/serialize/from-json from-json)
+         (only-in fhir/serialize/to-json node->jsexpr)
+         (only-in fhir/serialize/read-json read-fhir-json)
+         (only-in fhir/result/result ok? ok-value)
+         (only-in fhir/model/registry type-registered?))
 
 (provide
  (contract-out

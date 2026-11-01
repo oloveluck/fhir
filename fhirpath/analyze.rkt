@@ -20,8 +20,8 @@
                   fp-binop? fp-unop? fp-unop-operand
                   fp-typeop? fp-typeop-operand fp-typeop-type fp-var? fp-extern?)
          (only-in "navigate.rkt" all-schema-fields)
-         (only-in "../model/registry.rkt" type-schema-of type-registered?)
-         (only-in "../model/schema.rkt"
+         (only-in fhir/model/registry type-schema-of type-registered?)
+         (only-in fhir/model/schema
                   type-schema-parent type-schema-fields schema-field-name schema-field-ftype
                   schema-field-choice-base ftype-tag ftype-prim-code ftype-type-name
                   inherited-field-names inherited-field-ftype))

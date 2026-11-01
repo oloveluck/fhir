@@ -20,11 +20,11 @@
          "caret.rkt"
          (only-in "parser/parse.rkt" parse-fsh-doc)
          (only-in "resolve.rkt" element-fhir-type field-info)
-         (only-in "../model/registry.rkt" type-registered?)
-         (only-in "../model/schema.rkt" ftype-tag ftype-type-name)
-         (only-in "../serialize/jsexpr-util.rkt" drop-false)
-         (only-in "../fhirpath/parser/parse.rkt" parse-fhirpath)
-         (only-in "../conformance/snapshot.rkt" generate-snapshot))
+         (only-in fhir/model/registry type-registered?)
+         (only-in fhir/model/schema ftype-tag ftype-type-name)
+         (only-in fhir/serialize/jsexpr-util drop-false)
+         (only-in fhir/fhirpath/parser/parse parse-fhirpath)
+         (only-in fhir/sd/snapshot generate-snapshot))
 
 (provide (contract-out
           [canonical-base (parameter/c string?)]

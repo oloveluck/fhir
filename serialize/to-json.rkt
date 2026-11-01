@@ -16,12 +16,12 @@
 
 (require racket/contract
          (only-in json jsexpr? jsexpr->string)
-         "../model/node.rkt"
-         (only-in "../model/base.rkt" primitive-type? primitive-type-value element-id element-extension)
-         (only-in "../model/schema.rkt" type-schema-parent resource-parent?)
-         (only-in "../model/registry.rkt" type-schema-of)
-         (only-in "../primitives/absent.rkt" absent?)
-         (only-in "../primitives/primitives.rkt"
+         fhir/model/node
+         (only-in fhir/model/base primitive-type? primitive-type-value element-id element-extension)
+         (only-in fhir/model/schema type-schema-parent resource-parent?)
+         (only-in fhir/model/registry type-schema-of)
+         (only-in fhir/primitives/absent absent?)
+         (only-in fhir/primitives/primitives
                   fhir-decimal? t-date? t-time? t-datetime? temporal->string))
 
 (provide

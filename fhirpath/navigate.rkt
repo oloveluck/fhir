@@ -11,12 +11,12 @@
          racket/list
          racket/set
          "error.rkt"
-         (only-in "../model/node.rkt" fhir? fhir-type fhir-fields fhir-ref fhir-has?)
-         (only-in "../model/base.rkt" primitive-type? element-extension element-id)
+         (only-in fhir/model/node fhir? fhir-type fhir-fields fhir-ref fhir-has?)
+         (only-in fhir/model/base primitive-type? element-extension element-id)
          (only-in "value.rkt" typeinfo? typeinfo-namespace typeinfo-name)
          (only-in "types.rkt" fhir-ancestors)
-         (only-in "../model/registry.rkt" type-schema-of type-registered?)
-         (only-in "../model/schema.rkt"
+         (only-in fhir/model/registry type-schema-of type-registered?)
+         (only-in fhir/model/schema
                   type-schema-parent type-schema-fields schema-field-name schema-field-choice-base))
 
 (provide

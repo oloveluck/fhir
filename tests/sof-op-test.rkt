@@ -14,8 +14,8 @@
          (only-in fhir/store/fhir-sqlite open-fhir-store close-fhir-store)
          (only-in fhir/store/serve make-store-app))
 
-(define-runtime-path r5-package "../spec/hl7.fhir.r5.core.tgz")
-(define-runtime-path sof-package "../spec/hl7.fhir.uv.sql-on-fhir.tgz")
+(define r5-package (collection-file-path "hl7.fhir.r5.core.tgz" "fhir" "spec"))
+(define sof-package (collection-file-path "hl7.fhir.uv.sql-on-fhir.tgz" "fhir" "spec"))
 (define tmp (make-temporary-file "sof-op-~a.db"))
 (define store (open-fhir-store tmp))
 (define app (make-store-app store

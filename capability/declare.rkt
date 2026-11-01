@@ -17,8 +17,8 @@
                        (only-in "runtime.rkt" operation-entry make-default-repository))
          syntax/parse
          racket/list
-         (only-in "../model/registry.rkt" type-registered? primitive-name?)
-         (only-in "../r6/fhir-version.rkt" fhir-version)
+         (only-in fhir/model/registry type-registered? primitive-name?)
+         (only-in fhir/r6/fhir-version fhir-version)
          (only-in "interaction-codes.rkt"
                   type-interaction? system-interaction? search-param-type?))
 
@@ -149,7 +149,7 @@
          [_ (raise-syntax-error 'operation "parameter must be [name type min max]" p)]))]))
 
 (module+ test
-  (require rackunit (only-in "../r6/types.rkt"))     ; populate the registry at phase 0 for the test
+  (require rackunit (only-in fhir/r6/types))     ; populate the registry at phase 0 for the test
   ;; parse-server yields an rc-server construction with defaults
   (check-equal? (syntax->datum (parse-server #'(server)))
                 '(rc-server "server" "active" "2025-01-01T00:00:00Z" "6.0.0-ballot4"

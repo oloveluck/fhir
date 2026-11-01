@@ -25,23 +25,23 @@
 ;;; expectColumns; compare as hashes for row equality.
 
 (require racket/contract racket/match racket/list racket/string
-         (only-in "../model/node.rkt" fhir? fhir-ref fhir-type)
-         (only-in "../model/base.rkt" primitive-type? primitive-type-value)
-         (only-in "../model/leaf.rkt" pv)
-         (only-in "../primitives/primitives.rkt" primitive->jsexpr)
-         (only-in "../fhirpath/parser/parse.rkt" parse-fhirpath)
-         (only-in "../fhirpath/parser/ast.rkt" fp-call fp-call? fp-call-target fp-call-name fp-call-args
+         (only-in fhir/model/node fhir? fhir-ref fhir-type)
+         (only-in fhir/model/base primitive-type? primitive-type-value)
+         (only-in fhir/model/leaf pv)
+         (only-in fhir/primitives/primitives primitive->jsexpr)
+         (only-in fhir/fhirpath/parser/parse parse-fhirpath)
+         (only-in fhir/fhirpath/parser/ast fp-call fp-call? fp-call-target fp-call-name fp-call-args
                   fp-invoke fp-invoke? fp-invoke-target fp-invoke-name
                   fp-binop fp-binop? fp-binop-op fp-binop-lhs fp-binop-rhs
                   fp-unop fp-unop? fp-unop-op fp-unop-operand
                   fp-index fp-index? fp-index-target fp-index-idx
                   fp-typeop fp-typeop? fp-typeop-op fp-typeop-operand fp-typeop-type
                   fp-lit)
-         (only-in "../fhirpath/eval.rkt" eval-fhirpath)
-         (only-in "../fhirpath/value.rkt" item->system fp-quantity? fp-long? fp-long-v)
-         (only-in "../fhirpath/decimal.rkt" fp-decimal? decimal->string)
-         (only-in "../fhirpath/temporal-ops.rkt" moment? moment->string moment-kind)
-         (only-in "../serialize/to-json.rkt" node->jsexpr))
+         (only-in fhir/fhirpath/eval eval-fhirpath)
+         (only-in fhir/fhirpath/value item->system fp-quantity? fp-long? fp-long-v)
+         (only-in fhir/fhirpath/decimal fp-decimal? decimal->string)
+         (only-in fhir/fhirpath/temporal-ops moment? moment->string moment-kind)
+         (only-in fhir/serialize/to-json node->jsexpr))
 
 (provide
  (contract-out
@@ -257,8 +257,8 @@
 (module+ test
   (require rackunit json
            (only-in fhir/viewdef/types)
-           (only-in "../serialize/from-json.rkt" from-json)
-           (only-in "../result/result.rkt" ok-value))
+           (only-in fhir/serialize/from-json from-json)
+           (only-in fhir/result/result ok-value))
   (define (mk js) (ok-value (from-json js #:lenient? #t)))
   (define pt (mk (hasheq 'resourceType "Patient" 'id "p1"
                          'name (list (hasheq 'family "Chalmers") (hasheq 'family "Windsor")))))

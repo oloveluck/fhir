@@ -3,7 +3,7 @@
 ;; The package's OperationDefinitions as data + scaffold constructors: each
 ;; <code>-operation takes ONLY the handler `(in req) -> node` and yields the
 ;; operation-entry list for build-app's #:operations (levels/targets from the OD).
-(require json (only-in fhir/capability/runtime operation-entry))
+(require json (only-in fhir/kernel/operation-entry operation-entry))
 (provide operation-definitions
          sql-export-definition sql-export-operation
          sql-run-definition sql-run-operation)

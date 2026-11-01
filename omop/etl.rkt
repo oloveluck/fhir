@@ -24,20 +24,20 @@
          json
          fhir/omop/types                                   ; the generated OMOP tower (registry)
          "views.rkt"
-         (only-in "../viewdef/eval.rkt" eval-view)
-         (only-in "../viewdef/materialize.rkt" replace-table! duck-type sql-literal)
-         (only-in "../model/node.rkt" fhir? fhir-type)
-         (only-in "../model/base.rkt" primitive-type? primitive-type-value)
-         (only-in "../model/introspect.rkt" full-field-specs)
-         (only-in "../model/schema.rkt" field-spec-name field-spec-min field-spec-ftype)
-         (only-in "../fhirpath/terminology.rkt" tx-service? tx-service-translate)
-         (only-in "../terminology/service.rkt" make-terminology)
-         (only-in "../serialize/to-json.rkt" node->jsexpr)
-         (only-in "../serialize/from-json.rkt" from-json)
-         (only-in "../result/result.rkt" ok? ok-value)
-         (only-in "../store/fhir-sqlite.rkt" fhir-store?)
-         (only-in "../store/fhir-engine.rkt" fhir-search)
-         (only-in "../store/fhir-analytics.rkt" analytics? fhir-analytics-query))
+         (only-in fhir/viewdef/eval eval-view)
+         (only-in fhir/store/materialize replace-table! duck-type sql-literal)
+         (only-in fhir/model/node fhir? fhir-type)
+         (only-in fhir/model/base primitive-type? primitive-type-value)
+         (only-in fhir/model/introspect full-field-specs)
+         (only-in fhir/model/schema field-spec-name field-spec-min field-spec-ftype)
+         (only-in fhir/fhirpath/terminology tx-service? tx-service-translate)
+         (only-in fhir/terminology/service make-terminology)
+         (only-in fhir/serialize/to-json node->jsexpr)
+         (only-in fhir/serialize/from-json from-json)
+         (only-in fhir/result/result ok? ok-value)
+         (only-in fhir/store/fhir-sqlite fhir-store?)
+         (only-in fhir/store/fhir-engine fhir-search)
+         (only-in fhir/store/fhir-analytics analytics? fhir-analytics-query))
 
 (provide
  (contract-out
@@ -55,7 +55,7 @@
 
 ;; ---- terminology (the IG's ConceptMaps) -------------------------------------
 (define-values (omop-tgz)
-  (build-path (collection-path "fhir") "spec" "hl7.fhir.uv.omop.tgz"))
+  (collection-file-path "hl7.fhir.uv.omop.tgz" "fhir" "spec"))
 (define tx-promise (delay (make-terminology omop-tgz)))
 (define (omop-terminology) (force tx-promise))
 
@@ -149,7 +149,7 @@
                          (format "~a ~a" (car c) (cdr c))) ", ")))
 
 ;; load-omop! : each table's rows -> a DuckDB omop.<table>, via the generic replace-table!
-;; (viewdef/materialize.rkt). Rows are already translated/minted (flatten-resources); columns come
+;; (store/materialize.rkt). Rows are already translated/minted (flatten-resources); columns come
 ;; from the OMOP logical models, so the table schema is richer than any single row. CREATE OR
 ;; REPLACE makes the ETL idempotent — including into a persistent .duckdb (open-analytics #:duckdb).
 (define (load-omop! a tables)

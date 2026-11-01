@@ -6,15 +6,15 @@
 ;;; the FHIRPath cascade inlined) -> the prefab FML AST. Embedded FHIRPath subtrees share the
 ;;; fhirpath grammar's rule names, so fhirpath/parser/ast.rkt's `lower` turns them into REAL
 ;;; FHIRPath ASTs at parse time — `fml-fhirpath` carries the AST, not text (transform.rkt evaluates
-;;; it directly; structuremap.rkt prints it back with fhirpath-print).
+;;; it directly; structuremap.rkt prints it back with fhirpath/print.rkt).
 
 (require racket/contract racket/match racket/string racket/list
          (prefix-in g: "grammar.rkt")
          "lexer.rkt"
          "ast.rkt"
-         (only-in "../../fhirpath/parser/ast.rkt" lower)
-         (only-in "../../result/result.rkt" ok err ok? err?)
-         (only-in "../../cql/error.rkt" cql-error))
+         (only-in fhir/fhirpath/parser/ast lower)
+         (only-in fhir/result/result ok err ok? err?)
+         (only-in fhir/cql/error cql-error))
 
 (provide (contract-out
           [parse-fml (-> string? (or/c ok? err?))]))   ; (ok fml-map) | (err cql-error)
@@ -113,7 +113,7 @@
        [_ (fml-fhirpath ast)])]))
 
 ;; pattern helpers over fhirpath's prefab structs (avoid a hard require cycle on struct names)
-(require (only-in "../../fhirpath/parser/ast.rkt"
+(require (only-in fhir/fhirpath/parser/ast
                   fp-lit fp-lit? fp-lit-value fp-invoke fp-invoke? fp-invoke-target fp-invoke-name
                   fp-call fp-call? fp-call-target fp-call-name fp-call-args))
 (define-match-expander fp-lit*
@@ -139,8 +139,8 @@
                   '()))))
 
 (module+ test
-  (require rackunit (only-in "../../result/result.rkt" ok-value)
-           (only-in "../../fhirpath/parser/ast.rkt" fp-binop fp-invoke fp-lit))
+  (require rackunit (only-in fhir/result/result ok-value)
+           (only-in fhir/fhirpath/parser/ast fp-binop fp-invoke fp-lit))
   (define m (ok-value (parse-fml #<<EOF
 map "http://x" = "demo"
 uses "http://hl7.org/fhir/StructureDefinition/QuestionnaireResponse" alias QR as source

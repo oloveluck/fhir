@@ -29,12 +29,12 @@
          json net/base64
          "schema/ViewDefinition.rkt"              ; registers ViewDefinition (vs any core tower)
          (only-in "eval.rkt" eval-view view-columns)
-         (only-in "../model/node.rkt" fhir? fhir-type fhir-ref)
-         (only-in "../model/base.rkt" primitive-type? primitive-type-value)
-         (only-in "../model/leaf.rkt" pv listify node-str)
-         (only-in "../serialize/from-json.rkt" from-json)
-         (only-in "../serialize/to-json.rkt" node->jsexpr)
-         (only-in "../result/result.rkt" ok? ok-value ok-or-raise))
+         (only-in fhir/model/node fhir? fhir-type fhir-ref)
+         (only-in fhir/model/base primitive-type? primitive-type-value)
+         (only-in fhir/model/leaf pv listify node-str)
+         (only-in fhir/serialize/from-json from-json)
+         (only-in fhir/serialize/to-json node->jsexpr)
+         (only-in fhir/result/result ok? ok-value ok-or-raise))
 
 (provide
  (contract-out

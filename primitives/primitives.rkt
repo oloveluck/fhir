@@ -13,14 +13,14 @@
          "define-primitive.rkt"
          "patterns.rkt"
          "temporal.rkt"
-         "../result/result.rkt"
-         "../model/registry.rkt"
-         "../model/base.rkt")
+         fhir/result/result
+         fhir/model/registry
+         fhir/model/base)
 
 ;; Re-export the Result type, the spec-linking API, and the precision-aware temporal values, so a
 ;; single (require fhir/primitives/primitives) is enough to construct and inspect values.
-(provide (all-from-out "../result/result.rkt")
-         (all-from-out "../model/registry.rkt")
+(provide (all-from-out fhir/result/result)
+         (all-from-out fhir/model/registry)
          (all-from-out "temporal.rkt")
          (contract-out
           [primitive->jsexpr (-> primitive-type? (or/c string? boolean? real?))]))

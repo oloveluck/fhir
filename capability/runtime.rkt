@@ -12,15 +12,16 @@
 (require racket/contract
          racket/match
          racket/list
-         (only-in "../model/node.rkt" fhir? fhir-type fhir-ref fhir-field-names)
-         (only-in "../serialize/from-json.rkt" from-json)
-         (only-in "../serialize/to-json.rkt" node->jsexpr)
-         (only-in "../result/result.rkt" ok-or-raise)
-         (only-in "../fhirpath/navigate.rkt" navigate)
-         (only-in "../fhirpath/value.rkt" item->system)
-         (only-in "../fhirpath/eval.rkt" eval-fhirpath)
-         (only-in "../fhirpath/parser/parse.rkt" parse-fhirpath)
-         (only-in "derive.rkt" op-code->canonical))
+         (only-in fhir/model/node fhir? fhir-type fhir-ref fhir-field-names)
+         (only-in fhir/serialize/from-json from-json)
+         (only-in fhir/serialize/to-json node->jsexpr)
+         (only-in fhir/result/result ok-or-raise)
+         (only-in fhir/fhirpath/navigate navigate)
+         (only-in fhir/fhirpath/value item->system)
+         (only-in fhir/fhirpath/eval eval-fhirpath)
+         (only-in fhir/fhirpath/parser/parse parse-fhirpath)
+         (only-in "derive.rkt" op-code->canonical)
+         fhir/kernel/operation-entry)
 
 (provide
  (struct-out repository)
@@ -100,8 +101,8 @@
 ;; an installed operation: its handler proc, the derived OperationDefinition (the runtime contract),
 ;; and where it applies. proc : (in-hash request) -> fhir
 (struct operation-handler (proc op-def level target) #:transparent)
-;; produced by the #lang emitter, paired with its OperationDefinition in build-app
-(struct operation-entry (level code target proc) #:transparent)
+;; operation-entry (produced by the #lang emitter, paired with its OperationDefinition in
+;; build-app) is defined in kernel/operation-entry.rkt so generated towers need only fhir-core.
 
 ;; ---- the application ------------------------------------------------------------------------
 
@@ -276,7 +277,7 @@
 
 (module+ test
   (require rackunit
-           (only-in "../r6/types.rkt")
+           (only-in fhir/r6/types)
            (only-in "derive.rkt" rc-operation rc-param derive-operation-definition))
   ;; parameters->hash round-trip
   (define params (ok-or-raise

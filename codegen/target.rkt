@@ -6,12 +6,13 @@
 ;;; R4 (and, later, an IG). The whitelist keeps the vertical slice small — set it to #f for full
 ;;; generation with zero code change.
 
-(require racket/runtime-path)
 
 (provide (struct-out gen-target)
          target-r6 target-r4 target-r5 target-sof target-omop target-for)
 
-(define-runtime-path spec-dir "../spec")
+;; spec-file : string -> path   a vendored package under fhir/spec, found through the collection
+;; search path so codegen works wherever fhir-core is installed or linked.
+(define (spec-file f) (collection-file-path f "fhir" "spec"))
 
 ;; id            : symbol   'r6 | 'r4 | 'r5
 ;; package-file  : path     the vendored .tgz
@@ -35,15 +36,15 @@
 ;; R6 is the full authoring tower (form macros + #lang fhir/r6). R4/R5 are full SCHEMA-ONLY towers
 ;; used by FHIRPath to parse arbitrary test-input resources (no form macros to keep compile light).
 (define target-r6
-  (gen-target 'r6 (build-path spec-dir "hl7.fhir.r6.core.tgz") "hl7.fhir.r6.core"
+  (gen-target 'r6 (spec-file "hl7.fhir.r6.core.tgz") "hl7.fhir.r6.core"
               "r6" "https://build.fhir.org/" #f #f '() #t #f))
 
 (define target-r4
-  (gen-target 'r4 (build-path spec-dir "hl7.fhir.r4.core.tgz") "hl7.fhir.r4.core"
+  (gen-target 'r4 (spec-file "hl7.fhir.r4.core.tgz") "hl7.fhir.r4.core"
               "r4" "https://hl7.org/fhir/R4/" #f #f '(no-integer64) #f #f))
 
 (define target-r5
-  (gen-target 'r5 (build-path spec-dir "hl7.fhir.r5.core.tgz") "hl7.fhir.r5.core"
+  (gen-target 'r5 (spec-file "hl7.fhir.r5.core.tgz") "hl7.fhir.r5.core"
               "r5" "https://hl7.org/fhir/R5/" #f #f '() #f #f))
 
 ;; The SQL-on-FHIR IG tower — the first IG-as-gen-target: generate ONLY the IG's own resources
@@ -51,7 +52,7 @@
 ;; fhir/r6/types, so Meta/Coding/… resolve through the shared registry). `#lang fhir/viewdef`
 ;; authors ViewDefinitions with compile-time validation; the hand-written evaluator lives alongside.
 (define target-sof
-  (gen-target 'sof (build-path spec-dir "hl7.fhir.uv.sql-on-fhir.tgz") "hl7.fhir.uv.sql-on-fhir"
+  (gen-target 'sof (spec-file "hl7.fhir.uv.sql-on-fhir.tgz") "hl7.fhir.uv.sql-on-fhir"
               "viewdef" "https://sql-on-fhir.org/ig/" '(ViewDefinition) target-r6 '() #t #f))
 
 ;; camel->snake : "ConditionOccurrence" -> "condition_occurrence", "NoteNLP" -> "note_nlp".
@@ -70,7 +71,7 @@
 ;; not whitelisted: it isn't an OMOP CDM table. `#lang fhir/omop` authors compile-time-validated
 ;; OMOP rows; the SQL-on-FHIR flattening + DuckDB loader live alongside in omop/.
 (define target-omop
-  (gen-target 'omop (build-path spec-dir "hl7.fhir.uv.omop.tgz") "hl7.fhir.uv.omop"
+  (gen-target 'omop (spec-file "hl7.fhir.uv.omop.tgz") "hl7.fhir.uv.omop"
               "omop" "https://build.fhir.org/ig/HL7/fhir-omop-ig/"
               '(person observation_period visit_occurrence visit_detail condition_occurrence
                 drug_exposure procedure_occurrence device_exposure measurement observation

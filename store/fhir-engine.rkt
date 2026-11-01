@@ -23,13 +23,13 @@
 (require racket/contract racket/string racket/list racket/random
          db json file/sha1
          "fhir-sqlite.rkt"
-         (only-in "../serialize/from-json.rkt" from-json)
-         (only-in "../result/result.rkt" ok? ok-value)
-         (only-in "../fhirpath/parser/parse.rkt" parse-fhirpath)
-         (only-in "../fhirpath/eval.rkt" eval-fhirpath)
-         (only-in "../model/node.rkt" fhir? fhir-ref fhir-type)
-         (only-in "../model/base.rkt" primitive-type? primitive-type-value)
-         (only-in "../model/leaf.rkt" pv listify))
+         (only-in fhir/serialize/from-json from-json)
+         (only-in fhir/result/result ok? ok-value)
+         (only-in fhir/fhirpath/parser/parse parse-fhirpath)
+         (only-in fhir/fhirpath/eval eval-fhirpath)
+         (only-in fhir/model/node fhir? fhir-ref fhir-type)
+         (only-in fhir/model/base primitive-type? primitive-type-value)
+         (only-in fhir/model/leaf pv listify))
 
 (provide
  (struct-out search-param)

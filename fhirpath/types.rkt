@@ -10,11 +10,11 @@
 
 (require racket/contract
          racket/string
-         (only-in "../model/registry.rkt" type-schema-of type-registered?)
-         (only-in "../model/schema.rkt" type-schema-parent)
+         (only-in fhir/model/registry type-schema-of type-registered?)
+         (only-in fhir/model/schema type-schema-parent)
          (only-in "value.rkt" item-fhir-type item-system-type system-value?)
-         (only-in "../model/base.rkt" primitive-type?)
-         (only-in "../model/node.rkt" fhir? fhir-type))
+         (only-in fhir/model/base primitive-type?)
+         (only-in fhir/model/node fhir? fhir-type))
 
 (provide
  (contract-out
@@ -114,7 +114,7 @@
 
 (module+ test
   (require rackunit
-           (only-in "../model/node.rkt" fhir)
+           (only-in fhir/model/node fhir)
            (only-in fhir/r5/schemas))     ; register R5 types for ancestry
   ;; FHIR ancestry via the registry
   (check-true  (and (memq 'DomainResource (fhir-ancestors 'Patient)) #t))

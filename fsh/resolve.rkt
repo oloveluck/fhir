@@ -11,9 +11,9 @@
 
 (require racket/contract
          racket/string
-         (only-in "../model/introspect.rkt" full-field-specs)
-         (only-in "../model/registry.rkt" type-registered?)
-         (only-in "../model/schema.rkt"
+         (only-in fhir/model/introspect full-field-specs)
+         (only-in fhir/model/registry type-registered?)
+         (only-in fhir/model/schema
                   fs-name fs-ftype fs-kind ftype-tag ftype-prim-code ftype-type-name))
 
 (provide
@@ -58,7 +58,7 @@
     [else #f]))
 
 (module+ test
-  (require rackunit (only-in "../r5/schemas.rkt"))
+  (require rackunit (only-in fhir/r5/schemas))
   (check-equal? (element-fhir-type 'Patient "gender") "code")
   (check-equal? (element-fhir-type 'Patient "maritalStatus") "CodeableConcept")
   (check-equal? (element-fhir-type 'Patient "name.family") "string")

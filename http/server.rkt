@@ -12,7 +12,7 @@
          racket/port
          racket/contract
          (only-in json jsexpr->string)
-         (only-in "../capability/runtime.rkt" app?)
+         (only-in fhir/capability/runtime app?)
          (only-in "router.rkt" handle/raw parse-query))
 
 (provide

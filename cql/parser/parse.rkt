@@ -13,7 +13,7 @@
          "lexer.rkt"
          "ast.rkt"
          (only-in "../error.rkt" cql-error)
-         (only-in "../../result/result.rkt" ok err ok? err?))
+         (only-in fhir/result/result ok err ok? err?))
 
 (provide
  (contract-out
@@ -45,7 +45,7 @@
 
 (module+ test
   (require rackunit
-           (only-in "../../result/result.rkt" ok? ok-value err? err-error))
+           (only-in fhir/result/result ok? ok-value err? err-error))
   (define (P s) (ok-value (parse-cql-expr s)))
   ;; literals
   (check-equal? (P "1") (cql-lit 1))

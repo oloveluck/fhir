@@ -12,7 +12,7 @@
          "parser/ast.rkt"
          (only-in "compile.rkt" vcl-print vcl->compose)
          (only-in "parser/parse.rkt" parse-vcl)
-         (only-in "../result/result.rkt" ok-value))
+         (only-in fhir/result/result ok-value))
 
 (provide (contract-out [compose->vcl (-> jsexpr? string?)]))
 

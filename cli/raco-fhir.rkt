@@ -9,13 +9,13 @@
 (require racket/list
          (only-in json jsexpr->string read-json)
          (only-in racket/file file->string make-directory*)
-         (only-in "../serialize/read-json.rkt" read-fhir-json)
-         "../codegen/gen.rkt"
-         "../codegen/check.rkt"
-         "../codegen/target.rkt"
-         "../result/result.rkt"
-         "../serialize/from-json.rkt"
-         "../serialize/to-json.rkt")
+         (only-in fhir/serialize/read-json read-fhir-json)
+         fhir/codegen/gen
+         fhir/codegen/check
+         fhir/codegen/target
+         fhir/result/result
+         fhir/serialize/from-json
+         fhir/serialize/to-json)
 
 (define (targets-of arg)
   (cond [(or (not arg) (equal? arg "all")) (list target-r6 target-r4 target-r5 target-sof target-omop)]
@@ -89,7 +89,7 @@
 ;; raco fhir snapshot <sd.json> — generate + print a StructureDefinition's snapshot
 (define (cmd-snapshot file)
   (dynamic-require 'fhir/r5/schemas #f)
-  (define generate-snapshot (dynamic-require 'fhir/conformance/snapshot 'generate-snapshot))
+  (define generate-snapshot (dynamic-require 'fhir/sd/snapshot 'generate-snapshot))
   (define sd (call-with-input-file file read-json))
   (define snap (generate-snapshot sd))
   (displayln (jsexpr->string (hash-set sd 'snapshot (hasheq 'element snap)))))

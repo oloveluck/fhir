@@ -20,7 +20,7 @@
          (only-in "derive.rkt" derive-capability-statement derive-operation-definition)
          (only-in "runtime.rkt" build-app)
          (only-in json jsexpr->string)
-         (only-in "../serialize/to-json.rkt" node->jsexpr))
+         (only-in fhir/serialize/to-json node->jsexpr))
 
 (provide app-module-begin)
 

@@ -9,7 +9,7 @@
 ;;; inside the compile-time form macros (lang-gen/form-syntax.rkt).
 
 (require racket/contract
-         (only-in "../contracts.rkt" discriminator/c ftype/c))
+         (only-in fhir/contracts discriminator/c ftype/c))
 
 (provide (struct-out type-schema)
          (struct-out schema-field)

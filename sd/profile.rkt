@@ -22,10 +22,10 @@
 (require (for-syntax racket/base
                      syntax/parse
                      racket/list
-                     (only-in "../model/schema.rkt"
+                     (only-in fhir/model/schema
                               field-spec field-spec? fs-name fs-min fs-max fs-ftype fs-extra)
-                     (only-in "../model/registry.rkt" type-schema-of)
-                     (only-in "../model/introspect.rkt" full-field-specs type-parent-sym)
+                     (only-in fhir/model/registry type-schema-of)
+                     (only-in fhir/model/introspect full-field-specs type-parent-sym)
                      fhir/r6/types                       ; populate the phase-1 registry (base schemas)
                      fhir/lang-gen/form-syntax))         ; build-fhir-form for the emitted macro
 

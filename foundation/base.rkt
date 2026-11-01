@@ -8,6 +8,6 @@
 ;;; `#lang fhir/foundation` is valid but empty (no type macros are in scope yet) — it exists so the
 ;;; base module language is testable on its own.
 
-(require "../kernel/kit.rkt")
+(require fhir/kernel/kit)
 
-(provide (all-from-out "../kernel/kit.rkt"))
+(provide (all-from-out fhir/kernel/kit))

@@ -14,7 +14,7 @@
          (only-in fhir/capability/runtime
                   app? dispatch read-request create-request delete-request search-request
                   invoke-request)
-         (prefix-in ex: (file "../examples/patient-app.rkt")))
+         (prefix-in ex: fhir/examples/patient-app))
 
 ;; ---- the lang produces an app + a derived CapabilityStatement -------------------------------
 (check-true (app? ex:app))

@@ -11,8 +11,8 @@
 (require racket/contract racket/list json
          (only-in fhir/viewdef/types)                    ; register ViewDefinition + the R6 base
          (only-in "../eval.rkt" eval-view view-columns)
-         (only-in "../../serialize/from-json.rkt" from-json)
-         (only-in "../../result/result.rkt" ok? ok-value))
+         (only-in fhir/serialize/from-json from-json)
+         (only-in fhir/result/result ok? ok-value))
 
 (provide (contract-out
           ;; run-suite : suite.json path -> (values passed total failures)

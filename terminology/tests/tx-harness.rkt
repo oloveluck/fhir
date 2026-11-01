@@ -20,9 +20,9 @@
          json file/gunzip file/untar
          (only-in "../service.rkt" resources->resolver make-terminology/resolver
                   make-lookup make-cs-validate make-undecidable? policy-of no-version-policy)
-         (only-in "../../fhirpath/terminology.rkt" tx-service-expand tx-service-validate
+         (only-in fhir/fhirpath/terminology tx-service-expand tx-service-validate
                   tx-service-translate)
-         (only-in "../../serialize/to-json.rkt" node->jsexpr))
+         (only-in fhir/serialize/to-json node->jsexpr))
 
 (provide
  (struct-out tx-results)
@@ -30,7 +30,7 @@
 
 (struct tx-results (pass fail skip failures) #:transparent)
 
-(define-runtime-path tx-tgz "../../spec/hl7.fhir.uv.tx-ecosystem.tgz")
+(define tx-tgz (collection-file-path "hl7.fhir.uv.tx-ecosystem.tgz" "fhir" "spec"))
 
 ;; ---- read the package's tests/ tree into memory ----------------------------------------------
 ;; -> hash "tests/<relpath>" -> jsexpr

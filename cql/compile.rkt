@@ -18,8 +18,8 @@
          "elm/ast.rkt"
          (only-in "error.rkt" cql-error cql-error?)
          racket/contract
-         (only-in "../result/result.rkt" ok err ok? err?)
-         (only-in "../fhirpath/temporal-ops.rkt"
+         (only-in fhir/result/result ok err ok? err?)
+         (only-in fhir/fhirpath/temporal-ops
                   parse-fp-date parse-fp-datetime parse-fp-time
                   moment-year moment-month moment-day moment-hour moment-minute moment-second
                   moment-frac moment-tzmin))
@@ -485,7 +485,7 @@
 (module+ test
   (require rackunit
            (only-in "parser/parse.rkt" parse-cql-expr parse-cql)
-           (only-in "../result/result.rkt" ok? ok-value err?))
+           (only-in fhir/result/result ok? ok-value err?))
   (define (C s) (ok-value (compile-expr (ok-value (parse-cql-expr s)))))
   ;; + on integers -> Add ; + on strings -> Concatenate
   (check-equal? (elm-nary-op (C "1 + 2")) "Add")

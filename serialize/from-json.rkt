@@ -15,17 +15,17 @@
 
 (require racket/contract
          racket/string
-         "../model/node.rkt"
-         "../result/result.rkt"
+         fhir/model/node
+         fhir/result/result
          "read-json.rkt"                             ; jnum (precision-preserving numbers) + strip-jnum
-         (only-in "../model/schema.rkt"
+         (only-in fhir/model/schema
                   type-schema-parent type-schema-fields type-schema-spec-url
                   schema-field-name schema-field-min schema-field-max schema-field-ftype
                   card->kind ftype-tag ftype-prim-code ftype-type-name
                   inherited-field-names inherited-field-ftype inherited-field-min inherited-field-max)
-         (only-in "../model/registry.rkt"
+         (only-in fhir/model/registry
                   type-schema-of type-registered? constructor-of absent-constructor-of)
-         (only-in "../primitives/primitives.rkt"))   ; register primitive constructors
+         (only-in fhir/primitives/primitives))   ; register primitive constructors
 
 (provide
  (contract-out
@@ -193,10 +193,10 @@
 ;; ── living examples: a demo type registered here, parsed through every quirk ─────────────────
 (module+ test
   (require rackunit
-           (only-in "../model/schema.rkt" type-schema schema-field)
-           (only-in "../model/registry.rkt" register-type!)
-           (only-in "../model/registry.rkt" fhir-spec)
-           (only-in "../model/base.rkt" primitive-type-value element-id)
+           (only-in fhir/model/schema type-schema schema-field)
+           (only-in fhir/model/registry register-type!)
+           (only-in fhir/model/registry fhir-spec)
+           (only-in fhir/model/base primitive-type-value element-id)
            (only-in "to-json.rkt" node->jsexpr node->json-string))
   (define (field name min max prim)
     (schema-field name min max (vector 'prim prim) #f "https://example.org/demo" #f))

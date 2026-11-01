@@ -8,7 +8,7 @@
 ;;; normalized to UTC before component comparison.
 
 (require racket/contract racket/match
-         (only-in "../primitives/primitives.rkt" t-date? t-time? t-datetime?
+         (only-in fhir/primitives/primitives t-date? t-time? t-datetime?
                   t-date-year t-date-month t-date-day t-date-precision
                   t-time-hour t-time-minute t-time-second t-time-frac
                   t-datetime-year t-datetime-month t-datetime-day t-datetime-hour t-datetime-minute

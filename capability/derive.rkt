@@ -12,9 +12,9 @@
 ;;; registered, so the whole tree resolves in one call), then `ok-or-raise`.
 
 (require racket/contract
-         (only-in "../serialize/from-json.rkt" from-json)
-         (only-in "../result/result.rkt" ok-or-raise)
-         (only-in "../r6/fhir-version.rkt" fhir-version))
+         (only-in fhir/serialize/from-json from-json)
+         (only-in fhir/result/result ok-or-raise)
+         (only-in fhir/r6/fhir-version fhir-version))
 
 (provide
  (struct-out rc-server)
@@ -118,9 +118,9 @@
 
 (module+ test
   (require rackunit
-           (only-in "../r6/types.rkt")                       ; register the R6 tower
-           (only-in "../model/node.rkt" fhir? fhir-type fhir-ref)
-           (only-in "../serialize/to-json.rkt" node->jsexpr))
+           (only-in fhir/r6/types)                       ; register the R6 tower
+           (only-in fhir/model/node fhir? fhir-type fhir-ref)
+           (only-in fhir/serialize/to-json node->jsexpr))
   (define srv (rc-server "server" "active" "2025-01-01T00:00:00Z" fhir-version
                          '("application/fhir+json") #f))
   (define res (rc-resource 'Patient '(read create search-type)

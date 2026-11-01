@@ -7,14 +7,14 @@
 (require rackunit
          syntax/macro-testing               ; convert-compile-time-error
          (for-syntax racket/base
-                     (only-in "../lang-gen/form-syntax.rkt" build-fhir-form))
-         "../model/node.rkt"
-         "../model/schema.rkt"
-         "../model/registry.rkt"
-         "../result/result.rkt"
-         "../serialize/to-json.rkt"
-         "../serialize/from-json.rkt"
-         (only-in "../primitives/primitives.rkt" primitive->jsexpr))
+                     (only-in fhir/lang-gen/form-syntax build-fhir-form))
+         fhir/model/node
+         fhir/model/schema
+         fhir/model/registry
+         fhir/result/result
+         fhir/serialize/to-json
+         fhir/serialize/from-json
+         (only-in fhir/primitives/primitives primitive->jsexpr))
 
 ;; --- register runtime schemas (what the generator would emit) ---------------------------------
 (define HN-URL "https://build.fhir.org/datatypes.html#HumanName")

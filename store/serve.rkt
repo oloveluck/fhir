@@ -15,16 +15,16 @@
 (require racket/contract racket/list racket/string racket/match
          json
          "fhir-sqlite.rkt" "fhir-engine.rkt" "ig-params.rkt" "bundle.rkt"
-         (only-in "../capability/derive.rkt" derive-capability-statement rc-server rc-resource
+         (only-in fhir/capability/derive derive-capability-statement rc-server rc-resource
                   rc-operation)
-         (only-in "../capability/runtime.rkt" make-repository build-app app?)
-         (only-in "../viewdef/run.rkt" make-sql-run-handler make-sql-export-handler)
-         (only-in "../viewdef/operations.rkt" sql-run-operation sql-export-operation
+         (only-in fhir/capability/runtime make-repository build-app app?)
+         (only-in fhir/viewdef/run make-sql-run-handler make-sql-export-handler)
+         (only-in fhir/viewdef/operations sql-run-operation sql-export-operation
                   sql-run-definition sql-export-definition)
-         (only-in "../serialize/from-json.rkt" from-json)
-         (only-in "../serialize/to-json.rkt" node->jsexpr)
-         (only-in "../result/result.rkt" ok? ok-value ok-or-raise)
-         (only-in "../model/node.rkt" fhir?))
+         (only-in fhir/serialize/from-json from-json)
+         (only-in fhir/serialize/to-json node->jsexpr)
+         (only-in fhir/result/result ok? ok-value ok-or-raise)
+         (only-in fhir/model/node fhir?))
 
 (provide
  (contract-out
@@ -221,9 +221,9 @@
 (module+ test
   (require rackunit racket/file racket/runtime-path
            (only-in fhir/r5/schemas)
-           (only-in "../capability/runtime.rkt" dispatch search-request create-request)
-           (only-in "../model/node.rkt" fhir-ref fhir-type))
-  (define-runtime-path r5 "../spec/hl7.fhir.r5.core.tgz")
+           (only-in fhir/capability/runtime dispatch search-request create-request)
+           (only-in fhir/model/node fhir-ref fhir-type))
+  (define r5 (collection-file-path "hl7.fhir.r5.core.tgz" "fhir" "spec"))
   (define tmp (make-temporary-file "store-serve-~a.db"))
   (define store (open-fhir-store tmp))
   (define app (make-store-app store #:package r5 #:types '(Patient Observation)))
@@ -243,4 +243,4 @@
   (check-equal? (length (fhir-ref hits 'entry '())) 1)
   (close-fhir-store store) (delete-file tmp))
 
-(require (only-in "../capability/runtime.rkt" app-capability-statement))
+(require (only-in fhir/capability/runtime app-capability-statement))

@@ -15,11 +15,11 @@
 
 (require racket/contract racket/list racket/string
          json
-         (only-in "../codegen/load-spec.rkt" load-package package-contents-examples)
-         (only-in "../serialize/from-json.rkt" from-json)
-         (only-in "../result/result.rkt" ok? ok-value)
-         (only-in "../model/node.rkt" fhir-type)
-         (only-in "../model/registry.rkt" type-registered?)
+         (only-in fhir/codegen/load-spec load-package package-contents-examples)
+         (only-in fhir/serialize/from-json from-json)
+         (only-in fhir/result/result ok? ok-value)
+         (only-in fhir/model/node fhir-type)
+         (only-in fhir/model/registry type-registered?)
          (only-in "example-harness.rkt" roundtrip-result))
 
 (provide

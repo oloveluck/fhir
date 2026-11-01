@@ -17,17 +17,17 @@
          "elm/ast.rkt"
          "value.rkt"
          (only-in "error.rkt" cql-error cql-error?)
-         (only-in "../result/result.rkt" ok err)
-         (only-in "../fhirpath/decimal.rkt"
+         (only-in fhir/result/result ok err)
+         (only-in fhir/fhirpath/decimal
                   fp-decimal? parse-decimal integer->decimal decimal->exact decimal->string
                   decimal-add decimal-sub decimal-mul decimal-div decimal-cmp decimal-round decimal-negate decimal-precision)
-         (only-in "../fhirpath/value.rkt" fp-long fp-long? fp-long-v fp-quantity fp-quantity? fp-quantity-value fp-quantity-unit)
-         (only-in "../fhirpath/quantity.rkt" make-quantity quantity-add quantity-sub quantity-compare)
-         (only-in "../fhirpath/temporal-ops.rkt"
+         (only-in fhir/fhirpath/value fp-long fp-long? fp-long-v fp-quantity fp-quantity? fp-quantity-value fp-quantity-unit)
+         (only-in fhir/fhirpath/quantity make-quantity quantity-add quantity-sub quantity-compare)
+         (only-in fhir/fhirpath/temporal-ops
                   moment moment? moment-compare moment->string parse-fp-date parse-fp-datetime parse-fp-time
                   moment-kind moment-year moment-month moment-day moment-hour moment-minute moment-second
                   moment-frac moment-tzmin moment-prec moment-plus moment-add-ms)
-         (only-in "../fhirpath/equality.rkt" item-equal? item-equiv?))
+         (only-in fhir/fhirpath/equality item-equal? item-equiv?))
 
 (provide (contract-out
           [eval-elm    (-> elm-expr? ienv? cql-value?)]  ; run one ELM expression node -> a CQL value
@@ -1579,7 +1579,7 @@
   (require rackunit
            (only-in "parser/parse.rkt" parse-cql-expr)
            (only-in "compile.rkt" compile-expr)
-           (only-in "../result/result.rkt" ok-value))
+           (only-in fhir/result/result ok-value))
   ;; end-to-end: parse -> compile -> eval a bare expression
   (define (E s) (eval-elm (ok-value (compile-expr (ok-value (parse-cql-expr s)))) (make-ienv)))
   (check-equal? (E "1 + 2") 3)

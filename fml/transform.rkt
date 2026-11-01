@@ -20,16 +20,16 @@
 
 (require racket/contract racket/match racket/list racket/string
          "parser/ast.rkt"
-         (only-in "../model/node.rkt" fhir? fhir-ref fhir-type)
-         (only-in "../model/base.rkt" primitive-type? primitive-type-value)
-         (only-in "../model/introspect.rkt" full-field-specs)
-         (only-in "../model/schema.rkt" field-spec? fs-name fs-kind fs-ftype ftype-type? ftype-type-name)
-         (only-in "../fhirpath/parser/ast.rkt" fp-invoke fp-invoke? fp-call fp-binop fp-unop fp-index fp-typeop fp-extern)
-         (only-in "../fhirpath/eval.rkt" eval-fhirpath)
-         (only-in "../fhirpath/value.rkt" item->system fp-long? fp-long-v)
-         (only-in "../fhirpath/decimal.rkt" fp-decimal? decimal->string)
-         (only-in "../fhirpath/temporal-ops.rkt" moment? moment->string)
-         (only-in "../serialize/to-json.rkt" node->jsexpr))
+         (only-in fhir/model/node fhir? fhir-ref fhir-type)
+         (only-in fhir/model/base primitive-type? primitive-type-value)
+         (only-in fhir/model/introspect full-field-specs)
+         (only-in fhir/model/schema field-spec? fs-name fs-kind fs-ftype ftype-type? ftype-type-name)
+         (only-in fhir/fhirpath/parser/ast fp-invoke fp-invoke? fp-call fp-binop fp-unop fp-index fp-typeop fp-extern)
+         (only-in fhir/fhirpath/eval eval-fhirpath)
+         (only-in fhir/fhirpath/value item->system fp-long? fp-long-v)
+         (only-in fhir/fhirpath/decimal fp-decimal? decimal->string)
+         (only-in fhir/fhirpath/temporal-ops moment? moment->string)
+         (only-in fhir/serialize/to-json node->jsexpr))
 
 (provide (contract-out
           ;; run-map : parsed map × typed source resource -> the target resource jsexpr
@@ -294,8 +294,8 @@
   (require rackunit racket/file
            (only-in fhir/r5/schemas)
            (only-in "parser/parse.rkt" parse-fml)
-           (only-in "../serialize/from-json.rkt" from-json)
-           (only-in "../result/result.rkt" ok-value))
+           (only-in fhir/serialize/from-json from-json)
+           (only-in fhir/result/result ok-value))
   (define qr (ok-value (from-json (hasheq 'resourceType "QuestionnaireResponse" 'id "12345" 'status "completed"
                                           'item (list (hasheq 'linkId "patient.sex"
                                                               'answer (list (hasheq 'valueString "female")))))

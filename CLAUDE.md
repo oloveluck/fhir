@@ -197,11 +197,11 @@ own thread. `raco fhir serve <app.rkt> [port]` dynamic-requires the module's `ap
 lang is R6, served resources/search evaluate against the R6 tower.
 
 ## Snapshot generation + validation (`conformance/`)
-`conformance/sd-index.rkt` (`resolve-sd-raw`, moved from `fsh/`) resolves base/profile SDs from the R5
-core package. `conformance/snapshot.rkt` (`generate-snapshot`) is a reduced-ProfileUtilities merge:
+`sd/sd-index.rkt` (`resolve-sd-raw`, moved from `fsh/`) resolves base/profile SDs from the R5
+core package. `sd/snapshot.rkt` (`generate-snapshot`) is a reduced-ProfileUtilities merge:
 re-root the base snapshot, element-by-path merge (diff overrides; `constraint` **accumulates**),
 `ensureBase`, and named-slice re-rooting (a slice inherits the base element at its path). Deferred:
-reslicing, discriminator inference, choice-`[x]` slice expansion, contentReference. `conformance/element-index.rkt`
+reslicing, discriminator inference, choice-`[x]` slice expansion, contentReference. `sd/element-index.rkt`
 turns a snapshot into `child-elements`/`slices-of`/`by-id` lookups + `type-index` (the datatype jump,
 cached; `opaque-type?` guards Resource/Element/…). `conformance/validate.rkt` validates a **raw jsexpr**
 resource (lenient parsing would hide unknown elements — the typed node is used only for invariants)
@@ -293,9 +293,9 @@ fixedUri, `context` + type-characteristics); **discriminator slicing** (`contain
 paths → ElementDefinition id/path, `[x]`→`[x]`, `[slice]`→`:slice`); **Logical models & custom
 Resources** (`compile-logical-resource` — root element at the entity id, `addElement`/kind/derivation=
 specialization); **parameterized RuleSets** (`instantiate-ruleset` substitutes `{param}` in the raw
-body tokens and re-parses); **snapshot generation** (opt-in `emit-snapshot?` → `conformance/snapshot.rkt`, a
+body tokens and re-parses); **snapshot generation** (opt-in `emit-snapshot?` → `sd/snapshot.rkt`, a
 ProfileUtilities-style merge of the differential onto the base's snapshot from the R5 core package via
-`conformance/sd-index.rkt`); and **Mapping** (`apply-mapping` — a post-pass injecting `StructureDefinition.mapping`
+`sd/sd-index.rkt`); and **Mapping** (`apply-mapping` — a post-pass injecting `StructureDefinition.mapping`
 + `ElementDefinition.mapping` into the named Source SD). `fsh/tests/features-test.rkt` covers the
 golden-less features (param RuleSets, snapshot, Mapping). The reverse direction is complete too:
 `decompile-extension` emits minimal FSH and lets the forward compiler regenerate the scaffold, and the

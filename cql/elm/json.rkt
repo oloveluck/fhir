@@ -9,7 +9,7 @@
 
 (require racket/contract
          json
-         (only-in "../../serialize/jsexpr-util.rkt" drop-false)
+         (only-in fhir/serialize/jsexpr-util drop-false)
          "ast.rkt")
 
 (provide (contract-out

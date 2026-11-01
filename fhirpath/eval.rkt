@@ -15,7 +15,7 @@
          (only-in "operators.rkt" apply-binop apply-unary)
          (only-in "types.rkt" item-is? item-of-type? known-type?)
          (only-in "analyze.rkt" analyze)
-         (only-in "../model/node.rkt" fhir? fhir-type)
+         (only-in fhir/model/node fhir? fhir-type)
          (only-in "functions.rkt" apply-function)
          (only-in "decimal.rkt" parse-decimal integer->decimal)
          (only-in "quantity.rkt" make-quantity)

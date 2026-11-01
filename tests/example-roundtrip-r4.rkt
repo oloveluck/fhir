@@ -10,7 +10,7 @@
          (only-in fhir/tests/example-harness run-dir run-package))
 
 (define-runtime-path examples-dir "vendor/fhir-examples/r4")
-(define-runtime-path r4-tgz "../spec/hl7.fhir.r4.core.tgz")
+(define r4-tgz (collection-file-path "hl7.fhir.r4.core.tgz" "fhir" "spec"))
 
 (define (report)
   (define-values (ep ef) (run-dir examples-dir))

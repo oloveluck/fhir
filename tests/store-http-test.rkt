@@ -12,7 +12,7 @@
          (only-in fhir/store/fhir-sqlite open-fhir-store close-fhir-store)
          (only-in fhir/store/serve make-store-app))
 
-(define-runtime-path r5-package "../spec/hl7.fhir.r5.core.tgz")
+(define r5-package (collection-file-path "hl7.fhir.r5.core.tgz" "fhir" "spec"))
 (define tmp (make-temporary-file "store-http-~a.db"))
 (define store (open-fhir-store tmp))
 (define app (make-store-app store #:package r5-package #:types '(Patient Observation)))

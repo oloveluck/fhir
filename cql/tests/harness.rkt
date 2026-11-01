@@ -14,7 +14,7 @@
          (only-in "../interp.rkt" eval-elm make-ienv test-equal?)
          (only-in "../value.rkt" cql-null? render)
          (only-in "../error.rkt" cql-error?)
-         (only-in "../../result/result.rkt" ok? ok-value err-error))
+         (only-in fhir/result/result ok? ok-value err-error))
 
 (provide (contract-out [run-suite (-> path-string? any)]))   ; -> (values passed total failures skipped)
 

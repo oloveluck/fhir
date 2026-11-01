@@ -11,7 +11,7 @@
          (only-in fhir/conformance/validate validate-issues issue-severity issue-code issue-path issue-msg))
 
 (define-values (n errcases err-samples)
-  (let ([tgz (build-path (collection-path "fhir") "spec" "hl7.fhir.r5.core.tgz")]
+  (let ([tgz (collection-file-path "hl7.fhir.r5.core.tgz" "fhir" "spec")]
         [limit 200])
     (define count 0) (define bad 0) (define samples '())
     (define-values (pin pout) (make-pipe (* 1024 1024)))

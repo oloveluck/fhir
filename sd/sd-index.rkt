@@ -16,7 +16,7 @@
 
 (provide (contract-out [resolve-sd-raw (-> string? (or/c hash? #f))]))
 
-(define-runtime-path r5-core-tgz "../spec/hl7.fhir.r5.core.tgz")
+(define r5-core-tgz (collection-file-path "hl7.fhir.r5.core.tgz" "fhir" "spec"))
 (define sd-file-rx #px"^package/StructureDefinition-.*\\.json$")
 
 (define index

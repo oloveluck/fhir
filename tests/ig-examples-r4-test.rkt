@@ -13,8 +13,8 @@
                   check-ig-examples ig-report-total ig-report-parsed ig-report-round-tripped
                   ig-report-skipped ig-report-failures))
 
-(define-runtime-path us-core "../spec/hl7.fhir.us.core.tgz")
-(define-runtime-path ips "../spec/hl7.fhir.uv.ips.tgz")
+(define us-core (collection-file-path "hl7.fhir.us.core.tgz" "fhir" "spec"))
+(define ips (collection-file-path "hl7.fhir.uv.ips.tgz" "fhir" "spec"))
 
 (define (report! label tgz #:min-parsed min-parsed)
   (define r (check-ig-examples tgz))

@@ -10,7 +10,7 @@
 
 (require (for-syntax racket/base syntax/parse)
          (only-in json jsexpr->string)
-         (only-in "../serialize/to-json.rkt" node->jsexpr))
+         (only-in fhir/serialize/to-json node->jsexpr))
 
 (provide (rename-out [kit-module-begin #%module-begin])
          (except-out (all-from-out racket/base) #%module-begin)

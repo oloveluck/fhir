@@ -11,8 +11,8 @@
          (only-in fhir/r5/schemas)                       ; register the R5 tower for source parsing
          (only-in "../parser/parse.rkt" parse-fml)
          (only-in "../transform.rkt" run-map)
-         (only-in "../../serialize/from-json.rkt" from-json)
-         (only-in "../../result/result.rkt" ok? ok-value err-error))
+         (only-in fhir/serialize/from-json from-json)
+         (only-in fhir/result/result ok? ok-value err-error))
 
 (provide (contract-out
           ;; -> (values exec-passed exec-total skipped parse-passed parse-total failures)

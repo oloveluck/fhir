@@ -18,9 +18,9 @@
 (require racket/contract racket/list
          json
          fhir/viewdef/schema/ViewDefinition       ; registers ViewDefinition (resolves vs R5 base)
-         (only-in "../serialize/from-json.rkt" from-json)
-         (only-in "../result/result.rkt" ok? ok-value err-error)
-         (only-in "../model/node.rkt" fhir?))
+         (only-in fhir/serialize/from-json from-json)
+         (only-in fhir/result/result ok? ok-value err-error)
+         (only-in fhir/model/node fhir?))
 
 (provide
  (struct-out view-spec)
@@ -170,9 +170,9 @@
 
 (module+ test
   (require rackunit fhir/r5/schemas fhir/omop/types
-           (only-in "../viewdef/eval.rkt" view-columns)
-           (only-in "../model/introspect.rkt" full-field-specs)
-           (only-in "../model/schema.rkt" field-spec-name))
+           (only-in fhir/viewdef/eval view-columns)
+           (only-in fhir/model/introspect full-field-specs)
+           (only-in fhir/model/schema field-spec-name))
   ;; every view parses STRICTLY against the SQL-on-FHIR schema (the schema is the view validator)
   (for ([vs (in-list omop-view-specs)])
     (check-pred fhir? (load-view (view-spec-view vs))))

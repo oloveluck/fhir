@@ -8,7 +8,7 @@
 ;;; use equality via `item=?`.
 
 (require racket/contract racket/list racket/string
-         (only-in "../model/node.rkt" fhir? fhir-type fhir-ref fhir-field-names fhir-has?)
+         (only-in fhir/model/node fhir? fhir-type fhir-ref fhir-field-names fhir-has?)
          (only-in "value.rkt" item->system fp-quantity? fp-long? fp-long-v)
          (only-in "decimal.rkt" fp-decimal? integer->decimal decimal-cmp fp-decimal-scale
                   decimal-round)

@@ -7,7 +7,7 @@
          racket/string
          racket/port
          (only-in fhir/http/server serve-app)
-         (only-in (file "../examples/server-app.rkt") app))
+         (only-in fhir/examples/server-app app))
 
 (define port 8177)
 (define stop (serve-app app #:port port))

@@ -14,7 +14,7 @@
          "ir.rkt"
          "type-registry.rkt"
          (only-in "expand.rkt" choice-groups-of)
-         (only-in "../model/schema.rkt" field-spec choice-group max-of
+         (only-in fhir/model/schema field-spec choice-group max-of
                   inherited-field-names inherited-field-min inherited-field-max inherited-field-ftype))
 
 (provide

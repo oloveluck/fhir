@@ -8,9 +8,9 @@
 ;;; required by the caller (run-r4.rkt / run-r5.rkt) so from-json can parse the inputs.
 
 (require racket/contract racket/list racket/string racket/math xml
-         (only-in "../../serialize/from-json.rkt" from-json)
-         (only-in "../../serialize/read-json.rkt" read-fhir-json)
-         (only-in "../../result/result.rkt" ok? ok-value err-error)
+         (only-in fhir/serialize/from-json from-json)
+         (only-in fhir/serialize/read-json read-fhir-json)
+         (only-in fhir/result/result ok? ok-value err-error)
          (only-in "../parser/parse.rkt" parse-fhirpath)
          (only-in "../eval.rkt" eval-fhirpath)
          (only-in "../error.rkt" exn:fp? exn:fp-kind)

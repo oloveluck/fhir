@@ -13,7 +13,7 @@
 (require racket/match
          racket/contract
          "patterns.rkt"
-         "../result/result.rkt")
+         fhir/result/result)
 
 (provide (struct-out t-date)
          (struct-out t-time)

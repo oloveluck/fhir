@@ -1,6 +1,6 @@
 #lang racket/base
 
-;;; fhirpath-print.rkt — FHIRPath AST -> canonical expression text.
+;;; print.rkt — FHIRPath AST -> canonical expression text.
 ;;;
 ;;; The StructureMap resource carries conditions/expressions as STRINGS; the FML parser produces
 ;;; ASTs (fp-* prefabs), so emission needs a printer. A structural recursion over the FHIRPath data
@@ -8,7 +8,7 @@
 ;;; wrapped), which is always correct if not always minimal.
 
 (require racket/contract racket/match racket/string
-         (only-in "../fhirpath/parser/ast.rkt"
+         (only-in "parser/ast.rkt"
                   fp-lit fp-invoke fp-call fp-index fp-binop fp-unop fp-typeop fp-var fp-extern
                   dec-lit dec-lit-lexeme qty-lit qty-lit-number qty-lit-unit
                   date-lit date-lit-str datetime-lit datetime-lit-str time-lit time-lit-str))
@@ -50,7 +50,7 @@
 (define dec-lit? (lambda (x) (match x [(dec-lit _) #t] [_ #f])))
 
 (module+ test
-  (require rackunit (only-in "../fhirpath/parser/parse.rkt" parse-fhirpath))
+  (require rackunit (only-in "parser/parse.rkt" parse-fhirpath))
   (define (roundtrip s) (fhirpath->string (parse-fhirpath s)))
   (check-equal? (roundtrip "linkId = 'patient.sex'") "linkId = 'patient.sex'")
   (check-equal? (roundtrip "item.answer.valueString") "item.answer.valueString")

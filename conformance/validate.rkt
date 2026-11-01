@@ -14,23 +14,23 @@
 (require racket/contract
          racket/string
          racket/list
-         (only-in "sd-index.rkt" resolve-sd-raw)
-         (only-in "element-index.rkt"
+         (only-in fhir/sd/sd-index resolve-sd-raw)
+         (only-in fhir/sd/element-index
                   make-element-index element-index? index-elements index-root child-elements slices-of
                   index-by-id type-index opaque-type?)
-         (only-in "../model/leaf.rkt" listify)
-         (only-in "../model/binding.rkt" binding-expansion)
-         (only-in "snapshot.rkt" generate-snapshot)
-         (only-in "../serialize/from-json.rkt" from-json)
-         (only-in "../serialize/to-json.rkt" node->jsexpr)
-         (only-in "../serialize/read-json.rkt" jnum? jnum-lexeme jnum-value)
-         (only-in "../result/result.rkt" ok? ok-value ok-or-raise err)
-         (only-in "../model/registry.rkt" constructor-of)
-         (only-in "../fhirpath/eval.rkt" eval-fhirpath)
-         (only-in "../fhirpath/parser/parse.rkt" parse-fhirpath)
-         (only-in "../fhirpath/value.rkt" item->system)
-         (only-in "../serialize/jsexpr-util.rkt" drop-false)
-         (only-in "../fhirpath/terminology.rkt" tx-service-validate tx-service-expand))
+         (only-in fhir/model/leaf listify)
+         (only-in fhir/model/binding binding-expansion)
+         (only-in fhir/sd/snapshot generate-snapshot)
+         (only-in fhir/serialize/from-json from-json)
+         (only-in fhir/serialize/to-json node->jsexpr)
+         (only-in fhir/serialize/read-json jnum? jnum-lexeme jnum-value)
+         (only-in fhir/result/result ok? ok-value ok-or-raise err)
+         (only-in fhir/model/registry constructor-of)
+         (only-in fhir/fhirpath/eval eval-fhirpath)
+         (only-in fhir/fhirpath/parser/parse parse-fhirpath)
+         (only-in fhir/fhirpath/value item->system)
+         (only-in fhir/serialize/jsexpr-util drop-false)
+         (only-in fhir/fhirpath/terminology tx-service-validate tx-service-expand))
 
 (provide
  (struct-out issue)

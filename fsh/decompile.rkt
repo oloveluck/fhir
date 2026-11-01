@@ -16,8 +16,8 @@
          racket/contract
          "parser/ast.rkt"
          (only-in "print.rkt" print-doc print-entity)
-         (only-in "../serialize/to-json.rkt" node->jsexpr)
-         (only-in "../model/node.rkt" fhir?))
+         (only-in fhir/serialize/to-json node->jsexpr)
+         (only-in fhir/model/node fhir?))
 
 (provide
  (contract-out

@@ -18,7 +18,7 @@
          json
          (only-in "parser/parse.rkt" parse-vcl)
          (only-in "compile.rkt" vcl->compose vcl->valueset)
-         (only-in "../result/result.rkt" ok-value ok-or-raise))
+         (only-in fhir/result/result ok-value ok-or-raise))
 
 (provide (except-out (all-from-out racket/base) #%module-begin)
          (rename-out [vcl-module-begin #%module-begin])

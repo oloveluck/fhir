@@ -32,8 +32,8 @@
 (module+ test
   (require rackunit
            (only-in "node.rkt" fhir)
-           (only-in "../primitives/primitives.rkt" make-string)
-           (only-in "../result/result.rkt" ok-value))
+           (only-in fhir/primitives/primitives make-string)
+           (only-in fhir/result/result ok-value))
   (define s (ok-value (make-string "hello")))
   (check-equal? (pv s) "hello")
   (check-equal? (pv 42) 42)                       ; non-primitives pass through

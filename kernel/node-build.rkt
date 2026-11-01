@@ -10,11 +10,11 @@
 
 (require racket/contract
          racket/match
-         "../model/node.rkt"
-         "../result/result.rkt"
-         (only-in "../model/registry.rkt" constructor-of)
+         fhir/model/node
+         fhir/result/result
+         (only-in fhir/model/registry constructor-of)
          ;; loading the catalogue registers every primitive constructor for `build-prim`.
-         (only-in "../primitives/primitives.rkt"))
+         (only-in fhir/primitives/primitives))
 
 (provide
  (contract-out
@@ -48,7 +48,7 @@
 
 (module+ test
   (require rackunit
-           (only-in "../primitives/primitives.rkt" fhir-string? primitive->jsexpr))
+           (only-in fhir/primitives/primitives fhir-string? primitive->jsexpr))
   ;; a datatype node: single + list fields, absent omitted
   (define hn (node-build 'HumanName
                          (list (list 'family 'single (list (build-prim "string" "Chalmers")))

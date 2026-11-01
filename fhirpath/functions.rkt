@@ -9,8 +9,8 @@
 
 (require racket/contract racket/list racket/string racket/math racket/date
          "error.rkt"
-         (only-in "../model/node.rkt" fhir? fhir-type fhir-ref)
-         (only-in "../model/base.rkt" primitive-type? element-extension element-id)
+         (only-in fhir/model/node fhir? fhir-type fhir-ref)
+         (only-in fhir/model/base primitive-type? element-extension element-id)
          (only-in "value.rkt" item->system item-fhir-type value-less? fp-quantity fp-quantity?
                   fp-quantity-value fp-quantity-unit fp-quantity-calendar? fp-long fp-long? fp-long-v as-decimal)
          (only-in "types.rkt" item-is? item-of-type? known-type? type-info-of)

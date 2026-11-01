@@ -20,12 +20,12 @@
 
 (require racket/contract racket/list racket/string racket/match
          json
-         "schema/ViewDefinition.rkt"              ; registers ViewDefinition (resolves vs any core tower)
-         (only-in "eval.rkt" eval-view view-columns)
-         (only-in "../model/node.rkt" fhir?)
-         (only-in "../serialize/from-json.rkt" from-json)
-         (only-in "../result/result.rkt" ok? ok-value err-error)
-         (only-in "../store/fhir-analytics.rkt" analytics? fhir-analytics-query))
+         fhir/viewdef/schema/ViewDefinition              ; registers ViewDefinition (resolves vs any core tower)
+         (only-in fhir/viewdef/eval eval-view view-columns)
+         (only-in fhir/model/node fhir?)
+         (only-in fhir/serialize/from-json from-json)
+         (only-in fhir/result/result ok? ok-value err-error)
+         (only-in "fhir-analytics.rkt" analytics? fhir-analytics-query))
 
 (provide
  (contract-out
@@ -136,8 +136,8 @@
 (module+ test
   (require rackunit racket/file
            fhir/r5/schemas
-           (only-in "../store/fhir-sqlite.rkt" open-fhir-store close-fhir-store)
-           (only-in "../store/fhir-analytics.rkt" open-analytics close-analytics))
+           (only-in "fhir-sqlite.rkt" open-fhir-store close-fhir-store)
+           (only-in "fhir-analytics.rkt" open-analytics close-analytics))
   ;; unit: typing
   (check-equal? (duck-type "integer") "BIGINT")
   (check-equal? (duck-type "dateTime") "TIMESTAMP")
@@ -166,7 +166,7 @@
   (define store (open-fhir-store tmp))
   (define a (open-analytics store))
   (check-equal? (materialize-view! a names-view pts) 3)     ; 2 + 1 names
-  (require (only-in "../store/fhir-analytics.rkt" fhir-analytics-query))
+  (require (only-in "fhir-analytics.rkt" fhir-analytics-query))
   ;; the typed hint made birth_year a BIGINT; escaping survived
   (check-equal?
    (fhir-analytics-query a "SELECT family, birth_year FROM sof.patient_names WHERE given = 'Miles'")

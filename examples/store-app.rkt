@@ -18,7 +18,7 @@
 
 (provide app)
 
-(define-runtime-path r5-package "../spec/hl7.fhir.r5.core.tgz")
+(define r5-package (collection-file-path "hl7.fhir.r5.core.tgz" "fhir" "spec"))
 (define db-path (build-path (find-system-path 'temp-dir) "fhir-store-demo.db"))
 
 (define store (open-fhir-store db-path))

@@ -17,13 +17,13 @@
 (require racket/contract
          json
          "etl.rkt" "views.rkt"
-         (only-in "../viewdef/materialize.rkt" materialize-view!)
-         (only-in "../model/node.rkt" fhir?)
-         (only-in "../serialize/from-json.rkt" from-json)
-         (only-in "../result/result.rkt" ok? ok-value)
-         (only-in "../store/fhir-sqlite.rkt" fhir-store?)
-         (only-in "../store/fhir-engine.rkt" fhir-search)
-         (only-in "../store/fhir-analytics.rkt" open-analytics close-analytics fhir-analytics-query
+         (only-in fhir/store/materialize materialize-view!)
+         (only-in fhir/model/node fhir?)
+         (only-in fhir/serialize/from-json from-json)
+         (only-in fhir/result/result ok? ok-value)
+         (only-in fhir/store/fhir-sqlite fhir-store?)
+         (only-in fhir/store/fhir-engine fhir-search)
+         (only-in fhir/store/fhir-analytics open-analytics close-analytics fhir-analytics-query
                   analytics?))
 
 (provide
@@ -74,8 +74,8 @@
 
 (module+ test
   (require rackunit racket/file fhir/r5/schemas fhir/omop/types
-           (only-in "../store/fhir-sqlite.rkt" open-fhir-store close-fhir-store)
-           (only-in "../store/fhir-engine.rkt" fhir-create!))
+           (only-in fhir/store/fhir-sqlite open-fhir-store close-fhir-store)
+           (only-in fhir/store/fhir-engine fhir-create!))
   (define tmp (make-temporary-file "omop-session-~a.db"))
   (define store (open-fhir-store tmp))
   (fhir-create! store (hasheq 'resourceType "Patient" 'id "1" 'gender "female" 'birthDate "1980-06-15"))

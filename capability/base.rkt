@@ -12,7 +12,7 @@
          "runtime.rkt"
          "derive.rkt"
          (only-in json jsexpr->string)
-         (only-in "../serialize/to-json.rkt" node->jsexpr)
+         (only-in fhir/serialize/to-json node->jsexpr)
          fhir/r6/types)
 
 (provide (except-out (all-from-out racket/base) #%module-begin)

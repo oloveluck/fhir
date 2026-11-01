@@ -17,13 +17,13 @@
          racket/match
          net/base64
          (only-in json read-json jsexpr->string)
-         (only-in "../model/node.rkt" fhir? fhir-type fhir-ref)
-         (only-in "../model/registry.rkt" type-registered?)
-         (only-in "../serialize/from-json.rkt" from-json)
-         (only-in "../serialize/to-json.rkt" node->jsexpr)
-         (only-in "../result/result.rkt" ok? ok-value)
-         (only-in "../fhirpath/value.rkt" item->system)
-         (only-in "../capability/runtime.rkt"
+         (only-in fhir/model/node fhir? fhir-type fhir-ref)
+         (only-in fhir/model/registry type-registered?)
+         (only-in fhir/serialize/from-json from-json)
+         (only-in fhir/serialize/to-json node->jsexpr)
+         (only-in fhir/result/result ok? ok-value)
+         (only-in fhir/fhirpath/value item->system)
+         (only-in fhir/capability/runtime
                   app? app-capability-statement app-transaction dispatch
                   read-request vread-request create-request update-request delete-request
                   search-request invoke-request operation-outcome-invalid operation-outcome-not-supported))
@@ -183,8 +183,8 @@
 ;; ── living examples: the router is PURE — drive it without sockets ───────────────────────────
 (module+ test
   (require rackunit
-           (only-in "../capability/runtime.rkt" build-app make-repository)
-           (only-in "../capability/derive.rkt" derive-capability-statement rc-server rc-resource)
+           (only-in fhir/capability/runtime build-app make-repository)
+           (only-in fhir/capability/derive derive-capability-statement rc-server rc-resource)
            fhir/r6/types)
   ;; a one-resource app over an in-memory repository
   (define pt (ok-value (from-json (hasheq 'resourceType "Patient" 'id "1" 'gender "female"))))

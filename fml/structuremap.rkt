@@ -7,8 +7,8 @@
 
 (require racket/contract racket/list
          "parser/ast.rkt"
-         (only-in "fhirpath-print.rkt" fhirpath->string)
-         (only-in "../serialize/jsexpr-util.rkt" drop-false))
+         (only-in fhir/fhirpath/print fhirpath->string)
+         (only-in fhir/serialize/jsexpr-util drop-false))
 
 (provide (contract-out [fml->structuremap (-> fml-map? hash?)]))
 
@@ -96,7 +96,7 @@
            'listRuleId (fml-target-share t))))
 
 (module+ test
-  (require rackunit (only-in "parser/parse.rkt" parse-fml) (only-in "../result/result.rkt" ok-value))
+  (require rackunit (only-in "parser/parse.rkt" parse-fml) (only-in fhir/result/result ok-value))
   (define sm (fml->structuremap
               (ok-value (parse-fml "map \"http://x\" = \"t\"\nuses \"http://h/P\" alias P as target\ngroup g(source s, target t : P) { s -> t.gender = 'female' \"r\"; }"))))
   (check-equal? (hash-ref sm 'resourceType) "StructureMap")

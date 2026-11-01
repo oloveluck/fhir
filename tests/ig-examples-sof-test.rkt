@@ -15,7 +15,7 @@
          (only-in fhir/model/node fhir-type)
          (only-in fhir/model/registry type-registered?))
 
-(define-runtime-path sof-tgz "../spec/hl7.fhir.uv.sql-on-fhir.tgz")
+(define sof-tgz (collection-file-path "hl7.fhir.uv.sql-on-fhir.tgz" "fhir" "spec"))
 (define strict-types '(ViewDefinition))                      ; the tower's own types
 
 (define examples (package-contents-examples (load-package sof-tgz)))

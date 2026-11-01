@@ -22,9 +22,9 @@
 (require (for-syntax racket/base
                      syntax/parse
                      racket/syntax)
-         "../model/registry.rkt"
-         "../result/result.rkt"
-         "../model/base.rkt"
+         fhir/model/registry
+         fhir/result/result
+         fhir/model/base
          (only-in "absent.rkt" absent)
          (only-in "temporal.rkt" temporal->string))
 

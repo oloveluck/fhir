@@ -11,7 +11,7 @@
          (only-in "../parser/parse.rkt" parse-cql-expr)
          (only-in "../compile.rkt" compile-expr)
          (only-in "../interp.rkt" eval-elm make-ienv)
-         (only-in "../../result/result.rkt" ok? ok-value))
+         (only-in fhir/result/result ok? ok-value))
 
 (define-runtime-path suite-dir "vendor/cql-tests")
 

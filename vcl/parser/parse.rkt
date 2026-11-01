@@ -5,8 +5,8 @@
 (require racket/contract
          (prefix-in g: "grammar.rkt")
          "lexer.rkt" "ast.rkt"
-         (only-in "../../result/result.rkt" ok err ok? result?)
-         (only-in "../../result/result.rkt" invalid-encoding))
+         (only-in fhir/result/result ok err ok? result?)
+         (only-in fhir/result/result invalid-encoding))
 
 (provide (contract-out [parse-vcl (-> string? result?)]))
 
@@ -22,7 +22,7 @@
                  (ok (lower (g:parse-to-datum (tokenize (open-input-string src)))))))))
 
 (module+ test
-  (require rackunit (only-in "../../result/result.rkt" ok-value))
+  (require rackunit (only-in fhir/result/result ok-value))
   (define (p s) (ok-value (parse-vcl s)))
   ;; the spec's Examples table, as AST shapes
   (check-equal? (p "B") (vcl-code "B"))

@@ -19,15 +19,15 @@
          file/gunzip
          file/untar
          (only-in net/uri-codec uri-decode)
-         (only-in "../vcl/compile.rkt" vcl->compose)
+         (only-in fhir/vcl/compile vcl->compose)
          racket/list
          racket/string
          racket/promise
          racket/runtime-path
-         (only-in "../fhirpath/terminology.rkt" tx-service)
-         (only-in "../serialize/jsexpr-util.rkt" drop-false)
-         (only-in "../serialize/from-json.rkt" from-json)
-         (only-in "../result/result.rkt" ok? ok-value))
+         (only-in fhir/fhirpath/terminology tx-service)
+         (only-in fhir/serialize/jsexpr-util drop-false)
+         (only-in fhir/serialize/from-json from-json)
+         (only-in fhir/result/result ok? ok-value))
 
 (provide make-terminology make-r5-terminology make-r4-terminology
          ;; a service over an EXPLICIT list of resources (the tx-ecosystem conformance suite
@@ -43,8 +43,8 @@
          ;; offline — the conformance harness skips such cases instead of guessing
          make-undecidable?)
 
-(define-runtime-path r5-core-tgz "../spec/hl7.fhir.r5.core.tgz")
-(define-runtime-path r4-core-tgz "../spec/hl7.fhir.r4.core.tgz")
+(define r5-core-tgz (collection-file-path "hl7.fhir.r5.core.tgz" "fhir" "spec"))
+(define r4-core-tgz (collection-file-path "hl7.fhir.r4.core.tgz" "fhir" "spec"))
 
 ;; ---- loading / indexing ---------------------------------------------------------------------
 

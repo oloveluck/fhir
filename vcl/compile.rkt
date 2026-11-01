@@ -24,7 +24,7 @@
          json
          "parser/ast.rkt"
          (only-in "parser/parse.rkt" parse-vcl)
-         (only-in "../result/result.rkt" ok err ok? ok-value result? result-bind invalid-encoding))
+         (only-in fhir/result/result ok err ok? ok-value result? result-bind invalid-encoding))
 
 (provide
  (contract-out

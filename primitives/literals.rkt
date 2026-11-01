@@ -10,10 +10,10 @@
 
 (require (for-syntax racket/base
                      syntax/parse
-                     (only-in "../model/registry.rkt" constructor-of primitive-name?)
-                     (only-in "../result/result.rkt" err?)
+                     (only-in fhir/model/registry constructor-of primitive-name?)
+                     (only-in fhir/result/result err?)
                      (only-in "primitives.rkt"))                 ; register constructors at phase 1
-         (only-in "../kernel/node-build.rkt" build-prim))
+         (only-in fhir/kernel/node-build build-prim))
 
 (provide lit)
 
