@@ -2,7 +2,9 @@
 
 The vendored HL7 FHIR NPM packages read by the `fhir` codegen (`raco fhir regen`), snapshot
 generation, the terminology service and the conformance suites: R4 4.0.1, R5 5.0.0 and R6 core,
-US Core, IPS, SQL-on-FHIR, FHIR-to-OMOP and the tx-ecosystem test package. Pure data (about 50 MB),
+US Core (9.0.0, 8.0.0, 6.1.0), IPS, mCODE 4.0.0 with Genomics Reporting 2.0.0, SQL-on-FHIR,
+FHIR-to-OMOP and the tx-ecosystem test package. Pure data (about 53 MB). An IG's dependency is
+found by name as `<id>-<version>.tgz` (fsh's sushi-config.yaml reader uses this),
 located from Racket with `(require fhir/spec-package)`:
 
 ```racket
