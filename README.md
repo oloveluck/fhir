@@ -48,7 +48,7 @@ is skipped and why) and gated by a floor that only rises:
 | suite | source | current |
 |---|---|---|
 | FHIRPath | HL7 R4/R5 official suites | **1044/1044** (R5), 932/934 (R4) |
-| CQL | cqframework/cql-tests | **1819/1823** |
+| CQL | cqframework/cql-tests | **1820/1823** |
 | UCUM | the official UCUM functional tests | **573/573** (every section) |
 | SQL-on-FHIR | FHIR/sql-on-fhir.js shared suite | **133/133** |
 | terminology | hl7.fhir.uv.tx-ecosystem | **463/553** |

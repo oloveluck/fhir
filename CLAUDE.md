@@ -383,7 +383,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | suite | source | harness | current |
 |---|---|---|---|
 | FHIRPath | HL7 R4/R5 XML suites | `raco fhir fhirpath-tck r5\|r4` | 1044/1044, 932/934 |
-| CQL | cqframework/cql-tests | `raco fhir cql-tck` | 1819/1823 |
+| CQL | cqframework/cql-tests | `raco cql --tck` | 1820/1823 |
 | SQL-on-FHIR | FHIR/sql-on-fhir.js shared suite | `raco fhir sof-tck` | 133/133 |
 | FML | fhir-test-cases r5/structure-mapping | `raco fhir fml-tck` | 6/6 exec, 15/15 parse |
 | **UCUM** | **FHIR/Ucum-java UcumFunctionalTests.xml** | **`raco fhir ucum-tck`** | **573/573** (all sections) |
@@ -399,7 +399,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | validator | fhir-test-cases validator + java outcomes | `tests/validate-diff-test.rkt` | **fp=0**, recall 17/26 (67 cases) |
 | FSH | SUSHI golden corpus (hand-authored pairs) | `fsh/tests/golden-test.rkt` | 22/22 fwd + round-trip |
 | **FSH real IG** | **IPS 2.0.1's own FSH vs its published package** | `fsh/tests/ig-ips-test.rkt` (fsh repo) | **0 compile errors; 76/114 exact, 82/114 complete; 321/440 differential elements** |
-| **CQL real libraries** | **32 published libraries (FHIRHelpers, CQF Measures, CQL IG) vs the reference ELM** | `cql/tests/elm-corpus-test.rkt` (cql repo) | **baseline 2/32 parse; 0/803 defs ELM-equal** (needs retrieves/code defs) |
+| **CQL real libraries** | **32 published libraries (FHIRHelpers, CQF Measures, CQL IG) vs the reference ELM** | `cql/tests/elm-corpus-test.rkt` (cql repo) | **32/32 parse + compile; 421/803 defs ELM-equal** |
 | **terminology** | **hl7.fhir.uv.tx-ecosystem 1.9.3** | **`raco fhir tx-tck`** | **463/553** |
 
 A later pass closed every remaining gap that needs no external terminology — the corpora drove
