@@ -6,6 +6,14 @@ system is treated as a *collection of languages*: a foundation type framework pl
 **compile time** and build a typed value that serializes to JSON. This is the **foundation vertical
 slice** — one coherent end-to-end path proving the architecture, not breadth.
 
+> **This repo is now much more targeted.** It holds only the FHIR-specific parts: the foundation
+> (`fhir/`: typed model, primitives, JSON, codegen, the R4/R5/R6 towers, `#lang fhir/sd`), the vendored
+> HL7 packages (`fhir-spec/`) and the application layer (`fhir-tools/`: capability lang, HTTP server,
+> terminology, validator, SQL-on-FHIR, OMOP, store, `raco fhir`). The stand-alone languages moved to
+> their own repos: [fhirpath](https://github.com/oloveluck/fhirpath), [cql](https://github.com/oloveluck/cql),
+> [fsh](https://github.com/oloveluck/fsh), [vcl](https://github.com/oloveluck/vcl) and
+> [fml](https://github.com/oloveluck/fml).
+
 > **Scope.** Built for FHIR **spec development and conformance testing, not production use.**
 > Persistence is an embedded **SQLite** store (WAL, versioned history, FHIRPath-extracted search
 > indexes) with **DuckDB** attached over the same file for SQL-on-FHIR / OMOP **analytics**.
