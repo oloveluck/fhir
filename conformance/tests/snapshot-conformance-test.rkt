@@ -17,7 +17,7 @@
 (require rackunit racket/runtime-path racket/list racket/string racket/file
          json
          (only-in fhir/r5/schemas)                       ; the R5 tower (sd-index resolves bases)
-         (only-in fhir/conformance/snapshot generate-snapshot))
+         (only-in fhir/sd/snapshot generate-snapshot))
 
 (define-runtime-path vendor "vendor/snapshot-generation")
 

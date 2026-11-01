@@ -5,8 +5,8 @@
 
 (require rackunit
          racket/list
-         (only-in fhir/conformance/snapshot generate-snapshot)
-         (only-in fhir/conformance/sd-index resolve-sd-raw))
+         (only-in fhir/sd/snapshot generate-snapshot)
+         (only-in fhir/sd/sd-index resolve-sd-raw))
 
 (define (snap-elements sd) (hash-ref (hash-ref sd 'snapshot) 'element))
 (define (paths els) (map (lambda (e) (hash-ref e 'path)) els))
