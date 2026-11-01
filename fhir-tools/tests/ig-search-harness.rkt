@@ -15,8 +15,12 @@
 ;;;   date      le<low> AND separately ge<high> number    the value
 ;;;   quantity  value|system|code
 ;;;
-;;; The caller registers the matching tower. Result: (ig-search-report probes hits misses) where
-;;; misses : (listof (list example-type param kind query-value)).
+;;; Blind spot closed: a parameter whose expression ERRORS on an example indexes nothing, so it would
+;;; generate no probe at all; every such error is recorded separately and must also be zero.
+;;;
+;;; The caller registers the matching tower. Result: (ig-search-report probes hits misses errors)
+;;; misses : (listof (list example-type param kind query-value))
+;;; errors : (listof (list example-type param message)) — expression evaluation failures
 
 (require racket/contract racket/list racket/string racket/file
          (only-in fhir/serialize/from-json from-json)
@@ -40,7 +44,7 @@
  (contract-out
   [check-ig-search (-> path-string? path-string? ig-search-report?)]))
 
-(struct ig-search-report (probes hits misses) #:transparent)
+(struct ig-search-report (probes hits misses errors) #:transparent)
 
 (define skip-types '("StructureDefinition" "SearchParameter" "ValueSet" "CodeSystem" "CapabilityStatement"
                      "OperationDefinition" "ImplementationGuide" "ConceptMap" "Bundle"))
@@ -73,6 +77,17 @@
       (define-values (_t id _v) (fhir-create! store (strip-jnum (cdr r)) #:search-params catalog))
       (define nr (from-json (cdr r) #:lenient? #t))
       (list t id (and (ok? nr) (ok-value nr)))))
+  (define errors
+    (remove-duplicates
+     (for*/list ([ex (in-list loaded)] #:when (caddr ex)
+                 [sp (in-list (hash-ref catalog (string->symbol (car ex)) '()))]
+                 #:when (indexed-kind? (search-param-kind sp))
+                 [msg (in-value (with-handlers ([exn:fail? exn-message])
+                                  (eval-fhirpath (parse-fhirpath (search-param-path sp)) (list (caddr ex))
+                                                 #:strict? #f)
+                                  #f))]
+                 #:when msg)
+       (list (car ex) (search-param-name sp) msg))))
   (define-values (probes hits misses)
     (for*/fold ([probes 0] [hits 0] [misses '()])
                ([ex (in-list loaded)] #:when (caddr ex)
@@ -92,4 +107,4 @@
           (values (add1 probes) hits (cons (list (car ex) (search-param-name sp) (search-param-kind sp) v) misses)))))
   (close-fhir-store store)
   (delete-file db)
-  (ig-search-report probes hits (reverse misses)))
+  (ig-search-report probes hits (reverse misses) errors))

@@ -172,6 +172,8 @@
   (define code (issue-code node))
   (case code
     [("not-found") 404] [("not-supported") 404] [("invalid" "required" "value") 400]
+    [("processing") 422]                     ; the resource violates a profile / business rule
+    [("conflict" "duplicate") 409]
     [("security" "forbidden") 403] [("exception") 500] [else 200]))   ; informational -> 200
 
 (define (issue-code node)

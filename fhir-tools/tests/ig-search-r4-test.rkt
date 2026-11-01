@@ -14,5 +14,7 @@
 (printf "  US Core 9.0.0 search oracle: ~a/~a probes found their example\n"
         (ig-search-report-hits r) (ig-search-report-probes r))
 (for ([m (in-list (ig-search-report-misses r))]) (eprintf "     MISS ~s\n" m))
+(for ([e (in-list (ig-search-report-errors r))]) (eprintf "     EXPRESSION ERROR ~s\n" e))
+(check-equal? (ig-search-report-errors r) '() "a search parameter's expression errors on an example")
 (check-equal? (ig-search-report-misses r) '())
-(check-true (>= (ig-search-report-probes r) 2368) "fewer search probes than the floor")
+(check-true (>= (ig-search-report-probes r) 2446) "fewer search probes than the floor")

@@ -29,6 +29,7 @@
  (struct-out operation-entry)
  (struct-out app)
  (struct-out request)
+ (struct-out search-result)
  (contract-out
   [make-repository (->* () (#:read (or/c procedure? #f) #:vread (or/c procedure? #f)
                             #:create (or/c procedure? #f) #:update (or/c procedure? #f)
@@ -101,6 +102,8 @@
 ;; an installed operation: its handler proc, the derived OperationDefinition (the runtime contract),
 ;; and where it applies. proc : (in-hash request) -> fhir
 (struct operation-handler (proc op-def level target) #:transparent)
+;; what a repository's search may return instead of a plain list: matches + _include'd resources
+(struct search-result (matches includes) #:transparent)
 ;; operation-entry (produced by the #lang emitter, paired with its OperationDefinition in
 ;; build-app) is defined in kernel/operation-entry.rkt so generated towers need only fhir.
 
@@ -239,12 +242,22 @@
 
 ;; ---- node construction ----------------------------------------------------------------------
 
-(define (make-searchset nodes)
+;; make-searchset : (or (listof node) search-result) -> Bundle node
+;; A repository's search may return plain matches, or a `search-result` that also carries the
+;; resources pulled in by _include/_revinclude; entries are marked search.mode match | include and
+;; `total` counts matches only (https://hl7.org/fhir/search.html#include).
+(define (make-searchset result)
+  (define-values (matches includes)
+    (if (search-result? result)
+        (values (search-result-matches result) (search-result-includes result))
+        (values result '())))
+  (define (entry n mode) (hasheq 'resource (node->jsexpr n) 'search (hasheq 'mode mode)))
   (ok-or-raise
    (from-json (hasheq 'resourceType "Bundle" 'type "searchset"
-                      'total (length nodes)
+                      'total (length matches)
                       ;; a nested resource inside a Bundle entry is given to from-json as jsexpr
-                      'entry (for/list ([n (in-list nodes)]) (hasheq 'resource (node->jsexpr n)))))))
+                      'entry (append (for/list ([n (in-list matches)]) (entry n "match"))
+                                     (for/list ([n (in-list includes)]) (entry n "include")))))))
 
 (define (operation-outcome severity code diagnostics)
   (ok-or-raise

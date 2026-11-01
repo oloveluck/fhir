@@ -19,7 +19,7 @@
          (only-in "search-index.rkt" indexed-kind?)
          (only-in fhir/capability/derive derive-capability-statement rc-server rc-resource
                   rc-operation)
-         (only-in fhir/capability/runtime make-repository build-app app?)
+         (only-in fhir/capability/runtime make-repository build-app app? search-result)
          (only-in fhir/viewdef/run make-sql-run-handler make-sql-export-handler)
          (only-in fhir/viewdef/operations sql-run-operation sql-export-operation
                   sql-run-definition sql-export-definition)
@@ -71,11 +71,12 @@
               (js->node (fhir-read store rtype id)))
    #:delete (lambda (id) (fhir-delete! store rtype id) (record! "delete" id) (void))
    #:search (lambda (params)
-              (for/list ([js (in-list (fhir-search store rtype
-                                                   (for/list ([p (in-list params)])
-                                                     (cons (symbol->string (car p)) (cdr p)))
-                                                   #:search-params catalog))])
-                (js->node js)))))
+              (define qps (for/list ([p (in-list params)]) (cons (symbol->string (car p)) (cdr p))))
+              (define matches (fhir-search store rtype qps #:search-params catalog))
+              (define nodes (map js->node matches))
+              (if (for/or ([q (in-list qps)]) (member (car q) '("_include" "_revinclude")))
+                  (search-result nodes (map js->node (fhir-includes store rtype matches qps)))
+                  nodes))))
 
 ;; ---- audit / provenance recording --------------------------------------------
 ;; One AuditEvent per write (+ one Provenance per create/update), created in the SAME store so

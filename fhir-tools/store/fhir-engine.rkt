@@ -41,6 +41,8 @@
   [fhir-delete!  (-> fhir-store? string? string? boolean?)]
   [fhir-search   (->* (fhir-store? string? (listof (cons/c string? string?)))
                       (#:search-params hash?) (listof jsexpr?))]
+  ;; the resources a search's _include / _revinclude parameters pull in, for the given matches
+  [fhir-includes (-> fhir-store? string? (listof jsexpr?) (listof (cons/c string? string?)) (listof jsexpr?))]
   ;; the same search, also returning the query parameters that were IGNORED (unknown/unsupported)
   [fhir-search/ignored (->* (fhir-store? string? (listof (cons/c string? string?)))
                             (#:search-params hash?) (values (listof jsexpr?) (listof string?)))]
@@ -209,7 +211,50 @@
      (lambda (c)
        (for/list ([raw (in-list (apply query-list c sql rtype (append-map clause-args (reverse clauses))))])
          (string->jsexpr raw))))
-   (filter (lambda (n) (not (member n '("_count")))) (reverse ignored))))
+   (filter (lambda (n) (not (member n '("_count" "_include" "_revinclude")))) (reverse ignored))))
+
+;; ---- _include / _revinclude ----------------------------------------------------
+;; Both follow the REFERENCE INDEX (so they need the reference parameter in the catalog at index
+;; time, as search does). Values: `Source:param` or `Source:param:Target`; `*` and :iterate are not
+;; supported (ignored). Included resources already among the matches are not repeated.
+(define (fhir-includes store rtype matches query-params)
+  (define match-ids (for/list ([m (in-list matches)]) (hash-ref m 'id #f)))
+  (define seen (make-hash (for/list ([id (in-list match-ids)]) (cons (cons rtype id) #t))))
+  (define (fresh! t id) (and (not (hash-ref seen (cons t id) #f)) (hash-set! seen (cons t id) #t) #t))
+  (define (spec v) (match (string-split v ":") [(list s p) (list s p #f)] [(list s p t) (list s p t)] [_ #f]))
+  (call-with-store-connection store
+    (lambda (c)
+      (append*
+       (for/list ([qp (in-list query-params)] #:when (member (car qp) '("_include" "_revinclude")))
+         (match (spec (cdr qp))
+           [#f '()]
+           [(list source param target)
+            (cond
+              [(and (equal? (car qp) "_include") (equal? source rtype))
+               (for*/list ([id (in-list match-ids)] #:when id
+                           [row (in-list (apply query-rows c
+                                                (string-append
+                                                 "SELECT target_type, target_id FROM fhir_reference_index
+                                                  WHERE resource_type=? AND resource_id=? AND param_name=?"
+                                                 (if target " AND target_type=?" ""))
+                                                rtype id param (if target (list target) '())))]
+                           #:when (string? (vector-ref row 0))
+                           #:when (fresh! (vector-ref row 0) (vector-ref row 1))
+                           [js (in-value (fhir-read store (vector-ref row 0) (vector-ref row 1)))]
+                           #:when js)
+                 js)]
+              [(and (equal? (car qp) "_revinclude") (or (not target) (equal? target rtype)) (pair? match-ids))
+               (for*/list ([raw (in-list (apply query-list c
+                                                (string-append
+                                                 "SELECT r.raw_resource FROM fhir_resources r WHERE r.resource_type=? AND EXISTS
+                                                  (SELECT 1 FROM fhir_reference_index x WHERE x.resource_type=r.resource_type
+                                                   AND x.resource_id=r.id AND x.param_name=? AND x.target_type=? AND x.target_id IN ("
+                                                 (string-join (map (lambda (_) "?") match-ids) ",") "))")
+                                                source param rtype match-ids))]
+                           [js (in-value (string->jsexpr raw))]
+                           #:when (fresh! source (hash-ref js 'id #f)))
+                 js)]
+              [else '()])]))))))
 
 ;; param->clause : catalog name value -> Clause | #f   (#f = ignore: unknown or unsupported)
 (define (param->clause catalog full-name value)

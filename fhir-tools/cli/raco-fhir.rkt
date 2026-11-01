@@ -11,7 +11,8 @@
 
 (require racket/list
          (only-in json jsexpr->string read-json)
-         (only-in racket/file file->string make-directory*)
+         (only-in racket/file file->string make-directory* make-temporary-file)
+         (only-in racket/string string-join)
          (only-in fhir/serialize/read-json read-fhir-json)
          fhir/codegen/gen
          fhir/codegen/check
@@ -75,6 +76,45 @@
   (define sd (call-with-input-file file read-json))
   (define snap (generate-snapshot sd))
   (displayln (jsexpr->string (hash-set sd 'snapshot (hasheq 'element snap)))))
+
+;; raco fhir serve-ig <ig> [--db store.db] [--port 8080] [--no-examples] [--no-validate] [--gaps]
+;; Generate a FHIR server FROM an Implementation Guide package (store/ig-server.rkt): the IG's FHIR
+;; version picks the tower, its server CapabilityStatement the types/interactions/parameters, its
+;; SearchParameters (over core) the search catalog; writes are validated against claimed profiles.
+;; <ig> is a package name in fhir-spec (hl7.fhir.us.core), a .tgz name there, or a path. By default
+;; the IG's examples are loaded (validated) into the store. --gaps prints the IG requirements this
+;; server does not meet and exits.
+(define (cmd-serve-ig args)
+  (define open-store (dynamic-require 'fhir/store/fhir-sqlite 'open-fhir-store))
+  (define ig-package-path (dynamic-require 'fhir/store/ig-server 'ig-package-path))
+  (define make-ig-server (dynamic-require 'fhir/store/ig-server 'make-ig-server))
+  (define load-ig-examples! (dynamic-require 'fhir/store/ig-server 'load-ig-examples!))
+  (define srv-app (dynamic-require 'fhir/store/ig-server 'ig-server-app))
+  (define srv-gaps (dynamic-require 'fhir/store/ig-server 'ig-server-gaps))
+  (define srv-plan (dynamic-require 'fhir/store/ig-server 'ig-server-plan))
+  (define gap->list (dynamic-require 'fhir/store/ig-server 'gap->list))
+  (define serve-app (dynamic-require 'fhir/http/server 'serve-app))
+  (define (opt name default) (let ([m (member name args)]) (if (and m (pair? (cdr m))) (cadr m) default)))
+  (define flag? (lambda (name) (and (member name args) #t)))
+  (define ig (car args))
+  (define db (opt "--db" (path->string (make-temporary-file "fhir-ig-~a.db"))))
+  (define port (string->number (opt "--port" "8080")))
+  (define srv (make-ig-server (open-store db) (ig-package-path ig) #:validate? (not (flag? "--no-validate"))
+                              #:url (format "http://localhost:~a" port)))
+  (define gaps (srv-gaps srv))
+  (cond
+    [(flag? "--gaps")
+     (for ([g (in-list gaps)]) (printf "~a\n" (string-join (map (lambda (x) (format "~a" x)) (gap->list g)) "\t")))]
+    [else
+     (unless (flag? "--no-examples")
+       (define-values (n rejected) (load-ig-examples! srv))
+       (printf "loaded ~a example(s); ~a rejected by validation\n" n (length rejected))
+       (for ([r (in-list rejected)]) (printf "  ~a: ~a\n" (car r) (cdr r))))
+     (printf "~a IG requirement(s) not met (raco fhir serve-ig ~a --gaps); ~a of them SHALL\n"
+             (length gaps) ig (length (filter (lambda (g) (equal? (list-ref (gap->list g) 3) "SHALL")) gaps)))
+     (define stop (serve-app (srv-app srv) #:port port))
+     (printf "FHIR server for ~a on http://localhost:~a  (store: ~a; Ctrl-C to stop)\n" ig port db)
+     (with-handlers ([exn:break? (lambda (_) (stop))]) (sync/enable-break never-evt))]))
 
 ;; raco fhir serve <app.rkt> [port] — serve a #lang fhir/capability module's `app` over HTTP
 (define (cmd-serve file port-str)
@@ -145,6 +185,8 @@
      (define v (or (arg 1) "r5"))
      (unless (member v '("r4" "r5")) (eprintf "usage: raco fhir roundtrip-tck [r4|r5]\n") (exit 2))
      (dynamic-require `(submod ,(string->symbol (string-append "fhir/tests/example-roundtrip-" v)) main) #f)]
+    [("serve-ig") (unless (arg 1) (eprintf "usage: raco fhir serve-ig <ig> [--db store.db] [--port 8080] [--no-examples] [--no-validate] [--gaps]\n") (exit 2))
+                  (cmd-serve-ig (cdr args))]
     [("serve") (unless (arg 1) (eprintf "usage: raco fhir serve <app.rkt> [port]\n") (exit 2))
                (cmd-serve (arg 1) (arg 2))]
     [("validate") (unless (arg 1) (eprintf "usage: raco fhir validate <resource.json> [profile.json…]\n") (exit 2))
@@ -157,4 +199,4 @@
               (cmd-omop (arg 1) (arg 2) (arg 3))]
     [("load") (unless (arg 2) (eprintf "usage: raco fhir load <store.db> <bundle.json|dir>\n") (exit 2))
               (cmd-load (arg 1) (arg 2))]
-    [else (eprintf "usage: raco fhir [regen|check|roundtrip|roundtrip-tck|validate|snapshot|serve|load|omop|sof-tck|tx-tck] …\n       (the languages have their own commands: raco fhirpath | cql | fsh | vcl | fml)\n") (exit 2)]))
+    [else (eprintf "usage: raco fhir [regen|check|roundtrip|roundtrip-tck|validate|snapshot|serve|serve-ig|load|omop|sof-tck|tx-tck] …\n       (the languages have their own commands: raco fhirpath | cql | fsh | vcl | fml)\n") (exit 2)]))

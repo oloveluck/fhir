@@ -57,3 +57,14 @@ the store on every committed write — served and searchable like any resource
 `store/fhir-engine.rkt`: `fhir-create!/read/vread/update!/delete!/history/search` over a
 `fhir-store` (path + connection pool). Writes go only through `call-with-store-transaction`; search
 params are data (FHIRPath per type), reindexed inside the same write transaction.
+
+## Server generated from an IG
+```sh
+raco fhir serve-ig hl7.fhir.us.core --port 8080     # loads the IG's examples (validated) and serves
+raco fhir serve-ig hl7.fhir.us.core --gaps          # the IG requirements this server does not meet
+raco fhir serve-ig path/to/package.tgz --db store.db --no-examples
+```
+Everything comes from the package: FHIR version, resource types, interactions, search parameters
+(type-driven search: string/date/number/quantity/token/reference/uri, modifiers, prefixes,
+`_include`/`_revinclude`), write validation against claimed profiles (422), IG operations with an
+implementation (`$docref`). Library: `fhir/store/ig-server` (`make-ig-server`, `load-ig-examples!`).

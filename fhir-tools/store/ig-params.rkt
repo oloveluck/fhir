@@ -23,7 +23,7 @@
          (only-in fhirpath/parser/ast fp-binop fp-binop? fp-binop-op fp-binop-lhs fp-binop-rhs
                   fp-invoke fp-invoke? fp-invoke-target fp-invoke-name
                   fp-call fp-call? fp-call-target fp-call-name fp-call-args
-                  fp-typeop? fp-typeop-op fp-typeop-operand)
+                  fp-typeop? fp-typeop-op fp-typeop-operand fp-index? fp-index-target)
          (only-in fhirpath/print fhirpath->string))
 
 (provide
@@ -112,6 +112,11 @@
   (cond [(fp-invoke? b)
          (if (fp-invoke-target b) (chain-head (fp-invoke-target b)) (symbol->string (fp-invoke-name b)))]
         [(and (fp-call? b) (fp-call-target b)) (chain-head (fp-call-target b))]  ; f(...) wrapper, e.g. .where(…)
+        ;; `MedicationRequest.medication as Reference` (R4 core writes choice params this way) and
+        ;; `X[0]`: the head is the operand's — without this every branch looks unclassifiable and a
+        ;; multi-base expression is kept WHOLE, erroring on every other base's head at index time
+        [(fp-typeop? b) (chain-head (fp-typeop-operand b))]
+        [(fp-index? b) (chain-head (fp-index-target b))]
         [else #f]))
 
 (define (foldr1 f xs) (if (null? (cdr xs)) (car xs) (f (car xs) (foldr1 f (cdr xs)))))

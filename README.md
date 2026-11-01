@@ -66,6 +66,7 @@ is skipped and why) and gated by a floor that only rises:
 cd fhir-tools
 racket examples/patient.fhir6                  # author a Patient in #lang fhir/r6, print FHIR JSON
 raco fhir serve examples/server-app.rkt 8080   # serve a capability app (GET /metadata, CRUD, search)
+raco fhir serve-ig hl7.fhir.us.core --port 8080 # a server GENERATED from the US Core IG (try --gaps)
 racket examples/patient.fsh                    # #lang fsh — compile FSH to FHIR JSON
 racket examples/demo.cql                        # #lang cql — compile CQL to ELM, print ELM JSON
 raco fhirpath --tck r5                          # run the official FHIRPath R5 conformance suite
