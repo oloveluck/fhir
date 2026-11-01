@@ -6,8 +6,8 @@
   (build-fhir-form stx 'Bundle
     '(#s(field-spec id 0 1 #(raw) #f)
       #s(field-spec meta 0 1 #(type Meta) #f)
-      #s(field-spec implicitRules 0 1 #(raw) #f)
-      #s(field-spec language 0 1 #(raw) #f)
+      #s(field-spec implicitRules 0 1 #(prim "uri") #f)
+      #s(field-spec language 0 1 #(prim "code") #f)
       #s(field-spec identifier 0 1 #(type Identifier) #f)
       #s(field-spec type 1 1 #(prim "code") (required "http://hl7.org/fhir/ValueSet/bundle-type"))
       #s(field-spec timestamp 0 1 #(prim "instant") #f)

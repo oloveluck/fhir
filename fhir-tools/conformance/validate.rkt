@@ -144,11 +144,21 @@
   ;; unknown-element-issues and is not counted toward cardinality)
   (define matched (for/list ([k (in-list (hash-keys obj))] #:when (allowed-key? leaf ce k)) k))
   (define instances (append-map (lambda (k) (instances-of (hash-ref obj k))) matched))
+  ;; a primitive carried ONLY by its `_name` sibling (extensions, no value — e.g. a data-absent-reason
+  ;; on `_performedDateTime`) is PRESENT for cardinality (https://hl7.org/fhir/json.html#primitive)
+  (define extension-only
+    (for*/list ([k (in-list (hash-keys obj))]
+                [n (in-value (symbol->string k))]
+                #:when (and (> (string-length n) 1) (char=? (string-ref n 0) #\_))
+                [base (in-value (string->symbol (substring n 1)))]
+                #:when (and (not (hash-has-key? obj base)) (allowed-key? leaf ce base)))
+      (hash-ref obj k)))
+  (define present (+ (length instances) (for/sum ([v (in-list extension-only)]) (length (instances-of v)))))
   (append
    ;; an empty JSON array is never valid — the property should be absent if it has no values
    (for/list ([k (in-list matched)] #:when (null? (hash-ref obj k)))
      (issue "error" "structure" (child-loc path leaf) "array cannot be empty"))
-   (cardinality-issues ce path leaf (length instances))
+   (cardinality-issues ce path leaf present)
    (append-map (lambda (k)
                  (define tc (matched-type leaf ce k))     ; the concrete (narrowed) type of this variant
                  (append-map (lambda (v) (value-issues idx ce tc (child-loc path leaf) v tx))

@@ -9,7 +9,7 @@
 (require racket/contract
          racket/string
          racket/list
-         (only-in "sd-index.rkt" resolve-sd-raw)
+         (only-in "sd-index.rkt" resolve-sd-raw sd-context)
          (only-in "snapshot.rkt" generate-snapshot))
 
 (provide
@@ -37,6 +37,11 @@
     (define p (hash-ref e 'path #f))
     (cond
       [(and p (hash-ref e 'sliceName #f)) (hash-update! slices p (lambda (l) (cons e l)) '())]
+      ;; an element INSIDE a slice (id `Observation.component:systolic.code`) shares its path with
+      ;; the unsliced element but constrains only that slice's members; indexing it as a plain
+      ;; child would apply the slice's pattern/min to every repetition. Slice members are matched
+      ;; by discriminator (slices-of), never by path.
+      [(and (string? id) (regexp-match? #rx":" id)) (void)]
       [p
        (unless (hash-has-key? by-path p) (hash-set! by-path p e))
        (define dot (for/last ([c (in-string p)] [i (in-naturals)] #:when (char=? c #\.)) i))
@@ -69,7 +74,7 @@
   (cond
     [(opaque-type? code) #f]
     [else
-     (hash-ref! type-index-cache code
+     (hash-ref! type-index-cache (cons (sd-context) code)   ; R4 and R5 snapshots never mix
                 (lambda ()
                   (define sd (resolve-sd-raw code))
                   (cond

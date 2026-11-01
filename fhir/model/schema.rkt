@@ -154,10 +154,15 @@
     [(extension contained modifierExtension) '()]
     [else #f]))
 
-;; ftype of an inherited field (for read/write). id/implicitRules/language are plain strings.
+;; ftype of an inherited field (for read/write). Only `id` is a plain string (its FHIRPath type is
+;; System.String). Resource.implicitRules (uri) and Resource.language (code) are FHIR primitives:
+;; they can carry `_implicitRules`/`_language` extensions, and FHIRPath's hasValue() is true on them
+;; (the ele-1 invariant on Resource.language depends on it).
 (define (inherited-field-ftype name)
   (case name
-    [(id implicitRules language) (vector 'raw)]
+    [(id)                (vector 'raw)]
+    [(implicitRules)     (vector 'prim "uri")]
+    [(language)          (vector 'prim "code")]
     [(meta)              (vector 'type 'Meta)]
     [(text)              (vector 'type 'Narrative)]
     [(contained)         (vector 'resource)]

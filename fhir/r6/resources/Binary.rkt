@@ -6,8 +6,8 @@
   (build-fhir-form stx 'Binary
     '(#s(field-spec id 0 1 #(raw) #f)
       #s(field-spec meta 0 1 #(type Meta) #f)
-      #s(field-spec implicitRules 0 1 #(raw) #f)
-      #s(field-spec language 0 1 #(raw) #f)
+      #s(field-spec implicitRules 0 1 #(prim "uri") #f)
+      #s(field-spec language 0 1 #(prim "code") #f)
       #s(field-spec contentType 1 1 #(prim "code") (required "http://hl7.org/fhir/ValueSet/mimetypes"))
       #s(field-spec securityContext 0 1 #(type Reference) #f)
       #s(field-spec data 0 1 #(prim "base64Binary") #f)

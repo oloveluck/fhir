@@ -6,8 +6,8 @@
   (build-fhir-form stx 'Parameters
     '(#s(field-spec id 0 1 #(raw) #f)
       #s(field-spec meta 0 1 #(type Meta) #f)
-      #s(field-spec implicitRules 0 1 #(raw) #f)
-      #s(field-spec language 0 1 #(raw) #f)
+      #s(field-spec implicitRules 0 1 #(prim "uri") #f)
+      #s(field-spec language 0 1 #(prim "code") #f)
       #s(field-spec parameter 0 * #(type ParametersParameter) #f)
       )
     #:parent 'Resource))

@@ -6,8 +6,8 @@
   (build-fhir-form stx 'Composition
     '(#s(field-spec id 0 1 #(raw) #f)
       #s(field-spec meta 0 1 #(type Meta) #f)
-      #s(field-spec implicitRules 0 1 #(raw) #f)
-      #s(field-spec language 0 1 #(raw) #f)
+      #s(field-spec implicitRules 0 1 #(prim "uri") #f)
+      #s(field-spec language 0 1 #(prim "code") #f)
       #s(field-spec text 0 1 #(type Narrative) #f)
       #s(field-spec contained 0 * #(resource) #f)
       #s(field-spec extension 0 * #(type Extension) #f)

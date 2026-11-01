@@ -7,8 +7,11 @@
 ;;; the terminology service's loader). Consumed by sd/{snapshot,element-index}.rkt, the validator
 ;;; (fhir-tools) and the FSH snapshot mode; the differential-only FSH compile path does not touch this.
 ;;;
-;;; The package comes from the OPTIONAL `fhir-spec` package (or `current-sd-package`). Without it the
-;;; index is empty: resolve-sd-raw returns #f and snapshot generation degrades to differential-only.
+;;; The packages searched are `current-sd-packages` — a list, searched in order, so an IG's profiles
+;;; resolve before the core package it builds on: (list us-core.tgz r4-core.tgz). The default is the
+;;; R5 core package from the OPTIONAL `fhir-spec` package. Without any package the index is empty:
+;;; resolve-sd-raw returns #f and snapshot generation degrades to differential-only.
+;;; Consumers that cache derived data (element-index's type cache) key it by `sd-context`.
 
 (require json
          file/gunzip
@@ -19,22 +22,25 @@
 
 (provide (contract-out
           [resolve-sd-raw (-> string? (or/c hash? #f))]
-          ;; override the core package to index (a path to a FHIR NPM .tgz); #f = fhir-spec's R5 core
-          [current-sd-package (parameter/c (or/c path-string? #f))]
+          ;; the FHIR NPM packages (.tgz) to resolve from, in priority order; #f = fhir-spec's R5 core
+          [current-sd-packages (parameter/c (or/c #f (listof path-string?)))]
+          ;; the effective package list — a cache key for anything derived from the index
+          [sd-context (-> (listof path?))]
           ;; can snapshots be generated at all (is a core package available)?
           [sd-index-available? (-> boolean?)]))
 
-(define current-sd-package (make-parameter #f))
-(define (sd-package) (or (current-sd-package) (spec-package-path "hl7.fhir.r5.core.tgz" #:optional? #t)))
-(define (sd-index-available?) (and (sd-package) #t))
+(define current-sd-packages (make-parameter #f))
+(define (sd-context)
+  (map (lambda (p) (simplify-path (path->complete-path p)))
+       (or (current-sd-packages)
+           (let ([core (spec-package-path "hl7.fhir.r5.core.tgz" #:optional? #t)]) (if core (list core) '())))))
+(define (sd-index-available?) (pair? (sd-context)))
 
 (define sd-file-rx #px"^package/StructureDefinition-.*\\.json$")
 
-;; one index per package path, built on first use
+;; one index per package, built on first use; a lookup searches the context's packages in order
 (define indexes (make-hash))
-(define (index)
-  (define tgz (sd-package))
-  (if tgz (hash-ref! indexes tgz (lambda () (load-index tgz))) (hash)))
+(define (package-index tgz) (hash-ref! indexes tgz (lambda () (load-index tgz))))
 
 (define (load-index r5-core-tgz)
     (define table (make-hash))
@@ -58,8 +64,14 @@
     table)
 
 (define (resolve-sd-raw name-or-url)
-  (define t (index))
-  (or (hash-ref t name-or-url #f)
-      (and (regexp-match? #rx"/" name-or-url)
-           (hash-ref t (last (regexp-split #rx"/" name-or-url)) #f))))
+  (define key (car (regexp-split #rx"[|]" name-or-url)))        ; drop a |version suffix
+  (define tables (map package-index (sd-context)))
+  (define (lookup k) (for/or ([t (in-list tables)]) (hash-ref t k #f)))
+  ;; a bare type code ("Patient") means the core canonical, NOT whatever SD happens to share that
+  ;; name or id (R4 core has an extension NAMED "FamilyMemberHistory")
+  (or (and (not (regexp-match? #rx"/" key))
+           (lookup (string-append "http://hl7.org/fhir/StructureDefinition/" key)))
+      (lookup key)
+      (and (regexp-match? #rx"/" key)
+           (lookup (last (regexp-split #rx"/" key))))))
 

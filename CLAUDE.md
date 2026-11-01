@@ -390,6 +390,8 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | VCL | the spec page's 60 examples | `raco test vcl/` | 60/60 parse + fixpoint |
 | round-trip | HL7 examples + R4/R5 core packages | `raco fhir roundtrip-tck r5\|r4` | 2968+77, 4581+72 |
 | **IG examples** | **US Core 9.0.0, IPS 2.0.1 packages** | `tests/ig-examples-r4-test.rkt` | **274/274 parse+round-trip** |
+| **IG validation** | **US Core 9.0.0, IPS 2.0.1: every example vs the IG profiles it claims** | `tests/ig-validation-r4-test.rkt` | **260/260 clean** (0 false positives) |
+| **IG FHIRPath** | **the same IGs: profile invariants on their examples + SearchParameter expressions** | `tests/ig-fhirpath-r4-test.rkt` | **6082 invariant checks, 0 fail** (2 dom-3 spec-conflict errors); **1330/1330 search** |
 | SOF examples | the SOF IG's own package | `tests/ig-examples-sof-test.rkt` | 17/17 (1 documented IG defect) |
 | **snapshot** | **fhir-test-cases rX/snapshot-generation** | `conformance/tests/snapshot-conformance-test.rkt` | **paths 80/80, card 143/148, types 70/71** (id-matched) |
 | validator | fhir-test-cases validator + java outcomes | `tests/validate-diff-test.rkt` | **fp=0**, recall 17/26 (67 cases) |
@@ -454,6 +456,23 @@ Two suites drove REAL implementation work rather than just measuring:
   (`Provenance.meta.*`). `expand-dived-datatypes` (fixed-point, so `agent.who` → `.identifier` →
   its children) plus `fill-missing` (a differential states only what it changes, so the datatype
   definition supplies `type` — without which we could not dive further). Path coverage 51→80/80.
+
+## IG corpora (real Implementation Guides as test oracles)
+A published IG is an oracle for free: its examples are valid against the profiles they claim, and
+its profiles' invariants hold on them. `fhir-tools/tests/ig-*-harness.rkt` read any IG package and
+check that, with the SD index parameterised as `(current-sd-packages (list ig.tgz core.tgz))` (IG
+first, then the core it builds on). Defects these corpora found and fixed:
+- Resource.language/implicitRules were typed as raw strings (`inherited-field-ftype`), so FHIRPath
+  `hasValue()` was false on them and `ele-1` failed; they are `code`/`uri` primitives now (towers regenerated).
+- FHIRPath rejected an ANCESTOR type as the path head (`Resource.meta.lastUpdated` on a Condition —
+  how FHIR's own `_lastUpdated` SearchParameter is written); navigate + analyze now accept it.
+- The SD index resolved a bare type code by name/id, and R4 core has an extension NAMED
+  "FamilyMemberHistory"; bare codes now resolve to `http://hl7.org/fhir/StructureDefinition/<code>` first.
+- element-index treated elements INSIDE a slice (`component:systolic.code`) as plain children, applying
+  slice-only patterns/mins to every repetition; they are now excluded (matched by discriminator only).
+- Cardinality ignored extension-only primitives (`_performedDateTime` + data-absent-reason); they
+  count as present, per the JSON format.
+Known and deliberate: dom-3 uses multi-item `as()`, an execution error per the FHIRPath spec and TCK.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
