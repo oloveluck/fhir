@@ -397,7 +397,9 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | SOF examples | the SOF IG's own package | `tests/ig-examples-sof-test.rkt` | 17/17 (1 documented IG defect) |
 | **snapshot** | **fhir-test-cases rX/snapshot-generation** | `conformance/tests/snapshot-conformance-test.rkt` | **paths 80/80, card 143/148, types 70/71** (id-matched) |
 | validator | fhir-test-cases validator + java outcomes | `tests/validate-diff-test.rkt` | **fp=0**, recall 17/26 (67 cases) |
-| FSH | SUSHI golden corpus | `fsh/tests/golden-test.rkt` | 22/22 fwd + round-trip |
+| FSH | SUSHI golden corpus (hand-authored pairs) | `fsh/tests/golden-test.rkt` | 22/22 fwd + round-trip |
+| **FSH real IG** | **IPS 2.0.1's own FSH vs its published package** | `fsh/tests/ig-ips-test.rkt` (fsh repo) | **0 compile errors; 76/114 exact, 82/114 complete; 321/440 differential elements** |
+| **CQL real libraries** | **32 published libraries (FHIRHelpers, CQF Measures, CQL IG) vs the reference ELM** | `cql/tests/elm-corpus-test.rkt` (cql repo) | **baseline 2/32 parse; 0/803 defs ELM-equal** (needs retrieves/code defs) |
 | **terminology** | **hl7.fhir.uv.tx-ecosystem 1.9.3** | **`raco fhir tx-tck`** | **463/553** |
 
 A later pass closed every remaining gap that needs no external terminology — the corpora drove
