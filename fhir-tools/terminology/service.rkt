@@ -31,6 +31,8 @@
          (only-in fhir/result/result ok? ok-value))
 
 (provide make-terminology make-r5-terminology make-r4-terminology
+         ;; a service over SEVERAL packages, searched in order (an IG first, then its core)
+         make-terminology/packages packages->resolver
          ;; a service over an EXPLICIT list of resources (the tx-ecosystem conformance suite
          ;; ships its own CodeSystems/ValueSets as per-suite setup files)
          make-terminology/resources resources->resolver make-terminology/resolver
@@ -666,6 +668,13 @@
   (tx-service (lambda (url . _)         (tx-expand resource url))
               (make-validate resource)
               (lambda (url code . rest) (apply tx-translate resource url code rest))))
+
+;; packages->resolver : (listof tgz) -> resolver   each package indexed lazily, first match wins
+(define (packages->resolver tgzs)
+  (define indexes (for/list ([t (in-list tgzs)]) (delay (load-index t))))
+  (lambda (url [version #f])
+    (for/or ([ix (in-list indexes)]) (index-resolve (force ix) url version))))
+(define (make-terminology/packages tgzs) (make-terminology/resolver (packages->resolver tgzs)))
 
 ;; a service over an explicit LIST of resources (the conformance suite's per-suite setup files);
 ;; indexed the same versioned way as a package

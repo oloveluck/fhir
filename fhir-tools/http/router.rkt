@@ -26,7 +26,7 @@
          (only-in fhir/capability/runtime
                   app? app-capability-statement app-transaction dispatch
                   read-request vread-request create-request update-request delete-request
-                  search-request invoke-request operation-outcome-invalid operation-outcome-not-supported))
+                  search-request invoke-request history-request patch-request operation-outcome-invalid operation-outcome-not-supported))
 
 (provide
  (contract-out
@@ -81,6 +81,11 @@
     ;; instance-level operation:  /{Type}/{id}/$op
     [(and (= (length segs) 3) (op-seg? (caddr segs)) (known-type? (car segs)))
      (invoke app method 'instance (sym (car segs)) (cadr segs) (op-code (caddr segs)) query body)]
+    ;; history:  /{Type}/{id}/_history   and   /{Type}/_history
+    [(and (equal? method "GET") (= (length segs) 3) (equal? (caddr segs) "_history") (known-type? (car segs)))
+     (values 'history (dispatch app (history-request (sym (car segs)) (cadr segs) query)))]
+    [(and (equal? method "GET") (= (length segs) 2) (equal? (cadr segs) "_history") (known-type? (car segs)))
+     (values 'history (dispatch app (history-request (sym (car segs)) #f query)))]
     ;; vread:  /{Type}/{id}/_history/{vid}
     [(and (equal? method "GET") (= (length segs) 4) (equal? (caddr segs) "_history") (known-type? (car segs)))
      (values 'read (dispatch app (vread-request (sym (car segs)) (cadr segs) (cadddr segs))))]
@@ -98,6 +103,12 @@
        [("GET")    (values 'read (dispatch app (read-request t id)))]
        [("PUT")    (with-body body (lambda (n) (values 'update (dispatch app (update-request t id n)))))]
        [("DELETE") (values 'delete (dispatch app (delete-request t id)))]
+       ;; JSON Patch (application/json-patch+json): the body is an array of operations
+       [("PATCH")
+        (define ops (with-handlers ([exn:fail? (lambda (_) #f)]) (read-json (open-input-string body))))
+        (if (list? ops)
+            (values 'update (dispatch app (patch-request t id ops)))
+            (values 'error (operation-outcome-invalid "PATCH body must be a JSON Patch array (application/json-patch+json)")))]
        [else (values 'error (operation-outcome-not-supported (format "~a not allowed on /~a/~a" method (car segs) id)))])]
     [else (values 'error (operation-outcome-not-supported (format "no route for ~a /~a" method (string-join segs "/"))))]))
 

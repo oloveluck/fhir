@@ -392,7 +392,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | **IG examples** | **US Core 9.0.0, IPS 2.0.1 packages** | `tests/ig-examples-r4-test.rkt` | **274/274 parse+round-trip** |
 | **IG validation** | **US Core 9.0.0, IPS 2.0.1: every example vs the IG profiles it claims** | `tests/ig-validation-r4-test.rkt` | **260/260 clean** (0 false positives) |
 | **IG search** | **US Core 9.0.0 examples, R4 core + US Core SearchParameters: each example found by its own values** | `tests/ig-search-r4-test.rkt` | **2368/2368 probes** |
-| **IG server** | **a server generated from US Core 9.0.0: 0 unmet SHALL, all 230 examples load through validation** | `tests/ig-server-r4-test.rkt` | **0 SHALL gaps** (91 MAY/SHOULD) |
+| **IG server** | **a server generated from US Core 9.0.0: all 255 resources load through validation** | `tests/ig-server-r4-test.rkt` | **0 unmet requirements** (SHALL/SHOULD/MAY; auth aside) |
 | **IG FHIRPath** | **the same IGs: profile invariants on their examples + SearchParameter expressions** | `tests/ig-fhirpath-r4-test.rkt` | **6082 invariant checks, 0 fail** (2 dom-3 spec-conflict errors); **1330/1330 search** |
 | SOF examples | the SOF IG's own package | `tests/ig-examples-sof-test.rkt` | 17/17 (1 documented IG defect) |
 | **snapshot** | **fhir-test-cases rX/snapshot-generation** | `conformance/tests/snapshot-conformance-test.rkt` | **paths 80/80, card 143/148, types 70/71** (id-matched) |
@@ -500,8 +500,14 @@ trimmed is a `gap` (type, what, name, SHALL/SHOULD/MAY, reason). IG operations a
 OperationDefinition canonical (`operation-impls`; US Core `$docref` so far) — the OD itself comes
 from the package and drives input validation. `raco fhir serve-ig hl7.fhir.us.core [--db f] [--port n]`
 loads the IG's examples and serves; `--gaps` prints the unmet requirements.
-US Core status: every SHALL met except authorization (SMART is not modelled in the CapabilityStatement's
-resources and is out of scope); 91 MAY/SHOULD gaps are history, patch and `$expand`.
+US Core status: NO unmet requirement at any level (SHALL, SHOULD, MAY) except authorization (SMART is
+not modelled in the CapabilityStatement's resources). Implemented for it: history-instance/-type
+(`GET /T/id/_history`, `GET /T/_history`, `_since`, `_count`; Bundle type history), PATCH as JSON Patch
+(RFC 6902, `capability/json-patch.rkt`; read -> apply atomically -> the repository's validated update,
+so a patched resource is checked like a PUT; failing `test` / profile violation -> 422; a separate
+read/update pair so PATCH does not open PUT), and `ValueSet/$expand` at type and instance level over
+the IG + core packages (`terminology/service` `packages->resolver`; the core OperationDefinition drives
+input validation; unknown ValueSet -> 404). The loader also stores the IG's ValueSets/CodeSystems.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

@@ -36,7 +36,10 @@
                       (values string? string? exact-positive-integer?))]
   [fhir-read     (-> fhir-store? string? string? (or/c jsexpr? #f))]
   [fhir-update!  (->* (fhir-store? jsexpr?) (#:search-params hash?) exact-positive-integer?)]
-  [fhir-history  (-> fhir-store? string? string? (listof jsexpr?))]
+  [fhir-history  (->* (fhir-store? string? string?) (#:since (or/c string? #f) #:count (or/c exact-nonnegative-integer? #f))
+                      (listof jsexpr?))]
+  [fhir-history-type (->* (fhir-store? string?) (#:since (or/c string? #f) #:count (or/c exact-nonnegative-integer? #f))
+                          (listof jsexpr?))]
   [fhir-vread    (-> fhir-store? string? string? exact-positive-integer? (or/c jsexpr? #f))]
   [fhir-delete!  (-> fhir-store? string? string? boolean?)]
   [fhir-search   (->* (fhir-store? string? (listof (cons/c string? string?)))
@@ -112,12 +115,23 @@
   vid)
 
 ;; fhir-history : every version, NEWEST first
-(define (fhir-history store rtype id)
+(define (fhir-history store rtype id #:since [since #f] #:count [count #f])
+  (history-query store "resource_type=? AND id=?" (list rtype id) since count))
+
+;; fhir-history-type : every version of every resource of a type, newest first (type-level history)
+(define (fhir-history-type store rtype #:since [since #f] #:count [count #f])
+  (history-query store "resource_type=?" (list rtype) since count))
+
+;; since : an instant (versions changed AT OR AFTER it; compared to the second) ; count : page size
+(define (history-query store where args since count)
   (call-with-store-connection store
     (lambda (c)
-      (for/list ([raw (in-list (query-list c "SELECT raw_resource FROM fhir_history
-                                              WHERE resource_type=? AND id=? ORDER BY version_id DESC"
-                                           rtype id))])
+      (define sql (string-append "SELECT raw_resource FROM fhir_history WHERE " where
+                                 (if since " AND substr(last_updated,1,19) >= ?" "")
+                                 " ORDER BY last_updated DESC, version_id DESC"
+                                 (if (exact-nonnegative-integer? count) (format " LIMIT ~a" count) "")))
+      (define since-key (and since (let ([r (date-range since)]) (and r (substring (car r) 0 19)))))
+      (for/list ([raw (in-list (apply query-list c sql (append args (if since (list (or since-key since)) '()))))])
         (string->jsexpr raw)))))
 
 ;; fhir-vread : one specific version from the immutable history

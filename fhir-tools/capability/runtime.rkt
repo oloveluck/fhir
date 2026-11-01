@@ -15,12 +15,13 @@
          (only-in fhir/model/node fhir? fhir-type fhir-ref fhir-field-names)
          (only-in fhir/serialize/from-json from-json)
          (only-in fhir/serialize/to-json node->jsexpr)
-         (only-in fhir/result/result ok-or-raise)
+         (only-in fhir/result/result ok-or-raise ok? ok-value)
          (only-in fhirpath/navigate navigate)
          (only-in fhirpath/value item->system)
          (only-in fhirpath/eval eval-fhirpath)
          (only-in fhirpath/parser/parse parse-fhirpath)
          (only-in "derive.rkt" op-code->canonical)
+         (only-in "json-patch.rkt" apply-json-patch exn:fail:json-patch?)
          fhir/kernel/operation-entry)
 
 (provide
@@ -33,7 +34,9 @@
  (contract-out
   [make-repository (->* () (#:read (or/c procedure? #f) #:vread (or/c procedure? #f)
                             #:create (or/c procedure? #f) #:update (or/c procedure? #f)
-                            #:delete (or/c procedure? #f) #:search (or/c procedure? #f))
+                            #:delete (or/c procedure? #f) #:search (or/c procedure? #f)
+                            #:history (or/c procedure? #f)
+                            #:patch (or/c (cons/c procedure? procedure?) #f))
                        repository?)]
   ;; a generic in-memory repository: type, declared interactions, search-params (list name type expr)
   [make-default-repository (-> symbol? (listof symbol?) (listof list?) repository?)]
@@ -48,6 +51,8 @@
   [create-request (-> symbol? fhir? request?)]
   [update-request (-> symbol? string? fhir? request?)]
   [delete-request (-> symbol? string? request?)]
+  [history-request (->* (symbol? (or/c string? #f)) ((listof (cons/c symbol? string?))) request?)]
+  [patch-request   (-> symbol? string? list? request?)]
   [search-request (->* (symbol?) ((listof (cons/c symbol? string?))) request?)]
   [invoke-request (->* (#:code string?) (#:level (or/c 'system 'type 'instance)
                         #:type (or/c symbol? #f) #:id (or/c string? #f) #:body (or/c fhir? #f))
@@ -62,11 +67,17 @@
 ;; ---- capability handlers (struct-of-closures) -----------------------------------------------
 
 ;; each field is a closure or #f (#f => that interaction is not supported)
-(struct repository (read vread create update delete search) #:transparent)
+;; patch   : (or #f (cons read update)) — the read/update pair PATCH uses (separate from the read and
+;;           update interactions, which a server may declare independently)
+;; history : (or #f (-> (or/c string? #f) (listof (cons/c string? string?)) (or/c (listof fhir?) #f)))
+;;   instance history when given an id, type history when given #f; newest version first;
+;;   #f = this level is not supported
+(struct repository (read vread create update delete search history patch) #:transparent)
 
 (define (make-repository #:read [read #f] #:vread [vread #f] #:create [create #f]
-                         #:update [update #f] #:delete [delete #f] #:search [search #f])
-  (repository read vread create update delete search))
+                         #:update [update #f] #:delete [delete #f] #:search [search #f]
+                         #:history [history #f] #:patch [patch #f])
+  (repository read vread create update delete search history patch))
 
 ;; a ready-made in-memory repository implementing exactly the declared interactions. Search evaluates
 ;; each declared search-param's FHIRPath expression against stored resources (a param without an
@@ -76,13 +87,14 @@
   (define counter (box 0))
   (define (has? k) (and (memq k interactions) #t))
   (define (put! node id) (define stored (node-with-id node id)) (hash-set! store id stored) stored)
-  (repository
-   (and (has? 'read)        (lambda (id) (hash-ref store id #f)))
-   (and (has? 'vread)       (lambda (id vid) (hash-ref store id #f)))    ; no version history: latest
-   (and (has? 'create)      (lambda (node) (put! node (or (node-id node) (next-id! counter)))))
-   (and (has? 'update)      (lambda (id node) (put! node id)))
-   (and (has? 'delete)      (lambda (id) (hash-remove! store id)))
-   (and (has? 'search-type) (lambda (params) (store-search store sps params)))))
+  (make-repository
+   #:read   (and (has? 'read)        (lambda (id) (hash-ref store id #f)))
+   #:vread  (and (has? 'vread)       (lambda (id vid) (hash-ref store id #f)))   ; no version history: latest
+   #:create (and (has? 'create)      (lambda (node) (put! node (or (node-id node) (next-id! counter)))))
+   #:update (and (has? 'update)      (lambda (id node) (put! node id)))
+   #:delete (and (has? 'delete)      (lambda (id) (hash-remove! store id)))
+   #:search (and (has? 'search-type) (lambda (params) (store-search store sps params)))
+   #:patch  (and (has? 'patch) (cons (lambda (id) (hash-ref store id #f)) (lambda (id node) (put! node id))))))
 
 (define (next-id! b) (set-box! b (add1 (unbox b))) (number->string (unbox b)))
 (define (node-id n) (let ([v (fhir-ref n 'id #f)]) (and v (leaf->string v))))
@@ -141,7 +153,7 @@
 
 (define (dispatch a req)
   (case (request-kind req)
-    [(read vread create update delete search) (dispatch-interaction a req)]
+    [(read vread create update delete search history-instance history-type patch) (dispatch-interaction a req)]
     [(invoke) (dispatch-operation a req)]
     [else (operation-outcome-invalid (format "unknown request kind ~a" (request-kind req)))]))
 
@@ -162,7 +174,9 @@
   (case kind
     [(read) (repository-read repo)] [(vread) (repository-vread repo)]
     [(create) (repository-create repo)] [(update) (repository-update repo)]
-    [(delete) (repository-delete repo)] [(search) (repository-search repo)]))
+    [(delete) (repository-delete repo)] [(search) (repository-search repo)]
+    [(history-instance history-type) (repository-history repo)]
+    [(patch) (repository-patch repo)]))
 
 (define (run-interaction kind fn req)
   (case kind
@@ -173,7 +187,55 @@
     [(update) (fn (request-id req) (request-body req))]
     [(delete) (begin (fn (request-id req))
                      (operation-outcome "information" "informational" "deleted"))]
-    [(search) (make-searchset (fn (request-params req)))]))
+    [(search) (make-searchset (fn (request-params req)))]
+    [(patch)
+     ;; JSON Patch (RFC 6902): read, apply atomically, then the repository's own UPDATE — so a patched
+     ;; resource is validated exactly like a PUT; a malformed or failing patch is 422
+     (define read (car fn)) (define update (cdr fn))
+     (define cur (read (request-id req)))
+     (cond
+       [(not cur) (operation-outcome "error" "not-found" "resource not found")]
+       [else
+        (with-handlers ([exn:fail:json-patch? (lambda (e) (operation-outcome "error" "processing" (exn-message e)))])
+          (define patched (apply-json-patch (node->jsexpr cur) (request-body req)))
+          (define node (from-json (hash-set patched 'id (request-id req)) #:lenient? #t))
+          (if (ok? node)
+              (update (request-id req) (ok-value node))
+              (operation-outcome "error" "processing" "the patched resource is not valid FHIR")))])]
+    [(history-instance history-type)
+     ;; a history closure answers #f for a level it does not support
+     (define vs (fn (and (eq? kind 'history-instance) (request-id req)) (stringify-params (request-params req))))
+     (if vs
+         (make-history-bundle vs)
+         (operation-outcome-not-supported
+          (format "~a history is not supported on ~a" (if (eq? kind 'history-instance) "instance" "type")
+                  (request-type req))))]))
+
+(define (stringify-params ps)
+  (for/list ([p (in-list ps)]) (cons (format "~a" (car p)) (format "~a" (cdr p)))))
+
+;; make-history-bundle : (listof fhir) -> Bundle node   (type history, newest first)
+;; Each entry carries the version and what produced it: version 1 a create (POST, 201), later ones
+;; updates (PUT, 200) — https://hl7.org/fhir/http.html#history
+(define (make-history-bundle versions)
+  (define entries
+    (for/list ([n (in-list versions)])
+      (define js (node->jsexpr n))
+      (define meta (hash-ref js 'meta (hasheq)))
+      (define vid (hash-ref meta 'versionId "1"))
+      (define t (hash-ref js 'resourceType)) (define id (hash-ref js 'id ""))
+      (define first? (equal? vid "1"))
+      (hasheq 'fullUrl (format "~a/~a" t id)
+              'resource js
+              'request (hasheq 'method (if first? "POST" "PUT") 'url (if first? t (format "~a/~a" t id)))
+              'response (drop-false-hash
+                         (hasheq 'status (if first? "201 Created" "200 OK")
+                                 'etag (format "W/\"~a\"" vid)
+                                 'lastModified (hash-ref meta 'lastUpdated #f))))))
+  (ok-or-raise
+   (from-json (hasheq 'resourceType "Bundle" 'type "history" 'total (length entries) 'entry entries))))
+
+(define (drop-false-hash h) (for/hasheq ([(k v) (in-hash h)] #:when v) (values k v)))
 
 (define (dispatch-operation a req)
   (define key (list (request-level req) (request-code req) (target-of req)))
@@ -278,6 +340,10 @@
 (define (create-request t node)    (request 'create t #f #f '() 'type #f node))
 (define (update-request t id node) (request 'update t id #f '() 'instance #f node))
 (define (delete-request t id)      (request 'delete t id #f '() 'instance #f #f))
+;; patch-request : the body is the JSON Patch document (a list of operations), not a resource
+(define (patch-request t id ops) (request 'patch t id #f '() 'instance #f ops))
+(define (history-request t id [params '()])
+  (request (if id 'history-instance 'history-type) t id #f params (if id 'instance 'type) #f #f))
 (define (search-request t [params '()]) (request 'search t #f #f params 'type #f #f))
 (define (invoke-request #:code code #:level [level 'type] #:type [type #f] #:id [id #f] #:body [body #f])
   (request 'invoke type id #f '() level code body))

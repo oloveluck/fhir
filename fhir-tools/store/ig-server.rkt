@@ -22,10 +22,12 @@
 ;;;     profiles      : (listof canonical)
 ;;;   A Gap is (gap type what name expectation reason) — one IG requirement the server does not meet
 ;;;
-;;; Supported: interactions read vread create update delete search-type; search parameters of
+;;; Supported: interactions read vread create update delete search-type history-instance history-type
+;;; patch (JSON Patch);
+;;; search parameters of
 ;;; every type except composite/special (store/search-index.rkt); transaction/batch Bundles.
 ;;; _include/_revinclude of the form Source:param[:Target] (not `*`, not :iterate).
-;;; IG operations with an implementation in `operation-impls` (US Core $docref so far).
+;;; IG operations with an implementation in `operation-impls` (US Core $docref, ValueSet $expand).
 ;;; Not yet: patch, history, chained parameters, other IG operations, SMART auth — each listed as a gap.
 
 (require racket/contract racket/list racket/string racket/match
@@ -38,11 +40,14 @@
          (only-in fhir/result/result ok? ok-value ok-or-raise)
          (only-in fhir/model/registry type-registered?)
          (only-in fhir/capability/runtime make-repository build-app repository-read repository-vread
-                  repository-create repository-update repository-delete repository-search)
+                  repository-create repository-update repository-delete repository-search
+                  repository-history)
          (only-in fhir/kernel/operation-entry operation-entry)
          (only-in fhir/model/node fhir? fhir-ref)
          (only-in fhir/model/leaf pv)
          (only-in fhirpath/temporal-ops moment? moment->string)
+         (only-in fhirpath/terminology tx-service-expand)
+         (only-in fhir/terminology/service packages->resolver make-terminology/resolver resources->resolver)
          (only-in fhir/conformance/validate validate-issues issue-severity issue-code issue-path issue-msg)
          "fhir-sqlite.rkt" "fhir-engine.rkt" "ig-params.rkt" "bundle.rkt"
          (only-in "search-index.rkt" indexed-kind?)
@@ -68,7 +73,8 @@
 ;; app : the capability app (serve with http/server) ; gaps : (listof gap)
 (struct ig-server (plan app gaps catalog sd-packages store validate? tgz))
 
-(define supported-interactions '("read" "vread" "create" "update" "delete" "search-type"))
+(define supported-interactions '("read" "vread" "create" "update" "delete" "search-type"
+                                 "history-instance" "history-type" "patch"))
 
 ;; ---- reading the package -----------------------------------------------------------------------
 
@@ -185,7 +191,15 @@
    #:create (and (allowed? "create") (checked (repository-create base)))
    #:update (and (allowed? "update") (checked (repository-update base)))
    #:delete (and (allowed? "delete") (repository-delete base))
-   #:search (and (allowed? "search-type") (repository-search base))))
+   ;; PATCH applies over read + the validated update, independently of the read/update interactions
+   #:patch (and (allowed? "patch") (cons (repository-read base) (checked (repository-update base))))
+   #:search (and (allowed? "search-type") (repository-search base))
+   ;; one closure serves both levels; each level answers only when the IG declares it
+   #:history (and (or (allowed? "history-instance") (allowed? "history-type"))
+                  (let ([h (repository-history base)])
+                    (lambda (id params)
+                      (and (allowed? (if id "history-instance" "history-type"))   ; #f = not supported
+                           (h id params)))))))
 
 (define (make-ig-server store tgz #:validate? [validate? #t] #:url [url #f])
   (define plan (plan-ig-server tgz))
@@ -220,7 +234,11 @@
                     [op (in-list (hash-ref res 'operation '()))]
                     #:unless (operation-implemented? op))
           (gap (hash-ref res 'type) 'operation (hash-ref op 'name) (expectation-of op) "operation not implemented"))))))
-  (define ods (package-operation-definitions tgz))
+  ;; the IG's OperationDefinitions, then the core package's (ValueSet-expand lives in core)
+  (define ods (let ([core-ods (package-operation-definitions (ig-plan-core-tgz plan))])
+                (for/fold ([h core-ods]) ([(k v) (in-hash (package-operation-definitions tgz))]) (hash-set h k v))))
+  (define tx-resolver (packages->resolver (list tgz (ig-plan-core-tgz plan))))
+  (define ctx (op-context store catalog (make-terminology/resolver tx-resolver) tx-resolver))
   (define sd-packages (list tgz core))
   (define capability (ok-or-raise (from-json (instance-capability plan served catalog url) #:lenient? #t)))
   (define app
@@ -234,10 +252,11 @@
                  (cons (string->symbol (ig-resource-type r))
                        (ig-repository store (string->symbol (ig-resource-type r)) catalog allowed validate? sd-packages)))
                #:operations
-               (for/list ([(url impl) (in-hash operation-impls)] #:when (hash-ref ods url #f))
+               (for*/list ([(url impl0) (in-hash operation-impls)] #:when (hash-ref ods url #f)
+                           [impl (in-list (cons impl0 (hash-ref extra-operation-levels url '())))])
                  (define od (hash-ref ods url))
                  (operation-entry (op-impl-level impl) (hash-ref od 'code) (op-impl-type impl)
-                                  ((op-impl-make-proc impl) store catalog)))
+                                  ((op-impl-make-proc impl) ctx)))
                #:transaction (lambda (bundle-js) (process-bundle! store bundle-js #:search-params catalog))))
   (ig-server plan app gaps catalog sd-packages store validate? tgz))
 
@@ -248,10 +267,12 @@
         [else (fhir-update! (ig-server-store srv) js #:search-params (ig-server-catalog srv)) 'ok]))
 
 ;; ---- IG operations: a table keyed by OperationDefinition canonical ------------------------------
-;; An OperationImpl is (op-impl level type make-proc): make-proc : ig-server-store catalog -> handler,
-;; handler : (in-hash request) -> fhir node. The OperationDefinition itself comes from the IG package
+;; An OperationImpl is (op-impl level type make-proc): make-proc : op-context -> handler,
+;; handler : (in-hash request) -> fhir node. An op-context is what a handler may use. The OperationDefinition itself comes from the IG package
 ;; (its inputs are validated by the capability runtime before the handler runs).
 (struct op-impl (level type make-proc))
+;; store, search catalog, and the terminology service over (IG package, core package)
+(struct op-context (store catalog tx resolver))
 
 (define (in-string in name)
   (define v (hash-ref in name '()))
@@ -261,7 +282,8 @@
 ;; DocumentReferences, start/end bounding DocumentReference.context.period, `type` matching. Only
 ;; EXISTING documents are returned: on-demand generation and the profile filter are not supported
 ;; (on-demand=true is answered from storage, which the operation permits when nothing is generated).
-(define (docref-proc store catalog)
+(define (docref-proc ctx)
+  (define store (op-context-store ctx)) (define catalog (op-context-catalog ctx))
   (lambda (in req)
     (define patient (in-string in "patient"))
     (define types
@@ -278,14 +300,68 @@
                                  (hasheq 'resource h 'search (hasheq 'mode "match"))))
                 #:lenient? #t))))
 
-(define operation-impls
-  (hash "http://hl7.org/fhir/us/core/OperationDefinition/docref" (op-impl 'type "DocumentReference" docref-proc)))
+;; ValueSet $expand (core OperationDefinition ValueSet-expand): the ValueSet by `url` (IG, then core,
+;; then the store), an inline `valueSet`, or — at instance level — the stored ValueSet; filter /
+;; count / offset / activeOnly / excludeNested pass through to the terminology service.
+(define (expand-proc ctx #:instance? [instance? #f])
+  (define store (op-context-store ctx))
+  (lambda (in req)
+    (local-require (only-in fhir/capability/runtime request-id))
+    (define (one name) (let ([v (hash-ref in name '())]) (and (pair? v) (car v))))
+    (define params
+      (for/hash ([k (in-list '("filter" "count" "offset" "activeOnly" "excludeNested" "displayLanguage"))]
+                 #:when (one k))
+        (values k (one k))))
+    (define inline (let ([v (one "valueSet")]) (and v (fhir? v) (strip-jnum (node->jsexpr v)))))
+    (define stored (and instance? (fhir-read store "ValueSet" (request-id req))))
+    (define url (or (and stored (hash-ref stored 'url #f)) (and inline (hash-ref inline 'url #f)) (one "url")))
+    (define extra (filter values (list stored inline)))
+    (define resolver
+      (if (null? extra)
+          (op-context-resolver ctx)
+          (let ([local (resources->resolver extra)] [base (op-context-resolver ctx)])
+            (lambda (u [v #f]) (or (local u v) (base u v))))))
+    (cond
+      [(not (string? url))
+       (ok-or-raise (from-json (hasheq 'resourceType "OperationOutcome"
+                                       'issue (list (hasheq 'severity "error" 'code "required"
+                                                            'diagnostics "$expand needs url, valueSet, or a ValueSet id")))))]
+      [(not (resolver url))
+       (ok-or-raise (from-json (hasheq 'resourceType "OperationOutcome"
+                                       'issue (list (hasheq 'severity "error" 'code "not-found"
+                                                            'diagnostics (format "ValueSet ~a is not known to this server" url))))))]
+      [else
+       ;; the service answers a FHIRPath collection: one ValueSet, or empty for an unknown url
+       (define r ((tx-service-expand (make-terminology/resolver resolver)) url #f params))
+       (cond [(and (pair? r) (fhir? (car r))) (car r)]
+             [else (ok-or-raise (from-json (hasheq 'resourceType "OperationOutcome"
+                                                   'issue (list (hasheq 'severity "error" 'code "not-found"
+                                                                        'diagnostics (format "ValueSet ~a is not known to this server" url))))))])])))
 
-;; the IG's OperationDefinitions (url -> jsexpr)
+(define operation-impls
+  (hash "http://hl7.org/fhir/us/core/OperationDefinition/docref" (op-impl 'type "DocumentReference" docref-proc)
+        "http://hl7.org/fhir/OperationDefinition/ValueSet-expand" (op-impl 'type "ValueSet" expand-proc)))
+;; implementations at further levels for the same OperationDefinition
+(define extra-operation-levels
+  (hash "http://hl7.org/fhir/OperationDefinition/ValueSet-expand"
+        (list (op-impl 'instance "ValueSet" (lambda (ctx) (expand-proc ctx #:instance? #t))))))
+
+;; OperationDefinitions of a package (url -> jsexpr), reading only OperationDefinition-*.json
 (define (package-operation-definitions tgz)
-  (define-values (_m resources) (read-package tgz))
-  (for/hash ([r (in-list resources)] #:when (equal? (hash-ref (cdr r) 'resourceType #f) "OperationDefinition"))
-    (values (hash-ref (cdr r) 'url) (cdr r))))
+  (define out (make-hash))
+  (define-values (pin pout) (make-pipe (* 1024 1024)))
+  (define t (thread (lambda () (call-with-input-file tgz (lambda (gz) (gunzip-through-ports gz pout)))
+                      (close-output-port pout))))
+  (untar pin #:handle-entry
+         (lambda (kind name content size attribs)
+           (when (eq? kind 'file)
+             (define bs (if (= size 0) #"" (read-bytes size content)))
+             (when (regexp-match? #px"^package/OperationDefinition-[^/]*\\.json$" (path->string name))
+               (define j (with-handlers ([exn:fail? (lambda (_) #f)]) (bytes->jsexpr bs)))
+               (when (and (hash? j) (hash-ref j 'url #f)) (hash-set! out (hash-ref j 'url) j))))
+           '()))
+  (thread-wait t)
+  (for/hash ([(k v) (in-hash out)]) (values k v)))
 
 (define (operation-implemented? cs-op)
   (define def (hash-ref cs-op 'definition #f))
@@ -347,7 +423,12 @@
 
 ;; load-ig-examples! : ig-server -> (values loaded rejected)   rejected : (listof (cons file reason))
 (define (load-ig-examples! srv)
-  (define-values (_m examples) (read-package-examples (ig-server-tgz srv)))
+  (define-values (_m examples0) (read-package-examples (ig-server-tgz srv)))
+  ;; plus the IG's own ValueSets and CodeSystems, so they are readable and expandable by id
+  (define-values (_m2 resources) (read-package (ig-server-tgz srv)))
+  (define examples (append (filter (lambda (r) (member (hash-ref (cdr r) 'resourceType #f) '("ValueSet" "CodeSystem")))
+                                   resources)
+                           examples0))
   (for/fold ([n 0] [rejected '()] #:result (values n (reverse rejected)))
             ([ex (in-list examples)])
     (define js (cdr ex))

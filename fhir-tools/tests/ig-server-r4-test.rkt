@@ -17,18 +17,18 @@
 (define plan (ig-server-plan srv))
 (check-equal? (ig-plan-fhir-version plan) "4.0.1")
 
-;; no unmet SHALL: every SHALL interaction, search parameter, include and operation is implemented
-(define shall-gaps (filter (lambda (g) (equal? (gap-expectation g) "SHALL")) (ig-server-gaps srv)))
-(for ([g (in-list shall-gaps)]) (eprintf "  unmet SHALL: ~s\n" (gap->list g)))
-(check-equal? shall-gaps '())
-(printf "  US Core server: ~a resource types; ~a unmet MAY/SHOULD requirements\n"
+;; no unmet requirement at ANY level (SHALL, SHOULD, MAY): every interaction, search parameter,
+;; include and operation of US Core's server CapabilityStatement is implemented
+(for ([g (in-list (ig-server-gaps srv))]) (eprintf "  unmet: ~s\n" (gap->list g)))
+(check-equal? (ig-server-gaps srv) '())
+(printf "  US Core server: ~a resource types; ~a unmet requirements\n"
         (length (ig-plan-resources plan)) (length (ig-server-gaps srv)))
 
 ;; every example loads, validated against the profiles it claims
 (define-values (loaded rejected) (load-ig-examples! srv))
 (for ([r (in-list rejected)]) (eprintf "  rejected ~a: ~a\n" (car r) (cdr r)))
 (check-equal? rejected '())
-(check-true (>= loaded 230))
+(check-true (>= loaded 255))                                   ; examples + the IG's ValueSets/CodeSystems
 
 (define app (ig-server-app srv))
 (define (go method path [q '()] [body ""]) (call-with-values (lambda () (handle app method path q body)) list))
@@ -57,6 +57,30 @@
                                                'meta (hasheq 'profile (list "http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient"))))))
               422)
 (check-equal? (car (go "POST" "/Patient" '() (jsexpr->string (hasheq 'resourceType "Patient" 'gender "female")))) 201)
+
+;; history (instance + type), with versions from a PUT and a PATCH
+(define p0 (cadr (go "GET" "/Patient/example")))
+(check-equal? (car (go "PUT" "/Patient/example" '() (jsexpr->string (hash-set p0 'active #f)))) 200)
+(check-equal? (car (go "PATCH" "/Patient/example" '()
+                       (jsexpr->string (list (hasheq 'op "add" 'path "/gender" 'value "female")))))
+              200)
+(define hist (cadr (go "GET" "/Patient/example/_history")))
+(check-equal? (hash-ref hist 'type) "history")
+(check-equal? (map (lambda (e) (hash-ref (hash-ref e 'request) 'method)) (hash-ref hist 'entry)) '("PUT" "PUT" "POST"))
+(check-equal? (hash-ref (cadr (go "GET" "/Patient/_history" '((_count . "1")))) 'total) 1)
+;; PATCH: a failing `test` and a profile violation are both 422; a malformed body 400
+(check-equal? (car (go "PATCH" "/Patient/example" '()
+                       (jsexpr->string (list (hasheq 'op "test" 'path "/gender" 'value "male"))))) 422)
+(check-equal? (car (go "PATCH" "/Patient/example" '() (jsexpr->string (list (hasheq 'op "remove" 'path "/name"))))) 422)
+(check-equal? (car (go "PATCH" "/Patient/example" '() "{}")) 400)
+;; ValueSet $expand: core and IG value sets, by url, with a filter, at instance level
+(define (expansion-size r) (length (hash-ref (hash-ref (cadr r) 'expansion) 'contains '())))
+(check-equal? (expansion-size (go "GET" "/ValueSet/$expand" '((url . "http://hl7.org/fhir/ValueSet/administrative-gender")))) 4)
+(check-equal? (expansion-size (go "GET" "/ValueSet/$expand" '((url . "http://hl7.org/fhir/ValueSet/administrative-gender")
+                                                                (filter . "fem")))) 1)
+(check-equal? (expansion-size (go "GET" "/ValueSet/us-core-observation-smoking-status-status/$expand")) 2)
+(check-equal? (car (go "GET" "/ValueSet/$expand" '((url . "http://example.org/none")))) 404)
+(check-equal? (car (go "GET" "/ValueSet/$expand")) 400)
 
 (close-fhir-store store)
 (delete-file db)
