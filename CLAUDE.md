@@ -82,8 +82,12 @@ OperationOutcome with the standard `operationoutcome-issue-line`/`-col`/`-source
   was compared against the list, not its members. `json-at` fans out at the path's end now.
 - Servers generated from a package resolve its `dependencies` from fhir-spec (validation context
   and search catalog: IG, dependencies, core).
-- Not yet: the CQL compiler stops at the first translation error; FSH semantic checks (a constraint
-  on an element that does not exist compiles silently).
+- Errors accumulate. CQL: `compile-library/errors` translates every statement, records each failing
+  definition once (positioned at its `define`), and a reference to a failed definition does not
+  report again; `raco cql` lists them all. FSH: each rule remembers its position (the token after
+  its `*`); `compile-doc/diagnostics` adds rule-level checks (an element path whose first step is not
+  an element of the base type: "`nmae` is not an element of Patient", at the rule), and the entity
+  still compiles. The check is gated by zero diagnostics on IPS, mCODE and the golden corpus.
 
 ## How-to-use docs
 User-facing usage/how-to lives in `.claude/skills/` — `fhir-authoring` (write/run the langs),
