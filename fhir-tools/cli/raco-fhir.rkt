@@ -10,6 +10,7 @@
 ;;; The languages ship their own commands: raco fhirpath, raco cql, raco fsh, raco vcl, raco fml.
 
 (require racket/list
+         (only-in fhir/diagnostic diagnostic loc emit-diagnostics format-flag)
          (only-in json jsexpr->string read-json write-json)
          (only-in racket/file file->string make-directory* make-temporary-file)
          (only-in racket/string string-join)
@@ -53,17 +54,39 @@
        (eprintf "roundtrip: WARNING — re-serialized JSON differs from input (may be key order / _field).\n"))]))
 
 ;; raco fhir validate <resource.json> [profile.json…] — validate against base type + supplied profiles
-(define (cmd-validate file profile-files)
+;; --format outcome (default: the OperationOutcome on stdout) | text (one line per issue on stderr) |
+;; json; malformed JSON is a positioned `json parse` diagnostic in the same format (fhir/diagnostic)
+(define (cmd-validate file profile-files #:format [fmt 'outcome])
   (dynamic-require 'fhir/r5/schemas #f)
   (define validate-json (dynamic-require 'fhir/conformance/validate 'validate-json))
   (define read-fhir-json/duplicates (dynamic-require 'fhir/serialize/read-json 'read-fhir-json/duplicates))
+  ;; read-file : path -> (values jsexpr dups)   a reader failure is reported where reading stopped
+  (define (read-file f reader)
+    (call-with-input-file f
+      (lambda (p)
+        (port-count-lines! p)
+        (with-handlers ([exn:fail?
+                         (lambda (e)
+                           (define-values (line col pos) (port-next-location p))
+                           (define d (diagnostic 'json 'parse 'error
+                                                 (regexp-replace #px"^[a-z/>-]+: " (exn-message e) "")
+                                                 (loc f line (and col (max 1 col)) pos #f)))
+                           (emit-diagnostics (list d) #:format (if (eq? fmt 'json) 'json (if (eq? fmt 'text) 'text 'outcome))
+                                             #:text-of (lambda (_) (file->string f)))
+                           (exit 1))])
+          (reader p)))))
   ;; read with the precision-preserving reader so decimals validate on their lexeme, and capture any
   ;; duplicate JSON keys the reader collapses (invalid FHIR JSON the plain parser would hide).
-  (define-values (js dups) (call-with-input-file file read-fhir-json/duplicates))
-  (define profiles (for/list ([f (in-list profile-files)]) (call-with-input-file f read-json)))
-  (define oo (node->jsexpr (validate-json js #:profiles profiles #:duplicates dups)))
-  (displayln (jsexpr->string oo))
+  (define-values (js dups) (read-file file read-fhir-json/duplicates))
+  (define profiles (for/list ([f (in-list profile-files)]) (read-file f (lambda (p) (values (read-json p) #f)))))
+  (define oo (node->jsexpr (validate-json js #:profiles (map (lambda (x) x) profiles) #:duplicates dups)))
   (define issues (let ([v (hash-ref oo 'issue '())]) (if (list? v) v '())))
+  (case fmt
+    [(text) (for ([i (in-list issues)])
+              (eprintf "~a: ~a ~a~a: ~a\n" file (hash-ref i 'severity "") (hash-ref i 'code "")
+                       (let ([x (hash-ref i 'expression '())]) (if (pair? x) (format " at ~a" (car x)) ""))
+                       (hash-ref i 'diagnostics (hash-ref (hash-ref i 'details (hasheq)) 'text ""))))]
+    [else (displayln (jsexpr->string oo))])
   (when (for/or ([i (in-list issues)]) (member (hash-ref i 'severity #f) '("error" "fatal")))
     (exit 1)))
 
@@ -223,8 +246,9 @@
                   (cmd-serve-ig (cdr args))]
     [("serve") (unless (arg 1) (eprintf "usage: raco fhir serve <app.rkt> [port]\n") (exit 2))
                (cmd-serve (arg 1) (arg 2))]
-    [("validate") (unless (arg 1) (eprintf "usage: raco fhir validate <resource.json> [profile.json…]\n") (exit 2))
-                  (cmd-validate (arg 1) (if (> (length args) 2) (list-tail args 2) '()))]
+    [("validate") (unless (arg 1) (eprintf "usage: raco fhir validate <resource.json> [profile.json…] [--format outcome|text|json]\n") (exit 2))
+                  (let-values ([(fmt rest) (format-flag (cdr args))])
+                    (cmd-validate (car rest) (cdr rest) #:format (if (and (eq? fmt 'text) (not (member "--format" args))) 'outcome fmt)))]
     [("snapshot") (unless (arg 1) (eprintf "usage: raco fhir snapshot <sd.json>\n") (exit 2))
                   (cmd-snapshot (arg 1))]
     [("sof-tck") (dynamic-require '(submod fhir/viewdef/tests/run main) #f)]

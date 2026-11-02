@@ -57,6 +57,29 @@ This repo's root holds the family README/LICENSE and these notes; `fhir/`, `fhir
 are the three packages. `fhir-tools/` owns the `raco fhir` CLI; the languages own `raco fhirpath`,
 `raco cql`, `raco fsh`, `raco vcl`, `raco fml`.
 
+## Diagnostics: machine-readable feedback (`fhir/diagnostic`)
+Every language reports errors as one value, `(diagnostic lang phase severity message loc)` with
+1-based line/column, the character position and span, and the source file. It renders three ways:
+`file:line:col: fsh parse error: …` plus the source line and a caret; JSON; and a FHIR
+OperationOutcome with the standard `operationoutcome-issue-line`/`-col`/`-source` extensions.
+- Lexers keep brag tokens but fill their positions (`lexer-srcloc` + `positioned`). Text no rule
+  matches is a positioned `lex` diagnostic.
+- `exn->diagnostic` turns a parser's exception into one: brag's message becomes words ("unexpected
+  caret sequence `^short`"). When the failure sits on the LAST token, a probe re-parses with a copy
+  of that token appended; if the error moves past it, the input ran out ("the entity ends after
+  `=`"), otherwise the token itself is unexpected.
+- Carriers: FSH and FHIRPath raise `exn:fail:diagnostic` (a subtype of `exn:fail`, with
+  `prop:exn:srclocs`); CQL and FML put it in `cql-error-diagnostic`; VCL attaches it to its
+  `invalid-encoding` payload (`attached-diagnostic`). CQL definitions remember where they start
+  (`attach-loc!`), so translation errors point at the enclosing `define` and name it.
+- CLIs (`raco fsh|cql|vcl|fml|fhirpath`, `raco fhir validate`) take `--format text|json|outcome`.
+  Text goes to stderr; json/outcome go to stdout; exit 1 on an error. A leading `#lang` line is
+  blanked, not removed, so line numbers stay true. FSH parses per file (positions name the file),
+  reports every file's errors, and positions compile errors at the failing entity's header.
+  `validate` reports malformed JSON where reading stopped.
+- Not yet: the CQL compiler stops at the first translation error; FSH semantic checks (a constraint
+  on an element that does not exist compiles silently).
+
 ## How-to-use docs
 User-facing usage/how-to lives in `.claude/skills/` — `fhir-authoring` (write/run the langs),
 `fhir-cli` (`raco fhir` reference), `fhir-serving` (store + HTTP), `fhir-analytics` (OMOP/DuckDB).
