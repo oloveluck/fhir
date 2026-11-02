@@ -230,34 +230,90 @@
                    (evaluate store measure start end #:subject (opt "--subject") #:offset offset)))
   (write-json report) (newline))
 
+;; ---- usage ---------------------------------------------------------------------------------
+;; One line per subcommand; `raco fhir <cmd> --help` prints it (exit 0), a usage error prints it on
+;; stderr (exit 2).
+(define usages
+  '(("regen"            "raco fhir regen [r6|r4|r5|sof|omop|all]   regenerate the type tower(s) from fhir-spec")
+    ("check"            "raco fhir check [r6|r4|r5|sof|omop|all]   committed towers match a fresh regen")
+    ("roundtrip"        "raco fhir roundtrip <file.json> [Type]")
+    ("roundtrip-tck"    "raco fhir roundtrip-tck [r4|r5]")
+    ("validate"         "raco fhir validate <resource.json> [profile.json…] [--format outcome|text|json]")
+    ("snapshot"         "raco fhir snapshot <sd.json>")
+    ("serve"            "raco fhir serve <app.rkt> [port]")
+    ("serve-ig"         "raco fhir serve-ig <ig> [--db store.db] [--port 8080] [--bearer token] [--capability id] [--load file|dir]… [--tz-offset ±hh:mm] [--no-examples] [--no-validate] [--gaps]")
+    ("load"             "raco fhir load <store.db> <file|dir>   (Bundles, resources, .cql libraries)")
+    ("evaluate-measure" "raco fhir evaluate-measure <store.db> <Measure id|url> --period-start D --period-end D [--subject Patient/x] [--tz-offset ±hh:mm]")
+    ("omop"             "raco fhir omop <store.db> [SQL] [<out.duckdb>]")
+    ("sof-tck"          "raco fhir sof-tck")
+    ("tx-tck"           "raco fhir tx-tck")))
+
+(define (usage-of cmd) (cadr (assoc cmd usages)))
+(define (overview)
+  (string-append "usage: raco fhir <command> …\n"
+                 (apply string-append (for/list ([u (in-list usages)]) (format "  ~a\n" (cadr u))))
+                 "The languages have their own commands: raco fhirpath | cql | fsh | vcl | fml\n"))
+;; usage-error : cmd [message] -> exits 2
+(define (usage-error cmd [msg #f])
+  (when msg (eprintf "raco fhir ~a: ~a\n" cmd msg))
+  (eprintf "usage: ~a\n" (usage-of cmd))
+  (exit 2))
+(define (help? a) (member a '("-h" "--help")))
+;; the arguments that must name existing files; a missing one is a usage error, not a stack trace
+(define (require-files! cmd files)
+  (for ([f (in-list files)] #:unless (file-exists? f))
+    (usage-error cmd (format "no such file: ~a" f))))
+
 (module+ main
   (define args (vector->list (current-command-line-arguments)))
   (define (arg n) (and (> (length args) n) (list-ref args n)))
-  (case (arg 0)
+  (define cmd (arg 0))
+  (cond
+    [(or (not cmd) (help? cmd))
+     (if cmd (display (overview)) (eprintf "~a" (overview)))
+     (exit (if cmd 0 2))]
+    [(not (assoc cmd usages)) (eprintf "raco fhir: unknown command ~a\n~a" cmd (overview)) (exit 2)]
+    [(ormap help? (cdr args)) (printf "usage: ~a\n" (usage-of cmd)) (exit 0)])
+  (case cmd
     [("regen")     (cmd-regen (arg 1))]
     [("check")     (cmd-check (arg 1))]
-    [("roundtrip") (unless (arg 1) (eprintf "usage: raco fhir roundtrip <file.json> [Type]\n") (exit 2))
+    [("roundtrip") (unless (arg 1) (usage-error cmd))
+                   (require-files! cmd (list (arg 1)))
                    (cmd-roundtrip (arg 1) (arg 2))]
     [("roundtrip-tck")
      (define v (or (arg 1) "r5"))
-     (unless (member v '("r4" "r5")) (eprintf "usage: raco fhir roundtrip-tck [r4|r5]\n") (exit 2))
+     (unless (member v '("r4" "r5")) (usage-error cmd))
      (dynamic-require `(submod ,(string->symbol (string-append "fhir/tests/example-roundtrip-" v)) main) #f)]
-    [("serve-ig") (unless (arg 1) (eprintf "usage: raco fhir serve-ig <ig> [--db store.db] [--port 8080] [--bearer token] [--capability id] [--load file|dir]… [--tz-offset ±hh:mm] [--no-examples] [--no-validate] [--gaps]\n") (exit 2))
+    [("serve-ig") (unless (arg 1) (usage-error cmd))
                   (cmd-serve-ig (cdr args))]
-    [("serve") (unless (arg 1) (eprintf "usage: raco fhir serve <app.rkt> [port]\n") (exit 2))
+    [("serve") (unless (arg 1) (usage-error cmd))
+               (require-files! cmd (list (arg 1)))
                (cmd-serve (arg 1) (arg 2))]
-    [("validate") (unless (arg 1) (eprintf "usage: raco fhir validate <resource.json> [profile.json…] [--format outcome|text|json]\n") (exit 2))
-                  (let-values ([(fmt rest) (format-flag (cdr args))])
-                    (cmd-validate (car rest) (cdr rest) #:format (if (and (eq? fmt 'text) (not (member "--format" args))) 'outcome fmt)))]
-    [("snapshot") (unless (arg 1) (eprintf "usage: raco fhir snapshot <sd.json>\n") (exit 2))
+    [("validate")
+     (let-values ([(fmt rest) (format-flag (cdr args))])
+       (cond [(null? rest) (usage-error cmd)]
+             [(findf (lambda (a) (regexp-match? #rx"^-" a)) rest) => (lambda (a) (usage-error cmd (format "unknown option ~a" a)))])
+       (require-files! cmd rest)
+       (cmd-validate (car rest) (cdr rest) #:format (if (and (eq? fmt 'text) (not (member "--format" args))) 'outcome fmt)))]
+    [("snapshot") (unless (arg 1) (usage-error cmd))
+                  (require-files! cmd (list (arg 1)))
                   (cmd-snapshot (arg 1))]
     [("sof-tck") (dynamic-require '(submod fhir/viewdef/tests/run main) #f)]
     [("tx-tck") (dynamic-require '(submod fhir/terminology/tests/run-tx main) #f)]
-    [("omop") (unless (arg 1) (eprintf "usage: raco fhir omop <store.db> [SQL] [<out.duckdb>]\n") (exit 2))
+    [("omop") (unless (arg 1) (usage-error cmd))
               (cmd-omop (arg 1) (arg 2) (arg 3))]
-    [("load") (unless (arg 2) (eprintf "usage: raco fhir load <store.db> <file|dir>   (Bundles, resources, .cql libraries)\n") (exit 2))
+    [("load") (unless (arg 2) (usage-error cmd))
+              (unless (or (file-exists? (arg 2)) (directory-exists? (arg 2)))
+                (usage-error cmd (format "no such file or directory: ~a" (arg 2))))
               (cmd-load (arg 1) (arg 2))]
     [("evaluate-measure")
-     (unless (arg 2) (eprintf "usage: raco fhir evaluate-measure <store.db> <Measure id|url> --period-start D --period-end D [--subject Patient/x] [--tz-offset ±hh:mm]\n") (exit 2))
-     (cmd-evaluate-measure (cdr args))]
-    [else (eprintf "usage: raco fhir [regen|check|roundtrip|roundtrip-tck|validate|snapshot|serve|serve-ig|load|evaluate-measure|omop|sof-tck|tx-tck] …\n       (the languages have their own commands: raco fhirpath | cql | fsh | vcl | fml)\n") (exit 2)]))
+     (unless (arg 2) (usage-error cmd))
+     (cmd-evaluate-measure (cdr args))]))
+
+(module+ test
+  (require rackunit)
+  ;; every subcommand has a usage line naming itself, and -h/--help are recognised
+  (for ([u (in-list usages)])
+    (check-true (regexp-match? (regexp (string-append "^raco fhir " (regexp-quote (car u)))) (cadr u))))
+  (check-true (and (help? "--help") (help? "-h") #t))
+  (check-false (help? "--format")))

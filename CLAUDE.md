@@ -73,7 +73,9 @@ OperationOutcome with the standard `operationoutcome-issue-line`/`-col`/`-source
   `invalid-encoding` payload (`attached-diagnostic`). CQL definitions remember where they start
   (`attach-loc!`), so translation errors point at the enclosing `define` and name it.
 - CLIs (`raco fsh|cql|vcl|fml|fhirpath`, `raco fhir validate`) take `--format text|json|outcome`.
-  Text goes to stderr; json/outcome go to stdout; exit 1 on an error. A leading `#lang` line is
+  Text goes to stderr; json/outcome go to stdout; exit 1 on an error. `-h`/`--help` (on any
+  `raco fhir` subcommand too) prints usage to stdout, exit 0; a usage error, unknown option or
+  unreadable input file is one line on stderr, exit 2 (never a stack trace). A leading `#lang` line is
   blanked, not removed, so line numbers stay true. FSH parses per file (positions name the file),
   reports every file's errors, and positions compile errors at the failing entity's header.
   `validate` reports malformed JSON where reading stopped.
