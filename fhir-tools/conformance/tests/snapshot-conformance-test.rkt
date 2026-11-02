@@ -96,5 +96,5 @@
 ;; is 1..1, R5 0..1). Running it against an R4 resolver would need an R4 sd-index; until then
 ;; these are documented, not chased.
 (check-true (>= pc 80) (format "path coverage regressed: ~a" pc))
-(check-true (>= ca 143) (format "cardinality agreement regressed: ~a" ca))
-(check-true (>= ta 70) (format "type agreement regressed: ~a" ta))
+(check-true (>= ca 476) (format "cardinality agreement regressed: ~a" ca))
+(check-true (>= ta 235) (format "type agreement regressed: ~a" ta))

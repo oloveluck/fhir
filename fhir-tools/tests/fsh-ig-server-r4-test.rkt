@@ -49,5 +49,5 @@
    (check-equal? (length (ig-server-sd-packages srv)) 4)                ; mCODE, its 2 dependencies, R4 core
    (printf "  FSH -> package -> server (mCODE): 0 unmet requirements; ~a/~a of our compiled examples validate against our compiled profiles (published package: ~a/~a)\n"
            n (+ n (length rejected)) pn (+ pn (length prejected)))
-   (check-true (>= n 250) "fewer of our examples validate than the floor")
+   (check-true (>= n 283) "fewer of our examples validate than the floor")
    (delete-file tgz)])

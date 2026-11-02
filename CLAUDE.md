@@ -82,6 +82,13 @@ OperationOutcome with the standard `operationoutcome-issue-line`/`-col`/`-source
   was compared against the list, not its members. `json-at` fans out at the path's end now.
 - Servers generated from a package resolve its `dependencies` from fhir-spec (validation context
   and search catalog: IG, dependencies, core).
+- The FSH -> package -> server loop found its last gaps on both sides (250 -> 283/283). Snapshot
+  generation (`sd/snapshot.rkt`) merged an element INSIDE a slice (`component:a.code`, same path as
+  `component.code`) into the unsliced element: it is now matched by id, built from the unsliced
+  definition, placed under its slice (skipped ancestors and slices created first), and the datatype
+  expansion walks ids — snapshot conformance card 143/148 -> 476/478 (108 more elements now exist
+  to compare). FSH: see the fsh repo's CLAUDE.md (required values built recursively, `System#code` on
+  a `code`, `valueX` on a choice narrowed to X, named-slice positions).
 - Errors accumulate. CQL: `compile-library/errors` translates every statement, records each failing
   definition once (positioned at its `define`), and a reference to a failed definition does not
   report again; `raco cql` lists them all. FSH: each rule remembers its position (the token after
@@ -427,12 +434,12 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | **IG server** | **a server generated from US Core 9.0.0: all 255 resources load through validation** | `tests/ig-server-r4-test.rkt` | **0 unmet requirements** (SHALL/SHOULD/MAY; auth aside) |
 | **IG FHIRPath** | **the same IGs: profile invariants on their examples + SearchParameter expressions** | `tests/ig-fhirpath-r4-test.rkt` | **6082 invariant checks, 0 fail** (2 dom-3 spec-conflict errors); **1330/1330 search** |
 | SOF examples | the SOF IG's own package | `tests/ig-examples-sof-test.rkt` | 17/17 (1 documented IG defect) |
-| **snapshot** | **fhir-test-cases rX/snapshot-generation** | `conformance/tests/snapshot-conformance-test.rkt` | **paths 80/80, card 143/148, types 70/71** (id-matched) |
+| **snapshot** | **fhir-test-cases rX/snapshot-generation** | `conformance/tests/snapshot-conformance-test.rkt` | **paths 80/80, card 476/478, types 235/236** (id-matched) |
 | validator | fhir-test-cases validator + java outcomes | `tests/validate-diff-test.rkt` | **fp=0**, recall 17/26 (67 cases) |
 | FSH | SUSHI golden corpus (hand-authored pairs) | `fsh/tests/golden-test.rkt` | 22/22 fwd + round-trip |
 | **FSH real IG** | **IPS 2.0.1's own FSH vs its published package** | `fsh/tests/ig-ips-test.rkt` (fsh repo) | **0 compile errors; 76/114 exact, 82/114 complete; 321/440 differential elements** |
-| **FSH -> package -> server** | **mCODE 4.0.0's FSH compiled and packed here, served by a generated server: its examples vs its profiles** | `tests/fsh-ig-server-r4-test.rkt` | **250/283 validate** (published package 283/283); 0 unmet requirements |
-| **FSH real IG 2** | **mCODE 4.0.0's own FSH (dependencies US Core 6.1.0 + Genomics Reporting 2.0.0 from sushi-config.yaml) vs its published package** | `fsh/tests/ig-mcode-test.rkt` (fsh repo) | **0 compile errors; 173/349 exact, 249/349 complete; 277/501 differential elements** |
+| **FSH -> package -> server** | **mCODE 4.0.0's FSH compiled and packed here, served by a generated server: its examples vs its profiles** | `tests/fsh-ig-server-r4-test.rkt` | **283/283 validate** (as the published package); 0 unmet requirements |
+| **FSH real IG 2** | **mCODE 4.0.0's own FSH (dependencies US Core 6.1.0 + Genomics Reporting 2.0.0 from sushi-config.yaml) vs its published package** | `fsh/tests/ig-mcode-test.rkt` (fsh repo) | **0 compile errors; 206/349 exact, 282/349 complete; 279/501 differential elements** |
 | **Measure server** | **a server generated from CQF Measures 5.0.0: $evaluate-measure over its store, 2 eCQMs, 65 test patients** | `tests/measure-server-r4-test.rkt` | **60/65 individual reports** (5 named); 0 unmet requirements |
 | **CQL execution** | **4 eCQMs over 76 test patients (cqframework/ecqm-content-r4-2021): populations vs expected** | `cql/tests/measure-test.rkt` (cql repo) | **71/76** (5 named corpus disagreements) |
 | **CQL real libraries** | **32 published libraries (FHIRHelpers, CQF Measures, CQL IG) vs the reference ELM** | `cql/tests/elm-corpus-test.rkt` (cql repo) | **32/32 parse + compile; 742/803 defs ELM-equal** |

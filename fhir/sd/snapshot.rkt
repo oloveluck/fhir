@@ -50,30 +50,53 @@
     (if (or (zero? fuel) (= (length next) (length elements))) next (loop next (sub1 fuel)))))
 
 (define (expand-once elements)
-  (define dived                     ; paths the profile has descended into
+  ;; by ID, so a slice's children (`agent:X.role.coding`) expand under the slice, not the base
+  (define (eid e) (hash-ref e 'id (lambda () (hash-ref e 'path ""))))
+  (define dived                     ; ids the profile has descended into
     (for/fold ([s (hash)]) ([e (in-list elements)])
-      (define p (hash-ref e 'path ""))
-      (define dot (for/last ([c (in-string p)] [i (in-naturals)] #:when (char=? c #\.)) i))
-      (if dot (hash-set s (substring p 0 dot) #t) s)))
+      (define id (eid e))
+      (define dot (for/last ([c (in-string id)] [i (in-naturals)] #:when (char=? c #\.)) i))
+      (if dot (hash-set s (substring id 0 dot) #t) s)))
   (for/fold ([result elements])
             ([e (in-list elements)]
-             #:when (hash-ref dived (hash-ref e 'path "") #f))
+             #:when (hash-ref dived (eid e) #f))
     (define t (element-type-code e))
     (cond
       [(or (not t) (not (complex-datatype? t))) result]
       [else
        (define path (hash-ref e 'path))
-       (define kids (reroot (cdr (base-type-snapshot t)) t path))   ; cdr drops the type's root
-       (for/fold ([r result]) ([k (in-list kids)]
+       (define id (eid e))
+       (for/fold ([r result]) ([k (in-list (cdr (base-type-snapshot t)))]   ; cdr drops the type's root
                                ;; only DIRECT children — deeper levels appear only if dived into
-                               #:when (direct-child? path (hash-ref k 'path "")))
-         (define at (find-elem r (hash-ref k 'path) (hash-ref k 'sliceName #f)))
+                               #:when (and (direct-child? t (hash-ref k 'path "")) (not (hash-ref k 'sliceName #f))))
+         (define seg (substring (hash-ref k 'path) (add1 (string-length t))))
+         (define kid (hash-set* k 'path (string-append path "." seg) 'id (string-append id "." seg)))
+         (define at (for/or ([x (in-list r)] [i (in-naturals)]) (and (equal? (eid x) (hash-ref kid 'id)) i)))
          (cond
            ;; the profile already constrains this child, but a DIFFERENTIAL element states only
            ;; what it changes — fill in the datatype's definition for every key it omits (notably
            ;; `type`, without which we could not dive further)
-           [at (list-set r at (fill-missing (list-ref r at) k))]
-           [else (insert-element r (with-id (with-base k)))]))])))
+           [at (list-set r at (fill-missing (list-ref r at) kid))]
+           [else (insert-under r id (with-base kid))]))])))
+
+;; apply-slice-stub : result slice-id path -> result   a slice named only through its children
+;; (`c:b.code` without `c:b`): the unsliced element's definition, optional, after the sliced element
+(define (apply-slice-stub result id path)
+  (define sliced (regexp-replace #rx":[^.:]+$" id ""))
+  (define template (or (for/or ([e (in-list result)]) (and (equal? (hash-ref e 'id #f) sliced) e)) (hasheq)))
+  (define el (hash-set* (hash-remove template 'slicing)
+                        'id id 'path path 'sliceName (cadr (regexp-match #rx":([^.:]+)$" id)) 'min 0))
+  (insert-under result sliced el))
+
+;; insert-under : result parent-id element -> result   after the last element of the parent's subtree
+;; (its children and its slices)
+(define (insert-under result parent el)
+  (define pos (for/fold ([pos #f]) ([e (in-list result)] [i (in-naturals)])
+                (define x (hash-ref e 'id (lambda () (hash-ref e 'path ""))))
+                (if (or (equal? x parent) (string-prefix? x (string-append parent "."))
+                        (string-prefix? x (string-append parent ":")))
+                    (add1 i) pos)))
+  (if pos (append (take result pos) (list el) (drop result pos)) (append result (list el))))
 
 ;; existing keys win; the datatype definition supplies the rest
 (define (fill-missing e defn)
@@ -120,7 +143,12 @@
 (define (apply-differential base diff)
   (for/fold ([result base]) ([d (in-list diff)])
     (define idx (find-elem result (hash-ref d 'path) (hash-ref d 'sliceName #f)))
+    (define id (hash-ref d 'id #f))
     (cond
+      ;; an element INSIDE a slice (`component:a.code`) shares its path with the unsliced element
+      ;; (`component.code`): it is matched by id, and a new one is the unsliced element's definition
+      ;; overlaid by the diff, placed under its slice — never merged into the unsliced element
+      [(and id (inside-slice? id)) (apply-in-slice result d id)]
       [idx (list-set result idx (merge-element (list-ref result idx) d))]
       ;; a named slice with no existing match: re-root from the base element at the same path so the
       ;; slice inherits the full base datatype definition (type/short/constraint), then overlay the diff
@@ -138,6 +166,36 @@
        (define r1 (insert-element result (with-id (with-base d))))
        (for/fold ([r r1]) ([kid (in-list (backbone-children (hash-ref d 'path) (element-type-code d)))])
          (insert-element r (with-id (with-base kid))))])))
+
+;; inside-slice? : id -> boolean   an ancestor segment of the id names a slice
+(define (inside-slice? id)
+  (define segs (string-split id "."))
+  (for/or ([seg (in-list (drop-right segs 1))]) (regexp-match? #rx":" seg)))
+(define (strip-slices id) (regexp-replace* #rx":[^.]+" id ""))
+
+;; apply-in-slice : result diff-element id -> result
+;; a differential may skip ancestors (`agent:X.who.identifier` without `agent:X.who`): those inside
+;; the slice are created first, from the unsliced element, so the datatype expansion can descend
+(define (apply-in-slice result0 d id)
+  (define parent-id (string-join (drop-right (string-split id ".") 1) "."))
+  (define result
+    (if (and (regexp-match? #rx":" parent-id)
+             (not (for/or ([e (in-list result0)]) (equal? (hash-ref e 'id #f) parent-id))))
+        (let ([pp (string-join (drop-right (string-split (hash-ref d 'path) ".") 1) ".")])
+          (if (inside-slice? parent-id)
+              (apply-in-slice result0 (hasheq 'id parent-id 'path pp) parent-id)
+              (apply-slice-stub result0 parent-id pp)))
+        result0))
+  (define at (for/or ([e (in-list result)] [i (in-naturals)]) (and (equal? (hash-ref e 'id #f) id) i)))
+  (cond
+    [at (list-set result at (merge-element (list-ref result at) d))]
+    [else
+     (define template (or (for/or ([e (in-list result)]) (and (equal? (hash-ref e 'id #f) (strip-slices id)) e))
+                          (with-base d)))
+     (define merged (merge-element template d))
+     ;; a slice (of a choice, a reslice) is optional unless the diff says otherwise
+     (define el (if (and (hash-ref d 'sliceName #f) (not (hash-has-key? d 'min))) (hash-set merged 'min 0) merged))
+     (insert-under result (string-join (drop-right (string-split id ".") 1) ".") el)]))
 
 ;; the base (non-slice) element at `path` in the current result, or #f
 (define (base-elem-at result path)
@@ -252,6 +310,20 @@
                 (list (hasheq 'path "P.x" 'min 1)
                       (hasheq 'path "P.x" 'sliceName "s1" 'min 1))))
   (check-equal? (snapshot-paths snap) '("P" "P.x" "P.x"))
+  ;; an element INSIDE a slice shares its path with the unsliced element but is its own element:
+  ;; matched by id, built from the unsliced definition, placed under the slice (a missing in-slice
+  ;; ancestor is created first) — the unsliced element is left alone
+  (define in-slice
+    (apply-differential
+     (list (hasheq 'id "P" 'path "P") (hasheq 'id "P.c" 'path "P.c" 'max "*")
+           (hasheq 'id "P.c.code" 'path "P.c.code" 'min 1 'max "1") (hasheq 'id "P.c.v" 'path "P.c.v" 'max "1"))
+     (list (hasheq 'id "P.c:a" 'path "P.c" 'sliceName "a")
+           (hasheq 'id "P.c:a.code" 'path "P.c.code" 'patternCode "x")
+           (hasheq 'id "P.c:b.code" 'path "P.c.code" 'patternCode "y"))))
+  (check-equal? (map (lambda (e) (hash-ref e 'id)) in-slice)
+                '("P" "P.c" "P.c.code" "P.c.v" "P.c:a" "P.c:a.code" "P.c:b" "P.c:b.code"))
+  (check-false (hash-ref (list-ref in-slice 2) 'patternCode #f))    ; the unsliced code is untouched
+  (check-equal? (hash-ref (list-ref in-slice 5) 'min) 1)             ; inherited from P.c.code
   (check-equal? (hash-ref (cadr snap) 'min) 1)                      ; narrowed
   (check-equal? (hash-ref (cadr snap) 'short) "the x")              ; inherited
   (check-equal? (hash-ref (caddr snap) 'sliceName) "s1")
