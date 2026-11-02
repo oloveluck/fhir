@@ -41,7 +41,13 @@ compile to a **delegating** form macro; `#:base` may be another profile (multi-l
 
 A `.fsh` file is a module providing `document`/`compiled`/`resources`; `main` prints JSON.
 - `racket examples/patient.fsh` — compile one file.
-- `raco fsh <dir>` — SUSHI-style batch compile a folder into `fsh-generated/`.
+- `raco fsh <dir>` — SUSHI-style batch compile a folder into `fsh-generated/` (reads the project's
+  `sushi-config.yaml`: canonical, FHIR version, dependency packages from fhir-spec).
+- `raco fsh <dir> --pack [out.tgz]` — also write a FHIR NPM package; serve it with
+  `raco fhir serve-ig out.tgz --capability <CapabilityStatement id>`.
+- Errors everywhere are `file:line:col` diagnostics with the source line; `--format json` or
+  `--format outcome` (a FHIR OperationOutcome) prints them on stdout for tools and LLM agents. The
+  same flag works on `raco cql`, `raco vcl`, `raco fml`, `raco fhirpath` and `raco fhir validate`.
 - `raco fsh --decompile <file.json>` — **reverse** (FHIR → FSH text).
 
 Supports Profiles, Extensions (auto-scaffolded), ValueSets, CodeSystems (concept hierarchy),

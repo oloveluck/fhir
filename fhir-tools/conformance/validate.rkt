@@ -349,9 +349,11 @@
         [(fixed) (equal? pinned (prune t))]
         [else (json-contains? pinned (prune t))]))))
 
-;; all values at a dotted path within a raw jsexpr (lists fan out)
+;; all values at a dotted path within a raw jsexpr (lists fan out — also at the END of the path: a
+;; discriminator on a repeating element, `category.coding`, matches when ANY coding does; returning the
+;; list itself compared the pattern against the list and rejected every valid instance)
 (define (json-at v segs)
-  (cond [(null? segs) (list v)]
+  (cond [(null? segs) (if (list? v) v (list v))]
         [(list? v) (append-map (lambda (x) (json-at x segs)) v)]
         [(hash? v) (let ([nxt (hash-ref v (string->symbol (car segs)) #f)])
                      (if nxt (json-at nxt (cdr segs)) '()))]

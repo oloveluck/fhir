@@ -77,6 +77,11 @@ OperationOutcome with the standard `operationoutcome-issue-line`/`-col`/`-source
   blanked, not removed, so line numbers stay true. FSH parses per file (positions name the file),
   reports every file's errors, and positions compile errors at the failing entity's header.
   `validate` reports malformed JSON where reading stopped.
+- The published-package oracle (every example HL7 published validates) caught a validator false
+  positive: a value/pattern discriminator whose path ends at a repeating element (`category.coding`)
+  was compared against the list, not its members. `json-at` fans out at the path's end now.
+- Servers generated from a package resolve its `dependencies` from fhir-spec (validation context
+  and search catalog: IG, dependencies, core).
 - Not yet: the CQL compiler stops at the first translation error; FSH semantic checks (a constraint
   on an element that does not exist compiles silently).
 
@@ -422,6 +427,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | validator | fhir-test-cases validator + java outcomes | `tests/validate-diff-test.rkt` | **fp=0**, recall 17/26 (67 cases) |
 | FSH | SUSHI golden corpus (hand-authored pairs) | `fsh/tests/golden-test.rkt` | 22/22 fwd + round-trip |
 | **FSH real IG** | **IPS 2.0.1's own FSH vs its published package** | `fsh/tests/ig-ips-test.rkt` (fsh repo) | **0 compile errors; 76/114 exact, 82/114 complete; 321/440 differential elements** |
+| **FSH -> package -> server** | **mCODE 4.0.0's FSH compiled and packed here, served by a generated server: its examples vs its profiles** | `tests/fsh-ig-server-r4-test.rkt` | **250/283 validate** (published package 283/283); 0 unmet requirements |
 | **FSH real IG 2** | **mCODE 4.0.0's own FSH (dependencies US Core 6.1.0 + Genomics Reporting 2.0.0 from sushi-config.yaml) vs its published package** | `fsh/tests/ig-mcode-test.rkt` (fsh repo) | **0 compile errors; 173/349 exact, 249/349 complete; 277/501 differential elements** |
 | **Measure server** | **a server generated from CQF Measures 5.0.0: $evaluate-measure over its store, 2 eCQMs, 65 test patients** | `tests/measure-server-r4-test.rkt` | **60/65 individual reports** (5 named); 0 unmet requirements |
 | **CQL execution** | **4 eCQMs over 76 test patients (cqframework/ecqm-content-r4-2021): populations vs expected** | `cql/tests/measure-test.rkt` (cql repo) | **71/76** (5 named corpus disagreements) |

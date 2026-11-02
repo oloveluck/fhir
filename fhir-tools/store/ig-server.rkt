@@ -160,6 +160,20 @@
   (ig-plan (and manifest (hash-ref manifest 'name #f)) (and manifest (hash-ref manifest 'version #f))
            fv tower (spec-package-path core-file) server-cs rs))
 
+;; dependency-packages : tgz -> (listof path)   package.json `dependencies` located in fhir-spec as
+;; <name>-<version>.tgz (or <name>.tgz when that IS the version); core packages and ones not
+;; vendored are left out (the core is added separately; a missing one only narrows validation)
+(define (dependency-packages tgz)
+  (define m (package-manifest tgz))
+  (define ds (if (and m (hash? (hash-ref m 'dependencies #f))) (hash-ref m 'dependencies) (hash)))
+  (for*/list ([(name version) (in-hash ds)]
+              #:unless (regexp-match? #px"^hl7[.]fhir[.]r[0-9]+b?[.]core$|^hl7[.]terminology|[.]extensions" (symbol->string name))
+              [p (in-value (or (spec-package-path (format "~a-~a.tgz" name version) #:optional? #t)
+                               (let ([q (spec-package-path (format "~a.tgz" name) #:optional? #t)])
+                                 (and q (let ([qm (package-manifest q)]) (and qm (equal? (hash-ref qm 'version #f) version))) q))))]
+              #:when p)
+    p))
+
 ;; ---- the app ------------------------------------------------------------------------------------
 
 ;; validation-outcome : jsexpr (listof issue) -> OperationOutcome node (first issue: processing)
@@ -216,7 +230,12 @@
   (define plan (plan-ig-server tgz cs-choice))
   (dynamic-require (ig-plan-tower plan) #f)                       ; register the IG's FHIR version
   (define core (ig-plan-core-tgz plan))
-  (define catalog (merge-search-params (search-params-from-package core) (search-params-from-package tgz)))
+  ;; the IG's own dependencies (US Core under mCODE, …), found in fhir-spec: their profiles resolve
+  ;; Parents and claimed profiles during validation, their SearchParameters join the catalog
+  (define deps (dependency-packages tgz))
+  (define catalog
+    (for/fold ([c (search-params-from-package core)]) ([p (in-list (append deps (list tgz)))])
+      (merge-search-params c (search-params-from-package p))))
   (define served
     (filter (lambda (r) (type-registered? (string->symbol (ig-resource-type r)))) (ig-plan-resources plan)))
   (define gaps
@@ -253,7 +272,7 @@
                 (for/fold ([h core-ods]) ([(k v) (in-hash (package-operation-definitions tgz))]) (hash-set h k v))))
   (define tx-resolver (packages->resolver (list tgz (ig-plan-core-tgz plan))))
   (define ctx (op-context store catalog (make-terminology/resolver tx-resolver) tx-resolver offset))
-  (define sd-packages (list tgz core))
+  (define sd-packages (append (list tgz) deps (list core)))
   (define capability (ok-or-raise (from-json (instance-capability plan served catalog url) #:lenient? #t)))
   (define app
     (build-app #:capability capability
