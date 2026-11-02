@@ -27,7 +27,8 @@
 ;;; search parameters of
 ;;; every type except composite/special (store/search-index.rkt); transaction/batch Bundles.
 ;;; _include/_revinclude of the form Source:param[:Target] (not `*`, not :iterate).
-;;; IG operations with an implementation in `operation-impls` (US Core $docref, ValueSet $expand).
+;;; IG operations with an implementation in `operation-impls` (US Core $docref, ValueSet $expand,
+;;; Measure $evaluate-measure — CQL over the store, store/measure.rkt).
 ;;; Not yet: patch, history, chained parameters, other IG operations, SMART auth — each listed as a gap.
 
 (require racket/contract racket/list racket/string racket/match
@@ -51,16 +52,21 @@
          (only-in fhir/conformance/validate validate-issues issue-severity issue-code issue-path issue-msg)
          "fhir-sqlite.rkt" "fhir-engine.rkt" "ig-params.rkt" "bundle.rkt"
          (only-in "search-index.rkt" indexed-kind?)
-         (only-in "serve.rkt" store-repository))
+         (only-in "serve.rkt" store-repository)
+         (only-in "measure.rkt" evaluate-measure)
+         (only-in cql/run valuesets->terminology))
 
 (provide
  (struct-out ig-plan) (struct-out ig-resource) (struct-out gap) (struct-out ig-server)
  (contract-out
   [package-manifest (-> path-string? (or/c hash? #f))]
   [ig-package-path  (-> string? path?)]
-  [plan-ig-server   (-> path-string? ig-plan?)]
+  [plan-ig-server   (->* (path-string?) ((or/c string? #f)) ig-plan?)]
   [gap->list        (-> gap? list?)]
-  [make-ig-server   (->* (fhir-store? path-string?) (#:validate? boolean? #:url (or/c string? #f)) ig-server?)]
+  [make-ig-server   (->* (fhir-store? path-string?)
+                           (#:validate? boolean? #:url (or/c string? #f) #:capability (or/c string? #f)
+                            #:offset (or/c exact-integer? #f))
+                           ig-server?)]
   ;; validate + upsert one resource by its id (the loader's path: ids and references preserved)
   [ig-server-put!   (-> ig-server? hash? (or/c 'ok any/c))]
   ;; every example in the IG package, through ig-server-put!
@@ -122,7 +128,9 @@
              (hash-ref e 'valueCode #f)))
       "MAY"))
 
-(define (plan-ig-server tgz)
+;; capability: which server CapabilityStatement (id or url) when the IG ships several (CQF Measures
+;; ships four); #f = the first
+(define (plan-ig-server tgz [capability #f])
   (define-values (manifest resources) (read-package tgz))
   (define fv (let ([vs (and manifest (hash-ref manifest 'fhirVersions #f))])
                (cond [(and (list? vs) (pair? vs)) (car vs)]
@@ -132,11 +140,13 @@
     (for/or ([r (in-list resources)])
       (define js (cdr r))
       (and (equal? (hash-ref js 'resourceType #f) "CapabilityStatement")
+           (or (not capability) (equal? (hash-ref js 'id #f) capability) (equal? (hash-ref js 'url #f) capability))
            (for/or ([rest (in-list (let ([x (hash-ref js 'rest '())]) (if (list? x) x '())))])
              (equal? (hash-ref rest 'mode #f) "server"))
            js)))
   (unless server-cs
-    (raise-user-error 'fhir "~a ships no server CapabilityStatement (rest.mode = server)" tgz))
+    (raise-user-error 'fhir "~a ships no server CapabilityStatement (rest.mode = server)~a" tgz
+                      (if capability (format " with id or url ~a" capability) "")))
   (define rest (findf (lambda (r) (equal? (hash-ref r 'mode #f) "server")) (hash-ref server-cs 'rest)))
   (define rs
     (for/list ([res (in-list (hash-ref rest 'resource '()))])
@@ -201,8 +211,9 @@
                       (and (allowed? (if id "history-instance" "history-type"))   ; #f = not supported
                            (h id params)))))))
 
-(define (make-ig-server store tgz #:validate? [validate? #t] #:url [url #f])
-  (define plan (plan-ig-server tgz))
+(define (make-ig-server store tgz #:validate? [validate? #t] #:url [url #f] #:capability [cs-choice #f]
+                        #:offset [offset 0])
+  (define plan (plan-ig-server tgz cs-choice))
   (dynamic-require (ig-plan-tower plan) #f)                       ; register the IG's FHIR version
   (define core (ig-plan-core-tgz plan))
   (define catalog (merge-search-params (search-params-from-package core) (search-params-from-package tgz)))
@@ -233,12 +244,15 @@
         (for*/list ([res (in-list (hash-ref rest 'resource '()))]
                     [op (in-list (hash-ref res 'operation '()))]
                     #:unless (operation-implemented? op))
-          (gap (hash-ref res 'type) 'operation (hash-ref op 'name) (expectation-of op) "operation not implemented"))))))
+          (gap (hash-ref res 'type) 'operation (hash-ref op 'name) (expectation-of op) "operation not implemented"))
+        ;; system-level operations (CQF Measures declares evaluate-measure there)
+        (for/list ([op (in-list (hash-ref rest 'operation '()))] #:unless (operation-implemented? op))
+          (gap "*" 'operation (hash-ref op 'name) (expectation-of op) "operation not implemented"))))))
   ;; the IG's OperationDefinitions, then the core package's (ValueSet-expand lives in core)
   (define ods (let ([core-ods (package-operation-definitions (ig-plan-core-tgz plan))])
                 (for/fold ([h core-ods]) ([(k v) (in-hash (package-operation-definitions tgz))]) (hash-set h k v))))
   (define tx-resolver (packages->resolver (list tgz (ig-plan-core-tgz plan))))
-  (define ctx (op-context store catalog (make-terminology/resolver tx-resolver) tx-resolver))
+  (define ctx (op-context store catalog (make-terminology/resolver tx-resolver) tx-resolver offset))
   (define sd-packages (list tgz core))
   (define capability (ok-or-raise (from-json (instance-capability plan served catalog url) #:lenient? #t)))
   (define app
@@ -272,7 +286,8 @@
 ;; (its inputs are validated by the capability runtime before the handler runs).
 (struct op-impl (level type make-proc))
 ;; store, search catalog, and the terminology service over (IG package, core package)
-(struct op-context (store catalog tx resolver))
+;; offset: the server's evaluation timezone offset in minutes (CQL DateTimes written without one)
+(struct op-context (store catalog tx resolver offset))
 
 (define (in-string in name)
   (define v (hash-ref in name '()))
@@ -338,13 +353,56 @@
                                                    'issue (list (hasheq 'severity "error" 'code "not-found"
                                                                         'diagnostics (format "ValueSet ~a is not known to this server" url))))))])])))
 
+;; Measure $evaluate-measure (core OperationDefinition Measure-evaluate-measure): the Measure by id
+;; (instance level) or by `measure` (type level: url or id); periodStart/periodEnd bound the
+;; Measurement Period (whole days); `subject` = Patient/x gives an individual report, none a summary
+;; over the stored Patients. The Measure's CQL, includes, value sets and the patients' data all come
+;; from the store (store/measure.rkt); value sets also from the IG and core packages. A periodStart
+;; with an offset sets the evaluation timezone, else the server's.
+(define (evaluate-measure-proc ctx #:instance? [instance? #f])
+  (define store (op-context-store ctx))
+  (define (outcome code msg)
+    (ok-or-raise (from-json (hasheq 'resourceType "OperationOutcome"
+                                    'issue (list (hasheq 'severity "error" 'code code 'diagnostics msg))))))
+  (define (package-vs url)
+    (define vs ((op-context-resolver ctx) url))
+    (and (hash? vs) ((valuesets->terminology (list vs)) url)))
+  (lambda (in req)
+    (local-require (only-in fhir/capability/runtime request-id))
+    (define start (in-string in "periodStart"))
+    (define end (in-string in "periodEnd"))
+    (define key (if instance? (request-id req) (in-string in "measure")))
+    (define measure
+      (and key (or (fhir-read store "Measure" key)
+                   (findf (lambda (m) (equal? (hash-ref m 'url #f) (car (string-split key "|"))))
+                          (fhir-search store "Measure" '())))))
+    (define offset (or (period-offset (or start "")) (op-context-offset ctx)))
+    (cond
+      [(not measure) (outcome "not-found" (format "Measure ~a is not on this server" (or key "(none given)")))]
+      [else
+       (with-handlers ([exn:fail? (lambda (e) (outcome "processing" (exn-message e)))])
+         (ok-or-raise
+          (from-json (evaluate-measure store (strip-jnum measure) start end
+                                       #:subject (in-string in "subject") #:search-params (op-context-catalog ctx)
+                                       #:valuesets package-vs #:offset offset)
+                     #:lenient? #t)))])))
+;; period-offset : string -> minutes|#f   "2021-01-01T00:00:00-07:00" -> -420
+(define (period-offset s)
+  (match (regexp-match #px"T[0-9:.]+(Z|([+-])([0-9]{2}):([0-9]{2}))$" s)
+    [(list _ "Z" _ ...) 0]
+    [(list _ _ sign h m) (* (if (equal? sign "-") -1 1) (+ (* 60 (string->number h)) (string->number m)))]
+    [_ #f]))
+
 (define operation-impls
   (hash "http://hl7.org/fhir/us/core/OperationDefinition/docref" (op-impl 'type "DocumentReference" docref-proc)
-        "http://hl7.org/fhir/OperationDefinition/ValueSet-expand" (op-impl 'type "ValueSet" expand-proc)))
+        "http://hl7.org/fhir/OperationDefinition/ValueSet-expand" (op-impl 'type "ValueSet" expand-proc)
+        "http://hl7.org/fhir/OperationDefinition/Measure-evaluate-measure" (op-impl 'type "Measure" evaluate-measure-proc)))
 ;; implementations at further levels for the same OperationDefinition
 (define extra-operation-levels
   (hash "http://hl7.org/fhir/OperationDefinition/ValueSet-expand"
-        (list (op-impl 'instance "ValueSet" (lambda (ctx) (expand-proc ctx #:instance? #t))))))
+        (list (op-impl 'instance "ValueSet" (lambda (ctx) (expand-proc ctx #:instance? #t))))
+        "http://hl7.org/fhir/OperationDefinition/Measure-evaluate-measure"
+        (list (op-impl 'instance "Measure" (lambda (ctx) (evaluate-measure-proc ctx #:instance? #t))))))
 
 ;; OperationDefinitions of a package (url -> jsexpr), reading only OperationDefinition-*.json
 (define (package-operation-definitions tgz)

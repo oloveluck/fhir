@@ -12,7 +12,7 @@
 (define pkg-desc "FHIR tooling for Racket: #lang fhir/capability + HTTP server, terminology service, validator, SQL-on-FHIR (#lang fhir/viewdef), OMOP (#lang fhir/omop), SQLite/DuckDB store, the raco fhir CLI and the conformance suites")
 (define pkg-authors '(oloveluck))
 (define license 'MIT)
-(define deps '("base" "fhir" "fhir-spec" "fhirpath" "vcl" "db-lib"))
+(define deps '("base" "fhir" "fhir-spec" "fhirpath" "vcl" "cql" "db-lib"))
 ;; system dependency for store/fhir-analytics.rkt and omop/: libduckdb (brew install duckdb, or the
 ;; libduckdb-linux-amd64.zip release; set DUCKDB_LIB to its path if it is not on the loader path).
 ;; It is loaded lazily — requiring the module without it is fine; opening analytics is not.

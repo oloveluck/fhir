@@ -21,3 +21,9 @@ them and compares with the published package (fsh/tests/ig-mcode-test.rkt):
   hl7.fhir.us.mcode-4.0.0.tgz               mCODE 4.0.0 (published)
   hl7.fhir.us.core-6.1.0.tgz                US Core 6.1.0 (mCODE's dependency; 9.0.0 above is a different release)
   hl7.fhir.uv.genomics-reporting-2.0.0.tgz  Genomics Reporting 2.0.0
+
+hl7.fhir.us.cqfmeasures-5.0.0.tgz — Quality Measure IG (CQF Measures) 5.0.0 (FHIR 4.0.1, CC0-1.0), from
+  https://packages.fhir.org/hl7.fhir.us.cqfmeasures/5.0.0, retrieved 2026-11-02. Its
+  measure-calculation-service-example CapabilityStatement generates a measure-processing server
+  (`raco fhir serve-ig hl7.fhir.us.cqfmeasures-5.0.0.tgz --capability measure-calculation-service-example`)
+  whose $evaluate-measure runs CQL over the store (fhir-tools/tests/measure-server-r4-test.rkt).

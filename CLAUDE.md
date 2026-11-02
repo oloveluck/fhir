@@ -400,6 +400,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | FSH | SUSHI golden corpus (hand-authored pairs) | `fsh/tests/golden-test.rkt` | 22/22 fwd + round-trip |
 | **FSH real IG** | **IPS 2.0.1's own FSH vs its published package** | `fsh/tests/ig-ips-test.rkt` (fsh repo) | **0 compile errors; 76/114 exact, 82/114 complete; 321/440 differential elements** |
 | **FSH real IG 2** | **mCODE 4.0.0's own FSH (dependencies US Core 6.1.0 + Genomics Reporting 2.0.0 from sushi-config.yaml) vs its published package** | `fsh/tests/ig-mcode-test.rkt` (fsh repo) | **0 compile errors; 173/349 exact, 249/349 complete; 277/501 differential elements** |
+| **Measure server** | **a server generated from CQF Measures 5.0.0: $evaluate-measure over its store, 2 eCQMs, 65 test patients** | `tests/measure-server-r4-test.rkt` | **60/65 individual reports** (5 named); 0 unmet requirements |
 | **CQL execution** | **4 eCQMs over 76 test patients (cqframework/ecqm-content-r4-2021): populations vs expected** | `cql/tests/measure-test.rkt` (cql repo) | **71/76** (5 named corpus disagreements) |
 | **CQL real libraries** | **32 published libraries (FHIRHelpers, CQF Measures, CQL IG) vs the reference ELM** | `cql/tests/elm-corpus-test.rkt` (cql repo) | **32/32 parse + compile; 742/803 defs ELM-equal** |
 | **terminology** | **hl7.fhir.uv.tx-ecosystem 1.9.3** | **`raco fhir tx-tck`** | **463/553** |
@@ -511,7 +512,31 @@ read/update pair so PATCH does not open PUT), and `ValueSet/$expand` at type and
 the IG + core packages (`terminology/service` `packages->resolver`; the core OperationDefinition drives
 input validation; unknown ValueSet -> 404). The loader also stores the IG's ValueSets/CodeSystems.
 
+## Measure evaluation: CQL over the store (`store/measure.rkt`, `$evaluate-measure`)
+`evaluate-measure store measure periodStart periodEnd [#:subject]` runs a Measure's CQL (the `cql`
+package's runtime, cql/run.rkt) over the store: the Measure's Library by url (or the canonical's last
+segment = Library.name, so locally loaded CQL serves a published Measure), included libraries by CQL
+name, their CQL from Library.content (text/cql, base64; compiled once per library); value sets from
+stored ValueSets, then the server's IG + core packages; each patient's data per type through its
+`patient`/`subject`/`beneficiary` search parameter (strict patient context; a full scan filtered by
+reference when the type has none). Output: an individual MeasureReport with a subject, a summary
+(counts over every stored Patient + the proportion measureScore) without. The Measurement Period is
+whole days, end inclusive; the evaluation timezone is periodStart's offset, else the server's
+(`#:offset`, default UTC).
+`operation-impls` serves the core `Measure-evaluate-measure` at type (`measure` = url or id) and
+instance level, so a server generated from an IG that declares it gets it: CQF Measures 5.0.0's
+`measure-calculation-service-example` (`make-ig-server … #:capability <id|url>`, chosen because that IG
+ships four server CapabilityStatements) has 0 unmet requirements. System-level CapabilityStatement
+operations now count in the gap report. `store/load.rkt` loads Bundles, resources and `.cql` files
+(-> Library). CLI: `raco fhir serve-ig hl7.fhir.us.cqfmeasures-5.0.0.tgz --capability
+measure-calculation-service-example --load <dir> --tz-offset -07:00`, `raco fhir load <db> <file|dir>`,
+`raco fhir evaluate-measure <db> <Measure id|url> --period-start D --period-end D [--subject Patient/x]`.
+`tests/measure-server-r4-test.rkt`: two eCQMs and 65 test patients loaded through the generated
+server's transaction endpoint, `$evaluate-measure` per patient: **60/65** as expected — the five named
+(two cases whose resources reference a bare id / a sibling patient, which a server rightly leaves out
+of the patient's data; the three corpus disagreements the cql package documents).
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.
-- FML / query-and-retrieve CQL — future work over `model/node` + `model/registry` + `fhirpath`.
+- FML transforms beyond the TCK — future work over `model/node` + `model/registry` + `fhirpath`.
