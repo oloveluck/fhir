@@ -67,4 +67,25 @@ raco fhir serve-ig path/to/package.tgz --db store.db --no-examples
 Everything comes from the package: FHIR version, resource types, interactions, search parameters
 (type-driven search: string/date/number/quantity/token/reference/uri, modifiers, prefixes,
 `_include`/`_revinclude`), write validation against claimed profiles (422), IG operations with an
-implementation (`$docref`). Library: `fhir/store/ig-server` (`make-ig-server`, `load-ig-examples!`).
+implementation (`$docref`, `ValueSet/$expand`, `Measure/$evaluate-measure`). Library:
+`fhir/store/ig-server` (`make-ig-server`, `load-ig-examples!`).
+
+## Measure processing (CQL over the store)
+```sh
+# a server from CQF Measures (that IG ships several server CapabilityStatements: pick one)
+raco fhir serve-ig hl7.fhir.us.cqfmeasures-5.0.0.tgz --capability measure-calculation-service-example \
+     --load measures/ --load patients/ --tz-offset -07:00 --no-examples
+curl 'localhost:8080/Measure/<id>/$evaluate-measure?periodStart=2021-01-01&periodEnd=2021-12-31&subject=Patient/p1'
+curl 'localhost:8080/Measure/$evaluate-measure?measure=<canonical>&periodStart=2021-01-01&periodEnd=2021-12-31'
+
+# without a server
+raco fhir load store.db measures/          # Bundles, resources, and .cql files (become Library resources)
+raco fhir evaluate-measure store.db <Measure id|url> --period-start 2021-01-01 --period-end 2021-12-31 \
+     [--subject Patient/p1] [--tz-offset -07:00]
+```
+The Measure's Library (by url, or by name = the canonical's last segment), its includes, value sets
+(stored ValueSets with expansions, then the IG/core packages) and each patient's data come from the
+store. With `subject`: an individual MeasureReport; without: a summary over every stored Patient with
+the proportion score. Data can also arrive as a transaction Bundle (`POST /`). Library:
+`fhir/store/measure` (`evaluate-measure`), `fhir/store/load` (`load-files!`, `cql->library`); running a
+CQL library over a folder of FHIR JSON without a store: `raco cql lib.cql --data dir --valuesets dir`.
