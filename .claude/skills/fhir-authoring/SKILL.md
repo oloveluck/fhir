@@ -48,6 +48,14 @@ A `.fsh` file is a module providing `document`/`compiled`/`resources`; `main` pr
 - Errors everywhere are `file:line:col` diagnostics with the source line; `--format json` or
   `--format outcome` (a FHIR OperationOutcome) prints them on stdout for tools and LLM agents. The
   same flag works on `raco cql`, `raco vcl`, `raco fml`, `raco fhirpath` and `raco fhir validate`.
+- `raco fsh check <dir> [--capability <id>]` — **the spec-author's loop**: compile, then validate
+  every example against the project's own profiles (dependencies and core in context), and with a
+  CapabilityStatement report what the generated server would not meet. Every problem is positioned
+  IN THE FSH: at the instance rule that wrote the element (else the instance header), naming the
+  profile rule that constrains it (`… (constrained by profile TumorSize at profiles.fsh:4:3)`).
+  Exit 1 on any error; `--format json|outcome` for agents. Needs fhir-tools (the validator).
+- `raco fhir spec-bench list|make|score|run` — prose → FSH, scored against a published IG (see
+  fhir-tools/bench/README.md).
 - `raco fsh --decompile <file.json>` — **reverse** (FHIR → FSH text).
 
 Supports Profiles, Extensions (auto-scaffolded), ValueSets, CodeSystems (concept hierarchy),

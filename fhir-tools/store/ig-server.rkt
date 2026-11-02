@@ -60,6 +60,9 @@
  (struct-out ig-plan) (struct-out ig-resource) (struct-out gap) (struct-out ig-server)
  (contract-out
   [package-manifest (-> path-string? (or/c hash? #f))]
+  ;; a package's package/*.json and package/example/*.json resources, as (file . jsexpr)
+  [read-package          (-> path-string? (values (or/c hash? #f) (listof (cons/c string? hash?))))]
+  [read-package-examples (-> path-string? (values #f (listof (cons/c string? hash?))))]
   [ig-package-path  (-> string? path?)]
   [plan-ig-server   (->* (path-string?) ((or/c string? #f)) ig-plan?)]
   [gap->list        (-> gap? list?)]

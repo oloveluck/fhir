@@ -163,7 +163,7 @@
                  (define tc (matched-type leaf ce k))     ; the concrete (narrowed) type of this variant
                  (append-map (lambda (v) (value-issues idx ce tc (child-loc path leaf) v tx))
                              (instances-of (hash-ref obj k)))) matched)
-   (slice-issues idx path ce obj)))
+   (slice-issues idx path ce obj tx)))
 
 ;; per-instance value checks, against the element's concrete (narrowed) type `tc`
 (define (value-issues idx ce tc loc v tx)
@@ -287,7 +287,7 @@
 ;; value/pattern discriminator slicing: each declared slice with min>=1 must have >=min matching
 ;; instances. Fail-open at every step: a slicing whose discriminators aren't all value/pattern, a
 ;; slice whose pinned value can't be resolved, or an undecidable per-instance match -> skip.
-(define (slice-issues idx path ce obj)
+(define (slice-issues idx path ce obj [tx #f])
   (define slices (slices-of idx (hash-ref ce 'path)))
   (define discs (discriminator-paths ce))
   (cond
@@ -296,18 +296,60 @@
      (define leaf (elem-leaf ce path))
      (define instances (append-map (lambda (k) (instances-of (hash-ref obj k)))
                                    (for/list ([k (in-list (hash-keys obj))] #:when (key-targets-leaf? leaf k)) k)))
-     (append-map
-      (lambda (sl)
-        (define minv (hash-ref sl 'min 0))
-        (define pins (slice-pins idx sl discs))          ; (listof (list disc-path kind value)) | #f
-        (cond
-          [(or (not pins) (not (integer? minv)) (= minv 0)) '()]   ; undecidable / optional -> skip
-          [else
-           (define n (for/sum ([inst (in-list instances)] #:when (slice-match? pins inst)) 1))
-           (if (< n minv)
-               (list (issue "error" "required" (child-loc path leaf)
-                            (format "slice '~a' requires ~a, found ~a" (hash-ref sl 'sliceName) minv n))) '())]))
-      slices)]))
+     (define pinned (for/list ([sl (in-list slices)]) (cons sl (slice-pins idx sl discs))))
+     (append
+      (append-map
+       (lambda (sp)
+         (define sl (car sp))
+         (define minv (hash-ref sl 'min 0))
+         (define pins (cdr sp))                          ; (listof (list disc-path kind value)) | #f
+         (cond
+           [(or (not pins) (not (integer? minv)) (= minv 0)) '()]   ; undecidable / optional -> skip
+           [else
+            (define n (for/sum ([inst (in-list instances)] #:when (slice-match? pins inst)) 1))
+            (if (< n minv)
+                (list (issue "error" "required" (child-loc path leaf)
+                             (format "slice '~a' requires ~a, found ~a" (hash-ref sl 'sliceName) minv n))) '())]))
+       pinned)
+      ;; an entry that matches exactly ONE slice (every slice's pins decidable) is held to that
+      ;; slice's own children too; ambiguous or undecidable matching -> skip (fail-open)
+      (if (andmap cdr pinned)
+          (append-map
+           (lambda (inst)
+             (define hits (for/list ([sp (in-list pinned)] #:when (and (hash? inst) (slice-match? (cdr sp) inst))) (car sp)))
+             (if (= (length hits) 1) (slice-member-issues idx (car hits) (child-loc path leaf) inst tx) '()))
+           instances)
+          '()))]))
+
+;; slice-member-issues : idx slice loc entry tx -> issues
+;; the slice's direct children (ids `<slice-id>.<leaf>`) against the entry: cardinality, fixed /
+;; pattern values and required bindings on what is present, and choice variants the slice does not
+;; allow. Recursion into the entry's values is the unsliced walk's (no issue twice).
+(define (slice-member-issues idx sl loc inst tx)
+  (define prefix (string-append (hash-ref sl 'id "") "."))
+  (define name (hash-ref sl 'sliceName ""))
+  (append*
+   (for/list ([ce (in-list (index-elements idx))]
+              #:when (let ([id (hash-ref ce 'id #f)])
+                       (and (string? id) (string-prefix? id prefix)
+                            (not (regexp-match? #rx"[.:]" (substring id (string-length prefix)))))))
+     (define leaf (substring (hash-ref ce 'id) (string-length prefix)))
+     (define matched (for/list ([k (in-list (hash-keys inst))] #:when (allowed-key? leaf ce k)) k))
+     (define stray (for/list ([k (in-list (hash-keys inst))]
+                              #:when (and (choice-leaf? leaf) (key-targets-leaf? leaf k) (not (allowed-key? leaf ce k))
+                                          (pair? (elem-type-codes ce))))
+                     k))
+     (define here (string-append loc "." leaf))
+     (append
+      (for/list ([i (in-list (cardinality-issues ce loc leaf (for/sum ([k (in-list matched)]) (length (instances-of (hash-ref inst k))))))])
+        (issue (issue-severity i) (issue-code i) (issue-path i) (format "~a (slice '~a')" (issue-msg i) name)))
+      (for/list ([k (in-list stray)])
+        (issue "error" "structure" here
+               (format "~a is not allowed in slice '~a' (~a: ~a)" k name leaf (string-join (elem-type-codes ce) " | "))))
+      (append-map (lambda (k)
+                    (append-map (lambda (v) (append (fixed-pattern-issues ce here v) (binding-issues ce here v tx)))
+                                (instances-of (hash-ref inst k))))
+                  matched)))))
 
 ;; the base element's discriminator paths — (listof path-string), but ONLY when every declared
 ;; discriminator is value/pattern (any other kind makes the whole slicing undecidable for us)

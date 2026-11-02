@@ -98,6 +98,30 @@ OperationOutcome with the standard `operationoutcome-issue-line`/`-col`/`-source
   an element of the base type: "`nmae` is not an element of Patient", at the rule), and the entity
   still compiles. The check is gated by zero diagnostics on IPS, mCODE and the golden corpus.
 
+## The spec-author's loop (`conformance/ig-check.rkt`, `raco fsh check`; `bench/spec-bench.rkt`)
+`check-fsh-project dir [#:capability id]` runs everything this repo knows about one FSH project and
+reports it as `fhir/diagnostic`s positioned in the FSH: compile + rule-level diagnostics
+(fsh/project), every `#example` instance validated against its base type and claimed profiles (the
+project's own artifacts packed as a package ahead of its dependencies and core — the context the
+compiler used, `project-sd-packages`), and with a CapabilityStatement the generated server's unmet
+requirements (SHALL = error). A validation issue (`Observation.component.value[x]`) is traced to the
+instance rule that wrote that element (`trace-rule`: the type root dropped, brackets and choice
+suffixes normalised, the longest leading run of steps wins; a datatype-rooted path matches anywhere)
+and names the profile rule that constrains it. `raco fsh check` dynamic-requires it (fsh does not
+depend on fhir-tools). mCODE checks clean (179 examples, 0 diagnostics, 0 unmet for its sender CS);
+`tests/fsh-check-r4-test.rkt` pins three planted mistakes to their lines.
+It exposed a validator recall gap, now closed: an entry matching exactly ONE slice (pins decidable)
+is held to the slice's own children — cardinality, fixed/pattern, required bindings, and choice
+variants the slice does not allow (`valueString` in a Quantity-only slice) — recursion stays with the
+unsliced walk. Gates unchanged: fp=0, 0 over-reported, IG validation 260 clean, published mCODE 283/283.
+`raco fhir spec-bench` turns a published IG into prose -> FSH tasks (one leaf profile and its examples
+removed; the prompt gives the IG's words about it and names every element it constrains, never the
+constraint values) and scores a candidate four ways: `check` errors; facet fidelity against the
+published differential; the published examples accepted by the candidate's profile; the candidate's
+examples valid under the published profile. `run --model '<cmd>' --rounds n` asks any shell command
+and feeds `check`'s diagnostics back between rounds. Baselines: the IG's own FSH (TumorSize 28/34
+facets — the compiler's ceiling) and empty (0). Results: `fhir-tools/bench/README.md`.
+
 ## How-to-use docs
 User-facing usage/how-to lives in `.claude/skills/` — `fhir-authoring` (write/run the langs),
 `fhir-cli` (`raco fhir` reference), `fhir-serving` (store + HTTP), `fhir-analytics` (OMOP/DuckDB).

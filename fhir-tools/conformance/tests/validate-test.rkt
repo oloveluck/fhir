@@ -114,6 +114,32 @@
                             'valueQuantity (hasheq 'value 5 'unit "mg")) #:profiles (list qty-only))
               '() "the allowed narrowed variant passes")
 
+;; ---- slice members: an entry matching exactly one slice is held to that slice's children ------
+(define sliced-components
+  (hasheq 'resourceType "StructureDefinition" 'id "sc" 'url "http://ex/sc" 'name "SC"
+          'type "Observation" 'baseDefinition "http://hl7.org/fhir/StructureDefinition/Observation"
+          'derivation "constraint"
+          'differential
+          (hasheq 'element
+                  (list (hasheq 'id "Observation.component" 'path "Observation.component"
+                                'slicing (hasheq 'discriminator (list (hasheq 'type "pattern" 'path "code")) 'rules "open"))
+                        (hasheq 'id "Observation.component:size" 'path "Observation.component" 'sliceName "size" 'min 0 'max "1")
+                        (hasheq 'id "Observation.component:size.code" 'path "Observation.component.code"
+                                'patternCodeableConcept (hasheq 'coding (list (hasheq 'system "http://loinc.org" 'code "33728-7"))))
+                        (hasheq 'id "Observation.component:size.value[x]" 'path "Observation.component.value[x]"
+                                'min 1 'type (list (hasheq 'code "Quantity")))))))
+(define (obs-with component)
+  (hasheq 'resourceType "Observation" 'status "final" 'code (hasheq 'text "x") 'component (list component)))
+(define size-code (hasheq 'coding (list (hasheq 'system "http://loinc.org" 'code "33728-7"))))
+(check-equal? (errs (obs-with (hasheq 'code size-code 'valueQuantity (hasheq 'value 2 'unit "cm")))
+                    #:profiles (list sliced-components))
+              '() "a member with the slice's type passes")
+(check-equal? (errs (obs-with (hasheq 'code size-code 'valueString "big")) #:profiles (list sliced-components))
+              '(("required" . "Observation.component.value[x]") ("structure" . "Observation.component.value[x]"))
+              "the slice's type and min apply to its member")
+(check-equal? (errs (obs-with (hasheq 'code (hasheq 'text "other") 'valueString "big")) #:profiles (list sliced-components))
+              '() "an entry matching no slice is only held to the unsliced element")
+
 ;; ---- required binding WITHOUT a tx-service: the generated offline expansions decide -----------
 ;; (model/binding.rkt, populated by fhir/r5's terminology.rkt — required via fhir/r5/schemas)
 (check-equal? (errs (hasheq 'resourceType "Patient" 'gender "notagender"))

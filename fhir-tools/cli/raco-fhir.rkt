@@ -9,7 +9,7 @@
 ;;;   raco fhir validate | snapshot | serve | load | omop | sof-tck | tx-tck   (see each cmd- below)
 ;;; The languages ship their own commands: raco fhirpath, raco cql, raco fsh, raco vcl, raco fml.
 
-(require racket/list
+(require racket/list racket/match
          (only-in fhir/diagnostic diagnostic loc emit-diagnostics format-flag)
          (only-in json jsexpr->string read-json write-json)
          (only-in racket/file file->string make-directory* make-temporary-file)
@@ -230,6 +230,36 @@
                    (evaluate store measure start end #:subject (opt "--subject") #:offset offset)))
   (write-json report) (newline))
 
+;; raco fhir spec-bench … — prose -> FSH -> scored against the published IG (bench/spec-bench.rkt)
+(define (cmd-spec-bench args)
+  (define (sb name) (dynamic-require 'fhir/bench/spec-bench name))
+  (define (show-score s)
+    (define (frac k) (let ([v (hash-ref s k)]) (format "~a/~a" (car v) (cadr v))))
+    (printf "~a~a: check errors ~a (~a in the candidate); profile ~a; fidelity ~a facets, ~a extra elements; accepts ~a published examples; ~a of its examples conform to the published profile\n"
+            (hash-ref s 'task) (if (hash-ref s 'round #f) (format " round ~a" (hash-ref s 'round)) "")
+            (hash-ref s 'check_errors) (hash-ref s 'candidate_diagnostics)
+            (if (hash-ref s 'profile_compiled) "compiled" "MISSING")
+            (frac 'fidelity) (hash-ref s 'extra_constrained_elements) (frac 'accepts_published_examples) (frac 'examples_conform_to_published)))
+  (match args
+    [(list "list" ig)
+     (for ([t (in-list ((sb 'list-tasks) ig))]) (printf "~a\t~a\t~a examples\n" (first t) (second t) (third t)))]
+    [(list "make" ig published profile out)
+     (define ig-package-path (dynamic-require 'fhir/store/ig-server 'ig-package-path))
+     (printf "~a\n" ((sb 'make-task!) ig (ig-package-path published) profile out))]
+    [(list "score" dir which)
+     (define t (call-with-input-file (build-path dir "task.rktd") read))
+     (define fsh (cond [(equal? which "--oracle") (hash-ref t 'oracle)] [(equal? which "--empty") ""]
+                       [(file-exists? which) (file->string which)]
+                       [else (usage-error "spec-bench" (format "no such file: ~a" which))]))
+     (define s ((sb 'score-task) dir fsh))
+     (show-score s)
+     (for ([r (in-list (hash-ref s 'rejections))]) (printf "  rejected: ~a\n" r))
+     (unless (string=? (hash-ref s 'diagnostics_text) "") (display (hash-ref s 'diagnostics_text)))]
+    [(list "run" dir "--model" cmd more ...)
+     (define rounds (match more [(list "--rounds" n) (or (string->number n) (usage-error "spec-bench"))] ['() 3] [_ (usage-error "spec-bench")]))
+     (for ([s (in-list ((sb 'run-task!) dir cmd #:rounds rounds))]) (show-score s))]
+    [_ (usage-error "spec-bench")]))
+
 ;; ---- usage ---------------------------------------------------------------------------------
 ;; One line per subcommand; `raco fhir <cmd> --help` prints it (exit 0), a usage error prints it on
 ;; stderr (exit 2).
@@ -245,6 +275,7 @@
     ("load"             "raco fhir load <store.db> <file|dir>   (Bundles, resources, .cql libraries)")
     ("evaluate-measure" "raco fhir evaluate-measure <store.db> <Measure id|url> --period-start D --period-end D [--subject Patient/x] [--tz-offset ±hh:mm]")
     ("omop"             "raco fhir omop <store.db> [SQL] [<out.duckdb>]")
+    ("spec-bench"       "raco fhir spec-bench list <ig-dir> | make <ig-dir> <published-ig> <Profile> <task-dir> | score <task-dir> (--oracle|--empty|<candidate.fsh>) | run <task-dir> --model '<shell command>' [--rounds n]")
     ("sof-tck"          "raco fhir sof-tck")
     ("tx-tck"           "raco fhir tx-tck")))
 
@@ -298,6 +329,7 @@
     [("snapshot") (unless (arg 1) (usage-error cmd))
                   (require-files! cmd (list (arg 1)))
                   (cmd-snapshot (arg 1))]
+    [("spec-bench") (cmd-spec-bench (cdr args))]
     [("sof-tck") (dynamic-require '(submod fhir/viewdef/tests/run main) #f)]
     [("tx-tck") (dynamic-require '(submod fhir/terminology/tests/run-tx main) #f)]
     [("omop") (unless (arg 1) (usage-error cmd))
