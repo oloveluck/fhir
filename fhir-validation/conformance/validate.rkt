@@ -11,7 +11,7 @@
 ;;; OperationOutcome node. Validate the RAW jsexpr (lenient parsing would hide unknown elements); the
 ;;; typed node is used only for invariants.
 
-(require racket/contract
+(require racket/contract (only-in json jsexpr->string)
          racket/string
          racket/list
          (only-in fhir/sd/sd-index resolve-sd-raw)
@@ -212,11 +212,17 @@
 (define (fixed-pattern-issues ce loc v)
   (append
    (cond [(choice-value ce "fixed") => (lambda (fx) (if (equal? (prune fx) (prune v)) '()
-                                                        (list (issue "error" "value" loc "value does not match fixed value"))))]
+                                                        (list (issue "error" "value" loc (format "value does not match fixed value ~a" (compact fx))))))]
          [else '()])
    (cond [(choice-value ce "pattern") => (lambda (pt) (if (json-contains? (prune pt) (prune v)) '()
-                                                         (list (issue "error" "value" loc "value does not match required pattern"))))]
+                                                         (list (issue "error" "value" loc (format "value does not match required pattern ~a" (compact pt))))))]
          [else '()])))
+
+;; compact : jsexpr -> string   the expected value, as JSON, in the message (what a reader — or a
+;; model fixing its output — needs to see); long values are cut
+(define (compact v)
+  (define s (with-handlers ([exn:fail? (lambda (_) (format "~a" v))]) (jsexpr->string (prune v))))
+  (if (> (string-length s) 300) (string-append (substring s 0 300) "…") s))
 
 ;; the JSON representation a FHIR primitive must use (https://build.fhir.org/json.html#primitive):
 ;; numbers for the numeric types, a JSON boolean for boolean, a JSON string for everything else.
@@ -448,11 +454,15 @@
 (define (tx-member? tx vs code system)
   (with-handlers ([exn:fail? (lambda (_) 'unknown)])
     (define exp ((tx-service-expand tx) vs))
-    (define members (and (pair? exp)
-                         (let ([e (hash-ref (node->jsexpr (car exp)) 'expansion #f)])
-                           (and (hash? e) (let ([c (hash-ref e 'contains #f)]) (and (list? c) (length c)))))))
+    (define contains (and (pair? exp)
+                          (let ([e (hash-ref (node->jsexpr (car exp)) 'expansion #f)])
+                            (and (hash? e) (let ([c (hash-ref e 'contains #f)]) (and (list? c) c))))))
+    (define members (and contains (length contains)))
     (cond
       [(or (not members) (= members 0)) 'unknown]     ; VS unresolvable/empty -> undecidable
+      ;; a code whose system the expansion does not reach (a value set only partly expandable here)
+      ;; is undecidable, not absent
+      [(and system (not (for/or ([c (in-list contains)]) (equal? (hash-ref c 'system #f) system)))) 'unknown]
       [else
        (define out ((tx-service-validate tx) vs code system))
        (define params (if (pair? out) (let ([p (hash-ref (node->jsexpr (car out)) 'parameter '())])

@@ -9,13 +9,17 @@
 ;;;                                                pipeline step: (~> r … (ensure-valid) …)
 ;;; Profiles resolve through the current data source (fhir/data-source) and `current-sd-packages`;
 ;;; a StructureDefinition in the data source that the resource claims in meta.profile is applied too.
+;;; Required bindings are checked against the value sets of the data source and the packages (the
+;;; terminology service); a value set nothing can expand stays undecided (fail-open).
 
 (require racket/list
          (only-in fhir/r5/operations validate-definition)
          fhir/operation fhir/data-source
          (only-in fhir/sd/operations resolve-structure-definition)
          (only-in fhir/serialize/read-json strip-jnum)
-         (only-in fhir/conformance/validate validate-issues issue-severity issue-code issue-path issue-msg))
+         (only-in fhir/conformance/validate validate-issues issue-severity issue-code issue-path issue-msg)
+         (only-in fhir/terminology/operations current-terminology-resolver)
+         (only-in fhir/terminology/service make-terminology/resolver))
 
 (provide $validate ensure-valid)
 
@@ -42,7 +46,8 @@
        (let ([urls (let ([m (hash-ref r 'meta #f)]) (if (hash? m) (hash-ref m 'profile '()) '()))])
          (filter (lambda (sd) (member (hash-ref sd 'url #f) urls))
                  ((data-source-all (current-data-source)) "StructureDefinition"))))
-     (issues->outcome (validate-issues (strip-jnum r) #:profiles (remove-duplicates (append (if profile (list profile) '()) claimed)))))))
+     (issues->outcome (validate-issues (strip-jnum r) #:profiles (remove-duplicates (append (if profile (list profile) '()) claimed))
+                                       #:terminology (make-terminology/resolver (current-terminology-resolver)))))))
 
 ;; ensure-valid : resource [#:profile canonical] -> resource   or exn:fail:operation with the outcome
 (define (ensure-valid r #:profile [profile #f])

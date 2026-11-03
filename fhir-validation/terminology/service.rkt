@@ -170,10 +170,13 @@
     ;; a pinned version that does not resolve contributes nothing
     [(and pinned (not cs)) '()]
     [(pair? concepts)
-     ;; an enumerated concept must EXIST in the code system (when we can see it) — the suite's
-     ;; `enum-bad` case pins that a bogus code does not silently join the expansion
-     (define known (and cs (for/hash ([c (in-list (all-concepts (jlist cs 'concept)))])
-                             (values (jref c 'code) c))))
+     ;; an enumerated concept must EXIST in the code system when we can see ALL of it — the suite's
+     ;; `enum-bad` case pins that a bogus code does not silently join the expansion. A code system
+     ;; that is not complete here (the core packages' SNOMED / RxNorm placeholders are content
+     ;; `not-present`; a fragment) cannot say a code is absent, so the enumeration stands.
+     (define known (and cs (complete-codesystem? cs)
+                        (for/hash ([c (in-list (all-concepts (jlist cs 'concept)))])
+                          (values (jref c 'code) c))))
      (for/list ([c (in-list concepts)]
                 #:when (or (not known) (hash-ref known (jref c 'code) #f)))
        (vector system (jref c 'code)
