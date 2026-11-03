@@ -1,27 +1,65 @@
-# fhir — FHIR as a framework for spec-driven development
+# fhir — FHIR as a framework for spec-driven development with LLMs
 
 FHIR is a machine-readable specification language for healthcare software: profiles, value sets,
-invariants, search parameters, operations and quality measures, all published as data in
-Implementation Guides. This family of Racket packages treats those specs as **languages you write
-and tools that check them**, so that a person or an LLM can go from a requirement to a working,
-validated FHIR artifact with precise feedback at every step:
+invariants, operations and quality measures, all published as data in Implementation Guides. This
+family of Racket packages makes those specs **languages you write and checks that answer precisely**,
+so a person or a model can go from a requirement to working, conforming FHIR with feedback at every
+step:
 
-1. **Write the spec** in FHIR's own languages: FSH for profiles and examples, CQL for logic, FHIRPath
-   for invariants, VCL for value sets, FML for maps.
-2. **Check it**: `raco fsh check <project>` compiles the project, validates every example against the
-   project's own profiles (dependencies and core in context), and puts every problem on the FSH line
-   that caused it, naming the profile rule it breaks. Text for people; JSON or a FHIR
-   OperationOutcome for agents.
-3. **Run it**: `raco fhir-server serve-ig <package>` generates a server from the packed IG: its
-   CapabilityStatement, search parameters, profile validation on every write, `$expand`, and CQF
-   Measures' `$evaluate-measure` over CQL.
+```
+requirement / clinic note ─► model ─► FSH, FHIR, CQL, FML … ─► checked against the spec ─► conforms ─► served, run
+                               ▲                                        │
+                               └──── every problem, by file:line or resource/path ◄──┘
+```
 
-[fhir-examples](https://github.com/oloveluck/fhir-examples) holds worked examples and the demonstration: a model
-reads what a published IG says about a profile, writes the FSH, gets `fsh check`'s diagnostics back,
-and is scored against the profile HL7 actually published.
+1. **Write the spec** in FHIR's own languages, each a Racket `#lang`: FSH for profiles and examples,
+   CQL for logic, FHIRPath for invariants, VCL for value sets, FML for maps, SQL on FHIR for views.
+   A file in any of them is a module that compiles, is checked in that language's terms, and
+   `provide`s values — so one program can `require` a profile, a value set and a CQL library and
+   combine them.
+2. **Check it**: `raco fsh check <project>` validates every example against the project's own
+   profiles and puts each problem on the FSH line that caused it; `$validate` checks any resource
+   against any profile. Text for people; JSON or an OperationOutcome for agents. The validator is
+   fail-open (0 false positives against the Java validator's recorded outcomes) and its messages
+   name the expected value — a model can fix what the check tells it.
+3. **Run it**: FHIR operations are procedures. Apply `$validate`, `$expand`, `$transform`,
+   `$evaluate-measure` or `$sql-run` in a pipeline with no server, or serve the same values over
+   HTTP; `raco fhir-server serve-ig <package>` generates a whole server from an IG.
 
 > **Scope.** Built for spec development and conformance testing, not production use. Persistence is
 > an embedded SQLite store.
+
+## Demonstrations ([fhir-examples](https://github.com/oloveluck/fhir-examples))
+
+- **[notes-to-fhir](https://github.com/oloveluck/fhir-examples/tree/main/notes-to-fhir)** — a model
+  reads free-text clinic notes and writes FHIR; a small IG written in FSH decides whether it is right,
+  and every issue goes back to the model by resource and path until the data conforms. Then the CQL
+  screening rule runs over the result. Recorded runs: with the FSH in the prompt every note conforms
+  on the first try; with only the profile names, every note conforms by round 2 — once the
+  validator's messages named the required value.
+- **[screening](https://github.com/oloveluck/fhir-examples/tree/main/screening)** — one program,
+  six FHIR languages (`.fsh`, `.fhir6`, `.fml`, `.vcl`, `.cql`, `.sof`), each a required module,
+  glued by operations.
+- **The spec benchmark** (`raco spec-bench`) — a model reads what a published IG says about a
+  profile, writes the FSH, gets `fsh check`'s diagnostics back, and is scored against the profile
+  HL7 actually published.
+
+## Operations are procedures
+
+```racket
+(require fhir/operation)
+(apply-operation "ValueSet/$expand" #:url "http://hl7.org/fhir/ValueSet/administrative-gender")
+(define transform (operation "StructureMap/$transform"))     ; resolve once, apply like a function
+(~> response (transform #:srcMap fml) (ensure-valid #:profile profile))   ; thread a value through
+```
+
+Parameters are keywords checked against the OperationDefinition; failures raise `exn:fail:operation`
+carrying an OperationOutcome. The same values serve over HTTP, and the server's CapabilityStatement
+is derived from what it actually serves:
+
+```racket
+(serve-operations (list $validate $expand $validate-code $lookup) #:port 8080)   ; GET /metadata lists them
+```
 
 ## Try it
 
@@ -50,7 +88,7 @@ Ten Racket packages in seven repos, plus the examples repo. The foundation keeps
 
 | package | where | what |
 |---|---|---|
-| `fhir` | this repo, `fhir/` | the foundation: typed-node model, primitives, JSON, compile-time form macros, `#lang fhir/sd` + snapshot generation, codegen and the R4/R5/R6 towers, the package reader, the shared diagnostics; `raco fhir` (regen, check, roundtrip, snapshot) |
+| `fhir` | this repo, `fhir/` | the foundation: typed-node model, primitives, JSON, compile-time form macros, operations as procedures (`fhir/operation`), `#lang fhir/sd` + snapshot generation, codegen and the R4/R5/R6 towers, the package reader, the shared diagnostics; `raco fhir` (regen, check, roundtrip, snapshot) |
 | `fhir-spec` | this repo, `fhir-spec/` | the vendored HL7 packages (core R4/R5/R6, US Core, IPS, mCODE + its dependencies, CQF Measures, tx-ecosystem) |
 | `fhir-validation` | this repo, `fhir-validation/` | the validator (fail-open: cardinality, types, slicing, bindings, invariants) and the terminology service; `raco fhir-validate` |
 | `fhir-server` | this repo, `fhir-server/` | servers generated from IGs, `#lang fhir/capability`, HTTP, the SQLite store, `$evaluate-measure`; `raco fhir-server` |
@@ -60,7 +98,7 @@ Ten Racket packages in seven repos, plus the examples repo. The foundation keeps
 | [`fml`](https://github.com/oloveluck/fml) | own repo | `#lang fml`: FHIR Mapping Language; `raco fml` |
 | [`fsh`](https://github.com/oloveluck/fsh) | own repo | `#lang fsh`, both directions, projects and packaging; `raco fsh`, `raco fsh check` |
 | [`sql-on-fhir`](https://github.com/oloveluck/sql-on-fhir) | own repo | `#lang sql-on-fhir`: ViewDefinitions and the IG's operations, generated from HL7's package; `raco sql-on-fhir` |
-| [`fhir-examples`](https://github.com/oloveluck/fhir-examples) | own repo | worked examples (operations as procedures) and the spec-driven benchmark; `raco spec-bench` |
+| [`fhir-examples`](https://github.com/oloveluck/fhir-examples) | own repo | the demonstrations: notes-to-fhir, screening (six languages in one program), operations as procedures, the spec benchmark (`raco spec-bench`) |
 
 Every tool reports errors the same way (`fhir/diagnostic`): `file:line:col` with the source line and a
 caret, or `--format json` / `--format outcome` for programs, and every error, not just the first.
@@ -68,7 +106,7 @@ caret, or `--format json` / `--format outcome` for programs, and every error, no
 Install from source, repos side by side (dependency order):
 
 ```sh
-raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-validation cql fml fsh fhir/fhir-server fhir-examples
+raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-validation cql fml fsh fhir/fhir-server sql-on-fhir fhir-examples
 ```
 
 ## Conformance
