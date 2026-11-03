@@ -63,6 +63,14 @@ Instances, Invariants, Aliases, slicing (incl. reslicing + multi-discriminator),
 custom Resources, Mappings, and RuleSets (incl. parameterized). Targets R5; emits differentials by
 default, full snapshots opt-in.
 
+## The languages together in one program
+
+Every `#lang` file is a Racket module, so a program `require`s them side by side and uses their values:
+`"profile.fsh"` provides `compiled` (FHIR JSON), `"intake.fml"` `transform` (FHIR JSON -> FHIR JSON),
+`"codes.vcl"` `valueset`, `"rules.cql"` `evaluate` (a library over a patient's resources, with
+`#:parameters`), `#lang fhir/r6` and `#lang sql-on-fhir` files `->json`. Each is compiled and checked in
+its own language by `raco make`. Worked example: `fhir-examples/screening/` (`racket screening/main.rkt`).
+
 ## FHIR operations as procedures (no server)
 
 Apply an operation by reference to its OperationDefinition; its parameters are keyword arguments
