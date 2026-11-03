@@ -1,6 +1,6 @@
 ---
 name: fhir-authoring
-description: Author and run the FHIR Racket #langs — resources (#lang fhir/r6, /r4), profiles (/sd), FHIR Shorthand (/fsh), CQL (/cql), ViewDefinitions (/viewdef), VCL (/vcl), StructureMaps (/fml), capability apps (/capability), OMOP (/omop). Use when writing or running any .fhir6/.fsh/.cql/.rkt FHIR-lang file in this repo.
+description: Author and run the FHIR Racket #langs — resources (#lang fhir/r6, /r4), profiles (/sd), FHIR Shorthand (/fsh), CQL (/cql), VCL (/vcl), StructureMaps (/fml), capability apps (/capability). Use when writing or running any .fhir6/.fsh/.cql/.rkt FHIR-lang file in this repo.
 ---
 
 # Authoring the FHIR `#lang`s
@@ -44,18 +44,18 @@ A `.fsh` file is a module providing `document`/`compiled`/`resources`; `main` pr
 - `raco fsh <dir>` — SUSHI-style batch compile a folder into `fsh-generated/` (reads the project's
   `sushi-config.yaml`: canonical, FHIR version, dependency packages from fhir-spec).
 - `raco fsh <dir> --pack [out.tgz]` — also write a FHIR NPM package; serve it with
-  `raco fhir serve-ig out.tgz --capability <CapabilityStatement id>`.
+  `raco fhir-server serve-ig out.tgz --capability <CapabilityStatement id>`.
 - Errors everywhere are `file:line:col` diagnostics with the source line; `--format json` or
   `--format outcome` (a FHIR OperationOutcome) prints them on stdout for tools and LLM agents. The
-  same flag works on `raco cql`, `raco vcl`, `raco fml`, `raco fhirpath` and `raco fhir validate`.
+  same flag works on `raco cql`, `raco vcl`, `raco fml`, `raco fhirpath` and `raco fhir-validate`.
 - `raco fsh check <dir> [--capability <id>]` — **the spec-author's loop**: compile, then validate
   every example against the project's own profiles (dependencies and core in context), and with a
   CapabilityStatement report what the generated server would not meet. Every problem is positioned
   IN THE FSH: at the instance rule that wrote the element (else the instance header), naming the
   profile rule that constrains it (`… (constrained by profile TumorSize at profiles.fsh:4:3)`).
-  Exit 1 on any error; `--format json|outcome` for agents. Needs fhir-tools (the validator).
-- `raco fhir spec-bench list|make|score|run` — prose → FSH, scored against a published IG (see
-  fhir-tools/bench/README.md).
+  Exit 1 on any error; `--format json|outcome` for agents. `--capability` needs fhir-server.
+- `raco spec-bench list|make|score|run` (the fhir-spec-driven repo) — prose → FSH, scored against a
+  published IG.
 - `raco fsh --decompile <file.json>` — **reverse** (FHIR → FSH text).
 
 Supports Profiles, Extensions (auto-scaffolded), ValueSets, CodeSystems (concept hierarchy),
@@ -69,12 +69,6 @@ CQL compiles to **ELM** and the ELM is run (never CQL directly). A `.cql` file p
 the ELM AST, the ELM JSON, and each define's interpreted value; `main` prints ELM JSON.
 - `racket examples/demo.cql`
 - `raco cql <file.cql>` — print ELM JSON.
-
-## `#lang fhir/viewdef` — SQL-on-FHIR ViewDefinition
-
-Compile-time-validated ViewDefinition authoring (a generated IG tower over the R6 base). The schema
-doubles as the validator (strict `from-json` rejects invalid views). Evaluate views over resources
-with `viewdef/eval.rkt`; serve `$sql-run`/`$sql-export` via `make-store-app #:sof? #t`.
 
 ## `#lang vcl` — ValueSet Compose Language
 
@@ -92,11 +86,6 @@ groups/rules over typed resources (JSON-only — CDA/XML tests are out of scope)
 Declares `server`/`resource`/`operation` forms and DERIVES the CapabilityStatement + one
 OperationDefinition per operation. `racket examples/patient-app.rkt` prints `/metadata`. See the
 **fhir-serving** skill to expose it over HTTP.
-
-## `#lang fhir/omop` — OMOP CDM types
-
-The 25 OMOP tables as types named like OMOP DDL: `(person (person_id 1) …)`. See the
-**fhir-analytics** skill for the FHIR→OMOP ETL.
 
 ## Standalone checked literals
 

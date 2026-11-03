@@ -1,13 +1,12 @@
 ---
 name: fhir-serving
-description: Serve and persist FHIR in this repo — the embedded SQLite+DuckDB store, `raco fhir serve` for a REST API from a #lang fhir/capability app, `raco fhir load` for Bundles, transaction/batch bundles, and audit/provenance. Use when running a FHIR server or loading resources into a store.
+description: Serve and persist FHIR with the fhir-server package — servers generated from IG packages (`raco fhir-server serve-ig`), `raco fhir-server serve` for a #lang fhir/capability app, the embedded SQLite store, `raco fhir-server load`, transaction/batch bundles, audit/provenance, and `$evaluate-measure`. Use when running a FHIR server or loading resources into a store.
 ---
 
 # Serving & persisting FHIR
 
 > Built for spec development and testing, not production. Persistence is an embedded **SQLite** store
-> (WAL, connection pool, versioned history, FHIRPath-extracted token/reference search indexes) with
-> **DuckDB** attached over the same file for analytics (see the **fhir-analytics** skill).
+> (WAL, connection pool, versioned history, FHIRPath-extracted, type-driven search indexes).
 
 ## Serve a capability app over HTTP
 
@@ -15,7 +14,7 @@ description: Serve and persist FHIR in this repo — the embedded SQLite+DuckDB 
 `#lang fhir/capability` app (see **fhir-authoring**).
 
 ```sh
-raco fhir serve examples/server-app.rkt 8080
+raco fhir-server serve examples/server-app.rkt 8080
 ```
 
 Exposes the FHIR REST grammar: `GET /metadata` (the derived CapabilityStatement), resource CRUD
@@ -34,12 +33,12 @@ that same catalog — advertised params and working search can't drift.
 ```
 
 `racket examples/store-app.rkt` prints the derived `/metadata`;
-`raco fhir serve examples/store-app.rkt` exposes CRUD + vread + IG-param search over SQLite.
+`raco fhir-server serve examples/store-app.rkt` exposes CRUD + vread + IG-param search over SQLite.
 
 ## Load resources / Bundles
 
 ```sh
-raco fhir load <store.db> <bundle.json | dir>
+raco fhir-server load <store.db> <bundle.json | dir>
 ```
 
 Handles `transaction` (atomic, one store transaction, `urn:uuid` reference resolution + spec-ordered
@@ -60,9 +59,9 @@ params are data (FHIRPath per type), reindexed inside the same write transaction
 
 ## Server generated from an IG
 ```sh
-raco fhir serve-ig hl7.fhir.us.core --port 8080     # loads the IG's examples (validated) and serves
-raco fhir serve-ig hl7.fhir.us.core --gaps          # the IG requirements this server does not meet
-raco fhir serve-ig path/to/package.tgz --db store.db --no-examples
+raco fhir-server serve-ig hl7.fhir.us.core --port 8080     # loads the IG's examples (validated) and serves
+raco fhir-server serve-ig hl7.fhir.us.core --gaps          # the IG requirements this server does not meet
+raco fhir-server serve-ig path/to/package.tgz --db store.db --no-examples
 ```
 Everything comes from the package: FHIR version, resource types, interactions, search parameters
 (type-driven search: string/date/number/quantity/token/reference/uri, modifiers, prefixes,
@@ -73,14 +72,14 @@ implementation (`$docref`, `ValueSet/$expand`, `Measure/$evaluate-measure`). Lib
 ## Measure processing (CQL over the store)
 ```sh
 # a server from CQF Measures (that IG ships several server CapabilityStatements: pick one)
-raco fhir serve-ig hl7.fhir.us.cqfmeasures-5.0.0.tgz --capability measure-calculation-service-example \
+raco fhir-server serve-ig hl7.fhir.us.cqfmeasures-5.0.0.tgz --capability measure-calculation-service-example \
      --load measures/ --load patients/ --tz-offset -07:00 --no-examples
 curl 'localhost:8080/Measure/<id>/$evaluate-measure?periodStart=2021-01-01&periodEnd=2021-12-31&subject=Patient/p1'
 curl 'localhost:8080/Measure/$evaluate-measure?measure=<canonical>&periodStart=2021-01-01&periodEnd=2021-12-31'
 
 # without a server
-raco fhir load store.db measures/          # Bundles, resources, and .cql files (become Library resources)
-raco fhir evaluate-measure store.db <Measure id|url> --period-start 2021-01-01 --period-end 2021-12-31 \
+raco fhir-server load store.db measures/          # Bundles, resources, and .cql files (become Library resources)
+raco fhir-server evaluate-measure store.db <Measure id|url> --period-start 2021-01-01 --period-end 2021-12-31 \
      [--subject Patient/p1] [--tz-offset -07:00]
 ```
 The Measure's Library (by url, or by name = the canonical's last segment), its includes, value sets

@@ -2,7 +2,7 @@
 
 ;;; operation-entry.rkt — the one struct a generated tower's operations.rkt produces.
 ;;;
-;;; `<code>-operation` scaffolds (emitted by codegen into r4/r5/r6/viewdef/omop `operations.rkt`)
+;;; `<code>-operation` scaffolds (emitted by codegen into the towers' `operations.rkt`)
 ;;; return operation-entry values that capability/runtime's `build-app` pairs with their
 ;;; OperationDefinitions. It lives in the foundation so the generated towers depend only on
 ;;; fhir; capability/runtime re-exports it.

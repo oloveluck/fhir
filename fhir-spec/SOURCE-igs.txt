@@ -2,8 +2,6 @@ Vendored IG packages (FHIR NPM tarballs from packages2.fhir.org), retrieved 2026
 
   hl7.fhir.us.core.tgz        US Core 9.0.0        (FHIR 4.0.1) — 230 examples
   hl7.fhir.uv.ips.tgz         IPS 2.0.1            (FHIR 4.0.1) —  44 examples
-  hl7.fhir.uv.sql-on-fhir.tgz SQL-on-FHIR 3.0.0-ballot (FHIR R6) — generated tower + 17 examples
-  hl7.fhir.uv.omop.tgz        FHIR-to-OMOP 2.0.0-ballot (FHIR R5) — generated tower
 
 US Core and IPS are vendored as REAL-WORLD EXAMPLE CORPORA (not generated towers): their
 `package/example/*.json` instances are authored by the IG editors against real profiles, which
@@ -12,7 +10,7 @@ tests/ig-examples-r4-test.rkt (R4 tower, its own process) through tests/ig-examp
 
 hl7.fhir.us.core-8.0.0.tgz — US Core 8.0.0 (FHIR 4.0.1), from https://packages.fhir.org/hl7.fhir.us.core/8.0.0
   retrieved 2026-11-01. Kept beside 9.0.0 because the ONC Inferno US Core test kit (v1.2.0,
-  2026-10-27) tests US Core up to 8.0.0: `raco fhir serve-ig hl7.fhir.us.core-8.0.0.tgz` builds the
+  2026-10-27) tests US Core up to 8.0.0: `raco fhir-server serve-ig hl7.fhir.us.core-8.0.0.tgz` builds the
   server that kit can check.
 
 mCODE 4.0.0 and its dependencies (FHIR 4.0.1, all CC0-1.0), from https://packages.fhir.org/<id>/<version>,
@@ -25,5 +23,5 @@ them and compares with the published package (fsh/tests/ig-mcode-test.rkt):
 hl7.fhir.us.cqfmeasures-5.0.0.tgz — Quality Measure IG (CQF Measures) 5.0.0 (FHIR 4.0.1, CC0-1.0), from
   https://packages.fhir.org/hl7.fhir.us.cqfmeasures/5.0.0, retrieved 2026-11-02. Its
   measure-calculation-service-example CapabilityStatement generates a measure-processing server
-  (`raco fhir serve-ig hl7.fhir.us.cqfmeasures-5.0.0.tgz --capability measure-calculation-service-example`)
-  whose $evaluate-measure runs CQL over the store (fhir-tools/tests/measure-server-r4-test.rkt).
+  (`raco fhir-server serve-ig hl7.fhir.us.cqfmeasures-5.0.0.tgz --capability measure-calculation-service-example`)
+  whose $evaluate-measure runs CQL over the store (fhir-server/tests/measure-server-r4-test.rkt).

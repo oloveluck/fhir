@@ -5,7 +5,7 @@
 ;;; Snapshot generation needs the parent's full snapshot; the vendored R5 core package carries one per
 ;;; StructureDefinition. We lazily stream the .tgz once and index every SD by url / name / id (mirrors
 ;;; the terminology service's loader). Consumed by sd/{snapshot,element-index}.rkt, the validator
-;;; (fhir-tools) and the FSH snapshot mode; the differential-only FSH compile path does not touch this.
+;;; (fhir-validation) and the FSH snapshot mode; the differential-only FSH compile path does not touch this.
 ;;;
 ;;; The packages searched are `current-sd-packages` — a list, searched in order, so an IG's profiles
 ;;; resolve before the core package it builds on: (list us-core.tgz r4-core.tgz). The default is the

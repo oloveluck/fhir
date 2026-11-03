@@ -1,61 +1,63 @@
 # CLAUDE.md — working notes for this repo
 
-FHIR as a family of Racket `#lang`s (language-oriented programming). This is the **foundation
-vertical slice**; the grand vision is FHIR's type system as a collection of languages (foundation
-types, a StructureDefinition lang, per-IG generated langs, capability/operation langs, and separate
-FHIRPath/CQL/FML/FSH langs). JSON only, no XML.
+FHIR as a framework for spec-driven development: FHIR's specs (profiles, value sets, invariants,
+measures, maps) as Racket `#lang`s and the tools that check them, so a person or an LLM goes from a
+requirement to a validated FHIR artifact with positioned feedback (language-oriented programming;
+JSON only, no XML). The demonstration lives in the `fhir-spec-driven` repo.
 
 ## Package map (the family)
-Eight Racket packages in six git repos. The foundation keeps the `fhir` collection; each language is its
-own collection (`#lang cql`, `(require cql/compile)`), so a user who installs `cql` gets exactly CQL.
+Nine Racket packages in six git repos, plus `fhir-spec-driven` (the demonstration). The foundation keeps
+the `fhir` collection; each language is its own collection (`#lang cql`, `(require cql/compile)`).
 Rule that makes directories movable: **cross-directory imports use collection paths** (`fhir/model/node`),
 never `../model/node.rkt`. Dependency order (base first):
 
 | package | repo / dir | contents | depends on |
 |---|---|---|---|
-| `fhir` | `oloveluck/fhir` → `fhir/` | foundation: `result/ contracts.rkt model/ primitives/ kernel/ lang-gen/ serialize/ foundation/ codegen/ sd/ r4/ r5/ r6/ spec-package.rkt` | base |
-| `fhir-spec` | `oloveluck/fhir` → `fhir-spec/` | the vendored HL7 NPM packages (`*.tgz`, 50 MB) — data only, located via `fhir/spec-package` | base |
+| `fhir` | `oloveluck/fhir` → `fhir/` | foundation: `result/ contracts.rkt model/ primitives/ kernel/ lang-gen/ serialize/ foundation/ codegen/ sd/ r4/ r5/ r6/ spec-package.rkt package.rkt diagnostic.rkt subcommands.rkt cli.rkt` (`raco fhir`), foundation `tests/` and `examples/` | base |
+| `fhir-spec` | `oloveluck/fhir` → `fhir-spec/` | the vendored HL7 NPM packages (`*.tgz`) — data only, located via `fhir/spec-package` | base |
 | `fhirpath` | `oloveluck/fhirpath` | the FHIRPath engine (with UCUM, `print.rkt`), `raco fhirpath` | fhir |
 | `vcl` | `oloveluck/vcl` | `#lang vcl`, `raco vcl` | fhir |
+| `fhir-validation` | `oloveluck/fhir` → `fhir-validation/` | `conformance/validate.rkt`, `terminology/` (service + tx suite), the validation corpora and tests, `validate-cli.rkt` (`raco fhir-validate`) | fhir, fhir-spec, fhirpath, vcl |
 | `cql` | `oloveluck/cql` | `#lang cql` (CQL → ELM + interpreter), `raco cql` | fhir, fhirpath |
 | `fml` | `oloveluck/fml` | `#lang fml` (FHIR Mapping Language), `raco fml` | fhir, fhirpath, cql (only `cql/error.rkt`, to be removed) |
-| `fsh` | `oloveluck/fsh` | `#lang fsh` (FHIR Shorthand, bidirectional), `raco fsh` | fhir, fhirpath (snapshots via `fhir/sd/snapshot`) |
-| `fhir-tools` | `oloveluck/fhir` → `fhir-tools/` | application layer: `capability/ http/ terminology/ conformance/ viewdef/ store/ omop/`, the `raco fhir` CLI, integration `tests/`, `examples/` | fhir, fhir-spec, fhirpath, vcl, db-lib (+ libduckdb at run time) |
+| `fsh` | `oloveluck/fsh` | `#lang fsh` (bidirectional), projects + packaging, `check.rkt`; `raco fsh`, `raco fsh check` | fhir, fhirpath, fhir-validation |
+| `fhir-server` | `oloveluck/fhir` → `fhir-server/` | `capability/ http/ store/` (SQLite), IG-generated servers, `$evaluate-measure`, `server-cli.rkt` (`raco fhir-server`), server tests | fhir, fhir-spec, fhirpath, fhir-validation, cql, db-lib |
+| `fhir-spec-driven` | `oloveluck/fhir-spec-driven` | `bench.rkt` (prose → FSH tasks from a published IG, scored), recorded runs; `raco spec-bench` | fhir, fhir-spec, fhir-validation, fsh |
 
-`fhir` and `fhir-tools` both contribute to the `fhir` collection and must stay module-disjoint. `fhir`
-does NOT depend on `fhir-spec`: `fhir/spec-package.rkt` locates the tarballs through the collection
-search path (`spec-package-path`, `#:optional? #t` for callers that can degrade), so codegen and full
-snapshot generation need `fhir-spec` while a `#lang cql` user never downloads it.
+`fhir`, `fhir-validation` and `fhir-server` all contribute to the `fhir` collection and must stay
+module-disjoint (module paths like `fhir/conformance/validate` did not change when the packages split).
+`fhir` does NOT depend on `fhir-spec`: `fhir/spec-package.rkt` locates the tarballs through the
+collection search path (`spec-package-path`, `#:optional? #t` for callers that can degrade).
+`fhir/package.rkt` (`read-package`, `#:exact-decimals?`, `#:select` by file name) is the one reader of
+FHIR NPM packages (sd-index, codegen and the tx harness keep specialised streaming readers).
+SQL-on-FHIR (`#lang fhir/viewdef`, 133/133), OMOP and the DuckDB analytics were removed on 2026-11-02
+(git history has them); SQL-on-FHIR is to return as its own `sql-on-fhir` package.
 
-Seams introduced by the split (each a one-module move, no behaviour change):
+Seams (each a one-module move):
 - `kernel/operation-entry.rkt` (fhir) holds the struct generated `operations.rkt` files need, so the
   towers don't depend on `capability/`; `capability/runtime` re-exports it.
-- `fhirpath/print.rkt` (was `fml/fhirpath-print.rkt`) — the store narrows search-param expressions
-  with it; FML only consumed it.
-- `store/materialize.rkt` (was `viewdef/materialize.rkt`) — the DuckDB bottom half depends on
-  `store/fhir-analytics`, so it lives with the store; `viewdef/` stays a pure lang + evaluator.
-- `sd/{sd-index,snapshot,element-index}.rkt` (were `conformance/`) — pure SD machinery, in the
-  foundation so `fsh` doesn't depend on the validator. `sd-index` reads fhir-spec's R5 core package
-  when present (`current-sd-package` overrides; `sd-index-available?` tells).
+- `fhirpath/print.rkt` — the store narrows search-param expressions with it.
+- `sd/{sd-index,snapshot,element-index}.rkt` — pure SD machinery in the foundation, so `fsh` compiles
+  without the validator. `sd-index` reads fhir-spec's core package when present (`current-sd-packages`).
 - `fhirpath/tests/run-r5.rkt` `dynamic-require`s `fhir/terminology/service` (the %terminologies
-  backend, in fhir-tools) and lowers its floor to 1041 when fhir-tools is absent — terminology depends
+  backend, in fhir-validation) and lowers its floor to 1041 when it is absent — fhir-validation depends
   on fhirpath, so the TCK runner injects it at run time.
-- codegen writes towers to `(collection-path "fhir" "<tower>")`, so `raco fhir regen` lands in whichever
-  package owns the tower (`fhir` for r4/r5/r6, `fhir-tools` for viewdef/omop).
-- `store/fhir-analytics.rkt` loads libduckdb lazily (`DUCKDB_LIB` overrides the search path); requiring
-  it without DuckDB works, opening analytics does not.
+- `raco fsh check --capability` loads `fhir/store/ig-server` on demand (fsh does not depend on
+  fhir-server) and says to install it when absent.
+- codegen writes towers to `(collection-path "fhir" "<tower>")`, so `raco fhir regen` lands in the
+  package that owns the tower.
 
 Each language repo carries its own `CLAUDE.md` with the architecture notes for that language.
 
 ## Package setup
-From `~/Projects` with the six repos side by side (dependency order):
+From `~/Projects` with the repos side by side (dependency order):
 ```sh
-raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl cql fml fsh fhir/fhir-tools
-raco setup --check-pkg-deps --pkgs fhir fhir-spec fhirpath vcl cql fml fsh fhir-tools
+raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-validation cql fml fsh fhir/fhir-server fhir-spec-driven
+raco setup --check-pkg-deps --pkgs fhir fhir-spec fhirpath vcl fhir-validation cql fml fsh fhir-server fhir-spec-driven
 ```
-This repo's root holds the family README/LICENSE and these notes; `fhir/`, `fhir-spec/` and `fhir-tools/`
-are the three packages. `fhir-tools/` owns the `raco fhir` CLI; the languages own `raco fhirpath`,
-`raco cql`, `raco fsh`, `raco vcl`, `raco fml`.
+This repo's root holds the family README/LICENSE and these notes; `fhir/`, `fhir-spec/`,
+`fhir-validation/` and `fhir-server/` are its four packages. Commands: `raco fhir` (foundation),
+`raco fhir-validate`, `raco fhir-server`, and per language `raco fhirpath|cql|fsh|vcl|fml`.
 
 ## Diagnostics: machine-readable feedback (`fhir/diagnostic`)
 Every language reports errors as one value, `(diagnostic lang phase severity message loc)` with
@@ -72,7 +74,7 @@ OperationOutcome with the standard `operationoutcome-issue-line`/`-col`/`-source
   `prop:exn:srclocs`); CQL and FML put it in `cql-error-diagnostic`; VCL attaches it to its
   `invalid-encoding` payload (`attached-diagnostic`). CQL definitions remember where they start
   (`attach-loc!`), so translation errors point at the enclosing `define` and name it.
-- CLIs (`raco fsh|cql|vcl|fml|fhirpath`, `raco fhir validate`) take `--format text|json|outcome`.
+- CLIs (`raco fsh|cql|vcl|fml|fhirpath`, `raco fhir-validate`) take `--format text|json|outcome`.
   Text goes to stderr; json/outcome go to stdout; exit 1 on an error. `-h`/`--help` (on any
   `raco fhir` subcommand too) prints usage to stdout, exit 0; a usage error, unknown option or
   unreadable input file is one line on stderr, exit 2 (never a stack trace). A leading `#lang` line is
@@ -98,7 +100,7 @@ OperationOutcome with the standard `operationoutcome-issue-line`/`-col`/`-source
   an element of the base type: "`nmae` is not an element of Patient", at the rule), and the entity
   still compiles. The check is gated by zero diagnostics on IPS, mCODE and the golden corpus.
 
-## The spec-author's loop (`conformance/ig-check.rkt`, `raco fsh check`; `bench/spec-bench.rkt`)
+## The spec-author's loop (`fsh/check.rkt`, `raco fsh check`; fhir-spec-driven's `bench.rkt`)
 `check-fsh-project dir [#:capability id]` runs everything this repo knows about one FSH project and
 reports it as `fhir/diagnostic`s positioned in the FSH: compile + rule-level diagnostics
 (fsh/project), every `#example` instance validated against its base type and claimed profiles (the
@@ -107,24 +109,25 @@ compiler used, `project-sd-packages`), and with a CapabilityStatement the genera
 requirements (SHALL = error). A validation issue (`Observation.component.value[x]`) is traced to the
 instance rule that wrote that element (`trace-rule`: the type root dropped, brackets and choice
 suffixes normalised, the longest leading run of steps wins; a datatype-rooted path matches anywhere)
-and names the profile rule that constrains it. `raco fsh check` dynamic-requires it (fsh does not
-depend on fhir-tools). mCODE checks clean (179 examples, 0 diagnostics, 0 unmet for its sender CS);
-`tests/fsh-check-r4-test.rkt` pins three planted mistakes to their lines.
+and names the profile rule that constrains it. It lives in fsh (`fsh/check`), which depends on
+fhir-validation. mCODE checks clean (179 examples, 0 diagnostics, 0 unmet for its sender CS);
+fsh's `tests/check-r4-test.rkt` pins three planted mistakes to their lines.
 It exposed a validator recall gap, now closed: an entry matching exactly ONE slice (pins decidable)
 is held to the slice's own children — cardinality, fixed/pattern, required bindings, and choice
 variants the slice does not allow (`valueString` in a Quantity-only slice) — recursion stays with the
 unsliced walk. Gates unchanged: fp=0, 0 over-reported, IG validation 260 clean, published mCODE 283/283.
-`raco fhir spec-bench` turns a published IG into prose -> FSH tasks (one leaf profile and its examples
+`raco spec-bench` (the fhir-spec-driven repo) turns a published IG into prose -> FSH tasks (one leaf profile and its examples
 removed; the prompt gives the IG's words about it and names every element it constrains, never the
 constraint values) and scores a candidate four ways: `check` errors; facet fidelity against the
 published differential; the published examples accepted by the candidate's profile; the candidate's
-examples valid under the published profile. `run --model '<cmd>' --rounds n` asks any shell command
-and feeds `check`'s diagnostics back between rounds. Baselines: the IG's own FSH (TumorSize 28/34
-facets — the compiler's ceiling) and empty (0). Results: `fhir-tools/bench/README.md`.
+examples valid under the published profile. `run --model '<cmd>' --rounds n --timeout s` asks any
+shell command (prompt and answer through files; past the timeout its process group is killed) and
+feeds `check`'s diagnostics back between rounds. Baselines: the IG's own FSH (TumorSize 28/34
+facets — the compiler's ceiling) and empty (0). Results: that repo's README and `results/`.
 
 ## How-to-use docs
-User-facing usage/how-to lives in `.claude/skills/` — `fhir-authoring` (write/run the langs),
-`fhir-cli` (`raco fhir` reference), `fhir-serving` (store + HTTP), `fhir-analytics` (OMOP/DuckDB).
+User-facing usage/how-to lives in `.claude/skills/` — `fhir-authoring` (write/run the langs, `raco fsh
+check`), `fhir-cli` (`raco fhir`, `raco fhir-validate`), `fhir-serving` (`raco fhir-server`: store + HTTP).
 This file is the architecture reference; keep the how-to in the skills.
 
 ## Conventions
@@ -161,14 +164,15 @@ This codebase is written in the **How to Design Programs** idiom; keep new code 
 
 ## Verify
 ```sh
-raco test -p fhir fhir-spec fhirpath vcl cql fml fsh      # the foundation + the languages
-(cd fhir-tools && raco test terminology/ capability/ http/ conformance/ viewdef/ tests/)  # store/ omop/ need libduckdb
-racket fhir-tools/examples/patient.fhir6 # prints FHIR JSON
-racket fhir-tools/examples/demo.cql      # #lang cql — prints ELM JSON
-raco fhir check all                      # determinism guard
+raco test -p fhir fhir-spec fhirpath vcl fhir-validation cql fml fsh fhir-server fhir-spec-driven
+racket fhir/examples/patient.fhir6       # prints FHIR JSON
+racket fhir/examples/demo.cql            # #lang cql — prints ELM JSON
+raco fhir check all                      # determinism guard (r6 r4 r5)
 raco fhirpath --tck r5                   # FHIRPath conformance (or r4); raco fhirpath --ucum-tck
-raco cql --tck                           # CQL expression conformance (compile→run ELM→compare); raco fml --tck
+raco cql --tck                           # CQL expression conformance; raco fml --tck
 raco fhir roundtrip-tck r5               # parse+serialize round-trip the whole R5 corpus (or r4)
+raco fhir-validate --tx-tck              # the terminology suite
+raco fsh check ../fsh/tests/vendor/mcode-4.0.0 --capability mcode-sender-patients-in-group   # exit 0
 ```
 
 ## Round-trip conformance corpus (`tests/example-roundtrip-r{4,5}.rkt`, `tests/example-harness.rkt`)
@@ -182,7 +186,7 @@ processes so the towers don't double-register. This drove a `from-json` robustne
 whose JSON shape isn't an object (an R4-style string where R5 expects a complex type) now returns `err`
 (dropped under lenient) instead of throwing — lenient parsing never crashes.
 
-## Capability / operation lang (`#lang fhir/capability`, `capability/`)
+## Capability / operation lang (`#lang fhir/capability`, fhir-server's `capability/`)
 Declare-and-derive: a module DECLARES what a FHIR app supports and the lang DERIVES the
 CapabilityStatement (the `/metadata` artifact) + one OperationDefinition per operation, so metadata
 reflects exactly the installed capabilities and can't drift (fhir4s's key idea). Top forms —
@@ -211,7 +215,7 @@ resources. A search-param is `[name type]` or `[name type "FHIRPath"]` (the expr
 not the CapabilityStatement, which advertises only name/type). Search-params flow as `(list name type
 expr)` triples through declare→derive→runtime.
 
-## HTTP layer (`http/`, `raco fhir serve`)
+## HTTP layer (fhir-server's `http/`, `raco fhir-server serve`)
 A small from-scratch HTTP/1.1 server over `racket/tcp` (web-server-lib isn't in this minimal Racket) that
 serves a capability `app`. `http/router.rkt` is a **pure** function `handle : app method path query body →
 (values status jsexpr)` mapping the FHIR REST grammar onto `capability/runtime`'s `dispatch`:
@@ -220,11 +224,11 @@ serves a capability `app`. `http/router.rkt` is a **pure** function `handle : ap
 (GET query → a Parameters input, POST → the body). It maps the returned node to a status (OperationOutcome
 `issue.code`→404/400/500, create→201). `http/server.rkt` `serve-app : app #:port → shutdown-thunk` parses
 request line + headers + Content-Length body, one request per connection (Connection: close), each on its
-own thread. `raco fhir serve <app.rkt> [port]` dynamic-requires the module's `app` and serves it.
+own thread. `raco fhir-server serve <app.rkt> [port]` dynamic-requires the module's `app` and serves it.
 `tests/http-test.rkt` starts the example server and drives it over a real socket. Because the capability
 lang is R6, served resources/search evaluate against the R6 tower.
 
-## Snapshot generation + validation (`conformance/`)
+## Snapshot generation + validation (`fhir/sd/`, fhir-validation's `conformance/`)
 `sd/sd-index.rkt` (`resolve-sd-raw`, moved from `fsh/`) resolves base/profile SDs from the R5
 core package. `sd/snapshot.rkt` (`generate-snapshot`) is a reduced-ProfileUtilities merge:
 re-root the base snapshot, element-by-path merge (diff overrides; `constraint` **accumulates**),
@@ -244,7 +248,7 @@ FHIRPath invariants (`#:invariants?`, **off by default**). The cardinal rule is 
 report on anything undecidable** (unresolvable type/profile/VS, unparseable expression). Invariants are
 off by default because our FHIRPath, though TCK-complete, mis-evaluates some base invariants (`ele-1`,
 `sdf-8`, `csd-1`) vs the Java reference and would over-report; the universal base keys are denylisted
-even when on. Result is an `OperationOutcome` (via `from-json`). CLI: `raco fhir validate
+even when on. Result is an `OperationOutcome` (via `from-json`). CLI: `raco fhir-validate
 <resource.json> [profile.json…]` (exit 1 on error), `raco fhir snapshot <sd.json>`. Tests:
 `conformance/tests/validate-test.rkt` (authored case per check, asserted by `{code, path}`),
 `validate-corpus-test.rkt` (the **never-over-report gate**: 0 errors over 200 valid R5 resources), and
@@ -281,44 +285,8 @@ preserving): `parse-fhirpath` is memoized; `make-element-index` precomputes O(1)
 lookups; the base target index is fetched via the cached `type-index`. `drop-false` lives in
 `serialize/jsexpr-util.rkt` (shared).
 
-## SQL-on-FHIR lang (`#lang fhir/viewdef`, `viewdef/`)
-The first **IG-as-gen-target** (see the Codegen recipe above): `raco fhir regen sof` generates the
-ViewDefinition tower from `spec/hl7.fhir.uv.sql-on-fhir.tgz` (3.0.0-ballot, FHIR R6) with
-`delegate-base` R6 — `#lang fhir/viewdef` authors compile-time-validated ViewDefinitions, and strict
-`from-json` doubles as the view validator. The hand-written `viewdef/eval.rkt` (contracts, HTDP
-structural recursion over the generated schema's nodes) evaluates a view over typed resources with
-the FHIRPath engine: rows are the cartesian product of top-level select items; `forEach` maps
-(empty → no rows), `forEachOrNull`'s empty case evaluates columns over the EMPTY collection (so
-`%rowIndex` still yields 0 while element paths go null); `repeat` is the DEPTH-FIRST-preorder
-transitive closure; `unionAll` concatenates after checking branch column congruence; `where` must
-resolve to a boolean (else a view error); `constant` value[x]s become `%name` externals;
-`getResourceKey()`/`getReferenceKey(Type?)` are a pure AST rewrite over the FHIRPath prefab nodes
-(key = the reference's id part) — the engine itself is untouched. forEach/repeat swallow ONLY
-unknown-element navigation (heterogeneous foci); syntax/constant errors surface. Conformance:
-`raco fhir sof-tck` (→ `viewdef/tests/run.rkt`, floor 133) runs the vendored official shared suite
-(`viewdef/tests/vendor/sof-tests/`, from FHIR/sql-on-fhir.js — see SOURCE.txt): **133/133**. One
-engine fix rode along: FHIRPath `join` on empty input now returns empty (spec-correct; TCK has no
-empty-join test, re-verified 1044/1044).
-
-**The IG's operations are served** (`viewdef/run.rkt` + the generated `viewdef/operations.rkt`):
-`$sql-run` executes a ViewDefinition supplied as exactly one of subjectCanonical (url[|version] of a
-STORED view), subjectReference, or inline subjectResource — data = inline `resource` params
-(Bundles unwrapped) else server data of view.resource's type, filtered by `patient` (subject
-reference match / Patient id) and `_since`; `_limit` caps rows; `_format` = **ndjson (default)** |
-json | csv (`header` param; false arrives as #f via POST, "false" via GET) | fhir (a Parameters
-resource) — parquet is not-supported. Results return as a `Binary` node that `http/router.rkt`'s
-`handle/raw` (used by the server) streams RAW with the Binary's own contentType — the spec's "raw
-binary stream", not an envelope. `$sql-export` is the synchronous-completion profile: subjects run
-immediately, the manifest returns completed with an inline-Binary output part per subject (no job
-store/cancel — documented). Wiring: `make-store-app #:package (list r5 sof) #:types (… ViewDefinition)
-#:sof? #t` — ViewDefinition becomes a stored/searchable type (the IG's own SearchParameters; the
-engine indexes `uri` params as system-less tokens so `url=` search works), and /metadata advertises
-the ops by their REAL canonicals (`rc-operation` grew a `canonical` field; `build-app` joins entry→OD
-by the derived urn OR the OD's `code`). `tests/sof-op-test.rkt` drives it over a socket.
-
-## Persistence engine (`store/`, tests/fhir-store-test.rkt)
-An embedded, in-process FHIR store combining **SQLite** (transactional CRUD/versioning/search) and
-**DuckDB via FFI** (analytics) over the SAME database file:
+## Persistence engine (fhir-server's `store/`, tests/fhir-store-test.rkt)
+An embedded, in-process FHIR store on **SQLite** (transactional CRUD/versioning/search):
 - `store/fhir-sqlite.rkt` — a `fhir-store` (path + db-lib connection-pool), every pooled connection
   configured `WAL`/`synchronous=NORMAL`; schema: `fhir_resources` (current version, PK
   (resource_type,id)), `fhir_history` (immutable, + SHA-1 content_hash), `fhir_token_index`,
@@ -332,17 +300,8 @@ An embedded, in-process FHIR store combining **SQLite** (transactional CRUD/vers
   rows — reindexed inside the SAME transaction as the write, so indexes can't drift. Search:
   `system|code` tokens, `Type/id` references, `_lastUpdated` with ge/gt/le/lt prefixes; multiple
   params AND via EXISTS subqueries. Meta stamping: `meta.versionId`/`lastUpdated` on every write.
-- `store/fhir-analytics.rkt` — minimal `ffi/unsafe` bindings to `libduckdb` (open/connect/query/
-  destroy_result + column/value accessors; `ffi/unsafe`'s `->` renamed `~>` to coexist with
-  contracts). A `duckdb_result` is caller-allocated (64-byte raw block, always destroy+free in
-  dynamic-wind); handles carry finalizers plus explicit `close-analytics`/`call-with-analytics`.
-  `open-analytics` checkpoints the WAL, then `INSTALL sqlite; LOAD sqlite; ATTACH … (TYPE SQLITE,
-  READ_ONLY)` — DuckDB's sqlite_scanner reads the live store file; `fhir-analytics-query` returns
-  rows as hasheqs (NULL→'null, booleans, numerics via column-type); `fhir-flatten-observations` is
-  the SQL-on-FHIR-style JSON flattening example (DuckDB `json_extract` over `raw_resource`).
-- `tests/fhir-store-test.rkt` — end-to-end: batch insert, indexed search, cross-engine analytics
-  (AVG per patient computed by DuckDB over the SQLite file), WAL snapshot isolation + parallel
-  writers. Deps: `db-lib` (info.rkt) + system `libduckdb` (brew).
+- `tests/fhir-store-test.rkt` — end-to-end: batch insert, indexed search, WAL snapshot isolation +
+  parallel writers. Deps: `db-lib`.
 
 ### IG-driven serving (`store/ig-params.rkt`, `store/serve.rkt`)
 The IG/core package is the single source of truth for search: `search-params-from-package` streams
@@ -362,7 +321,7 @@ rewritten to `Type/id` BEFORE applying; entries apply in spec order (DELETEs, PO
 connection-taking variants — any failure rolls back everything), `batch` per-entry with error
 response entries; the response is a `transaction-response`/`batch-response` Bundle mirroring
 request order. `load-bundle!` also accepts `collection` (a batch of creates — the Synthea shape);
-`raco fhir load <store.db> <bundle.json|dir>` prepopulates a store from files. The version chain is
+`raco fhir-server load <store.db> <bundle.json|dir>` prepopulates a store from files. The version chain is
 CONTINUOUS across delete/recreate (create/update read `MAX(version_id)` from the immutable history
 — writing v1 again would collide with the retained history row; caught by the bundle tests). The
 `app` struct carries a `#:transaction` handler; the router routes `POST /` to it (400 on failure,
@@ -383,63 +342,9 @@ boundary via `from-json #:lenient?`/`node->jsexpr`); `make-store-app` derives th
 CapabilityStatement from the catalog (`derive-capability-statement` — advertised searchParams ARE
 the indexed ones, no drift) and `build-app`s store-backed repositories, so the existing `http/`
 layer serves it unchanged: `racket examples/store-app.rkt` prints the derived /metadata,
-`raco fhir serve examples/store-app.rkt` exposes CRUD + vread + IG-param search over SQLite.
+`raco fhir-server serve examples/store-app.rkt` exposes CRUD + vread + IG-param search over SQLite.
 `tests/store-http-test.rkt` drives it over a real socket (advertised params from the package;
 token/reference searches hit the indexes; delete → 404 while history remains).
-
-## OMOP lang + FHIR→OMOP ETL (`#lang fhir/omop`, `omop/`, `raco fhir omop`)
-The FHIR-to-OMOP IG (`spec/hl7.fhir.uv.omop.tgz`, 2.0.0-ballot, R5) as the second IG-as-gen-target,
-with two codegen seams added for it: `keep?` accepts **kind=logical** (only when a whitelist names
-the type explicitly — the core packages' pattern logicals FiveWs/Event/… must not be swept), and
-`gen-target` gained a **`rename`** field (a name transform applied to the SD name + the root segment
-of every element path right after load; whitelists match post-rename). `target-omop` renames
-CamelCase→**snake_case** (`camel->snake`, acronym-aware: NoteNLP→note_nlp) — that IS the OMOP CDM
-naming, the generated forms read like OMOP DDL (`(person (person_id 1) …)`), and lowercase names
-can't collide with the R5 core resources (OMOP's Person/Observation/Location/Specimen/Episode) in
-the shared registry, so **both towers coexist in one process**. 25 tables generated (RecordSet, the
-IG's FHIR-side bundling construct, deliberately excluded); `raco fhir regen omop`, checked by
-`check all`.
-
-The ETL (the SQL-on-FHIR route the IG's StructureMaps describe):
-- `omop/views.rkt` — one **ViewDefinition per OMOP table** (jsexpr data, strictly validated against
-  the generated SOF schema — which resolves fine over the R5 registry since types bind by symbol at
-  runtime), each MIRRORING the IG's StructureMap (PersonMap, ConditionMap, MeasurementMap[laboratory
-  gate as `where`], EncounterVisitMap, MedicationMap, ProcedureMap). Where a map calls
-  `translate(ConceptMap,…)` the view emits the SOURCE code and carries a `(column . conceptmap-url)`
-  translation spec. `module+ test` proves **congruence**: every view column ∈ the generated OMOP
-  logical model's fields.
-- `omop/etl.rkt` — pure row pipeline: eval-view → **translate** (terminology/service over the OMOP
-  tgz itself — the IG's own ConceptMaps; unmapped/absent → `"0"`, OMOP's no-matching-concept) →
-  **mint** (integer-typed columns: numeric FHIR ids pass through, non-numeric get a stable per-run
-  integer ≥1000000; ONE minter across tables so person_id keys agree) → **load-omop!** (DuckDB
-  `CREATE SCHEMA omop` + DDL **derived from the generated logical models**: integer→BIGINT,
-  code/string→VARCHAR, date→DATE, dateTime→TIMESTAMP, decimal→DOUBLE; typing follows the IG, not
-  OHDSI DDL — concept ids are `code`→VARCHAR). `store->omop!` runs the whole chain from a
-  `fhir-store`; OMOP tables land IN the analytics session's memory catalog next to the ATTACHed
-  SQLite, so one DuckDB session queries `omop.person` joins AND `fhir.fhir_resources` raw JSON.
-- One viewdef/eval fix rode along: `item->jsexpr` renders FHIR primitives via `primitive->jsexpr`
-  (raw date/dateTime field values were leaking as `t-*` structs into row cells; SOF TCK re-verified
-  133/133).
-- `raco fhir omop <store.db> [SQL] [<out.duckdb>]` — ETL then query (JSON row per line) or print
-  table counts; the third arg persists the omop schema to a .duckdb FILE the standalone `duckdb`
-  CLI opens directly (verified). `examples/omop-demo.rkt` is the end-to-end demo;
-  `omop/tests/omop-test.rkt` the integration test (GenderClass 8507/8532 translation, unmapped→0,
-  joins, AVG, datediff over real DATE columns, minted vs passthrough ids, cross-engine FHIR+OMOP,
-  persistence round-trip + idempotent re-ETL).
-
-Generic SOF↔OMOP layering (`viewdef/materialize.rkt`, `omop/session.rkt`):
-- `viewdef/materialize.rkt` — ANY SQL-on-FHIR ViewDefinition materializes as a DuckDB table:
-  `materialize-view!` (eval-view → optional `#:transform` row post-pass → `replace-table!`), DDL
-  from `#:columns` override / the view's SOF column `type` hints / value inference. `replace-table!`
-  (CREATE OR REPLACE + batched INSERT, idempotent) and `duck-type`/`sql-literal` are the shared
-  bottom half — `omop/etl.rkt`'s `load-omop!` is now a thin loop over `replace-table!` with
-  logical-model-derived `omop-columns`.
-- `store/fhir-analytics.rkt` — `open-analytics` takes `#:duckdb path` (persistent DuckDB file
-  instead of :memory:) and `store` may be `#f` (reopen a .duckdb alone, no ATTACH).
-- `omop/session.rkt` — the front door: `open-omop`/`with-omop` (analytics + full ETL; `#:duckdb`
-  for persistence), `omop-query` (plain SQL; `omop.*` + `fhir.*` both in scope), `omop-counts`,
-  `omop-materialize!` (a CUSTOM view into the same session, resources pulled from the store by the
-  view's `resource` type — user flattenings alongside the CDM).
 
 ## Vendored conformance corpora (the ratchet table)
 Every suite is vendored VERBATIM with a SOURCE.txt (url + retrieval date + what is skipped and
@@ -447,11 +352,10 @@ why), driven by an execution harness, and gated by a floor that only rises:
 
 | suite | source | harness | current |
 |---|---|---|---|
-| FHIRPath | HL7 R4/R5 XML suites | `raco fhir fhirpath-tck r5\|r4` | 1044/1044, 932/934 |
+| FHIRPath | HL7 R4/R5 XML suites | `raco fhirpath --tck r5\|r4` | 1044/1044, 932/934 |
 | CQL | cqframework/cql-tests | `raco cql --tck` | 1820/1823 |
-| SQL-on-FHIR | FHIR/sql-on-fhir.js shared suite | `raco fhir sof-tck` | 133/133 |
-| FML | fhir-test-cases r5/structure-mapping | `raco fhir fml-tck` | 6/6 exec, 15/15 parse |
-| **UCUM** | **FHIR/Ucum-java UcumFunctionalTests.xml** | **`raco fhir ucum-tck`** | **573/573** (all sections) |
+| FML | fhir-test-cases r5/structure-mapping | `raco fml --tck` | 6/6 exec, 15/15 parse |
+| **UCUM** | **FHIR/Ucum-java UcumFunctionalTests.xml** | **`raco fhirpath --ucum-tck`** | **573/573** (all sections) |
 | VCL | the spec page's 60 examples | `raco test vcl/` | 60/60 parse + fixpoint |
 | round-trip | HL7 examples + R4/R5 core packages | `raco fhir roundtrip-tck r5\|r4` | 2968+77, 4581+72 |
 | **IG examples** | **US Core 9.0.0, IPS 2.0.1 packages** | `tests/ig-examples-r4-test.rkt` | **274/274 parse+round-trip** |
@@ -459,7 +363,6 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | **IG search** | **US Core 9.0.0 examples, R4 core + US Core SearchParameters: each example found by its own values** | `tests/ig-search-r4-test.rkt` | **2368/2368 probes** |
 | **IG server** | **a server generated from US Core 9.0.0: all 255 resources load through validation** | `tests/ig-server-r4-test.rkt` | **0 unmet requirements** (SHALL/SHOULD/MAY; auth aside) |
 | **IG FHIRPath** | **the same IGs: profile invariants on their examples + SearchParameter expressions** | `tests/ig-fhirpath-r4-test.rkt` | **6082 invariant checks, 0 fail** (2 dom-3 spec-conflict errors); **1330/1330 search** |
-| SOF examples | the SOF IG's own package | `tests/ig-examples-sof-test.rkt` | 17/17 (1 documented IG defect) |
 | **snapshot** | **fhir-test-cases rX/snapshot-generation** | `conformance/tests/snapshot-conformance-test.rkt` | **paths 80/80, card 476/478, types 235/236** (id-matched) |
 | validator | fhir-test-cases validator + java outcomes | `tests/validate-diff-test.rkt` | **fp=0**, recall 17/26 (67 cases) |
 | FSH | SUSHI golden corpus (hand-authored pairs) | `fsh/tests/golden-test.rkt` | 22/22 fwd + round-trip |
@@ -469,7 +372,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | **Measure server** | **a server generated from CQF Measures 5.0.0: $evaluate-measure over its store, 2 eCQMs, 65 test patients** | `tests/measure-server-r4-test.rkt` | **60/65 individual reports** (5 named); 0 unmet requirements |
 | **CQL execution** | **4 eCQMs over 76 test patients (cqframework/ecqm-content-r4-2021): populations vs expected** | `cql/tests/measure-test.rkt` (cql repo) | **71/76** (5 named corpus disagreements) |
 | **CQL real libraries** | **32 published libraries (FHIRHelpers, CQF Measures, CQL IG) vs the reference ELM** | `cql/tests/elm-corpus-test.rkt` (cql repo) | **32/32 parse + compile; 742/803 defs ELM-equal** |
-| **terminology** | **hl7.fhir.uv.tx-ecosystem 1.9.3** | **`raco fhir tx-tck`** | **463/553** |
+| **terminology** | **hl7.fhir.uv.tx-ecosystem 1.9.3** | **`raco fhir-validate --tx-tck`** | **463/553** |
 
 A later pass closed every remaining gap that needs no external terminology — the corpora drove
 these fixes, each one a real defect:
@@ -532,7 +435,7 @@ Two suites drove REAL implementation work rather than just measuring:
 
 ## IG corpora (real Implementation Guides as test oracles)
 A published IG is an oracle for free: its examples are valid against the profiles they claim, and
-its profiles' invariants hold on them. `fhir-tools/tests/ig-*-harness.rkt` read any IG package and
+its profiles' invariants hold on them. `fhir-validation/tests/ig-*-harness.rkt` (and fhir-server's search harness) read any IG package and
 check that, with the SD index parameterised as `(current-sd-packages (list ig.tgz core.tgz))` (IG
 first, then the core it builds on). Defects these corpora found and fixed:
 - Resource.language/implicitRules were typed as raw strings (`inherited-field-ftype`), so FHIRPath
@@ -557,7 +460,7 @@ Unknown parameters and unsupported modifiers are ignored (FHIR's lenient default
 special are not). Before this, search guessed token-vs-reference from the VALUE's shape and string/
 date/number/quantity parameters silently matched nothing.
 
-## Servers generated from an IG (`store/ig-server.rkt`, `raco fhir serve-ig`)
+## Servers generated from an IG (fhir-server's `store/ig-server.rkt`, `raco fhir-server serve-ig`)
 `make-ig-server store ig.tgz` derives the whole server from the IG package: package.json
 `fhirVersions` picks the tower (fhir/r4|r5|r6) and the core package; the IG's server
 CapabilityStatement (rest.mode = server) gives the types, interactions, search parameters, includes,
@@ -567,7 +470,7 @@ claimed profiles over `(current-sd-packages (list ig core))` — errors -> 422. 
 OWN CapabilityStatement as `kind: instance`, trimmed to what this server executes; everything
 trimmed is a `gap` (type, what, name, SHALL/SHOULD/MAY, reason). IG operations are a table keyed by
 OperationDefinition canonical (`operation-impls`; US Core `$docref` so far) — the OD itself comes
-from the package and drives input validation. `raco fhir serve-ig hl7.fhir.us.core [--db f] [--port n]`
+from the package and drives input validation. `raco fhir-server serve-ig hl7.fhir.us.core [--db f] [--port n]`
 loads the IG's examples and serves; `--gaps` prints the unmet requirements.
 US Core status: NO unmet requirement at any level (SHALL, SHOULD, MAY) except authorization (SMART is
 not modelled in the CapabilityStatement's resources). Implemented for it: history-instance/-type
@@ -594,9 +497,9 @@ instance level, so a server generated from an IG that declares it gets it: CQF M
 `measure-calculation-service-example` (`make-ig-server … #:capability <id|url>`, chosen because that IG
 ships four server CapabilityStatements) has 0 unmet requirements. System-level CapabilityStatement
 operations now count in the gap report. `store/load.rkt` loads Bundles, resources and `.cql` files
-(-> Library). CLI: `raco fhir serve-ig hl7.fhir.us.cqfmeasures-5.0.0.tgz --capability
-measure-calculation-service-example --load <dir> --tz-offset -07:00`, `raco fhir load <db> <file|dir>`,
-`raco fhir evaluate-measure <db> <Measure id|url> --period-start D --period-end D [--subject Patient/x]`.
+(-> Library). CLI: `raco fhir-server serve-ig hl7.fhir.us.cqfmeasures-5.0.0.tgz --capability
+measure-calculation-service-example --load <dir> --tz-offset -07:00`, `raco fhir-server load <db> <file|dir>`,
+`raco fhir-server evaluate-measure <db> <Measure id|url> --period-start D --period-end D [--subject Patient/x]`.
 `tests/measure-server-r4-test.rkt`: two eCQMs and 65 test patients loaded through the generated
 server's transaction endpoint, `$evaluate-measure` per patient: **60/65** as expected — the five named
 (two cases whose resources reference a bare id / a sibling patient, which a server rightly leaves out

@@ -8,7 +8,7 @@
 
 
 (provide (struct-out gen-target)
-         target-r6 target-r4 target-r5 target-sof target-omop target-for)
+         target-r6 target-r4 target-r5 target-for)
 
 ;; spec-file : string -> path   a vendored package from the fhir-spec package (a hard requirement
 ;; for codegen: regenerating a tower without the spec is an error, with an install hint).
@@ -48,43 +48,9 @@
   (gen-target 'r5 (spec-file "hl7.fhir.r5.core.tgz") "hl7.fhir.r5.core"
               "r5" "https://hl7.org/fhir/R5/" #f #f '() #f #f))
 
-;; The SQL-on-FHIR IG tower — the first IG-as-gen-target: generate ONLY the IG's own resources
-;; (whitelist) and DELEGATE every referenced core type to the base tower (the emitted index requires
-;; fhir/r6/types, so Meta/Coding/… resolve through the shared registry). `#lang fhir/viewdef`
-;; authors ViewDefinitions with compile-time validation; the hand-written evaluator lives alongside.
-(define target-sof
-  (gen-target 'sof (spec-file "hl7.fhir.uv.sql-on-fhir.tgz") "hl7.fhir.uv.sql-on-fhir"
-              "viewdef" "https://sql-on-fhir.org/ig/" '(ViewDefinition) target-r6 '() #t #f))
-
-;; camel->snake : "ConditionOccurrence" -> "condition_occurrence", "NoteNLP" -> "note_nlp".
-;; OMOP CDM table names ARE snake_case — the rename makes the generated types (and the `#lang
-;; fhir/omop` forms) read like OMOP DDL, and keeps Person/Observation/Location/Specimen/Episode
-;; from colliding with the R5 core resources in the shared runtime registry.
-(define (camel->snake s)
-  (string-downcase
-   (regexp-replace* #px"([a-z0-9])([A-Z])"
-                    (regexp-replace* #px"([A-Z]+)([A-Z][a-z])" s "\\1_\\2")
-                    "\\1_\\2")))
-
-;; The FHIR-to-OMOP IG tower (hl7.fhir.uv.omop, FHIR R5): the 25 OMOP CDM tables — the IG's
-;; kind=logical StructureDefinitions — as generated types, snake_case per OMOP DDL. RecordSet (the
-;; IG's FHIR-side bundling construct, referencing other tables by canonical URL) is deliberately
-;; not whitelisted: it isn't an OMOP CDM table. `#lang fhir/omop` authors compile-time-validated
-;; OMOP rows; the SQL-on-FHIR flattening + DuckDB loader live alongside in omop/.
-(define target-omop
-  (gen-target 'omop (spec-file "hl7.fhir.uv.omop.tgz") "hl7.fhir.uv.omop"
-              "omop" "https://build.fhir.org/ig/HL7/fhir-omop-ig/"
-              '(person observation_period visit_occurrence visit_detail condition_occurrence
-                drug_exposure procedure_occurrence device_exposure measurement observation
-                death note note_nlp specimen fact_relationship location care_site provider
-                payer_plan_period cost drug_era dose_era condition_era episode episode_event)
-              target-r5 '() #t camel->snake))
-
 (define (target-for id)
   (case id
     [(r6) target-r6]
     [(r4) target-r4]
     [(r5) target-r5]
-    [(sof) target-sof]
-    [(omop) target-omop]
-    [else (error 'target-for "unknown target ~a (expected r4, r5, r6, sof, or omop)" id)]))
+    [else (error 'target-for "unknown target ~a (expected r4, r5 or r6)" id)]))

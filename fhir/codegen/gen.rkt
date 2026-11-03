@@ -38,7 +38,7 @@
   [committed-path (-> (listof string?) path?)]))
 
 ;; committed-path : (listof string) -> path
-;; relpath's first segment names a sub-collection of `fhir` (r6, viewdef, omop, ...); it is located
+;; relpath's first segment names a sub-collection of `fhir` (r4, r5, r6, or an IG tower); it is located
 ;; through the collection search path, so a tower regenerates in place in whichever package
 ;; (fhir for the core towers, fhir for the IG towers) it lives in.
 (define (committed-path relpath)

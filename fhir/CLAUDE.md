@@ -2,7 +2,7 @@
 
 Notes for the FOUNDATION package `fhir` (this directory; `(define collection "fhir")`). Conventions,
 HTDP design style, the package map and the conformance ratchet table live in the repo root's
-CLAUDE.md. `fhir-tools/` (same repo) contributes the application layer to the same `fhir` collection:
+CLAUDE.md. `fhir-validation/` and `fhir-server/` (same repo) contribute to the same `fhir` collection:
 the two must stay module-disjoint. Cross-directory imports use collection paths (`fhir/model/node`,
 never `../model/node.rkt`). The vendored spec tarballs are the separate `fhir-spec` package, found via
 `spec-package.rkt` — nothing here depends on them statically (codegen and snapshot generation need them
@@ -27,7 +27,7 @@ the snapshot to IR (`nest`/`expand`/`ir`), and emits per type a form module (`em
 module (`emit-schema`), plus the tower index/main/reader. `target.rkt` is the R6/R4 seam (a
 `gen-target` with a `whitelist` that keeps the slice small — set to `#f` for full generation).
 
-**Generating an IG's resources as a lang (the recipe, proven by `#lang fhir/viewdef`):** an IG whose
+**Generating an IG's resources as a lang (the recipe, proven by `#lang fhir/viewdef`, removed 2026-11-02 — see git history):** an IG whose
 StructureDefinitions are `kind=resource`/`derivation=specialization` with snapshots becomes a
 first-class generated tower in four steps — (1) vendor the IG's NPM package under `spec/` (from
 `packages2.fhir.org/packages/<id>` → the `tarball` URL); (2) add a `gen-target` in `codegen/target.rkt`
@@ -39,10 +39,11 @@ shared runtime registry (types are referenced by symbol, `(vector 'type 'Coding)
 runtime — nothing is re-emitted). `raco fhir check all` then guards the IG tower's determinism too.
 Constraint-derivation profiles in the package are auto-skipped by `keep?`. Hand-written modules
 (evaluators, harnesses) co-locate safely in the same directory: the check byte-diffs only the files
-it generates. `target-sof` (`spec/hl7.fhir.uv.sql-on-fhir.tgz`, whitelist `ViewDefinition`, base R6)
-is the exemplar: `#lang fhir/viewdef` authors compile-time-validated ViewDefinitions, and the same
-schema drives `from-json`, which strictly parses 132/133 of the official suite's views — the 1
-rejection being the suite's deliberately-invalid view.
+it generates. The exemplar was `target-sof` (the SQL-on-FHIR IG, whitelist `ViewDefinition`, base R6):
+`#lang fhir/viewdef` authored compile-time-validated ViewDefinitions, and the same schema drove
+`from-json`, which strictly parsed 132/133 of the official suite's views (the 1 rejection being the
+suite's deliberately-invalid view). It was removed with SQL-on-FHIR on 2026-11-02; no IG target is
+configured today.
 
 **OperationDefinitions generate too**: `load-package` also collects the package's
 `OperationDefinition-*.json` (sorted by (code, id)), and any package that ships them gets a generated
@@ -50,8 +51,7 @@ rejection being the suite's deliberately-invalid view.
 sorted-key JSON for byte-determinism) plus a scaffold constructor `<code>-operation` that binds
 level/code/target from the OD and takes ONLY the handler, returning `operation-entry`s for
 `build-app`. Identifiers are named by code, or by id when several ODs share a code (the core
-$apply pair). The core towers get the standard operations (`fhir/r5/operations`: 61); the SOF
-tower gets `sql-run-operation`/`sql-export-operation`.
+$apply pair). The core towers get the standard operations (`fhir/r5/operations`: 61).
 
 **Terminology generates too** — ValueSets are part of the language: `load-package` collects
 ValueSet/CodeSystem (+ `package/example/*.json`, returning one `package-contents` struct), and
@@ -64,21 +64,19 @@ ElementDefinition.binding, which `element-definition` now parses), and `form-syn
 `check-binding` rejects out-of-set literal codes at COMPILE time: `(Patient (gender "florp"))` is
 a syntax error listing the valid codes (r6: 202 valuesets; unregistered urls fail open).
 VS/CS resolution consults the DELEGATE-BASE packages up the chain, so IG towers get core-bound
-expansions too (`viewdef/terminology.rkt`: `(ViewDefinition (status "florp"))` is a compile
-error). At RUNTIME the same catalogue backs `conformance/validate.rkt`'s required-binding check
+expansions too (the removed viewdef tower rejected `(ViewDefinition (status "florp"))` at compile
+time). At RUNTIME the same catalogue backs `conformance/validate.rkt`'s required-binding check
 when no tx-service is supplied (offline expansions are exact → 'no is never a false positive). Runtime
 terminology ($expand/$validate-code/$translate over ANY package tgz) remains `terminology/`.
 
-**Examples must parse** (`tests/ig-examples-sof-test.rkt`): every `package/example/*.json` an IG
-ships parses — the tower's own types STRICTLY (the schema is the validator), everything else
-leniently to its declared type. Documented corpus defect: all 10 of the SOF 3.0.0-ballot's
-ViewDefinition examples carry `resourceDefinition`, an element the IG's own SD does not declare —
-masked with a ratchet check that fails (forcing mask removal) once the IG fixes its examples.
+**Examples must parse** (`tests/ig-examples-r4-test.rkt`): every `package/example/*.json` an IG
+ships parses and round-trips (US Core 9.0.0, IPS 2.0.1: 274/274); for an IG tower, its own types
+parse STRICTLY (the schema is the validator), everything else leniently to its declared type.
 
 **Generated code is never hand-edited.** Every generated file carries a `DO NOT EDIT` banner;
 `raco fhir check` (→ `codegen/check.rkt`) regenerates purely and byte-diffs vs disk. **Generated
 code is held to reading standards too**: the banner stamps the TRUE provenance
-(`hl7.fhir.uv.omop#2.0.0-ballot`, not a generic "core"), form macros emit one field-spec per line
+(`hl7.fhir.r5.core#5.0.0`, an IG's own id and version for an IG tower), form macros emit one field-spec per line
 (a schema table, not a 1500-char line), and operations.rkt embeds each OperationDefinition as
 pretty sorted-key JSON in a multi-line string literal (readable AND byte-deterministic).
 Generation must

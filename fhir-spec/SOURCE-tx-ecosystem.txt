@@ -4,7 +4,7 @@ https://packages2.fhir.org/web/hl7.fhir.uv.tx-ecosystem-1.9.3.tgz retrieved 2026
 Vendored for its `tests/` tree: test-cases.json declares 35 suites / 920 tests, each naming a
 request Parameters file, an expected response, and the suite's OWN setup CodeSystems/ValueSets —
 which is what makes the suite executable offline. Run by terminology/tests/tx-harness.rkt via
-`raco fhir tx-tck`, floor in run-tx.rkt.
+`raco fhir-validate --tx-tck`, floor in run-tx.rkt.
 
 WHAT RUNS (463/553 as of 2026-08-24):
   $expand           — compared on the SET OF CODES in expansion.contains; supports the
