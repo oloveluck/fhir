@@ -54,7 +54,7 @@ A `.fsh` file is a module providing `document`/`compiled`/`resources`; `main` pr
   IN THE FSH: at the instance rule that wrote the element (else the instance header), naming the
   profile rule that constrains it (`… (constrained by profile TumorSize at profiles.fsh:4:3)`).
   Exit 1 on any error; `--format json|outcome` for agents. `--capability` needs fhir-server.
-- `raco spec-bench list|make|score|run` (the fhir-spec-driven repo) — prose → FSH, scored against a
+- `raco spec-bench list|make|score|run` (the fhir-examples repo) — prose → FSH, scored against a
   published IG.
 - `raco fsh --decompile <file.json>` — **reverse** (FHIR → FSH text).
 
@@ -87,7 +87,7 @@ resource after the subject supplies inputs known only at run time. Available: `$
 `$snapshot`, `$expand`, `ValueSet/$validate-code`, `$lookup`, `$translate`, `$transform` (FML as
 `#:srcMap`), `$evaluate-measure`. The same operations serve over HTTP — `serve-operations`, or
 `(operation "ValueSet/$expand")` in `#lang fhir/capability` — with /metadata derived from them
-(fhir-serving). Example: `fhir-spec-driven/examples/pipeline.rkt`.
+(fhir-serving). Example: `fhir-examples/examples/pipeline.rkt`.
 
 ## `#lang cql` — Clinical Quality Language → ELM
 

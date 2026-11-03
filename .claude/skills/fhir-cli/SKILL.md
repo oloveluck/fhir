@@ -48,10 +48,10 @@ The languages ship their own commands: `raco fsh <dir|file>`, `raco fsh check <d
 `raco fsh --decompile <file.json>`, `raco cql <file.cql>`, `raco vcl '<expr>'`, `raco fml <file.map>`,
 `raco fhirpath '<expr>' [resource.json]` — see **fhir-authoring**. Servers: `raco fhir-server
 serve-ig|serve|load|evaluate-measure` — see **fhir-serving**. The benchmark: `raco spec-bench`
-(fhir-spec-driven repo).
+(fhir-examples repo).
 
 ## Tests
 
 ```sh
-raco test -p fhir fhir-spec fhirpath vcl fhir-validation cql fml fsh fhir-server fhir-spec-driven
+raco test -p fhir fhir-spec fhirpath vcl fhir-validation cql fml fsh fhir-server fhir-examples
 ```

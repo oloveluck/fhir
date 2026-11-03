@@ -3,10 +3,10 @@
 FHIR as a framework for spec-driven development: FHIR's specs (profiles, value sets, invariants,
 measures, maps) as Racket `#lang`s and the tools that check them, so a person or an LLM goes from a
 requirement to a validated FHIR artifact with positioned feedback (language-oriented programming;
-JSON only, no XML). The demonstration lives in the `fhir-spec-driven` repo.
+JSON only, no XML). Worked examples, and the spec-driven benchmark, live in the `fhir-examples` repo.
 
 ## Package map (the family)
-Nine Racket packages in six git repos, plus `fhir-spec-driven` (the demonstration). The foundation keeps
+Nine Racket packages in six git repos, plus `fhir-examples` (examples and the benchmark). The foundation keeps
 the `fhir` collection; each language is its own collection (`#lang cql`, `(require cql/compile)`).
 Rule that makes directories movable: **cross-directory imports use collection paths** (`fhir/model/node`),
 never `../model/node.rkt`. Dependency order (base first):
@@ -22,7 +22,7 @@ never `../model/node.rkt`. Dependency order (base first):
 | `fml` | `oloveluck/fml` | `#lang fml` (FHIR Mapping Language), `raco fml` | fhir, fhirpath, cql (only `cql/error.rkt`, to be removed) |
 | `fsh` | `oloveluck/fsh` | `#lang fsh` (bidirectional), projects + packaging, `check.rkt`; `raco fsh`, `raco fsh check` | fhir, fhirpath, fhir-validation |
 | `fhir-server` | `oloveluck/fhir` → `fhir-server/` | `capability/ http/ store/` (SQLite), IG-generated servers, `$evaluate-measure`, `server-cli.rkt` (`raco fhir-server`), server tests | fhir, fhir-spec, fhirpath, fhir-validation, cql, db-lib |
-| `fhir-spec-driven` | `oloveluck/fhir-spec-driven` | `bench.rkt` (prose → FSH tasks from a published IG, scored), recorded runs; `raco spec-bench` | fhir, fhir-spec, fhir-validation, fsh |
+| `fhir-examples` | `oloveluck/fhir-examples` | `examples/` (operations applied as procedures), `bench.rkt` (prose → FSH tasks from a published IG, scored), recorded runs; `raco spec-bench` | fhir, fhir-spec, fhir-validation, fsh, fml |
 
 `fhir`, `fhir-validation` and `fhir-server` all contribute to the `fhir` collection and must stay
 module-disjoint (module paths like `fhir/conformance/validate` did not change when the packages split).
@@ -52,8 +52,8 @@ Each language repo carries its own `CLAUDE.md` with the architecture notes for t
 ## Package setup
 From `~/Projects` with the repos side by side (dependency order):
 ```sh
-raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-validation cql fml fsh fhir/fhir-server fhir-spec-driven
-raco setup --check-pkg-deps --pkgs fhir fhir-spec fhirpath vcl fhir-validation cql fml fsh fhir-server fhir-spec-driven
+raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-validation cql fml fsh fhir/fhir-server fhir-examples
+raco setup --check-pkg-deps --pkgs fhir fhir-spec fhirpath vcl fhir-validation cql fml fsh fhir-server fhir-examples
 ```
 This repo's root holds the family README/LICENSE and these notes; `fhir/`, `fhir-spec/`,
 `fhir-validation/` and `fhir-server/` are its four packages. Commands: `raco fhir` (foundation),
@@ -100,7 +100,7 @@ OperationOutcome with the standard `operationoutcome-issue-line`/`-col`/`-source
   an element of the base type: "`nmae` is not an element of Patient", at the rule), and the entity
   still compiles. The check is gated by zero diagnostics on IPS, mCODE and the golden corpus.
 
-## The spec-author's loop (`fsh/check.rkt`, `raco fsh check`; fhir-spec-driven's `bench.rkt`)
+## The spec-author's loop (`fsh/check.rkt`, `raco fsh check`; fhir-examples's `bench.rkt`)
 `check-fsh-project dir [#:capability id]` runs everything this repo knows about one FSH project and
 reports it as `fhir/diagnostic`s positioned in the FSH: compile + rule-level diagnostics
 (fsh/project), every `#example` instance validated against its base type and claimed profiles (the
@@ -116,7 +116,7 @@ It exposed a validator recall gap, now closed: an entry matching exactly ONE sli
 is held to the slice's own children — cardinality, fixed/pattern, required bindings, and choice
 variants the slice does not allow (`valueString` in a Quantity-only slice) — recursion stays with the
 unsliced walk. Gates unchanged: fp=0, 0 over-reported, IG validation 260 clean, published mCODE 283/283.
-`raco spec-bench` (the fhir-spec-driven repo) turns a published IG into prose -> FSH tasks (one leaf profile and its examples
+`raco spec-bench` (the fhir-examples repo) turns a published IG into prose -> FSH tasks (one leaf profile and its examples
 removed; the prompt gives the IG's words about it and names every element it constrains, never the
 constraint values) and scores a candidate four ways: `check` errors; facet fidelity against the
 published differential; the published examples accepted by the candidate's profile; the candidate's
@@ -158,7 +158,7 @@ FHIRPath's `%terminologies` closures wrap it), `$transform` (fml, `fml/operation
 MeasureReport). fhir-server serves every registered operation its IG's ODs name, at every level they
 declare (operations on Resource on every served type), with the store as data source; US Core
 `$docref` is built there from the IG's own OD (it needs the store's search).
-`fhir-spec-driven/examples/pipeline.rkt` maps a QuestionnaireResponse to a Patient with FML,
+`fhir-examples/examples/pipeline.rkt` maps a QuestionnaireResponse to a Patient with FML,
 validates it and checks its gender against the core value set — by reference, no server.
 **Over HTTP, the CapabilityStatement follows from what is served** (fhir-server's
 `capability/operations.rkt`): `(serve-operations (list $validate $expand) #:port 8080)` serves just
@@ -213,7 +213,7 @@ This codebase is written in the **How to Design Programs** idiom; keep new code 
 
 ## Verify
 ```sh
-raco test -p fhir fhir-spec fhirpath vcl fhir-validation cql fml fsh fhir-server fhir-spec-driven
+raco test -p fhir fhir-spec fhirpath vcl fhir-validation cql fml fsh fhir-server fhir-examples
 racket fhir/examples/patient.fhir6       # prints FHIR JSON
 racket fhir/examples/demo.cql            # #lang cql — prints ELM JSON
 raco fhir check all                      # determinism guard (r6 r4 r5)

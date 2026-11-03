@@ -16,7 +16,7 @@ validated FHIR artifact with precise feedback at every step:
    CapabilityStatement, search parameters, profile validation on every write, `$expand`, and CQF
    Measures' `$evaluate-measure` over CQL.
 
-[fhir-spec-driven](https://github.com/oloveluck/fhir-spec-driven) is the demonstration: a model
+[fhir-examples](https://github.com/oloveluck/fhir-examples) holds worked examples and the demonstration: a model
 reads what a published IG says about a profile, writes the FSH, gets `fsh check`'s diagnostics back,
 and is scored against the profile HL7 actually published.
 
@@ -45,7 +45,7 @@ raco fhirpath --tck r5                           # the official FHIRPath R5 suit
 
 ## The packages
 
-Nine Racket packages in six repos, plus the demonstration. The foundation keeps the `fhir` collection
+Nine Racket packages in six repos, plus the examples repo. The foundation keeps the `fhir` collection
 (shared by `fhir-validation` and `fhir-server`, module-disjoint); each language is its own collection.
 
 | package | where | what |
@@ -59,7 +59,7 @@ Nine Racket packages in six repos, plus the demonstration. The foundation keeps 
 | [`cql`](https://github.com/oloveluck/cql) | own repo | `#lang cql`: CQL -> ELM and an ELM engine over FHIR data; `raco cql` |
 | [`fml`](https://github.com/oloveluck/fml) | own repo | `#lang fml`: FHIR Mapping Language; `raco fml` |
 | [`fsh`](https://github.com/oloveluck/fsh) | own repo | `#lang fsh`, both directions, projects and packaging; `raco fsh`, `raco fsh check` |
-| [`fhir-spec-driven`](https://github.com/oloveluck/fhir-spec-driven) | own repo | the demonstration and benchmark; `raco spec-bench` |
+| [`fhir-examples`](https://github.com/oloveluck/fhir-examples) | own repo | worked examples (operations as procedures) and the spec-driven benchmark; `raco spec-bench` |
 
 Every tool reports errors the same way (`fhir/diagnostic`): `file:line:col` with the source line and a
 caret, or `--format json` / `--format outcome` for programs, and every error, not just the first.
@@ -67,7 +67,7 @@ caret, or `--format json` / `--format outcome` for programs, and every error, no
 Install from source, repos side by side (dependency order):
 
 ```sh
-raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-validation cql fml fsh fhir/fhir-server fhir-spec-driven
+raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-validation cql fml fsh fhir/fhir-server fhir-examples
 ```
 
 ## Conformance
