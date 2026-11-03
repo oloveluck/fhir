@@ -63,6 +63,28 @@ Instances, Invariants, Aliases, slicing (incl. reslicing + multi-discriminator),
 custom Resources, Mappings, and RuleSets (incl. parameterized). Targets R5; emits differentials by
 default, full snapshots opt-in.
 
+## FHIR operations as function calls (no server)
+
+Apply an operation by reference to its OperationDefinition, with parameters (`fhir/operation`):
+
+```racket
+(require fhir/operation fhir/data-source
+         (only-in fhir/conformance/operations validated)   ; loading a module registers its operations
+         (only-in fhir/terminology/operations) (only-in fml/operations) (only-in cql/measure))
+
+(call-operation "http://hl7.org/fhir/OperationDefinition/StructureMap-transform" qr "srcMap" fml-text)
+(call-operation "ValueSet/$expand" #f "url" "http://hl7.org/fhir/ValueSet/administrative-gender")
+(pipeline qr (step (lookup-operation "$transform") "srcMap" fml-text) (validated #:profile url))
+(parameterize ([current-data-source (directory->data-source "patients/")])   ; or a Bundle, or the store
+  (call-operation "$evaluate-measure" measure "periodStart" "2021-01-01" "periodEnd" "2021-12-31"))
+```
+
+References: the canonical, the OperationDefinition, `"$code"` or `"Type/$code"`. Parameters are
+name/value pairs or a Parameters resource; unknown names are errors that list the valid ones.
+Available: `$validate`, `$snapshot`, `$expand`, `ValueSet/$validate-code`, `$lookup`, `$translate`,
+`$transform` (FML as `srcMap`), `$evaluate-measure`. A server generated from an IG serves the same
+operation values over HTTP (fhir-serving). Example: `fhir-spec-driven/examples/pipeline.rkt`.
+
 ## `#lang cql` — Clinical Quality Language → ELM
 
 CQL compiles to **ELM** and the ELM is run (never CQL directly). A `.cql` file provides the CQL AST,

@@ -44,7 +44,11 @@
          (struct-out version-policy) no-version-policy policy-of
          ;; a ValueSet whose compose names a code system the resolver cannot see is UNDECIDABLE
          ;; offline — the conformance harness skips such cases instead of guessing
-         make-undecidable?)
+         make-undecidable?
+         ;; the same operations as FHIR JSON (no type tower needed), for terminology/operations:
+         ;; resolver url ... -> ValueSet | Parameters jsexpr
+         (rename-out [tx-expand expand/json] [tx-validate validate-code/json]
+                     [tx-lookup lookup/json] [tx-translate translate/json]))
 
 (define r5-core-tgz (spec-package-path "hl7.fhir.r5.core.tgz"))
 (define r4-core-tgz (spec-package-path "hl7.fhir.r4.core.tgz"))
@@ -317,7 +321,7 @@
     (if (eq? (p "excludeNested" 'absent) #f)
         (nest-contains resource page entries)
         entries))
-  (node
+  (values
    (hasheq 'resourceType "ValueSet"
            'url url
            'expansion
@@ -461,7 +465,7 @@
       [valid-check valid-check]
       [(pair? checks) (car checks)]
       [else (hasheq 'ok #f 'message "no code supplied")]))
-  (node
+  (values
    (hasheq 'resourceType "Parameters"
            'parameter
            (filter values
@@ -550,7 +554,7 @@
 (define (tx-lookup resource system code [version #f])
   (define cs (resource system version))
   (define concept (and cs (find-concept cs code)))
-  (node
+  (values
    (hasheq 'resourceType "Parameters"
            'parameter
            (filter values
@@ -601,7 +605,7 @@
        (hasheq 'ok (and lenient? #t) 'code c 'system sys 'display official
                'message (format "Wrong Display Name '~a'" disp))]
       [else (hasheq 'ok #t 'code c 'system sys 'display official)]))
-  (node
+  (values
    (hasheq 'resourceType "Parameters"
            'parameter
            (filter values
@@ -634,7 +638,7 @@
 
 (define (tx-translate resource url code [system #f])
   (define matches (translate-matches resource url code system))
-  (node
+  (values
    (hasheq 'resourceType "Parameters"
            'parameter
            (cons (hasheq 'name "result" 'valueBoolean (pair? matches))
@@ -652,7 +656,8 @@
 
 ;; drop keys whose value is #f (absent optional fields) so from-json doesn't try to parse them.
 
-;; build a jsexpr resource into a typed node -> a one-element FHIRPath collection (or empty on failure)
+;; build a jsexpr resource into a typed node -> a one-element FHIRPath collection (or empty on failure).
+;; The tx-* functions answer FHIR JSON; the tx-service closures (FHIRPath's %terminologies) wrap it.
 (define (node js)
   (define r (from-json js #:lenient? #t))
   (if (ok? r) (list (ok-value r)) '()))
@@ -665,9 +670,9 @@
 (define (make-terminology tgz-path)
   (define index (delay (load-index tgz-path)))
   (define (resource url [version #f]) (index-resolve (force index) url version))
-  (tx-service (lambda (url . _)         (tx-expand resource url))
+  (tx-service (lambda (url . _)         (node (tx-expand resource url)))
               (make-validate resource)
-              (lambda (url code . rest) (apply tx-translate resource url code rest))))
+              (lambda (url code . rest) (node (apply tx-translate resource url code rest)))))
 
 ;; packages->resolver : (listof tgz) -> resolver   each package indexed lazily, first match wins
 (define (packages->resolver tgzs)
@@ -691,9 +696,9 @@
 
 (define (make-terminology/resolver resource)
   (tx-service (lambda (url [vs-version #f] [params (hash)] [policy no-version-policy] . _)
-                (tx-expand resource url vs-version params policy))
+                (node (tx-expand resource url vs-version params policy)))
               (make-validate resource)
-              (lambda (url code . rest) (apply tx-translate resource url code rest))))
+              (lambda (url code . rest) (node (apply tx-translate resource url code rest)))))
 
 ;; #t when expanding/validating this ValueSet would require a code system we do not have
 (define ((make-undecidable? resource) url [version #f])
@@ -713,12 +718,12 @@
                    ((make-undecidable? resource) v)))))]))
 
 ;; the CodeSystem-level operations are exposed as closures over the same resolver
-(define ((make-lookup resource) system code [version #f]) (tx-lookup resource system code version))
+(define ((make-lookup resource) system code [version #f]) (node (tx-lookup resource system code version)))
 (define ((make-cs-validate resource) system code [version #f]
                                      #:coding [coding #f] #:display [display #f]
                                      #:lenient-display? [lenient? #f])
-  (tx-cs-validate resource system code version
-                  #:coding coding #:display display #:lenient-display? lenient?))
+  (node (tx-cs-validate resource system code version
+                        #:coding coding #:display display #:lenient-display? lenient?)))
 
 ;; the validate closure accepts BOTH the positional (url code [system]) form its in-repo callers
 ;; use and the operation's keyword surface (coding / codeableConcept / display / lenient)
@@ -727,10 +732,10 @@
                                   #:display [display #f] #:lenient-display? [lenient? #f]
                                   #:system-version [system-version #f] #:valueset-version [vs-version #f]
                                   #:policy [policy no-version-policy])
-  (tx-validate resource url code system #:coding coding #:codeable-concept cc
-               #:display display #:lenient-display? lenient?
-               #:system-version system-version #:valueset-version vs-version
-               #:policy policy))
+  (node (tx-validate resource url code system #:coding coding #:codeable-concept cc
+                     #:display display #:lenient-display? lenient?
+                     #:system-version system-version #:valueset-version vs-version
+                     #:policy policy)))
 
 (define (make-r5-terminology) (make-terminology r5-core-tgz))
 (define (make-r4-terminology) (make-terminology r4-core-tgz))

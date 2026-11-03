@@ -125,6 +125,35 @@ shell command (prompt and answer through files; past the timeout its process gro
 feeds `check`'s diagnostics back between rounds. Baselines: the IG's own FSH (TumorSize 28/34
 facets — the compiler's ceiling) and empty (0). Results: that repo's README and `results/`.
 
+## Operations as values (`fhir/operation`, `fhir/data-source`)
+A FHIR operation is an OperationDefinition plus an implementation, with nothing about HTTP: a
+pipeline calls it, a server routes requests to it, and both see the same inputs and outputs.
+`(make-operation od run #:subject name)`; an operation is a procedure, `(op subject name value …)`.
+Called by reference like a function: `(call-operation ref subject name value …)` where ref is the
+OD's canonical, the OD itself, `"$code"`, or `"Type/$code"` when a code is ambiguous, and the
+parameters are name/value pairs or one Parameters resource. Implementations register under their
+canonical when their module loads (`register-operation!`). `invoke` checks inputs against the OD
+(unknown names list the ones it takes; cardinality), coerces strings to integer/decimal/boolean
+parameters (HTTP query values), and returns the `return` resource or a Parameters of the outputs.
+Failures raise `exn:fail:operation` with an OperationOutcome (`invoke/outcome` returns it).
+`(pipeline v (step op name value …) …)` threads a value through operations; `subject` is the input a
+piped value fills (`resource` for $validate, `content` for $transform) or, when #f, the operation
+applies to it (instance level: a ValueSet into $expand).
+Context comes from parameters: `current-data-source` — FHIR data as a value: in memory / Bundles
+(`resources->data-source`), a directory (`directory->data-source`), or the store (fhir-server's
+`store->data-source`, which also does real FHIR search) — and `current-sd-packages` (profiles,
+value sets). Implemented, each by the package that does the work, registered under the core OD:
+`$snapshot` (fhir, `fhir/sd/operations`), `$validate` + the `validated` pipeline step
+(fhir-validation, `fhir/conformance/operations`), `$expand`, `ValueSet/$validate-code`, `$lookup`,
+`$translate` (fhir-validation, `fhir/terminology/operations`; the service's `tx-*` functions answer
+FHIR JSON now, the FHIRPath `%terminologies` closures wrap it), `$transform` (fml, `fml/operations`:
+runs FML given as `srcMap`), `$evaluate-measure` (cql, `cql/measure`: over any data source; the R4
+OD, which returns a MeasureReport). fhir-server serves every registered operation its IG's ODs name,
+at every level they declare (operations on Resource on every served type), with the store as data
+source; US Core `$docref` is built there from the IG's own OD (it needs the store's search).
+`fhir-spec-driven/examples/pipeline.rkt` maps a QuestionnaireResponse to a Patient with FML,
+validates it, and checks its gender against the core value set, all by reference, no server.
+
 ## How-to-use docs
 User-facing usage/how-to lives in `.claude/skills/` — `fhir-authoring` (write/run the langs, `raco fsh
 check`), `fhir-cli` (`raco fhir`, `raco fhir-validate`), `fhir-serving` (`raco fhir-server`: store + HTTP).
@@ -469,7 +498,7 @@ IG's; every create/update (API and example loader alike) is validated against it
 claimed profiles over `(current-sd-packages (list ig core))` — errors -> 422. `/metadata` is the IG's
 OWN CapabilityStatement as `kind: instance`, trimmed to what this server executes; everything
 trimmed is a `gap` (type, what, name, SHALL/SHOULD/MAY, reason). IG operations are a table keyed by
-OperationDefinition canonical (`operation-impls`; US Core `$docref` so far) — the OD itself comes
+OperationDefinition canonical (the registered operation values, see "Operations as values") — the OD itself comes
 from the package and drives input validation. `raco fhir-server serve-ig hl7.fhir.us.core [--db f] [--port n]`
 loads the IG's examples and serves; `--gaps` prints the unmet requirements.
 US Core status: NO unmet requirement at any level (SHALL, SHOULD, MAY) except authorization (SMART is
@@ -477,13 +506,13 @@ not modelled in the CapabilityStatement's resources). Implemented for it: histor
 (`GET /T/id/_history`, `GET /T/_history`, `_since`, `_count`; Bundle type history), PATCH as JSON Patch
 (RFC 6902, `capability/json-patch.rkt`; read -> apply atomically -> the repository's validated update,
 so a patched resource is checked like a PUT; failing `test` / profile violation -> 422; a separate
-read/update pair so PATCH does not open PUT), and `ValueSet/$expand` at type and instance level over
-the IG + core packages (`terminology/service` `packages->resolver`; the core OperationDefinition drives
-input validation; unknown ValueSet -> 404). The loader also stores the IG's ValueSets/CodeSystems.
+read/update pair so PATCH does not open PUT), and `ValueSet/$expand` at type and instance level (the
+registered operation, over the stored ValueSets, then the IG, its dependencies and core; the core
+OperationDefinition drives input validation; unknown ValueSet -> an OperationOutcome). The loader also stores the IG's ValueSets/CodeSystems.
 
-## Measure evaluation: CQL over the store (`store/measure.rkt`, `$evaluate-measure`)
-`evaluate-measure store measure periodStart periodEnd [#:subject]` runs a Measure's CQL (the `cql`
-package's runtime, cql/run.rkt) over the store: the Measure's Library by url (or the canonical's last
+## Measure evaluation: CQL over a data source (`cql/measure.rkt`, `$evaluate-measure`; fhir-server's `store/measure.rkt`)
+`evaluate-measure measure periodStart periodEnd [#:subject]` (cql/measure) runs a Measure's CQL
+(cql/run.rkt) over `current-data-source` — fhir-server's `store/measure.rkt` binds it to the store: the Measure's Library by url (or the canonical's last
 segment = Library.name, so locally loaded CQL serves a published Measure), included libraries by CQL
 name, their CQL from Library.content (text/cql, base64; compiled once per library); value sets from
 stored ValueSets, then the server's IG + core packages; each patient's data per type through its
@@ -492,7 +521,7 @@ reference when the type has none). Output: an individual MeasureReport with a su
 (counts over every stored Patient + the proportion measureScore) without. The Measurement Period is
 whole days, end inclusive; the evaluation timezone is periodStart's offset, else the server's
 (`#:offset`, default UTC).
-`operation-impls` serves the core `Measure-evaluate-measure` at type (`measure` = url or id) and
+The server serves the registered `Measure-evaluate-measure` at type (`measure` = url or id) and
 instance level, so a server generated from an IG that declares it gets it: CQF Measures 5.0.0's
 `measure-calculation-service-example` (`make-ig-server … #:capability <id|url>`, chosen because that IG
 ships four server CapabilityStatements) has 0 unmet requirements. System-level CapabilityStatement

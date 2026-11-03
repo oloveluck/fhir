@@ -27,8 +27,10 @@
 ;;; search parameters of
 ;;; every type except composite/special (store/search-index.rkt); transaction/batch Bundles.
 ;;; _include/_revinclude of the form Source:param[:Target] (not `*`, not :iterate).
-;;; IG operations with an implementation in `operation-impls` (US Core $docref, ValueSet $expand,
-;;; Measure $evaluate-measure — CQL over the store, store/measure.rkt).
+;;; IG operations that have a registered implementation (fhir/operation: $validate, $snapshot, the
+;;; terminology operations, Measure $evaluate-measure from cql, US Core $docref here), at every level
+;;; their OperationDefinition declares; they run with the store as `current-data-source` and the
+;;; server's packages as `current-sd-packages`.
 ;;; Not yet: patch, history, chained parameters, other IG operations, SMART auth — each listed as a gap.
 
 (require racket/contract racket/list racket/string racket/match
@@ -49,13 +51,16 @@
          (only-in fhir/model/leaf pv)
          (only-in fhirpath/temporal-ops moment? moment->string)
          (only-in fhirpath/terminology tx-service-expand)
-         (only-in fhir/terminology/service packages->resolver make-terminology/resolver resources->resolver)
          (only-in fhir/conformance/validate validate-issues issue-severity issue-code issue-path issue-msg)
          "fhir-sqlite.rkt" "fhir-engine.rkt" "ig-params.rkt" "bundle.rkt"
          (only-in "search-index.rkt" indexed-kind?)
          (only-in "serve.rkt" store-repository)
-         (only-in "measure.rkt" evaluate-measure)
-         (only-in cql/run valuesets->terminology))
+         fhir/operation fhir/data-source
+         "data-source.rkt"
+         ;; the operation implementations this server can serve register themselves when loaded
+         (only-in fhir/conformance/operations) (only-in fhir/terminology/operations)
+         (only-in fhir/sd/operations)
+         (only-in cql/measure current-measure-offset))
 
 (provide
  (struct-out ig-plan) (struct-out ig-resource) (struct-out gap) (struct-out ig-server)
@@ -249,26 +254,32 @@
   ;; the IG's OperationDefinitions, then the core package's (ValueSet-expand lives in core)
   (define ods (let ([core-ods (package-operation-definitions (ig-plan-core-tgz plan))])
                 (for/fold ([h core-ods]) ([(k v) (in-hash (package-operation-definitions tgz))]) (hash-set h k v))))
-  (define tx-resolver (packages->resolver (list tgz (ig-plan-core-tgz plan))))
-  (define ctx (op-context store catalog (make-terminology/resolver tx-resolver) tx-resolver offset))
   (define sd-packages (append (list tgz) deps (list core)))
   (define capability (ok-or-raise (from-json (instance-capability plan served catalog url) #:lenient? #t)))
+  (define data (store->data-source store #:search-params catalog))
+  (define served-ops                       ; (url . operation) for the IG's ODs with an implementation
+    (for*/list ([(u od) (in-hash ods)] [op (in-value (implementation-of u ods))] #:when op) (cons u op)))
   (define app
     (build-app #:capability capability
                #:operation-definitions
-               (for/list ([(url impl) (in-hash operation-impls)] #:when (hash-ref ods url #f))
-                 (ok-or-raise (from-json (strip-jnum (hash-ref ods url)) #:lenient? #t)))
+               (for/list ([u+op (in-list served-ops)])
+                 (ok-or-raise (from-json (strip-jnum (hash-ref ods (car u+op))) #:lenient? #t)))
                #:repositories
                (for/list ([r (in-list served)])
                  (define allowed (filter (lambda (c) (member c supported-interactions)) (map car (ig-resource-interactions r))))
                  (cons (string->symbol (ig-resource-type r))
                        (ig-repository store (string->symbol (ig-resource-type r)) catalog allowed validate? sd-packages)))
                #:operations
-               (for*/list ([(url impl0) (in-hash operation-impls)] #:when (hash-ref ods url #f)
-                           [impl (in-list (cons impl0 (hash-ref extra-operation-levels url '())))])
-                 (define od (hash-ref ods url))
-                 (operation-entry (op-impl-level impl) (hash-ref od 'code) (op-impl-type impl)
-                                  ((op-impl-make-proc impl) ctx)))
+               (for*/list ([u+op (in-list served-ops)]
+                           [od (in-value (hash-ref ods (car u+op)))]
+                           [level (in-list '(system type instance))] #:when (eq? #t (hash-ref od level #f))
+                           ;; an operation on Resource / DomainResource is served on every served type
+                           [type (in-list (cond [(eq? level 'system) '(#f)]
+                                                [(ormap (lambda (t) (member t '("Resource" "DomainResource"))) (hash-ref od 'resource '()))
+                                                 (map ig-resource-type served)]
+                                                [else (hash-ref od 'resource '())]))])
+                 (operation-entry level (hash-ref od 'code) type
+                                  (serve-operation (cdr u+op) level type store data sd-packages offset)))
                #:transaction (lambda (bundle-js) (process-bundle! store bundle-js #:search-params catalog))))
   (ig-server plan app gaps catalog sd-packages store validate? tgz))
 
@@ -278,129 +289,52 @@
   (cond [(pair? errors) (validation-outcome js errors)]
         [else (fhir-update! (ig-server-store srv) js #:search-params (ig-server-catalog srv)) 'ok]))
 
-;; ---- IG operations: a table keyed by OperationDefinition canonical ------------------------------
-;; An OperationImpl is (op-impl level type make-proc): make-proc : op-context -> handler,
-;; handler : (in-hash request) -> fhir node. An op-context is what a handler may use. The OperationDefinition itself comes from the IG package
-;; (its inputs are validated by the capability runtime before the handler runs).
-(struct op-impl (level type make-proc))
-;; store, search catalog, and the terminology service over (IG package, core package)
-;; offset: the server's evaluation timezone offset in minutes (CQL DateTimes written without one)
-(struct op-context (store catalog tx resolver offset))
+;; ---- IG operations ---------------------------------------------------------------------------
+;; implementation-of : canonical ods -> operation|#f   the registered implementation; US Core's
+;; $docref is built here from the IG's own OperationDefinition (it needs the store's search)
+(define (implementation-of url ods)
+  (cond [(member url (map operation-url (registered-operations))) (lookup-operation url)]
+        [(equal? url docref-url) (docref-operation (hash-ref ods url))]
+        [else #f]))
 
-(define (in-string in name)
-  (define v (hash-ref in name '()))
-  (and (pair? v) (let ([x (car v)]) (cond [(string? x) x] [(moment? x) (moment->string x)] [else (format "~a" x)]))))
+;; serve-operation : operation level type store data packages offset -> (in-hash request) -> node
+;; the request's Parameters become the inputs; at instance level the stored resource is the subject
+(define (serve-operation op level type store data sd-packages offset)
+  (lambda (in req)
+    (local-require (only-in fhir/capability/runtime request-id request-body))
+    (parameterize ([current-data-source data] [current-sd-packages sd-packages] [current-measure-offset offset])
+      (define body (request-body req))
+      (define inputs (parameters->inputs (if body (strip-jnum (node->jsexpr body)) (hasheq))))
+      (define subject (and (eq? level 'instance) (fhir-read store type (request-id req))))
+      (define result
+        (cond
+          [(and (eq? level 'instance) (not subject)) (outcome "error" "not-found" (format "~a/~a is not on this server" type (request-id req)))]
+          [else (with-handlers ([exn:fail:operation? exn:fail:operation-outcome])
+                  (invoke/inputs op subject inputs))]))
+      (ok-or-raise (from-json result #:lenient? #t)))))
 
 ;; US Core $docref (https://hl7.org/fhir/us/core/OperationDefinition-docref.html): the patient's
 ;; DocumentReferences, start/end bounding DocumentReference.context.period, `type` matching. Only
 ;; EXISTING documents are returned: on-demand generation and the profile filter are not supported
 ;; (on-demand=true is answered from storage, which the operation permits when nothing is generated).
-(define (docref-proc ctx)
-  (define store (op-context-store ctx)) (define catalog (op-context-catalog ctx))
-  (lambda (in req)
-    (define patient (in-string in "patient"))
-    (define types
-      (for/list ([c (in-list (hash-ref in "type" '()))] #:when (fhir? c))
-        (string-append (or (let ([s (pv (fhir-ref c 'system #f))]) s) "") "|" (or (pv (fhir-ref c 'code #f)) ""))))
-    (define q (append (list (cons "patient" patient))
-                      (let ([s (in-string in "start")]) (if s (list (cons "period" (string-append "ge" s))) '()))
-                      (let ([e (in-string in "end")]) (if e (list (cons "period" (string-append "le" e))) '()))
-                      (if (pair? types) (list (cons "type" (string-join types ","))) '())))
-    (define hits (fhir-search store "DocumentReference" q #:search-params catalog))
-    (ok-or-raise
-     (from-json (hasheq 'resourceType "Bundle" 'type "searchset" 'total (length hits)
-                        'entry (for/list ([h (in-list hits)])
-                                 (hasheq 'resource h 'search (hasheq 'mode "match"))))
-                #:lenient? #t))))
-
-;; ValueSet $expand (core OperationDefinition ValueSet-expand): the ValueSet by `url` (IG, then core,
-;; then the store), an inline `valueSet`, or — at instance level — the stored ValueSet; filter /
-;; count / offset / activeOnly / excludeNested pass through to the terminology service.
-(define (expand-proc ctx #:instance? [instance? #f])
-  (define store (op-context-store ctx))
-  (lambda (in req)
-    (local-require (only-in fhir/capability/runtime request-id))
-    (define (one name) (let ([v (hash-ref in name '())]) (and (pair? v) (car v))))
-    (define params
-      (for/hash ([k (in-list '("filter" "count" "offset" "activeOnly" "excludeNested" "displayLanguage"))]
-                 #:when (one k))
-        (values k (one k))))
-    (define inline (let ([v (one "valueSet")]) (and v (fhir? v) (strip-jnum (node->jsexpr v)))))
-    (define stored (and instance? (fhir-read store "ValueSet" (request-id req))))
-    (define url (or (and stored (hash-ref stored 'url #f)) (and inline (hash-ref inline 'url #f)) (one "url")))
-    (define extra (filter values (list stored inline)))
-    (define resolver
-      (if (null? extra)
-          (op-context-resolver ctx)
-          (let ([local (resources->resolver extra)] [base (op-context-resolver ctx)])
-            (lambda (u [v #f]) (or (local u v) (base u v))))))
-    (cond
-      [(not (string? url))
-       (ok-or-raise (from-json (hasheq 'resourceType "OperationOutcome"
-                                       'issue (list (hasheq 'severity "error" 'code "required"
-                                                            'diagnostics "$expand needs url, valueSet, or a ValueSet id")))))]
-      [(not (resolver url))
-       (ok-or-raise (from-json (hasheq 'resourceType "OperationOutcome"
-                                       'issue (list (hasheq 'severity "error" 'code "not-found"
-                                                            'diagnostics (format "ValueSet ~a is not known to this server" url))))))]
-      [else
-       ;; the service answers a FHIRPath collection: one ValueSet, or empty for an unknown url
-       (define r ((tx-service-expand (make-terminology/resolver resolver)) url #f params))
-       (cond [(and (pair? r) (fhir? (car r))) (car r)]
-             [else (ok-or-raise (from-json (hasheq 'resourceType "OperationOutcome"
-                                                   'issue (list (hasheq 'severity "error" 'code "not-found"
-                                                                        'diagnostics (format "ValueSet ~a is not known to this server" url))))))])])))
-
-;; Measure $evaluate-measure (core OperationDefinition Measure-evaluate-measure): the Measure by id
-;; (instance level) or by `measure` (type level: url or id); periodStart/periodEnd bound the
-;; Measurement Period (whole days); `subject` = Patient/x gives an individual report, none a summary
-;; over the stored Patients. The Measure's CQL, includes, value sets and the patients' data all come
-;; from the store (store/measure.rkt); value sets also from the IG and core packages. A periodStart
-;; with an offset sets the evaluation timezone, else the server's.
-(define (evaluate-measure-proc ctx #:instance? [instance? #f])
-  (define store (op-context-store ctx))
-  (define (outcome code msg)
-    (ok-or-raise (from-json (hasheq 'resourceType "OperationOutcome"
-                                    'issue (list (hasheq 'severity "error" 'code code 'diagnostics msg))))))
-  (define (package-vs url)
-    (define vs ((op-context-resolver ctx) url))
-    (and (hash? vs) ((valuesets->terminology (list vs)) url)))
-  (lambda (in req)
-    (local-require (only-in fhir/capability/runtime request-id))
-    (define start (in-string in "periodStart"))
-    (define end (in-string in "periodEnd"))
-    (define key (if instance? (request-id req) (in-string in "measure")))
-    (define measure
-      (and key (or (fhir-read store "Measure" key)
-                   (findf (lambda (m) (equal? (hash-ref m 'url #f) (car (string-split key "|"))))
-                          (fhir-search store "Measure" '())))))
-    (define offset (or (period-offset (or start "")) (op-context-offset ctx)))
-    (cond
-      [(not measure) (outcome "not-found" (format "Measure ~a is not on this server" (or key "(none given)")))]
-      [else
-       (with-handlers ([exn:fail? (lambda (e) (outcome "processing" (exn-message e)))])
-         (ok-or-raise
-          (from-json (evaluate-measure store (strip-jnum measure) start end
-                                       #:subject (in-string in "subject") #:search-params (op-context-catalog ctx)
-                                       #:valuesets package-vs #:offset offset)
-                     #:lenient? #t)))])))
-;; period-offset : string -> minutes|#f   "2021-01-01T00:00:00-07:00" -> -420
-(define (period-offset s)
-  (match (regexp-match #px"T[0-9:.]+(Z|([+-])([0-9]{2}):([0-9]{2}))$" s)
-    [(list _ "Z" _ ...) 0]
-    [(list _ _ sign h m) (* (if (equal? sign "-") -1 1) (+ (* 60 (string->number h)) (string->number m)))]
-    [_ #f]))
-
-(define operation-impls
-  (hash "http://hl7.org/fhir/us/core/OperationDefinition/docref" (op-impl 'type "DocumentReference" docref-proc)
-        "http://hl7.org/fhir/OperationDefinition/ValueSet-expand" (op-impl 'type "ValueSet" expand-proc)
-        "http://hl7.org/fhir/OperationDefinition/Measure-evaluate-measure" (op-impl 'type "Measure" evaluate-measure-proc)))
-;; implementations at further levels for the same OperationDefinition
-(define extra-operation-levels
-  (hash "http://hl7.org/fhir/OperationDefinition/ValueSet-expand"
-        (list (op-impl 'instance "ValueSet" (lambda (ctx) (expand-proc ctx #:instance? #t))))
-        "http://hl7.org/fhir/OperationDefinition/Measure-evaluate-measure"
-        (list (op-impl 'instance "Measure" (lambda (ctx) (evaluate-measure-proc ctx #:instance? #t))))))
+(define docref-url "http://hl7.org/fhir/us/core/OperationDefinition/docref")
+(define (docref-operation od)
+  (make-operation
+   (strip-jnum od)
+   (lambda (in _)
+     (define search (or (data-source-search (current-data-source))
+                        (operation-error "not-supported" "$docref needs a searchable data source")))
+     (define types
+       (for/list ([c (in-list (hash-ref in "type" '()))] #:when (hash? c)
+                  [cd (in-list (let ([cs (hash-ref c 'coding #f)]) (if (list? cs) cs (list c))))])
+         (string-append (hash-ref cd 'system "") "|" (hash-ref cd 'code ""))))
+     (define q (append (list (cons "patient" (input in "patient")))
+                       (let ([s (input in "start")]) (if s (list (cons "period" (string-append "ge" s))) '()))
+                       (let ([e (input in "end")]) (if e (list (cons "period" (string-append "le" e))) '()))
+                       (if (pair? types) (list (cons "type" (string-join types ","))) '())))
+     (define hits (search "DocumentReference" q))
+     (hasheq 'resourceType "Bundle" 'type "searchset" 'total (length hits)
+             'entry (for/list ([h (in-list hits)]) (hasheq 'resource h 'search (hasheq 'mode "match")))))))
 
 ;; OperationDefinitions of a package (url -> jsexpr), reading only OperationDefinition-*.json
 (define (package-operation-definitions tgz)
@@ -409,7 +343,9 @@
 
 (define (operation-implemented? cs-op)
   (define def (hash-ref cs-op 'definition #f))
-  (and (string? def) (hash-has-key? operation-impls (car (string-split def "|")))))
+  (and (string? def)
+       (let ([u (car (string-split def "|"))])
+         (or (equal? u docref-url) (and (member u (map operation-url (registered-operations))) #t)))))
 
 ;; Source:param[:Target] includes are implemented (fhir-includes); `*` and :iterate are not
 (define (include-supported? v) (and (regexp-match? #px"^[A-Z][A-Za-z]+:[A-Za-z0-9_-]+(:[A-Z][A-Za-z]+)?$" v) #t))
