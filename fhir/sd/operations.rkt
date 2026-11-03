@@ -3,7 +3,7 @@
 ;;; sd/operations.rkt — StructureDefinition/$snapshot as an operation value (fhir/operation).
 ;;;
 ;;;   ($snapshot sd)                         the StructureDefinition with its snapshot generated
-;;;   (call-operation "$snapshot" #f "url" "http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient")
+;;;   (apply-operation "$snapshot" #:url "http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient")
 ;;; The base definitions resolve through `current-sd-packages` (fhir/sd/sd-index) and the current
 ;;; data source's StructureDefinitions (fhir/data-source), the data source first.
 
@@ -43,6 +43,6 @@
     (define gender (findf (lambda (e) (equal? (hash-ref e 'id #f) "Patient.gender")) (hash-ref (hash-ref out 'snapshot) 'element)))
     (check-equal? (hash-ref gender 'min) 1)
     ;; by reference, by url (resolved from the packages)
-    (check-true (pair? (hash-ref (hash-ref (call-operation "http://hl7.org/fhir/OperationDefinition/StructureDefinition-snapshot" #f
-                                                            "url" "http://hl7.org/fhir/StructureDefinition/Patient")
+    (check-true (pair? (hash-ref (hash-ref (apply-operation "http://hl7.org/fhir/OperationDefinition/StructureDefinition-snapshot"
+                                                             #:url "http://hl7.org/fhir/StructureDefinition/Patient")
                                            'snapshot) 'element)))))

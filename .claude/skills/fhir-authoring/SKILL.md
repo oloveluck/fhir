@@ -63,27 +63,30 @@ Instances, Invariants, Aliases, slicing (incl. reslicing + multi-discriminator),
 custom Resources, Mappings, and RuleSets (incl. parameterized). Targets R5; emits differentials by
 default, full snapshots opt-in.
 
-## FHIR operations as function calls (no server)
+## FHIR operations as procedures (no server)
 
-Apply an operation by reference to its OperationDefinition, with parameters (`fhir/operation`):
+Apply an operation by reference to its OperationDefinition; its parameters are keyword arguments
+(`fhir/operation`):
 
 ```racket
 (require fhir/operation fhir/data-source
-         (only-in fhir/conformance/operations validated)   ; loading a module registers its operations
+         (only-in fhir/conformance/operations ensure-valid)   ; loading a module registers its operations
          (only-in fhir/terminology/operations) (only-in fml/operations) (only-in cql/measure))
 
-(call-operation "http://hl7.org/fhir/OperationDefinition/StructureMap-transform" qr "srcMap" fml-text)
-(call-operation "ValueSet/$expand" #f "url" "http://hl7.org/fhir/ValueSet/administrative-gender")
-(pipeline qr (step (lookup-operation "$transform") "srcMap" fml-text) (validated #:profile url))
+(apply-operation "http://hl7.org/fhir/OperationDefinition/StructureMap-transform" qr #:srcMap fml-text)
+(apply-operation "ValueSet/$expand" #:url "http://hl7.org/fhir/ValueSet/administrative-gender")
+(define transform (operation "StructureMap/$transform"))           ; resolve once, apply like a procedure
+(~> qr (transform #:srcMap fml-text) (ensure-valid #:profile url))  ; thread a value through operations
 (parameterize ([current-data-source (directory->data-source "patients/")])   ; or a Bundle, or the store
-  (call-operation "$evaluate-measure" measure "periodStart" "2021-01-01" "periodEnd" "2021-12-31"))
+  (apply-operation "$evaluate-measure" measure #:periodStart "2021-01-01" #:periodEnd "2021-12-31"))
 ```
 
-References: the canonical, the OperationDefinition, `"$code"` or `"Type/$code"`. Parameters are
-name/value pairs or a Parameters resource; unknown names are errors that list the valid ones.
-Available: `$validate`, `$snapshot`, `$expand`, `ValueSet/$validate-code`, `$lookup`, `$translate`,
-`$transform` (FML as `srcMap`), `$evaluate-measure`. A server generated from an IG serves the same
-operation values over HTTP (fhir-serving). Example: `fhir-spec-driven/examples/pipeline.rkt`.
+References: the canonical, the OperationDefinition, `"$code"` or `"Type/$code"`. Keywords are the
+definition's parameter names; an unknown one is an error that lists the valid ones. A Parameters
+resource after the subject supplies inputs known only at run time. Available: `$validate`,
+`$snapshot`, `$expand`, `ValueSet/$validate-code`, `$lookup`, `$translate`, `$transform` (FML as
+`#:srcMap`), `$evaluate-measure`. A server generated from an IG serves the same operations over HTTP
+(fhir-serving). Example: `fhir-spec-driven/examples/pipeline.rkt`.
 
 ## `#lang cql` — Clinical Quality Language → ELM
 

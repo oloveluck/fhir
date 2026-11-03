@@ -3,9 +3,10 @@
 ;;; conformance/operations.rkt — Resource/$validate as an operation value (fhir/operation).
 ;;;
 ;;;   ($validate resource)                         against its base type and its meta.profile
-;;;   ($validate resource "profile" canonical)     … and that profile
-;;;   (pipeline r (validated #:profile url) …)     a pipeline step: the resource itself when valid,
-;;;                                                else exn:fail:operation carrying the outcome
+;;;   ($validate resource #:profile canonical)     … and that profile (an OperationOutcome either way)
+;;;   (ensure-valid resource [#:profile canonical]) the resource itself when valid, else
+;;;                                                exn:fail:operation carrying the outcome — a
+;;;                                                pipeline step: (~> r … (ensure-valid) …)
 ;;; Profiles resolve through the current data source (fhir/data-source) and `current-sd-packages`;
 ;;; a StructureDefinition in the data source that the resource claims in meta.profile is applied too.
 
@@ -16,7 +17,7 @@
          (only-in fhir/serialize/read-json strip-jnum)
          (only-in fhir/conformance/validate validate-issues issue-severity issue-code issue-path issue-msg))
 
-(provide $validate validated)
+(provide $validate ensure-valid)
 
 ;; issues->outcome : (listof issue) -> OperationOutcome
 (define (issues->outcome issues)
@@ -43,17 +44,16 @@
                  ((data-source-all (current-data-source)) "StructureDefinition"))))
      (issues->outcome (validate-issues (strip-jnum r) #:profiles (remove-duplicates (append (if profile (list profile) '()) claimed)))))))
 
-;; validated : [#:profile canonical] -> (resource -> resource)
-(define (validated #:profile [profile #f])
-  (lambda (r)
-    (define oo (if profile ($validate r "profile" profile) ($validate r)))
-    (if (outcome-errors? oo)
-        (raise (exn:fail:operation
-                (format "invalid ~a: ~a" (hash-ref r 'resourceType "resource")
-                        (for/first ([i (in-list (hash-ref oo 'issue))] #:when (member (hash-ref i 'severity) '("error" "fatal")))
-                          (format "~a ~a" (car (hash-ref i 'expression '(""))) (hash-ref i 'diagnostics ""))))
-                (current-continuation-marks) oo))
-        r)))
+;; ensure-valid : resource [#:profile canonical] -> resource   or exn:fail:operation with the outcome
+(define (ensure-valid r #:profile [profile #f])
+  (define oo (if profile ($validate r #:profile profile) ($validate r)))
+  (if (outcome-errors? oo)
+      (raise (exn:fail:operation
+              (format "invalid ~a: ~a" (hash-ref r 'resourceType "resource")
+                      (for/first ([i (in-list (hash-ref oo 'issue))] #:when (member (hash-ref i 'severity) '("error" "fatal")))
+                        (format "~a ~a" (car (hash-ref i 'expression '(""))) (hash-ref i 'diagnostics ""))))
+              (current-continuation-marks) oo))
+      r))
 
 (register-operation! $validate)
 
@@ -63,8 +63,9 @@
   (define bad (hasheq 'resourceType "Patient" 'gender "male" 'nmae "x"))
   (check-false (outcome-errors? ($validate ok)))
   (check-true (outcome-errors? ($validate bad)))
-  (check-equal? ((validated) ok) ok)
-  (check-exn #rx"invalid Patient: Patient.nmae" (lambda () ((validated) bad)))
+  (check-equal? (ensure-valid ok) ok)
+  (check-exn #rx"invalid Patient: Patient.nmae" (lambda () (ensure-valid bad)))
+  (check-equal? (~> ok (ensure-valid) ($validate) (outcome-errors?)) #f)
   ;; a profile from the data source, by reference
   (define sd (hasheq 'resourceType "StructureDefinition" 'url "http://example.org/StructureDefinition/named"
                      'type "Patient" 'derivation "constraint" 'kind "resource" 'abstract #f
@@ -72,6 +73,6 @@
                      'differential (hasheq 'element (list (hasheq 'id "Patient" 'path "Patient")
                                                           (hasheq 'id "Patient.name" 'path "Patient.name" 'min 1)))))
   (parameterize ([current-data-source (resources->data-source (list sd))])
-    (check-true (outcome-errors? (call-operation "$validate" ok "profile" "http://example.org/StructureDefinition/named")))
-    (check-false (outcome-errors? (call-operation "Resource/$validate" (hash-set ok 'name (list (hasheq 'family "X")))
-                                                  "profile" "http://example.org/StructureDefinition/named")))))
+    (check-true (outcome-errors? (apply-operation "$validate" ok #:profile "http://example.org/StructureDefinition/named")))
+    (check-false (outcome-errors? (apply-operation "Resource/$validate" (hash-set ok 'name (list (hasheq 'family "X")))
+                                                   #:profile "http://example.org/StructureDefinition/named")))))

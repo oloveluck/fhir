@@ -3,10 +3,10 @@
 ;;; terminology/operations.rkt — the terminology operations as operation values (fhir/operation):
 ;;; ValueSet/$expand, ValueSet/$validate-code, CodeSystem/$lookup, ConceptMap/$translate.
 ;;;
-;;;   ($expand vs "filter" "heart" "count" 10)            a ValueSet (piped, or "url" / "valueSet")
-;;;   ($validate-code vs "code" "male" "system" "http://hl7.org/fhir/administrative-gender")
-;;;   ($lookup #f "system" "http://loinc.org" "code" "8867-4")
-;;;   ($translate cm "sourceCode" "home" "system" "…")      R5 names; R4's `code` is accepted too
+;;;   ($expand vs #:filter "heart" #:count 10)             a ValueSet (the subject, or #:url / #:valueSet)
+;;;   ($validate-code vs #:code "male" #:system "http://hl7.org/fhir/administrative-gender")
+;;;   ($lookup #:system "http://loinc.org" #:code "8867-4")
+;;;   ($translate cm #:sourceCode "home" #:system "…")     R5 names; R4's #:code is accepted too
 ;;; Definitions resolve from the inputs, then the current data source's ValueSets / CodeSystems /
 ;;; ConceptMaps, then `current-sd-packages` (indexed once per package list). Results are FHIR JSON.
 
@@ -101,17 +101,18 @@
   (when core
     (parameterize ([current-sd-packages (list core)])
       (define gender "http://hl7.org/fhir/ValueSet/administrative-gender")
-      (define vs ($expand #f "url" gender))
+      (define vs ($expand #:url gender))
       (check-equal? (hash-ref (hash-ref vs 'expansion) 'total) 4)
       ;; piped, and by reference with a filter
-      (check-equal? (hash-ref (hash-ref (call-operation "ValueSet/$expand" vs "filter" "fem") 'expansion) 'total) 1)
+      (check-equal? (hash-ref (hash-ref (apply-operation "ValueSet/$expand" vs #:filter "fem") 'expansion) 'total) 1)
+      (check-equal? (hash-ref (hash-ref (~> vs ($expand #:filter "fem") ($expand)) 'expansion) 'total) 4)
       (define (result ps) (for/first ([p (in-list (hash-ref ps 'parameter))] #:when (equal? (hash-ref p 'name) "result")) (hash-ref p 'valueBoolean)))
-      (check-true (result ($validate-code #f "url" gender "code" "male" "system" "http://hl7.org/fhir/administrative-gender")))
-      (check-false (result ($validate-code #f "url" gender "code" "florp" "system" "http://hl7.org/fhir/administrative-gender")))
-      (check-exn #rx"not in the data source or the packages" (lambda () ($expand #f "url" "http://example.org/nope")))
+      (check-true (result ($validate-code #:url gender #:code "male" #:system "http://hl7.org/fhir/administrative-gender")))
+      (check-false (result ($validate-code #:url gender #:code "florp" #:system "http://hl7.org/fhir/administrative-gender")))
+      (check-exn #rx"not in the data source or the packages" (lambda () ($expand #:url "http://example.org/nope")))
       ;; a ValueSet from the data source
       (define local (hasheq 'resourceType "ValueSet" 'url "http://example.org/vs"
                             'compose (hasheq 'include (list (hasheq 'system "http://hl7.org/fhir/administrative-gender"
                                                                     'concept (list (hasheq 'code "male")))))))
       (parameterize ([current-data-source (resources->data-source (list local))])
-        (check-equal? (hash-ref (hash-ref ($expand #f "url" "http://example.org/vs") 'expansion) 'total) 1)))))
+        (check-equal? (hash-ref (hash-ref ($expand #:url "http://example.org/vs") 'expansion) 'total) 1)))))

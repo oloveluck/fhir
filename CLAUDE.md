@@ -125,34 +125,41 @@ shell command (prompt and answer through files; past the timeout its process gro
 feeds `check`'s diagnostics back between rounds. Baselines: the IG's own FSH (TumorSize 28/34
 facets — the compiler's ceiling) and empty (0). Results: that repo's README and `results/`.
 
-## Operations as values (`fhir/operation`, `fhir/data-source`)
+## Operations as procedures (`fhir/operation`, `fhir/data-source`)
 A FHIR operation is an OperationDefinition plus an implementation, with nothing about HTTP: a
-pipeline calls it, a server routes requests to it, and both see the same inputs and outputs.
-`(make-operation od run #:subject name)`; an operation is a procedure, `(op subject name value …)`.
-Called by reference like a function: `(call-operation ref subject name value …)` where ref is the
-OD's canonical, the OD itself, `"$code"`, or `"Type/$code"` when a code is ambiguous, and the
-parameters are name/value pairs or one Parameters resource. Implementations register under their
-canonical when their module loads (`register-operation!`). `invoke` checks inputs against the OD
-(unknown names list the ones it takes; cardinality), coerces strings to integer/decimal/boolean
-parameters (HTTP query values), and returns the `return` resource or a Parameters of the outputs.
-Failures raise `exn:fail:operation` with an OperationOutcome (`invoke/outcome` returns it).
-`(pipeline v (step op name value …) …)` threads a value through operations; `subject` is the input a
-piped value fills (`resource` for $validate, `content` for $transform) or, when #f, the operation
-applies to it (instance level: a ValueSet into $expand).
+procedure whose keyword arguments are the definition's parameters. Three ideas carry the API:
+```racket
+(apply-operation "StructureMap/$transform" qr #:srcMap fml)    ; apply by reference
+(define transform (operation "StructureMap/$transform"))       ; a reference resolves to a procedure
+(~> qr (transform #:srcMap fml) (ensure-valid) ($snapshot))    ; thread a value through operations
+```
+Applying is `(op [subject [parameters]] #:name value …)`: the subject is the resource the operation
+applies to (what `~>` threads), a Parameters resource carries inputs known only at run time, and a
+list value gives several values. A reference is the canonical (a `|version` is ignored), the
+OperationDefinition, `"$code"`, or `"Type/$code"` when a code is ambiguous. Inputs are checked against
+the definition (an unknown keyword is an error listing the parameters it takes; cardinality); strings
+for integer/decimal/boolean parameters are converted (HTTP query values). The result is the `return`
+resource, or a Parameters of the outputs; a failure raises `exn:fail:operation` with an
+OperationOutcome (`apply-operation/outcome` returns it). `invoke op subject inputs` is the host form
+(the server's request Parameters as an inputs hash).
+Implementing one: `(make-operation od run #:subject name)` — `run : inputs subject -> result`;
+`subject` names the input the subject fills (`resource` for $validate, `content` for $transform), or
+is #f when the operation applies to the subject itself (instance level: a ValueSet into $expand);
+`register-operation!` makes it resolvable (each implementing module registers when it loads).
 Context comes from parameters: `current-data-source` — FHIR data as a value: in memory / Bundles
 (`resources->data-source`), a directory (`directory->data-source`), or the store (fhir-server's
 `store->data-source`, which also does real FHIR search) — and `current-sd-packages` (profiles,
-value sets). Implemented, each by the package that does the work, registered under the core OD:
-`$snapshot` (fhir, `fhir/sd/operations`), `$validate` + the `validated` pipeline step
-(fhir-validation, `fhir/conformance/operations`), `$expand`, `ValueSet/$validate-code`, `$lookup`,
-`$translate` (fhir-validation, `fhir/terminology/operations`; the service's `tx-*` functions answer
-FHIR JSON now, the FHIRPath `%terminologies` closures wrap it), `$transform` (fml, `fml/operations`:
-runs FML given as `srcMap`), `$evaluate-measure` (cql, `cql/measure`: over any data source; the R4
-OD, which returns a MeasureReport). fhir-server serves every registered operation its IG's ODs name,
-at every level they declare (operations on Resource on every served type), with the store as data
-source; US Core `$docref` is built there from the IG's own OD (it needs the store's search).
+value sets). Implemented, each by the package that does the work, under the core OD canonicals:
+`$snapshot` (fhir, `fhir/sd/operations`), `$validate` and `ensure-valid` (fhir-validation,
+`fhir/conformance/operations`), `$expand`, `ValueSet/$validate-code`, `$lookup`, `$translate`
+(fhir-validation, `fhir/terminology/operations`; the service's `tx-*` functions answer FHIR JSON,
+FHIRPath's `%terminologies` closures wrap it), `$transform` (fml, `fml/operations`: runs FML given as
+`#:srcMap`), `$evaluate-measure` (cql, `cql/measure`: over any data source; the R4 OD, which returns a
+MeasureReport). fhir-server serves every registered operation its IG's ODs name, at every level they
+declare (operations on Resource on every served type), with the store as data source; US Core
+`$docref` is built there from the IG's own OD (it needs the store's search).
 `fhir-spec-driven/examples/pipeline.rkt` maps a QuestionnaireResponse to a Patient with FML,
-validates it, and checks its gender against the core value set, all by reference, no server.
+validates it and checks its gender against the core value set — by reference, no server.
 
 ## How-to-use docs
 User-facing usage/how-to lives in `.claude/skills/` — `fhir-authoring` (write/run the langs, `raco fsh

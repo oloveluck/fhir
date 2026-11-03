@@ -293,7 +293,7 @@
 ;; implementation-of : canonical ods -> operation|#f   the registered implementation; US Core's
 ;; $docref is built here from the IG's own OperationDefinition (it needs the store's search)
 (define (implementation-of url ods)
-  (cond [(member url (map operation-url (registered-operations))) (lookup-operation url)]
+  (cond [(member url (map operation-url (registered-operations))) (operation url)]
         [(equal? url docref-url) (docref-operation (hash-ref ods url))]
         [else #f]))
 
@@ -310,7 +310,7 @@
         (cond
           [(and (eq? level 'instance) (not subject)) (outcome "error" "not-found" (format "~a/~a is not on this server" type (request-id req)))]
           [else (with-handlers ([exn:fail:operation? exn:fail:operation-outcome])
-                  (invoke/inputs op subject inputs))]))
+                  (invoke op subject inputs))]))
       (ok-or-raise (from-json result #:lenient? #t)))))
 
 ;; US Core $docref (https://hl7.org/fhir/us/core/OperationDefinition-docref.html): the patient's
