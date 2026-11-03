@@ -8,6 +8,10 @@
 ;;; read this registry; inherited framework fields are supplied by the parent table (model/schema),
 ;;; so only own fields are registered here. This is the runtime dual of the compile-time form macro.
 
+;; check-command : the command that verifies a generated tower (named in every generated banner); a
+;; tower in another collection is checked by that package's own command
+(define check-command (make-parameter "raco fhir check"))
+
 (require racket/string
          racket/list
          racket/contract
@@ -17,7 +21,7 @@
          (only-in fhir/model/schema field-spec choice-group max-of
                   inherited-field-names inherited-field-min inherited-field-max inherited-field-ftype))
 
-(provide
+(provide check-command
  (contract-out
   [emit-schema-module (-> type-node? (or/c type-node? #f) string? (or/c string? #f) string? string?)]
   ;; the form-macro field schema, one printed entry per line (field-specs then choice-groups)
@@ -111,7 +115,7 @@
   (define out (open-output-string))
   (define (line . xs) (for ([x (in-list xs)]) (display x out)) (newline out))
   (line "#lang racket/base")
-  (line ";;; GENERATED from " (or version "?") " — DO NOT EDIT (verified by raco fhir check).")
+  (line ";;; GENERATED from " (or version "?") " — DO NOT EDIT (verified by " (check-command) ").")
   (line "(require fhir/model/schema fhir/model/registry)")
   (line)
   (for ([n (in-list nodes)]) (emit-registrations n doc-base line))

@@ -34,18 +34,18 @@
   [tower-files (-> gen-target? (values (listof (cons/c (listof string?) string?))
                                        (or/c string? #f)
                                        exact-nonnegative-integer? exact-nonnegative-integer?))]
-  ;; committed-path : relpath -> absolute path under the fhir collection root
-  [committed-path (-> (listof string?) path?)]))
+  ;; committed-path : relpath [collection] -> absolute path under the collection root
+  [committed-path (->* ((listof string?)) (string?) path?)]))
 
-;; committed-path : (listof string) -> path
-;; relpath's first segment names a sub-collection of `fhir` (r4, r5, r6, or an IG tower); it is located
-;; through the collection search path, so a tower regenerates in place in whichever package
-;; (fhir for the core towers, fhir for the IG towers) it lives in.
-(define (committed-path relpath)
-  (apply build-path (collection-path "fhir" (car relpath)) (cdr relpath)))
+;; committed-path : (listof string) [collection] -> path
+;; relpath's first segment names a sub-collection of the target's collection (fhir's r4, r5, r6, or an
+;; IG package's model dir); it is located through the collection search path, so a tower regenerates
+;; in place in whichever package it lives in.
+(define (committed-path relpath [collection "fhir"])
+  (apply build-path (collection-path collection (car relpath)) (cdr relpath)))
 
-(define (write-file! relpath content)
-  (define p (committed-path relpath))
+(define (write-file! relpath content collection)
+  (define p (committed-path relpath collection))
   (make-directory* (path-only p))
   (call-with-output-file p #:exists 'replace (lambda (o) (display content o))))
 
@@ -86,6 +86,11 @@
 
 ;; tower-files — compute every emitted file as (relpath . content), plus counts (no writing).
 (define (tower-files t)
+  (parameterize ([check-command (if (equal? (gen-target-collection t) "fhir")
+                                    "raco fhir check"
+                                    (format "raco ~a check" (gen-target-collection t)))])
+    (tower-files* t)))
+(define (tower-files* t)
   (define pkg (load-package (gen-target-package-file t)))
   (define raw-sds (package-contents-sds pkg))
   (define package-ods (package-contents-operations pkg))
@@ -120,7 +125,7 @@
   ;; its base tower's index first, so every core type the IG's fields reference is registered/in
   ;; scope before the IG's own modules load — the IG emits only its whitelisted types.
   (define delegate (let ([b (gen-target-delegate-base t)])
-                     (and b (string-append "fhir/" (gen-target-out-root b)
+                     (and b (string-append (gen-target-collection b) "/" (gen-target-out-root b)
                                            (if (gen-target-forms? b) "/types" "/schemas")))))
   ;; the package's TERMINOLOGY becomes part of the language: every REQUIRED-bound ValueSet on a
   ;; kept type that expands OFFLINE from the package's own CodeSystems registers its codes
@@ -131,7 +136,7 @@
     (if forms?
         (list (cons (list out-root "types.rkt")         (types-source entries delegate tly?))
               (cons (list out-root "main.rkt")          (main-source out-root))
-              (cons (list out-root "lang" "reader.rkt") (reader-source out-root)))
+              (cons (list out-root "lang" "reader.rkt") (reader-source (gen-target-collection t) out-root)))
         (list (cons (list out-root "schemas.rkt")       (schemas-source entries delegate tly?)))))
   ;; a package that ships OperationDefinitions gets generated operation SCAFFOLDING: the ODs as
   ;; data + one constructor per operation binding everything but the handler (the only hand-written
@@ -154,13 +159,13 @@
 
 (define (generate-tower t)
   (define-values (files version dt rs) (tower-files t))
-  (for ([f (in-list files)]) (write-file! (car f) (cdr f)))
-  (printf "generated fhir/~a from ~a#~a: ~a datatypes, ~a resources\n"
-          (gen-target-out-root t) (gen-target-package-name t) (or version "?") dt rs)
+  (for ([f (in-list files)]) (write-file! (car f) (cdr f) (gen-target-collection t)))
+  (printf "generated ~a/~a from ~a#~a: ~a datatypes, ~a resources\n"
+          (gen-target-collection t) (gen-target-out-root t) (gen-target-package-name t) (or version "?") dt rs)
   (list version dt rs))
 
 ;; ---- generated boilerplate ----------------------------------------
-(define banner ";;; GENERATED — DO NOT EDIT (verified by raco fhir check).")
+(define (banner) (string-append ";;; GENERATED — DO NOT EDIT (verified by " (check-command) ")."))
 
 ;; types.rkt : require every schema module (registration side effects) + every form module; provide
 ;; every form macro. Schema-first so registration is done before any use. A delegating tower
@@ -169,7 +174,7 @@
   (define (rel e) (format "~s" (string-append (cdr e) "/" (car e) ".rkt")))
   (define (sch e) (format "~s" (string-append "schema/" (car e) ".rkt")))
   (string-append
-   "#lang racket/base\n" banner "\n"
+   "#lang racket/base\n" (banner) "\n"
    ;; terminology registers at BOTH phases: for-syntax so the form macros (phase 1) can enforce
    ;; required bindings at compile time, and normally for runtime readers of the same catalogue
    (if terminology?
@@ -187,7 +192,7 @@
 (define (schemas-source entries [delegate #f] [terminology? #f])
   (define (sch e) (format "~s" (string-append "schema/" (car e) ".rkt")))
   (string-append
-   "#lang racket/base\n" banner "\n"
+   "#lang racket/base\n" (banner) "\n"
    (if terminology? "(require \"terminology.rkt\")\n" "")
    "(require " (if delegate (string-append delegate "\n         ") "")
    (string-join (map sch entries) "\n         ") ")\n"))
@@ -195,13 +200,13 @@
 ;; main.rkt : the module language — the foundation base + every type macro in scope.
 (define (main-source out-root)
   (string-append
-   "#lang racket/base\n" banner "\n"
+   "#lang racket/base\n" (banner) "\n"
    "(require fhir/foundation/base \"types.rkt\")\n"
    "(provide (all-from-out fhir/foundation/base) (all-from-out \"types.rkt\"))\n"))
 
-;; the reader for #lang fhir/<out-root>
-(define (reader-source out-root)
-  (define mod (string-append "fhir/" out-root "/main"))
+;; the reader for #lang <collection>/<out-root>
+(define (reader-source collection out-root)
+  (define mod (string-append collection "/" out-root "/main"))
   (string-append
    "#lang s-exp syntax/module-reader\n\n"
    ";;; GENERATED — reader: wrap each top form as (fhir-resource-form <form>); the module\n"
@@ -221,7 +226,7 @@
 
 (define (version-source version)
   (string-append
-   "#lang racket/base\n" banner "\n"
+   "#lang racket/base\n" (banner) "\n"
    "(provide fhir-version)\n"
    "(define fhir-version " (format "~s" (or version "unknown")) ")\n"))
 
@@ -338,7 +343,7 @@
 ;; terminology.rkt : one register-binding-expansion! per offline-expandable required binding
 (define (terminology-source expansions)
   (string-append
-   "#lang racket/base\n" banner "\n"
+   "#lang racket/base\n" (banner) "\n"
    ";; REQUIRED-bound ValueSets expanded OFFLINE from this package's own CodeSystems. Required\n"
    ";; both normally and for-syntax by the tower index, so form macros enforce these at compile\n"
    ";; time and runtime consumers can read the same catalogue. Absent urls fail open.\n"
@@ -373,7 +378,7 @@
 
 (define (operations-source ods)
   (string-append
-   "#lang racket/base\n" banner "\n"
+   "#lang racket/base\n" (banner) "\n"
    ";; The package's OperationDefinitions as data + scaffold constructors: each\n"
    ";; <code>-operation takes ONLY the handler `(in req) -> node` and yields the\n"
    ";; operation-entry list for build-app's #:operations (levels/targets from the OD).\n"

@@ -10,7 +10,7 @@
 (require racket/contract
          racket/string
          "ir.rkt"
-         (only-in "emit-schema.rkt" macro-schema-lines flatten-nodes sanitize))
+         (only-in "emit-schema.rkt" macro-schema-lines flatten-nodes sanitize check-command))
 
 (provide
  (contract-out
@@ -29,7 +29,7 @@
   (define out (open-output-string))
   (define (line . xs) (for ([x (in-list xs)]) (display x out)) (newline out))
   (line "#lang racket/base")
-  (line ";;; GENERATED from " (or provenance "?") " — DO NOT EDIT (verified by raco fhir check).")
+  (line ";;; GENERATED from " (or provenance "?") " — DO NOT EDIT (verified by " (check-command) ").")
   (line "(require (for-syntax racket/base fhir/lang-gen/form-syntax))")
   (line "(provide " (string-join (form-module-exports node) " ") ")")
   (for ([n (in-list nodes)] [on (in-list orig-nodes)])

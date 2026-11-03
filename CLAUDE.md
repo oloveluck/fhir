@@ -6,7 +6,7 @@ requirement to a validated FHIR artifact with positioned feedback (language-orie
 JSON only, no XML). Worked examples, and the spec-driven benchmark, live in the `fhir-examples` repo.
 
 ## Package map (the family)
-Nine Racket packages in six git repos, plus `fhir-examples` (examples and the benchmark). The foundation keeps
+Ten Racket packages in seven git repos, plus `fhir-examples` (examples and the benchmark). The foundation keeps
 the `fhir` collection; each language is its own collection (`#lang cql`, `(require cql/compile)`).
 Rule that makes directories movable: **cross-directory imports use collection paths** (`fhir/model/node`),
 never `../model/node.rkt`. Dependency order (base first):
@@ -22,6 +22,7 @@ never `../model/node.rkt`. Dependency order (base first):
 | `fml` | `oloveluck/fml` | `#lang fml` (FHIR Mapping Language), `raco fml` | fhir, fhirpath, cql (only `cql/error.rkt`, to be removed) |
 | `fsh` | `oloveluck/fsh` | `#lang fsh` (bidirectional), projects + packaging, `check.rkt`; `raco fsh`, `raco fsh check` | fhir, fhirpath, fhir-validation |
 | `fhir-server` | `oloveluck/fhir` → `fhir-server/` | `capability/ http/ store/` (SQLite), IG-generated servers, `$evaluate-measure`, `server-cli.rkt` (`raco fhir-server`), server tests | fhir, fhir-spec, fhirpath, fhir-validation, cql, db-lib |
+| `sql-on-fhir` | `oloveluck/sql-on-fhir` | `#lang sql-on-fhir`: ViewDefinition model and operation definitions GENERATED from the IG package (`target.rkt`, `model/`), the view engine, `$sql-run`/`$sql-export` as operations; `raco sql-on-fhir` | fhir, fhirpath (fhir-spec to regenerate) |
 | `fhir-examples` | `oloveluck/fhir-examples` | `examples/` (operations applied as procedures), `bench.rkt` (prose → FSH tasks from a published IG, scored), recorded runs; `raco spec-bench` | fhir, fhir-spec, fhir-validation, fsh, fml |
 
 `fhir`, `fhir-validation` and `fhir-server` all contribute to the `fhir` collection and must stay
@@ -30,8 +31,8 @@ module-disjoint (module paths like `fhir/conformance/validate` did not change wh
 collection search path (`spec-package-path`, `#:optional? #t` for callers that can degrade).
 `fhir/package.rkt` (`read-package`, `#:exact-decimals?`, `#:select` by file name) is the one reader of
 FHIR NPM packages (sd-index, codegen and the tx harness keep specialised streaming readers).
-SQL-on-FHIR (`#lang fhir/viewdef`, 133/133), OMOP and the DuckDB analytics were removed on 2026-11-02
-(git history has them); SQL-on-FHIR is to return as its own `sql-on-fhir` package.
+OMOP and the DuckDB analytics were removed on 2026-11-02 (git history has them). SQL on FHIR returned
+as its own repo, `sql-on-fhir` (below).
 
 Seams (each a one-module move):
 - `kernel/operation-entry.rkt` (fhir) holds the struct generated `operations.rkt` files need, so the
@@ -44,8 +45,10 @@ Seams (each a one-module move):
   on fhirpath, so the TCK runner injects it at run time.
 - `raco fsh check --capability` loads `fhir/store/ig-server` on demand (fsh does not depend on
   fhir-server) and says to install it when absent.
-- codegen writes towers to `(collection-path "fhir" "<tower>")`, so `raco fhir regen` lands in the
-  package that owns the tower.
+- codegen writes a tower to `(collection-path <collection> <out-root>)`: a `gen-target`'s `collection`
+  is "fhir" for the core towers and an IG package's own collection otherwise — sql-on-fhir's
+  `target.rkt` generates `sql-on-fhir/model` from HL7's published package (`#lang sql-on-fhir/model`,
+  delegating to the R6 tower; banners name that package's own check command).
 
 Each language repo carries its own `CLAUDE.md` with the architecture notes for that language.
 
@@ -421,6 +424,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | **Measure server** | **a server generated from CQF Measures 5.0.0: $evaluate-measure over its store, 2 eCQMs, 65 test patients** | `tests/measure-server-r4-test.rkt` | **60/65 individual reports** (5 named); 0 unmet requirements |
 | **CQL execution** | **4 eCQMs over 76 test patients (cqframework/ecqm-content-r4-2021): populations vs expected** | `cql/tests/measure-test.rkt` (cql repo) | **71/76** (5 named corpus disagreements) |
 | **CQL real libraries** | **32 published libraries (FHIRHelpers, CQF Measures, CQL IG) vs the reference ELM** | `cql/tests/elm-corpus-test.rkt` (cql repo) | **32/32 parse + compile; 742/803 defs ELM-equal** |
+| **SQL on FHIR** | **the shared suite from FHIR/sql-on-fhir.js, over the model generated from the 3.0.0-ballot package** | `raco sql-on-fhir tck` (sql-on-fhir repo) | **144/144** |
 | **terminology** | **hl7.fhir.uv.tx-ecosystem 1.9.3** | **`raco fhir-validate --tx-tck`** | **463/553** |
 
 A later pass closed every remaining gap that needs no external terminology — the corpora drove

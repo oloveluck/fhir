@@ -18,7 +18,7 @@
 ;; id            : symbol   'r6 | 'r4 | 'r5
 ;; package-file  : path     the vendored .tgz
 ;; package-name  : string   the NPM package name (for messages)
-;; out-root      : string   output subdir under the fhir collection root ("r6" -> fhir/r6/…)
+;; out-root      : string   output subdir under the collection root ("r6" -> fhir/r6/…)
 ;; doc-base      : string   spec doc URL prefix for spec-linking
 ;; whitelist     : (listof symbol)|#f   which types to generate (#f = all concrete types);
 ;;                          matched AFTER `rename`, so a renaming target whitelists renamed names
@@ -28,25 +28,27 @@
 ;;                          schema-only (register-type! data + a schemas.rkt index) for FHIRPath.
 ;; rename        : (or (-> string? string?) #f)   applied to every SD name (and the root segment of
 ;;                          its element paths) right after load — the seam that lets an IG whose
-;;                          names collide with the base tower (OMOP's Person/Observation/…) register
-;;                          under its own domain-correct names instead.
+;;                          names collide with the base tower register under its own names instead.
+;; collection    : string   the collection the tower is written into and named under ("fhir" for the
+;;                          core towers; an IG package's own collection — sql-on-fhir writes its
+;;                          model to sql-on-fhir/model, `#lang sql-on-fhir/model`)
 (struct gen-target
-  (id package-file package-name out-root doc-base whitelist delegate-base quirks forms? rename)
+  (id package-file package-name out-root doc-base whitelist delegate-base quirks forms? rename collection)
   #:transparent)
 
 ;; R6 is the full authoring tower (form macros + #lang fhir/r6). R4/R5 are full SCHEMA-ONLY towers
 ;; used by FHIRPath to parse arbitrary test-input resources (no form macros to keep compile light).
 (define target-r6
   (gen-target 'r6 (spec-file "hl7.fhir.r6.core.tgz") "hl7.fhir.r6.core"
-              "r6" "https://build.fhir.org/" #f #f '() #t #f))
+              "r6" "https://build.fhir.org/" #f #f '() #t #f "fhir"))
 
 (define target-r4
   (gen-target 'r4 (spec-file "hl7.fhir.r4.core.tgz") "hl7.fhir.r4.core"
-              "r4" "https://hl7.org/fhir/R4/" #f #f '(no-integer64) #f #f))
+              "r4" "https://hl7.org/fhir/R4/" #f #f '(no-integer64) #f #f "fhir"))
 
 (define target-r5
   (gen-target 'r5 (spec-file "hl7.fhir.r5.core.tgz") "hl7.fhir.r5.core"
-              "r5" "https://hl7.org/fhir/R5/" #f #f '() #f #f))
+              "r5" "https://hl7.org/fhir/R5/" #f #f '() #f #f "fhir"))
 
 (define (target-for id)
   (case id

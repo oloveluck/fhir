@@ -45,7 +45,7 @@ raco fhirpath --tck r5                           # the official FHIRPath R5 suit
 
 ## The packages
 
-Nine Racket packages in six repos, plus the examples repo. The foundation keeps the `fhir` collection
+Ten Racket packages in seven repos, plus the examples repo. The foundation keeps the `fhir` collection
 (shared by `fhir-validation` and `fhir-server`, module-disjoint); each language is its own collection.
 
 | package | where | what |
@@ -59,6 +59,7 @@ Nine Racket packages in six repos, plus the examples repo. The foundation keeps 
 | [`cql`](https://github.com/oloveluck/cql) | own repo | `#lang cql`: CQL -> ELM and an ELM engine over FHIR data; `raco cql` |
 | [`fml`](https://github.com/oloveluck/fml) | own repo | `#lang fml`: FHIR Mapping Language; `raco fml` |
 | [`fsh`](https://github.com/oloveluck/fsh) | own repo | `#lang fsh`, both directions, projects and packaging; `raco fsh`, `raco fsh check` |
+| [`sql-on-fhir`](https://github.com/oloveluck/sql-on-fhir) | own repo | `#lang sql-on-fhir`: ViewDefinitions and the IG's operations, generated from HL7's package; `raco sql-on-fhir` |
 | [`fhir-examples`](https://github.com/oloveluck/fhir-examples) | own repo | worked examples (operations as procedures) and the spec-driven benchmark; `raco spec-bench` |
 
 Every tool reports errors the same way (`fhir/diagnostic`): `file:line:col` with the source line and a
@@ -80,6 +81,7 @@ Every suite is vendored with a `SOURCE.txt` and gated by a floor that only rises
 | CQL, cqframework/cql-tests | **1820/1823**; 32/32 published libraries compile, 742/803 definitions ELM-equal to the reference translator |
 | CQL execution, 4 eCQMs over 76 test patients | 71/76 (5 named corpus disagreements) |
 | UCUM functional tests | **573/573** |
+| SQL on FHIR shared suite (FHIR/sql-on-fhir.js) | **144/144** |
 | terminology, hl7.fhir.uv.tx-ecosystem | 463/553 |
 | snapshot generation, fhir-test-cases | 80/80 paths, 476/478 cardinality, 235/236 types |
 | validator vs the Java validator's recorded outcomes | **0 false positives**, 17/26 caught |

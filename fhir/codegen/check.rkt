@@ -19,12 +19,12 @@
 (define (check-tower t)
   (define-values (files _v _d _r) (tower-files t))
   (for/list ([f (in-list files)]
-             #:unless (matches? (car f) (cdr f)))
+             #:unless (matches? (car f) (cdr f) (gen-target-collection t)))
     (string-join* (car f))))
 
 ;; does the committed file at relpath exist and equal `content`?
-(define (matches? relpath content)
-  (define p (committed-path relpath))
+(define (matches? relpath content collection)
+  (define p (committed-path relpath collection))
   (and (file-exists? p)
        (string=? (file->string p) content)))
 
