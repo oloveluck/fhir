@@ -13,8 +13,10 @@
 (require racket/base
          ;; identifiers emitted into the generated (user phase-0) code must be for-template here
          (for-template racket/base
-                       (only-in "derive.rkt" rc-server rc-resource rc-operation rc-param)
-                       (only-in "runtime.rkt" operation-entry make-default-repository))
+                       (only-in "derive.rkt" rc-server rc-resource rc-operation rc-param derive-operation-definition)
+                       (only-in "runtime.rkt" operation-entry make-default-repository)
+                       (only-in fhir/operation operation)
+                       (only-in "operations.rkt" operation->rc operation->od operation->entries))
          syntax/parse
          racket/list
          (only-in fhir/model/registry type-registered? primitive-name?)
@@ -82,10 +84,17 @@
                      #,(if (attribute profile) (syntax-e #'profile) #f))
       #`(cons '#,#'type #,repo-expr))]))
 
-;; ---- (operation $name …) --------------------------------------------------------------------
-;; -> (values rc-operation-stx  (listof operation-entry-stx))
+;; ---- (operation $name …) / (operation "Type/$code") / (operation op) ------------------------
+;; -> (values rc-operation-stx OperationDefinition-stx entries-stx)   each a runtime expression;
+;; entries-stx evaluates to a list of operation-entry
+;; An existing operation (fhir/operation) — a reference string, or an identifier bound to an operation
+;; value — is exposed with its own OperationDefinition; a declaration (with keywords) defines one here.
 (define (parse-operation stx)
   (syntax-parse stx
+    [(_ ref:str)
+     (values #'(operation->rc (operation ref)) #'(operation->od (operation ref)) #'(operation->entries (operation ref)))]
+    [(_ op:id)
+     (values #'(operation->rc op) #'(operation->od op) #'(operation->entries op))]
     [(_ name:id
         (~alt (~optional (~seq #:on on:id))
               (~optional (~and sysflag #:system))
@@ -118,11 +127,10 @@
         (if system?   (list #`(operation-entry 'system   #,code #f handler)) '())
         (if type?     (list #`(operation-entry 'type     #,code #,target-stx handler)) '())
         (if instance? (list #`(operation-entry 'instance #,code #,target-stx handler)) '())))
-     (values
-      #`(rc-operation #,code #,display (list #,system? #,type? #,instance?)
-                      (list #,@(map (lambda (s) #`#,s) resource-types))
-                      (list #,@in-params) (list #,@out-params) #f)
-      entries)]))
+     (define rc #`(rc-operation #,code #,display (list #,system? #,type? #,instance?)
+                               (list #,@(map (lambda (s) #`#,s) resource-types))
+                               (list #,@in-params) (list #,@out-params) #f))
+     (values rc #`(derive-operation-definition #,rc) #`(list #,@entries))]))
 
 ;; parse a #:in/#:out spec (a syntax list of [name type min max]) into rc-param constructor syntaxes
 (define (parse-params spec use)
@@ -164,15 +172,22 @@
                                                                      #:repository r))))
   (check-exn exn:fail:syntax? (lambda () (parse-resource #'(resource Patient #:interactions (frob)
                                                                      #:repository r))))
-  ;; parse-operation yields rc-operation + entries; strips the $; validates param types
-  (define-values (ostx entries)
+  ;; parse-operation yields rc-operation + its OperationDefinition + entries; strips the $;
+  ;; validates param types
+  (define-values (ostx odstx entries)
     (parse-operation #'(operation $expand #:on ValueSet #:in ([url uri 1 1])
                                   #:out ([return ValueSet 1 1]) #:handler h)))
   (check-equal? (syntax->datum ostx)
                 '(rc-operation "expand" "$expand" (list #f #t #f) (list "ValueSet")
                                (list (rc-param "url" "uri" 1 1 "in"))
                                (list (rc-param "return" "ValueSet" 1 1 "out")) #f))
-  (check-equal? (map syntax->datum entries)
-                '((operation-entry 'type "expand" "ValueSet" h)))
+  (check-equal? (syntax->datum entries)
+                '(list (operation-entry 'type "expand" "ValueSet" h)))
+  ;; an existing operation, by reference or as a value in scope, brings its own definition
+  (define-values (rrc rod rentries) (parse-operation #'(operation "ValueSet/$expand")))
+  (check-equal? (syntax->datum rrc) '(operation->rc (operation "ValueSet/$expand")))
+  (check-equal? (syntax->datum rentries) '(operation->entries (operation "ValueSet/$expand")))
+  (define-values (vrc vod ventries) (parse-operation #'(operation $validate)))
+  (check-equal? (syntax->datum ventries) '(operation->entries $validate))
   (check-exn exn:fail:syntax? (lambda () (parse-operation #'(operation $x #:in ([p NoSuch 1 1])
                                                                        #:handler h)))))

@@ -31,6 +31,7 @@
  (struct-out app)
  (struct-out request)
  (struct-out search-result)
+ current-app
  (contract-out
   [make-repository (->* () (#:read (or/c procedure? #f) #:vread (or/c procedure? #f)
                             #:create (or/c procedure? #f) #:update (or/c procedure? #f)
@@ -151,7 +152,13 @@
 
 ;; ---- dispatch -------------------------------------------------------------------------------
 
+;; current-app : the app dispatching the current request (an operation reads its stored subjects
+;; through it — capability/operations)
+(define current-app (make-parameter #f))
+
 (define (dispatch a req)
+  (parameterize ([current-app a]) (dispatch* a req)))
+(define (dispatch* a req)
   (case (request-kind req)
     [(read vread create update delete search history-instance history-type patch) (dispatch-interaction a req)]
     [(invoke) (dispatch-operation a req)]
@@ -239,7 +246,10 @@
 
 (define (dispatch-operation a req)
   (define key (list (request-level req) (request-code req) (target-of req)))
-  (define h (hash-ref (app-operations a) key #f))
+  ;; an operation defined on Resource answers for every type
+  (define h (or (hash-ref (app-operations a) key #f)
+                (and (target-of req)
+                     (hash-ref (app-operations a) (list (request-level req) (request-code req) "Resource") #f))))
   (cond
     [(not h)
      (operation-outcome-not-supported

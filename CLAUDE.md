@@ -160,6 +160,19 @@ declare (operations on Resource on every served type), with the store as data so
 `$docref` is built there from the IG's own OD (it needs the store's search).
 `fhir-spec-driven/examples/pipeline.rkt` maps a QuestionnaireResponse to a Patient with FML,
 validates it and checks its gender against the core value set — by reference, no server.
+**Over HTTP, the CapabilityStatement follows from what is served** (fhir-server's
+`capability/operations.rkt`): `(serve-operations (list $validate $expand) #:port 8080)` serves just
+operations, `(operations-app ops)` is that app; in `#lang fhir/capability`, `(operation "ValueSet/$expand")`
+(a reference) or `(operation $validate)` (a value in scope) exposes an existing operation beside the
+declared resources and inline `(operation $ping #:system … #:handler h)` declarations. All share one
+adapter, `operation->entries` (ig-server uses it too): routes at every level and type the definition
+declares, the request Parameters as inputs, the stored resource as the instance-level subject (the
+app's repository through `current-app`, or `#:read`), `#:around` for context. Each served operation's
+CapabilityStatement entry (`operation->rc`) carries its own canonical, and derive-capability-statement
+advertises every routed operation: one on Resource under each declared type (at rest.operation when
+there are none — FHIR has no `Resource` rest.resource), one on an undeclared type under a
+rest.resource entry of its own. Dispatch falls back to an operation's `Resource` route for any type.
+`examples/operations-server.rkt`; `tests/operations-http-test.rkt` (both paths, through the router).
 
 ## How-to-use docs
 User-facing usage/how-to lives in `.claude/skills/` — `fhir-authoring` (write/run the langs, `raco fsh

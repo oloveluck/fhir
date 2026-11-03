@@ -11,7 +11,7 @@
 ;;; `from-json` (all nested backbones — CapabilityStatementRest*, OperationDefinitionParameter — are
 ;;; registered, so the whole tree resolves in one call), then `ok-or-raise`.
 
-(require racket/contract
+(require racket/contract racket/list
          (only-in fhir/serialize/from-json from-json)
          (only-in fhir/result/result ok-or-raise)
          (only-in fhir/r6/fhir-version fhir-version))
@@ -46,18 +46,30 @@
 ;; ---- CapabilityStatement ---------------------------------------------------------------------
 
 (define (derive-capability-statement server resources operations)
+  (define (abstract? t) (member t '("Resource" "DomainResource")))
   (define (op->entry o)
     (hasheq 'name (rc-operation-display o)
             'definition (or (rc-operation-canonical o)
                             (op-code->canonical (rc-operation-code o)))))
-  ;; an operation contributes at the resource level for each type it lists; type/system-level
-  ;; operations with no target resource contribute at rest.operation.
+  ;; an operation contributes at the resource level for each type it lists (an operation on
+  ;; Resource / DomainResource: every declared type); type/system-level operations with no target
+  ;; resource contribute at rest.operation. A type an operation names but no resource declares gets
+  ;; its own rest.resource entry carrying just its operations — so every routed operation is advertised.
   (define (ops-for-type ty)
     (for/list ([o (in-list operations)]
-               #:when (member (symbol->string ty) (rc-operation-resource-types o)))
+               #:when (or (member (symbol->string ty) (rc-operation-resource-types o))
+                          (ormap abstract? (rc-operation-resource-types o))))
       (op->entry o)))
-  (define server/type-ops
-    (for/list ([o (in-list operations)] #:when (null? (rc-operation-resource-types o)))
+  (define declared (map (lambda (r) (symbol->string (rc-resource-type r))) resources))
+  (define operation-only-types
+    (remove-duplicates
+     (for*/list ([o (in-list operations)] [t (in-list (rc-operation-resource-types o))]
+                 #:unless (or (member t declared) (abstract? t)))
+       t)))
+  (define server/type-ops     ; no target type — or Resource-wide on a server that declares no resources
+    (for/list ([o (in-list operations)]
+               #:when (or (null? (rc-operation-resource-types o))
+                          (and (null? resources) (ormap abstract? (rc-operation-resource-types o)))))
       (op->entry o)))
   (define rest-resources
     (for/list ([r (in-list resources)])
@@ -71,6 +83,11 @@
                               (hasheq 'name (symbol->string (car sp))
                                       'type (symbol->string (cadr sp))))
                'operation (ops-for-type (rc-resource-type r))))))
+  (define operation-only-resources
+    (for/list ([t (in-list operation-only-types)])
+      (hasheq 'type t
+              'operation (for/list ([o (in-list operations)] #:when (member t (rc-operation-resource-types o)))
+                           (op->entry o)))))
   (ok-or-raise
    (from-json
     (drop-absent
@@ -82,7 +99,7 @@
              'fhirVersion (rc-server-fhir-version server)
              'format (rc-server-format server)
              'rest (list (hasheq 'mode (rc-server-mode server)
-                                 'resource rest-resources
+                                 'resource (append rest-resources operation-only-resources)
                                  'operation server/type-ops)))))))
 
 ;; ---- OperationDefinition ---------------------------------------------------------------------

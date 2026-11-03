@@ -57,6 +57,7 @@
          (only-in "serve.rkt" store-repository)
          fhir/operation fhir/data-source
          "data-source.rkt"
+         (only-in fhir/capability/operations operation->entries)
          ;; the operation implementations this server can serve register themselves when loaded
          (only-in fhir/conformance/operations) (only-in fhir/terminology/operations)
          (only-in fhir/sd/operations)
@@ -270,16 +271,17 @@
                  (cons (string->symbol (ig-resource-type r))
                        (ig-repository store (string->symbol (ig-resource-type r)) catalog allowed validate? sd-packages)))
                #:operations
-               (for*/list ([u+op (in-list served-ops)]
-                           [od (in-value (hash-ref ods (car u+op)))]
-                           [level (in-list '(system type instance))] #:when (eq? #t (hash-ref od level #f))
-                           ;; an operation on Resource / DomainResource is served on every served type
-                           [type (in-list (cond [(eq? level 'system) '(#f)]
-                                                [(ormap (lambda (t) (member t '("Resource" "DomainResource"))) (hash-ref od 'resource '()))
-                                                 (map ig-resource-type served)]
-                                                [else (hash-ref od 'resource '())]))])
-                 (operation-entry level (hash-ref od 'code) type
-                                  (serve-operation (cdr u+op) level type store data sd-packages offset)))
+               ;; every implemented operation at the levels and on the types its definition declares;
+               ;; it reads instance subjects from the store and runs with the store as data source
+               (append*
+                (for/list ([u+op (in-list served-ops)])
+                  (operation->entries
+                   (cdr u+op)
+                   #:read (lambda (type id) (fhir-read store type id))
+                   #:around (lambda (thunk)
+                              (parameterize ([current-data-source data] [current-sd-packages sd-packages]
+                                             [current-measure-offset offset])
+                                (thunk))))))
                #:transaction (lambda (bundle-js) (process-bundle! store bundle-js #:search-params catalog))))
   (ig-server plan app gaps catalog sd-packages store validate? tgz))
 
@@ -296,22 +298,6 @@
   (cond [(member url (map operation-url (registered-operations))) (operation url)]
         [(equal? url docref-url) (docref-operation (hash-ref ods url))]
         [else #f]))
-
-;; serve-operation : operation level type store data packages offset -> (in-hash request) -> node
-;; the request's Parameters become the inputs; at instance level the stored resource is the subject
-(define (serve-operation op level type store data sd-packages offset)
-  (lambda (in req)
-    (local-require (only-in fhir/capability/runtime request-id request-body))
-    (parameterize ([current-data-source data] [current-sd-packages sd-packages] [current-measure-offset offset])
-      (define body (request-body req))
-      (define inputs (parameters->inputs (if body (strip-jnum (node->jsexpr body)) (hasheq))))
-      (define subject (and (eq? level 'instance) (fhir-read store type (request-id req))))
-      (define result
-        (cond
-          [(and (eq? level 'instance) (not subject)) (outcome "error" "not-found" (format "~a/~a is not on this server" type (request-id req)))]
-          [else (with-handlers ([exn:fail:operation? exn:fail:operation-outcome])
-                  (invoke op subject inputs))]))
-      (ok-or-raise (from-json result #:lenient? #t)))))
 
 ;; US Core $docref (https://hl7.org/fhir/us/core/OperationDefinition-docref.html): the patient's
 ;; DocumentReferences, start/end bounding DocumentReference.context.period, `type` matching. Only

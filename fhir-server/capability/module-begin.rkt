@@ -54,9 +54,8 @@
      (define server-stx (parse-server (car servers)))
      (define-values (resource-stxs repo-pair-stxs)
        (for/lists (rs ps) ([r (in-list resources)]) (parse-resource r)))
-     (define-values (operation-stxs entry-lists)
-       (for/lists (os es) ([o (in-list operations)]) (parse-operation o)))
-     (define op-entry-stxs (append* entry-lists))
+     (define-values (operation-stxs od-stxs entry-list-stxs)
+       (for/lists (os ds es) ([o (in-list operations)]) (parse-operation o)))
      ;; 4. emit one module body
      #`(#%module-begin
         #,@passthru
@@ -64,13 +63,12 @@
           (derive-capability-statement #,server-stx
                                        (list #,@resource-stxs)
                                        (list #,@operation-stxs)))
-        (define operation-definitions
-          (list #,@(for/list ([o (in-list operation-stxs)]) #`(derive-operation-definition #,o))))
+        (define operation-definitions (list #,@od-stxs))
         (define app
           (build-app #:capability capability-statement
                      #:operation-definitions operation-definitions
                      #:repositories (list #,@repo-pair-stxs)
-                     #:operations (list #,@op-entry-stxs)))
+                     #:operations (append #,@entry-list-stxs)))
         (provide app capability-statement operation-definitions)
         (module+ main
           (displayln (jsexpr->string (node->jsexpr capability-statement)))))]))

@@ -85,7 +85,8 @@ References: the canonical, the OperationDefinition, `"$code"` or `"Type/$code"`.
 definition's parameter names; an unknown one is an error that lists the valid ones. A Parameters
 resource after the subject supplies inputs known only at run time. Available: `$validate`,
 `$snapshot`, `$expand`, `ValueSet/$validate-code`, `$lookup`, `$translate`, `$transform` (FML as
-`#:srcMap`), `$evaluate-measure`. A server generated from an IG serves the same operations over HTTP
+`#:srcMap`), `$evaluate-measure`. The same operations serve over HTTP — `serve-operations`, or
+`(operation "ValueSet/$expand")` in `#lang fhir/capability` — with /metadata derived from them
 (fhir-serving). Example: `fhir-spec-driven/examples/pipeline.rkt`.
 
 ## `#lang cql` — Clinical Quality Language → ELM

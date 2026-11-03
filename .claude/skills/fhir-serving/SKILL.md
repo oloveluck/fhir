@@ -88,3 +88,28 @@ store. With `subject`: an individual MeasureReport; without: a summary over ever
 the proportion score. Data can also arrive as a transaction Bundle (`POST /`). Library:
 `fhir/store/measure` (`evaluate-measure`), `fhir/store/load` (`load-files!`, `cql->library`); running a
 CQL library over a folder of FHIR JSON without a store: `raco cql lib.cql --data dir --valuesets dir`.
+
+## Serve FHIR operations
+
+The operations a pipeline applies (`fhir/operation`) serve over HTTP unchanged, and `/metadata` is
+derived from what is served — each operation under its own canonical, nothing advertised that is not
+routed:
+
+```racket
+(require fhir/capability/operations
+         (only-in fhir/conformance/operations $validate) (only-in fhir/terminology/operations $expand))
+(serve-operations (list $validate $expand) #:port 8080)          ; operations only
+```
+
+In a `#lang fhir/capability` app, next to its resources:
+
+```racket
+(require (only-in fhir/conformance/operations $validate) (only-in fhir/terminology/operations))
+(resource Patient #:interactions (read create))
+(operation $validate)               ; a value in scope — Patient/$validate, Patient/<id>/$validate
+(operation "ValueSet/$expand")      ; by reference — ValueSet gets a CapabilityStatement entry for it
+```
+
+Instance-level calls take the stored resource as the subject. `racket examples/operations-server.rkt`
+serves $validate, $expand, $validate-code and $lookup. A server generated from an IG
+(`raco fhir-server serve-ig`) serves every implemented operation its IG names, the same way.
