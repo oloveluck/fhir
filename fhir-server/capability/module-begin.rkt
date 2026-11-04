@@ -54,10 +54,12 @@
      (define server-stx (parse-server (car servers)))
      (define-values (resource-stxs repo-pair-stxs)
        (for/lists (rs ps) ([r (in-list resources)]) (parse-resource r)))
-     (define-values (operation-stxs od-stxs entry-list-stxs definition-stxs)
-       (for/lists (os ds es fs) ([o (in-list operations)]) (parse-operation o)))
+     (define parsed (map parse-operation operations))
+     (define operation-stxs (map parsed-operation-rc parsed))
+     (define od-stxs (map parsed-operation-od parsed))
+     (define entry-list-stxs (map parsed-operation-entries parsed))
      ;; inline declarations are also operation VALUES: defined, registered, provided
-     (define op-defines (filter values definition-stxs))
+     (define op-defines (filter values (map parsed-operation-definition parsed)))
      (define op-names (map (lambda (d) (syntax-case d () [(_ name . _) #'name])) op-defines))
      ;; 4. emit one module body
      #`(#%module-begin
