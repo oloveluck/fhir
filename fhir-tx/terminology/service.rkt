@@ -25,7 +25,7 @@
          racket/string
          racket/promise
          racket/runtime-path
-         (only-in fhirpath/terminology tx-service)
+         (only-in fhirpath/terminology tx-service tx-service?)
          (only-in fhir/serialize/jsexpr-util drop-false)
          (only-in fhir/serialize/from-json from-json)
          (only-in fhir/result/result ok? ok-value))
