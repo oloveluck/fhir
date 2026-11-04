@@ -78,7 +78,8 @@ resources, lazily indexed. As operations:
 
 An implicit VCL url (@tt{http://fhir.org/VCL?v1=…}) expands too. As a @racket[tx-service] handle,
 @racket[(make-r5-terminology)] (or over packages, resources, any resolver) is what FHIRPath's
-@tt{%terminologies} takes: @racket[(eval-fhirpath ast root #:externals (hash "terminologies" tx))].
+@tt{%terminologies} takes, as a one-item collection:
+@racket[(eval-fhirpath ast root #:externals (hash "terminologies" (list tx)))].
 
 @bold{Command line.}
 
@@ -89,6 +90,67 @@ raco fhir-validate --tx-tck                                  the terminology sui
 
 The OperationOutcome on stdout by default; @tt{text} is one line per issue on stderr. Duplicate
 JSON keys and malformed JSON are reported with their position. Exit 1 on any error issue, 2 on usage.
+
+@section{How terminology is handled}
+
+Terminology lives in four places, by when it is needed:
+
+@itemlist[
+@item{@bold{At compile time, in the towers.} Code generation expands every required binding on a
+@tt{code} element whose ValueSet enumerates its codes or includes a whole CodeSystem from the same
+package, and writes the sets into @tt{fhir/r6/terminology} (202 value sets; 241 for R5, 211 for
+R4), registered in @tt{fhir/model/binding}. The @tt{fhir/r6} form macros reject a literal code
+outside its set when the module compiles. Filters, imports and excludes are not expanded: those
+value sets fail open.}
+@item{@bold{At validation time.} The validator checks required bindings through a
+@racket[tx-service] when it is given one, else against the same offline sets. Only @tt{$validate}
+builds a service (over the data source and the packages). @tt{raco fhir-validate}, the generated
+server's write validation and @tt{raco fsh check} pass none, so for them a binding to a value set
+defined by filters is not checked.}
+@item{@bold{At run time, the service} in @racket[fhir/terminology/service]: @tt{$expand},
+@tt{$validate-code} (ValueSet and CodeSystem), @tt{$lookup} and @tt{$translate} over the
+CodeSystems, ValueSets and ConceptMaps in packages or resources, indexed lazily per package. The
+operations in @racket[fhir/terminology/operations] put it behind @tt{fhir/operation}; FHIRPath's
+@tt{expand()}, @tt{validateVS()} and @tt{translate()} call it through the @racket[tx-service]
+handle; fhir-server serves the operations an IG declares; VCL's implicit urls compile on the way
+in.}
+@item{@bold{In the languages, by expansion.} CQL's @tt{in "ValueSet"} and retrieves by value set
+take ValueSet resources with an @tt{expansion} (else enumerated concepts) and do not call the
+service. FML has no @tt{translate} transform. FSH records a binding's strength and url and
+validates no codes.}]
+
+@section{Limits}
+
+@itemlist[
+@item{@bold{What the validator does not check.} Slicing with an @tt{exists}, @tt{type},
+@tt{profile} or @tt{position} discriminator (the whole slicing fails open), @tt{closed} slicing
+rules and slice @tt{max}; extensions beyond their slice (an extension's url, context and its own
+profile's constraints are never checked: @tt{Extension} is opaque and not recursed into); references
+(target profiles, resolvability, @tt{#id} into @tt{contained}); XHTML beyond non-empty; the
+@tt{meta.profile} of a contained or Bundle-entry resource (entries are walked against their base
+type only); extensible and preferred bindings, @tt{maxValueSet} and additional bindings (only
+required bindings are checked); mustSupport, by design. Invariants are off by default; even on, the
+base element and domain invariants are skipped. Against the HL7 validator test cases the recall is
+17 of 26 dirty cases with no false positive; the remaining misses need @tt{resolve()}, embedded
+FHIRPath validation or canonical resolution into contained resources.}
+@item{@bold{What the terminology service does not do.} @tt{$subsumes}, @tt{$closure},
+@tt{$find-matches}, batch validation, CodeSystem supplements. Expansion ignores
+@tt{compose.include.valueSet} (an include by value set contributes nothing, and a system include is
+not narrowed by one), and a ValueSet that carries only an @tt{expansion} and no @tt{compose}
+expands to nothing. The filter operators @tt{generalizes}, @tt{descendent-leaf} and @tt{of} match
+nothing, so a VCL expression using them expands to nothing; @tt{is-a} and @tt{descendent-of} use the
+concept tree, not the named property. @tt{$expand} does not take @tt{includeDefinition},
+@tt{excludeNotForUI} or @tt{limit}, and emits no @tt{abstract} or @tt{inactive} flags;
+@tt{displayLanguage} matches a tag exactly. @tt{$lookup} drops a designation's @tt{use} and any
+property that is not a code, string or boolean. @tt{$translate} is forward only, by source code and
+system, with no target, @tt{dependsOn} or @tt{unmapped} handling and no ConceptMap version. Version
+resolution picks the highest version by string order. Concept lookups scan linearly, so
+@tt{activeOnly} and @tt{is-a} are quadratic in the code system's size. Anything resting on a code
+system the service cannot see (SNOMED CT, LOINC, RxNorm) is undecidable and reported as unknown,
+never as invalid; the tx-ecosystem suite stands at 463/553 with those skipped.}
+@item{@bold{FHIRPath's @tt{%terminologies}} offers @tt{expand()}, @tt{validateVS()} and
+@tt{translate()}; @tt{expand()} drops its parameters argument and the other two their system
+argument, and there is no @tt{lookup()}, @tt{subsumes()} or @tt{validateCS()}.}]
 
 @section{Reference}
 

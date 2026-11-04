@@ -146,6 +146,22 @@ raco fhir snapshot <sd.json>
 @litchar{-h} on the tool or any command prints usage and exits 0; a usage error or missing file is one
 line on stderr, exit 2; drift or a failed parse exits 1.
 
+@section{Limits}
+
+@itemlist[
+@item{Forms exist for R6 only. R4 and R5 are schema towers for parsing, navigation and validation;
+there is no @tt{#lang fhir/r4} or @tt{fhir/r5}.}
+@item{Snapshot generation covers the differential merge, named slices and datatype expansion;
+not reslicing, discriminator inference, @tt{[x]} slice expansion or @tt{contentReference}. The
+HL7 snapshot cases stand at 80/80 paths, 476/478 cardinalities, 235/236 types; the rest are
+version-induced.}
+@item{Compile-time bindings cover required bindings on @tt{code} elements whose value set enumerates
+its codes or includes a whole system from the same package; filters, imports and excludes fail
+open.}
+@item{Generating an IG's own resources as a tower (a @racket[gen-target] with a delegate base) is a
+recipe that has been exercised, but no IG target is configured.}
+@item{JSON only: no XML anywhere in the family.}]
+
 @section{Reference}
 
 @subsection[#:style 'unnumbered]{@hash-lang[] @tt{fhir/r6}}

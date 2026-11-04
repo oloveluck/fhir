@@ -131,6 +131,60 @@ raco fhir-server evaluate-measure store.db <Measure id|url> --period-start 2021-
     --period-end 2021-12-31 [--subject Patient/x]
 }
 
+@section{Limits}
+
+What a FHIR server can be asked for and this one does not do, from the code. The generated server
+reports the first group as gaps against an IG's CapabilityStatement; the rest it does not report.
+
+@itemlist[
+@item{@bold{Search.} Token, reference, string, date, number, quantity and uri parameters, with
+prefixes, @litchar{:missing}, @litchar{:exact} and @litchar{:contains} (string), @litchar{:not}
+(token), comma OR, @litchar{_id}, @litchar{_lastUpdated} (second precision), @litchar{_count} as a
+limit, @litchar{_include} and @litchar{_revinclude} (@tt{Source:param[:Target]}, @tt{Source:*}).
+Absent: composite and special parameters, chaining (@tt{patient.name=}), @litchar{_has},
+@litchar{_sort}, paging links and @litchar{_offset}, @litchar{_total} (the Bundle's @tt{total} is
+the page size when @litchar{_count} cuts it), @litchar{_summary}, @litchar{_elements},
+@litchar{_filter}, @litchar{_text}, @litchar{_content}, @litchar{:iterate}, the other modifiers
+(@litchar{:text}, @litchar{:above}, @litchar{:below}, @litchar{:in}, @litchar{:identifier}),
+system-level search, @tt{POST /Type/_search}, and the parameters whose base is Resource
+(@litchar{_tag}, @litchar{_profile}, @litchar{_security}: the catalog is keyed by the concrete type).
+Quantity search converts no units. String search indexes HumanName and Address, not other complex
+types. Searchset entries carry no @tt{fullUrl}.}
+@item{@bold{A parameter the server cannot run is dropped}, as FHIR's lenient default allows, and the
+result is broader than asked; the dropped names come back only from @racket[fhir-search/ignored],
+not as an OperationOutcome in the Bundle, and there is no @tt{Prefer: handling=strict}.}
+@item{@bold{Headers.} The router sees method, path, query and body only. So no conditional create,
+update or delete (@tt{If-None-Exist}, @tt{PUT /Type?param}), no @tt{If-Match} or @tt{ETag}, no
+@tt{If-Modified-Since}, @tt{Prefer} or @tt{Accept}; responses carry no @tt{ETag},
+@tt{Last-Modified} or @tt{Location}. Update is an upsert that answers 200, never 201. A create
+with an existing id is a 500, not a 409.}
+@item{@bold{History.} Instance and type level with @litchar{_since} and @litchar{_count}; no system
+level, no @litchar{_at}, no paging, and a delete leaves no entry (history keeps the versions, not the
+deletion).}
+@item{@bold{Transactions.} Atomic transaction and batch, @tt{urn:} fullUrls rewritten for POST
+entries; no GET, HEAD or PATCH entries, no conditional references or @tt{ifNoneExist}/@tt{ifMatch},
+response entries without the resource. In the generated IG server the transaction endpoint writes
+through the store directly: it does not validate against profiles or apply the IG's per-type
+interaction restrictions, as REST writes do.}
+@item{@bold{PATCH} is JSON Patch only; no FHIRPath Patch.}
+@item{@bold{Transport.} JSON only (no XML, @litchar{_format} or content negotiation), HTTP/1.1 with
+one request per connection and @tt{Content-Length} bodies, no TLS, no CORS, no HEAD or OPTIONS. The
+401, 409 and 422 status lines carry the wrong reason phrase.}
+@item{@bold{Security.} One static bearer token or nothing; no SMART on FHIR, OAuth, scopes or
+per-resource access control. An IG's @tt{rest.security} is copied into @tt{/metadata} unchanged.}
+@item{@bold{Operations.} Only registered operations are served: @tt{$validate} (type and instance
+levels, @tt{mode} ignored), @tt{$expand}, @tt{$validate-code}, @tt{$lookup}, @tt{$translate},
+@tt{$snapshot}, @tt{$evaluate-measure}, and @tt{$docref} as a search over existing
+DocumentReferences. No compartments or @tt{$everything}, subscriptions, bulk export or GraphQL.
+System-level operations are served but not advertised.}
+@item{@bold{The CapabilityStatement} a generated server publishes is the IG's own, trimmed to what
+runs; its @tt{conditionalCreate}, @tt{conditionalUpdate}, @tt{versioning} and @tt{updateCreate}
+flags are left as the IG declared them, @tt{history-system} and @tt{search-system} are dropped
+without a gap, and transaction and batch are always added.}
+@item{@bold{The in-memory repository} of @hash-lang[] @tt{fhir/capability} searches by equality of
+FHIRPath values, with no modifiers or prefixes, keeps no history, and answers vread with the latest
+version. @racket[make-store-app] serves history and PATCH but advertises neither.}]
+
 @section{Reference}
 
 @subsection[#:style 'unnumbered]{@hash-lang[] @tt{fhir/capability}}

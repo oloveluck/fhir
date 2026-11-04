@@ -22,3 +22,31 @@ The languages: @hyperlink["https://oloveluck.github.io/fhirpath/"]{fhirpath},
 @hyperlink["https://oloveluck.github.io/sql-on-fhir/"]{sql-on-fhir}; and
 @hyperlink["https://oloveluck.github.io/fhir-examples/"]{fhir-examples}, the worked examples and the
 spec-driven benchmark. Source: @hyperlink["https://github.com/oloveluck/fhir"]{github.com/oloveluck/fhir}.
+
+@section{Terminology}
+
+Codes are checked at three times, by three mechanisms:
+
+@itemlist[
+@item{@bold{Compiling a resource form}: the towers carry the required bindings whose value sets
+expand offline from their own package (202 in R6), and @tt{(gender "florp")} is a syntax error.}
+@item{@bold{Validating}: the validator checks required bindings through the terminology service when
+one is passed, else against those offline sets; @tt{$validate} passes one, the command line, the
+generated servers and @tt{raco fsh check} do not.}
+@item{@bold{At run time}: the terminology service in fhir-validation answers @tt{$expand},
+@tt{$validate-code}, @tt{$lookup} and @tt{$translate} over any package or set of resources, as
+operations, as FHIRPath's @tt{%terminologies}, over HTTP, and for VCL's implicit value set urls.}]
+
+CQL and FSH do not use the service: CQL takes value set expansions as data, FSH records bindings and
+validates no codes, and FML has no @tt{translate}. The service's own limits (no @tt{$subsumes} or
+@tt{$closure}, includes by value set not expanded, external code systems undecidable) are in the
+fhir-validation document.
+
+@section{What is missing}
+
+Each document ends its usage section with a @italic{Limits} list, from the code. The largest:
+the server has no paging, sorting, chaining, conditional requests or SMART; the validator checks
+no references and no extension contexts and leaves invariants off; the terminology service has no
+subsumption and does not expand includes by value set; CQL scores proportion measures only and
+reads no terminology service; FML runs a subset of the transforms; FSH reproduces most but not all
+of what SUSHI writes for two real IGs; forms exist for R6 only; nothing reads or writes XML.
