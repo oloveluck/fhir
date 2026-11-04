@@ -404,3 +404,26 @@
                   def-id)
                 " ")
    "))\n"))
+
+(module+ test
+  (require rackunit)
+  ;; the pure emitters: deterministic text from data
+  (check-equal? (jsexpr->canonical-string (hasheq 'b 1 'a (list "x" #t 'null) 'c (hasheq)))
+                "{\n  \"a\": [\n    \"x\",\n    true,\n    null\n  ],\n  \"b\": 1,\n  \"c\": {}\n}")
+  (check-equal? (jsexpr->canonical-string '()) "[]")
+  ;; a multi-line literal reads back as the string it was made from
+  (define s "line one\n\"quoted\" and a \\ backslash")
+  (check-equal? (read (open-input-string (multiline-string-literal s))) s)
+  (check-equal? (version-source "5.0.0") (string-append "#lang racket/base\n" (banner) "\n(provide fhir-version)\n(define fhir-version \"5.0.0\")\n"))
+  (check-equal? (version-source #f) (string-append "#lang racket/base\n" (banner) "\n(provide fhir-version)\n(define fhir-version \"unknown\")\n"))
+  ;; the indexes: schemas first (registration), then forms; a delegating tower requires its base first
+  (define entries '(("Patient" . "resources") ("Coding" . "datatypes")))
+  (check-equal? (schemas-source entries)
+                (string-append "#lang racket/base\n" (banner) "\n(require \"schema/Patient.rkt\"\n         \"schema/Coding.rkt\")\n"))
+  (define ts (types-source entries "fhir/r6/types" #t))
+  (check-true (regexp-match? #rx"\\(require \"terminology.rkt\" \\(for-syntax \"terminology.rkt\"\\)\\)" ts))
+  (check-true (regexp-match? #rx"\\(require fhir/r6/types\n         \"schema/Patient.rkt\"" ts))
+  (check-true (regexp-match? #rx"\\(provide \\(all-from-out fhir/r6/types\\)" ts))
+  (check-true (regexp-match? #rx"\\(all-from-out \"resources/Patient.rkt\"\\)" ts))
+  (check-true (regexp-match? #rx"#:whole-body-readers\\? #t" (reader-source "fhir" "r6")))
+  (check-true (regexp-match? #rx"\n\nfhir/r6/main\n" (reader-source "fhir" "r6")) "the module language, on its own line"))
