@@ -26,10 +26,15 @@
          (only-in fhir/result/result ok-or-raise ok? ok-value)
          (only-in "derive.rkt" rc-operation rc-server derive-capability-statement)
          (only-in "runtime.rkt" build-app app? current-app app-repositories repository-read
-                  request-id request-body request-type))
+                  request request-id request-body request-type)
+         (only-in fhir/model/node fhir?))
 
 (provide
  (contract-out
+  ;; declared-operation : OperationDefinition-node handler code -> operation   a #lang fhir/capability
+  ;; inline declaration as a fhir/operation value: the handler (in req) run with the inputs and an
+  ;; in-process request; a typed result returned as JSON; registered by its canonical
+  [declared-operation (-> any/c procedure? string? operation?)]
   [operation->entries (->* (operation?) (#:read (or/c #f procedure?) #:around procedure?) list?)]
   [operation->rc (-> operation? any/c)]
   [operation->od (-> operation? any/c)]
@@ -39,6 +44,17 @@
                                                 #:fhir-version string? #:bearer (or/c string? #f)
                                                   #:terminology-capabilities (or/c hash? #f))
                          procedure?)]))
+
+(define (declared-operation od handler code)
+  (define o (make-operation (strip-jnum (node->jsexpr od))
+                            (lambda (in subject)
+                              (define req (request 'operation (and (hash? subject) (string->symbol (hash-ref subject 'resourceType "Resource")))
+                                                   (and (hash? subject) (hash-ref subject 'id #f)) #f '()
+                                                   (if subject 'instance 'system) code #f))
+                              (define out (handler in req))
+                              (if (fhir? out) (node->jsexpr out) out))))
+  (register-operation! o)
+  o)
 
 ;; the stored resource an instance-level request names: the current app's repository for the type
 (define (app-read type id)

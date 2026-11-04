@@ -13,3 +13,10 @@
 
 (operation $validate)               ; a value in scope: Resource/$validate on every declared type
 (operation "ValueSet/$expand")      ; a reference: ValueSet gets a rest.resource entry for it
+
+;; an inline declaration is ALSO an operation value: `$echo` is defined, registered by its canonical
+;; and provided, so a program applies it in-process the way the server routes it
+(define (echo-handler in req)
+  (define msg (let ([vs (hash-ref in "message" '())]) (if (pair? vs) (format "~a" (car vs)) "pong")))
+  (Parameters (parameter (ParametersParameter (name "result") (valueString msg)))))
+(operation $echo #:system #:in ([message string 0 1]) #:out ([result string 1 1]) #:handler echo-handler)

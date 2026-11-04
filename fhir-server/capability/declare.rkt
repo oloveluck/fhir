@@ -16,7 +16,7 @@
                        (only-in "derive.rkt" rc-server rc-resource rc-operation rc-param derive-operation-definition)
                        (only-in "runtime.rkt" operation-entry make-default-repository)
                        (only-in fhir/operation operation)
-                       (only-in "operations.rkt" operation->rc operation->od operation->entries))
+                       (only-in "operations.rkt" operation->rc operation->od operation->entries declared-operation))
          syntax/parse
          racket/list
          (only-in fhir/model/registry type-registered? primitive-name?)
@@ -85,16 +85,19 @@
       #`(cons '#,#'type #,repo-expr))]))
 
 ;; ---- (operation $name …) / (operation "Type/$code") / (operation op) ------------------------
-;; -> (values rc-operation-stx OperationDefinition-stx entries-stx)   each a runtime expression;
-;; entries-stx evaluates to a list of operation-entry
+;; -> (values rc-operation-stx OperationDefinition-stx entries-stx definition-stx)   each a runtime
+;; expression; entries-stx evaluates to a list of operation-entry; definition-stx (an inline
+;; declaration only, else #f) is `(define $name …)`: the declared operation as a fhir/operation value —
+;; the same handler, applicable in-process (`(apply-operation "$name" …)`, `($name …)`), registered
+;; by its canonical and provided by the module — so a pipeline declared here is served AND callable.
 ;; An existing operation (fhir/operation) — a reference string, or an identifier bound to an operation
 ;; value — is exposed with its own OperationDefinition; a declaration (with keywords) defines one here.
 (define (parse-operation stx)
   (syntax-parse stx
     [(_ ref:str)
-     (values #'(operation->rc (operation ref)) #'(operation->od (operation ref)) #'(operation->entries (operation ref)))]
+     (values #'(operation->rc (operation ref)) #'(operation->od (operation ref)) #'(operation->entries (operation ref)) #f)]
     [(_ op:id)
-     (values #'(operation->rc op) #'(operation->od op) #'(operation->entries op))]
+     (values #'(operation->rc op) #'(operation->od op) #'(operation->entries op) #f)]
     [(_ name:id
         (~alt (~optional (~seq #:on on:id))
               (~optional (~and sysflag #:system))
@@ -130,7 +133,8 @@
      (define rc #`(rc-operation #,code #,display (list #,system? #,type? #,instance?)
                                (list #,@(map (lambda (s) #`#,s) resource-types))
                                (list #,@in-params) (list #,@out-params) #f))
-     (values rc #`(derive-operation-definition #,rc) #`(list #,@entries))]))
+     (values rc #`(derive-operation-definition #,rc) #`(list #,@entries)
+             #`(define name (declared-operation (derive-operation-definition #,rc) handler #,code)))]))
 
 ;; parse a #:in/#:out spec (a syntax list of [name type min max]) into rc-param constructor syntaxes
 (define (parse-params spec use)

@@ -10,7 +10,7 @@
 ;;; Definitions resolve from the inputs, then the current data source's ValueSets / CodeSystems /
 ;;; ConceptMaps, then `current-sd-packages` (indexed once per package list). Results are FHIR JSON.
 
-(require racket/list
+(require racket/list (only-in fhir/registry registered-resources)
          (only-in fhir/r5/operations expand-definition ValueSet-validate-code-definition
                   CodeSystem-validate-code-definition lookup-definition translate-definition
                   subsumes-definition find-matches-definition closure-definition)
@@ -48,8 +48,10 @@
           ((resources->resolver (append-map (lambda (t) (search t (list (cons "url" base)))) terminology-types))
            url version))
         (resources->resolver (append-map (lambda (t) ((data-source-all ds) t)) terminology-types))))
+  ;; what required modules defined (fhir/registry): a #lang vcl value set, an FSH code system
+  (define registered (resources->resolver (append-map registered-resources terminology-types)))
   (define packages (packages-resolver))
-  (lambda (url [version #f]) (or (given url version) (local url version) (packages url version))))
+  (lambda (url [version #f]) (or (given url version) (local url version) (registered url version) (packages url version))))
 
 ;; current-terminology-capabilities : [#:url] -> TerminologyCapabilities jsexpr   over the packages
 (define (current-terminology-capabilities #:url [url #f])

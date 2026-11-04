@@ -22,13 +22,15 @@
                   primitive-name? fhir-spec fhir-spec-url fhir-spec-constraint)
          (only-in fhir/model/schema type-schema schema-field max-of)
          (only-in fhir/sd/sd-index resolve-sd-raw)
-         (only-in fhir/data-source current-data-source data-source-all))
+         (only-in fhir/data-source current-data-source data-source-all)
+         (only-in fhir/registry registered-resource))
 
 (provide (contract-out
           [register-structure-definition! (->* (hash?) (#:resolve (-> string? (or/c hash? #f))) (or/c symbol? #f))]
           ;; structure-definition-type : SD -> its type symbol (without registering)
           [structure-definition-type (-> hash? (or/c symbol? #f))]
-          ;; resolve-structure-definition/data : url -> SD | #f   the current data source, then the packages
+          ;; resolve-structure-definition/data : url -> SD | #f   the current data source, the registered
+          ;; resources, then the packages
           [resolve-structure-definition/data (-> string? (or/c hash? #f))]))
 
 (define (jref h k [d #f]) (if (hash? h) (hash-ref h k d) d))
@@ -42,6 +44,7 @@
   (define u (car (regexp-split #rx"[|]" url)))
   (or (findf (lambda (sd) (equal? (jref sd 'url) u))
              ((data-source-all (current-data-source)) "StructureDefinition"))
+      (registered-resource "StructureDefinition" u)            ; what a required module defined
       (resolve-sd-raw u)))
 
 (define (register-structure-definition! sd #:resolve [resolve resolve-structure-definition/data])

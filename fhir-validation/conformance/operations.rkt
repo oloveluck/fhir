@@ -16,6 +16,7 @@
          (only-in fhir/r5/operations validate-definition)
          fhir/operation fhir/data-source
          (only-in fhir/sd/operations resolve-structure-definition)
+         (only-in fhir/registry registered-resources)
          (only-in fhir/serialize/read-json strip-jnum)
          (only-in fhir/conformance/validate validate-issues issue-severity issue-code issue-path issue-msg)
          (only-in fhir/terminology/operations current-terminology-resolver)
@@ -41,11 +42,13 @@
        (let ([u (input in "profile")])
          (and u (or (resolve-structure-definition u)
                     (operation-error "not-found" "$validate: profile ~a is not in the data source or the packages" u)))))
-     ;; the data source's own profiles that the resource claims (the packages' resolve by themselves)
+     ;; the data source's and the registered modules' own profiles that the resource claims (the
+     ;; packages' resolve by themselves)
      (define claimed
        (let ([urls (let ([m (hash-ref r 'meta #f)]) (if (hash? m) (hash-ref m 'profile '()) '()))])
          (filter (lambda (sd) (member (hash-ref sd 'url #f) urls))
-                 ((data-source-all (current-data-source)) "StructureDefinition"))))
+                 (append ((data-source-all (current-data-source)) "StructureDefinition")
+                         (registered-resources "StructureDefinition")))))
      (issues->outcome (validate-issues (strip-jnum r) #:profiles (remove-duplicates (append (if profile (list profile) '()) claimed))
                                        #:terminology (make-terminology/resolver (current-terminology-resolver)))))))
 

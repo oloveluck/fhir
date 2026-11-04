@@ -10,6 +10,7 @@
          (only-in fhir/r6/types)
          fhir/http/router
          (only-in fhir/capability/operations operations-app)
+         (only-in fhir/operation apply-operation)
          (only-in fhir/conformance/operations $validate)
          (only-in fhir/terminology/operations $expand))
 
@@ -55,3 +56,12 @@
   (check-equal? (hash-ref oo 'resourceType) "OperationOutcome"))
 (let-values ([(st oo) (post app "/Patient/nope/$validate" (params))])
   (check-regexp-match #rx"Patient/nope is not on this server" (hash-ref (car (hash-ref oo 'issue)) 'diagnostics)))
+;; an inline declaration is an operation value too: served, and applied in-process by the same handler
+(define $echo (dynamic-require (collection-file-path "ops-app.rkt" "fhir" "tests") '$echo))
+(define (result-of p) (hash-ref (car (hash-ref p 'parameter)) 'valueString))
+(check-equal? (result-of ($echo #:message "hi")) "hi")
+(check-equal? (result-of (apply-operation "$echo" #:message "there")) "there")
+(check-equal? (result-of (apply-operation "urn:fhir-capability:operation:echo")) "pong")
+(let-values ([(st p) (post app "/$echo" (params (hasheq 'name "message" 'valueString "over http")))])
+  (check-equal? st 200)
+  (check-equal? (result-of p) "over http"))
