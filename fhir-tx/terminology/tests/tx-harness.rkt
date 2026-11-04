@@ -1,7 +1,7 @@
 #lang racket/base
 
 ;;; tx-harness.rkt — run the OFFICIAL terminology-service test suite (hl7.fhir.uv.tx-ecosystem,
-;;; vendored as spec/hl7.fhir.uv.tx-ecosystem.tgz) against terminology/service.rkt.
+;;; vendored in fhir-spec as hl7.fhir.uv.tx-ecosystem.tgz) against terminology/service.rkt.
 ;;;
 ;;; The package ships `tests/test-cases.json`: 35 suites, each with `setup` resources (the suite's
 ;;; own CodeSystems/ValueSets — the reason this suite is executable offline at all) and tests

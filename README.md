@@ -19,11 +19,13 @@ validator and terminology service, and servers generated from Implementation Gui
 |---|---|
 | `fhir/` | the model, primitives and JSON; `#lang fhir/r6` (R4 and R5 as schema-only towers); `#lang fhir/sd` and snapshot generation; codegen from StructureDefinitions; FHIR operations as procedures (`fhir/operation`); `raco fhir` |
 | `fhir-spec/` | the vendored HL7 packages: core R4/R5/R6 and the IGs the tests use |
-| `fhir-validation/` | the validator (cardinality, types, slicing, bindings, invariants) and the terminology service; `raco fhir-validate` |
+| `fhir-tx/` | the terminology service: `$expand`, `$validate-code`, `$lookup`, `$translate` over FHIR packages; `raco fhir-tx` |
+| `fhir-validation/` | the validator (cardinality, types, slicing, bindings, invariants); `raco fhir-validate` |
 | `fhir-server/` | FHIR REST servers, generated from an IG or declared in `#lang fhir/capability`, over a SQLite store; `raco fhir-server` |
 
 ```sh
 raco fhir-validate resource.json [profile.json…]        # an OperationOutcome on stdout
+raco fhir-tx expand http://hl7.org/fhir/ValueSet/administrative-gender
 raco fhir-server serve-ig hl7.fhir.us.core --port 8080  # a server generated from US Core
 ```
 
@@ -33,7 +35,7 @@ From source, with [fhirpath](https://github.com/oloveluck/fhirpath), [vcl](https
 and [cql](https://github.com/oloveluck/cql) checked out alongside (the validator and server use them):
 
 ```sh
-raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-validation cql fhir/fhir-server
+raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-tx fhir/fhir-validation cql fhir/fhir-server
 ```
 
-Reference: [oloveluck.github.io/fhir](https://oloveluck.github.io/fhir/) (fhir, fhir-validation, fhir-server). Architecture notes: `CLAUDE.md`.
+Reference: [oloveluck.github.io/fhir](https://oloveluck.github.io/fhir/) (fhir, fhir-tx, fhir-validation, fhir-server). Architecture notes: `CLAUDE.md`.

@@ -15,8 +15,8 @@ generation), FHIR operations as procedures, data sources, and the diagnostics ev
 reports. The R4, R5 and R6 type towers are generated from the HL7 specifications; R6 comes with
 @hash-lang[] @tt{fhir/r6}, where a resource is a form checked as it compiles.
 
-The other packages: @tt{fhir-spec} (the vendored HL7 packages), @tt{fhir-validation} (the validator and
-terminology service), @tt{fhir-server} (servers generated from Implementation Guides), and the
+The other packages: @tt{fhir-spec} (the vendored HL7 packages), @tt{fhir-tx} (the terminology
+service), @tt{fhir-validation} (the validator), @tt{fhir-server} (servers generated from Implementation Guides), and the
 languages @tt{fhirpath}, @tt{cql}, @tt{fsh}, @tt{vcl}, @tt{fml} and @tt{sql-on-fhir}, each its own
 package and repository.
 
@@ -101,7 +101,7 @@ through several. Loading a package's @tt{operations} module registers what it im
 (require fhir/operation fhir/data-source
          (code:comment "fhir-validation")
          (only-in fhir/conformance/operations ensure-valid)
-         (code:comment "fhir-validation")
+         (code:comment "fhir-tx")
          (only-in fhir/terminology/operations $expand)
          (only-in fml/operations))                              (code:comment "fml")
 (apply-operation "StructureMap/$transform" qr #:srcMap fml-text)
@@ -345,7 +345,7 @@ Parameters resource may carry inputs, a list gives several values; strings are c
 integer, decimal and boolean parameters; an unknown keyword is an error listing the parameters. The
 result is the @tt{return} resource, or a Parameters of the outputs. The packages register their
 operations when loaded: @tt{$validate} and @racket[ensure-valid] (fhir-validation), @tt{$expand},
-@tt{$validate-code}, @tt{$lookup}, @tt{$translate} (fhir-validation), @tt{$transform} (fml),
+@tt{$validate-code}, @tt{$lookup}, @tt{$translate} (fhir-tx), @tt{$transform} (fml),
 @tt{$evaluate-measure} (cql), @tt{$sql-run} (sql-on-fhir), @tt{$snapshot} (here).
 
 @racketblock[

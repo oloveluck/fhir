@@ -32,16 +32,20 @@ jobs:
           raco pkg install --no-docs --batch --auto \
             "./fhir" \
             "./fhir-spec" \
+            "./fhir-tx" \
             "./fhir-validation" \
             "./fhir-server" \
             "https://github.com/oloveluck/fhirpath.git" \
             "https://github.com/oloveluck/vcl.git" \
             "https://github.com/oloveluck/cql.git" \
             "https://github.com/oloveluck/fsh.git"
+      - name: Test the terminology package
+        run: raco test fhir-tx/terminology/service.rkt fhir-tx/terminology/operations.rkt fhir-tx/tx-cli.rkt
       - name: Build the documentation
         run: |
           raco scribble +m --html --dest site --dest-name index.html --redirect-main https://docs.racket-lang.org/ docs/index.scrbl
           raco scribble +m --html --dest site/fhir --dest-name index.html --redirect-main https://docs.racket-lang.org/ fhir/scribblings/fhir.scrbl
+          raco scribble +m --html --dest site/fhir-tx --dest-name index.html --redirect-main https://docs.racket-lang.org/ fhir-tx/scribblings/fhir-tx.scrbl
           raco scribble +m --html --dest site/fhir-validation --dest-name index.html --redirect-main https://docs.racket-lang.org/ fhir-validation/scribblings/fhir-validation.scrbl
           raco scribble +m --html --dest site/fhir-server --dest-name index.html --redirect-main https://docs.racket-lang.org/ fhir-server/scribblings/fhir-server.scrbl
       - uses: actions/upload-pages-artifact@v3

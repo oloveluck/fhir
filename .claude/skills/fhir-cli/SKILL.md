@@ -26,7 +26,7 @@ are defined in `fhir/codegen/target.rkt` (an IG can be a target too: whitelist +
 | command | what it does |
 |---|---|
 | `raco fhir-validate <resource.json> [profile.json…] [--format outcome\|text\|json]` | validate against the base type, the supplied profiles and those in `meta.profile` → OperationOutcome (exit 1 on error) |
-| `raco fhir-validate --tx-tck` | the hl7.fhir.uv.tx-ecosystem terminology suite (463/553) |
+| `raco fhir-tx tck` | the hl7.fhir.uv.tx-ecosystem terminology suite (463/553) |
 
 For a whole FSH project use `raco fsh check <dir>` (fhir-authoring skill): it validates every example
 against the project's own profiles and positions each problem in the FSH.
@@ -39,7 +39,7 @@ against the project's own profiles and positions each problem in the FSH.
 | `raco fhirpath --ucum-tck` | UCUM functional tests | 573/573 |
 | `raco cql --tck` | cqframework/cql-tests | 1820/1823 |
 | `raco fml --tck` | fhir-test-cases structure-mapping | 6/6 exec, 15/15 parse |
-| `raco fhir-validate --tx-tck` | hl7.fhir.uv.tx-ecosystem | 463/553 |
+| `raco fhir-tx tck` | hl7.fhir.uv.tx-ecosystem | 463/553 |
 | `raco fhir roundtrip-tck r5\|r4` | HL7 examples + core packages | R5 2968+77, R4 4581+72 |
 
 ## Elsewhere

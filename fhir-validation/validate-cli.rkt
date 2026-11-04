@@ -5,7 +5,6 @@
 ;;;   raco fhir-validate <resource.json> [profile.json…] [--format outcome|text|json]
 ;;;       validate against the base type + the supplied profiles (and the profiles the resource
 ;;;       claims in meta.profile, resolved from fhir-spec); exit 1 on an error
-;;;   raco fhir-validate --tx-tck      the official terminology-service suite (ratcheted)
 ;;;
 ;;; --format outcome (default: the OperationOutcome on stdout) | text (one line per issue on stderr) |
 ;;; json; malformed JSON is a positioned `json parse` diagnostic in the same format (fhir/diagnostic).
@@ -20,7 +19,7 @@
 (provide validate-file)
 
 (define usage-text
-  "usage: raco fhir-validate <resource.json> [profile.json…] [--format outcome|text|json]\n       raco fhir-validate --tx-tck\n")
+  "usage: raco fhir-validate <resource.json> [profile.json…] [--format outcome|text|json]\n")
 (define (usage [code 2])
   ((if (zero? code) printf eprintf) usage-text)
   (exit code))
@@ -63,7 +62,6 @@
   (define-values (fmt args) (format-flag all))
   (cond
     [(ormap (lambda (a) (member a '("-h" "--help"))) args) (usage 0)]
-    [(equal? args '("--tx-tck")) (dynamic-require '(submod fhir/terminology/tests/run-tx main) #f)]
     [(null? args) (usage)]
     [(findf (lambda (a) (regexp-match? #rx"^-" a)) args)
      => (lambda (a) (eprintf "fhir-validate: unknown option ~a\n" a) (usage))]

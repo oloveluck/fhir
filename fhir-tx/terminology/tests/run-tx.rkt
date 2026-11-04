@@ -1,6 +1,6 @@
 #lang racket/base
 
-;;; run-tx.rkt — `raco fhir-validate --tx-tck`: the official terminology-service suite, ratcheted.
+;;; run-tx.rkt — `raco fhir-tx --tck`: the official terminology-service suite, ratcheted.
 
 (require (only-in fhir/r5/schemas)                       ; result nodes build against R5
          (only-in "tx-harness.rkt" run-tx-suite tx-results-pass tx-results-fail
@@ -15,10 +15,9 @@
   (when verbose? (for ([f (in-list (tx-results-failures r))]) (eprintf "  ~a\n" f)))
   (define pass (tx-results-pass r))
   (define total (+ pass (tx-results-fail r)))
-  (printf "terminology conformance: ~a/~a  (skipped ~a — external terminologies, unimplemented\n"
+  (printf "terminology conformance: ~a/~a  (skipped ~a: external terminologies, value sets\n"
           pass total (tx-results-skip r))
-  (printf "  operations (lookup/translate/compare/cs-validate-code) and expansion parameters\n")
-  (printf "  (offset/count/filter/displayLanguage) we do not implement)\n")
+  (printf "  resting on code systems we cannot see, operations and parameters not implemented)\n")
   (when (< pass floor-pass)
     (eprintf "REGRESSION: ~a < floor ~a\n" pass floor-pass)
     (exit 1)))

@@ -18,8 +18,8 @@ reported as a gap. US Core has none; six more IGs are held to their own examples
 fhir-examples repository.
 
 Part of the @hyperlink["https://github.com/oloveluck/fhir"]{fhir} family, in the @tt{fhir}
-collection; depends on @tt{fhir}, @tt{fhir-spec}, @tt{fhirpath}, @tt{fhir-validation}, @tt{cql} and
-@tt{db-lib}.
+collection; depends on @tt{fhir}, @tt{fhir-spec}, @tt{fhirpath}, @tt{fhir-tx}, @tt{fhir-validation},
+@tt{cql} and @tt{db-lib}.
 
 @table-of-contents[]
 

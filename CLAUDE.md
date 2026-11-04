@@ -6,7 +6,7 @@ requirement to a validated FHIR artifact with positioned feedback (language-orie
 JSON only, no XML). Worked examples, and the spec-driven benchmark, live in the `fhir-examples` repo.
 
 ## Package map (the family)
-Ten Racket packages in seven git repos, plus `fhir-examples` (examples and the benchmark). The foundation keeps
+Eleven Racket packages in seven git repos, plus `fhir-examples` (examples and the benchmark). The foundation keeps
 the `fhir` collection; each language is its own collection (`#lang cql`, `(require cql/compile)`).
 Rule that makes directories movable: **cross-directory imports use collection paths** (`fhir/model/node`),
 never `../model/node.rkt`. Dependency order (base first):
@@ -17,15 +17,16 @@ never `../model/node.rkt`. Dependency order (base first):
 | `fhir-spec` | `oloveluck/fhir` → `fhir-spec/` | the vendored HL7 NPM packages (`*.tgz`) — data only, located via `fhir/spec-package` | base |
 | `fhirpath` | `oloveluck/fhirpath` | the FHIRPath engine (with UCUM, `print.rkt`), `raco fhirpath` | fhir |
 | `vcl` | `oloveluck/vcl` | `#lang vcl`, `raco vcl` | fhir |
-| `fhir-validation` | `oloveluck/fhir` → `fhir-validation/` | `conformance/validate.rkt`, `terminology/` (service + tx suite), the validation corpora and tests, `validate-cli.rkt` (`raco fhir-validate`) | fhir, fhir-spec, fhirpath, vcl |
+| `fhir-tx` | `oloveluck/fhir` → `fhir-tx/` | `terminology/service.rkt` ($expand, $validate-code, $lookup, $translate over packages or resources; the tx-service handle for %terminologies), `terminology/operations.rkt` (the same as fhir/operation values), the tx-ecosystem suite, `tx-cli.rkt` (`raco fhir-tx`) | fhir, fhir-spec, fhirpath, vcl |
+| `fhir-validation` | `oloveluck/fhir` → `fhir-validation/` | `conformance/validate.rkt`, the validation corpora and tests, `validate-cli.rkt` (`raco fhir-validate`) | fhir, fhir-spec, fhirpath, fhir-tx |
 | `cql` | `oloveluck/cql` | `#lang cql` (CQL → ELM + interpreter), `raco cql` | fhir, fhirpath |
 | `fml` | `oloveluck/fml` | `#lang fml` (FHIR Mapping Language), `raco fml` | fhir, fhirpath, cql (only `cql/error.rkt`, to be removed) |
 | `fsh` | `oloveluck/fsh` | `#lang fsh` (bidirectional), projects + packaging, `check.rkt`; `raco fsh`, `raco fsh check` | fhir, fhirpath, fhir-validation |
-| `fhir-server` | `oloveluck/fhir` → `fhir-server/` | `capability/ http/ store/` (SQLite), IG-generated servers, `$evaluate-measure`, `server-cli.rkt` (`raco fhir-server`), server tests | fhir, fhir-spec, fhirpath, fhir-validation, cql, db-lib |
+| `fhir-server` | `oloveluck/fhir` → `fhir-server/` | `capability/ http/ store/` (SQLite), IG-generated servers, `$evaluate-measure`, `server-cli.rkt` (`raco fhir-server`), server tests | fhir, fhir-spec, fhirpath, fhir-tx, fhir-validation, cql, db-lib |
 | `sql-on-fhir` | `oloveluck/sql-on-fhir` | `#lang sql-on-fhir`: ViewDefinition model and operation definitions GENERATED from the IG package (`target.rkt`, `model/`), the view engine, `$sql-run`/`$sql-export` as operations; `raco sql-on-fhir` | fhir, fhirpath (fhir-spec to regenerate) |
 | `fhir-examples` | `oloveluck/fhir-examples` | `examples/` (operations applied as procedures), `bench.rkt` (prose → FSH tasks from a published IG, scored), recorded runs; `raco spec-bench` | fhir, fhir-spec, fhir-validation, fsh, fml |
 
-`fhir`, `fhir-validation` and `fhir-server` all contribute to the `fhir` collection and must stay
+`fhir`, `fhir-tx`, `fhir-validation` and `fhir-server` all contribute to the `fhir` collection and must stay
 module-disjoint (module paths like `fhir/conformance/validate` did not change when the packages split).
 `fhir` does NOT depend on `fhir-spec`: `fhir/spec-package.rkt` locates the tarballs through the
 collection search path (`spec-package-path`, `#:optional? #t` for callers that can degrade).
@@ -41,8 +42,8 @@ Seams (each a one-module move):
 - `sd/{sd-index,snapshot,element-index}.rkt` — pure SD machinery in the foundation, so `fsh` compiles
   without the validator. `sd-index` reads fhir-spec's core package when present (`current-sd-packages`).
 - `fhirpath/tests/run-r5.rkt` `dynamic-require`s `fhir/terminology/service` (the %terminologies
-  backend, in fhir-validation) and lowers its floor to 1041 when it is absent — fhir-validation depends
-  on fhirpath, so the TCK runner injects it at run time.
+  backend, in fhir-tx) and lowers its floor to 1041 when it is absent — fhir-tx depends on fhirpath
+  (the `tx-service` handle lives there), so the TCK runner injects it at run time.
 - `raco fsh check --capability` loads `fhir/store/ig-server` on demand (fsh does not depend on
   fhir-server) and says to install it when absent.
 - codegen writes a tower to `(collection-path <collection> <out-root>)`: a `gen-target`'s `collection`
@@ -55,12 +56,12 @@ Each language repo carries its own `CLAUDE.md` with the architecture notes for t
 ## Package setup
 From `~/Projects` with the repos side by side (dependency order):
 ```sh
-raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-validation cql fml fsh fhir/fhir-server fhir-examples
-raco setup --check-pkg-deps --pkgs fhir fhir-spec fhirpath vcl fhir-validation cql fml fsh fhir-server fhir-examples
+raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-tx fhir/fhir-validation cql fml fsh fhir/fhir-server fhir-examples
+raco setup --check-pkg-deps --pkgs fhir fhir-spec fhirpath vcl fhir-tx fhir-validation cql fml fsh fhir-server fhir-examples
 ```
-This repo's root holds the family README/LICENSE and these notes; `fhir/`, `fhir-spec/`,
-`fhir-validation/` and `fhir-server/` are its four packages. Commands: `raco fhir` (foundation),
-`raco fhir-validate`, `raco fhir-server`, and per language `raco fhirpath|cql|fsh|vcl|fml`.
+This repo's root holds the family README/LICENSE and these notes; `fhir/`, `fhir-spec/`, `fhir-tx/`,
+`fhir-validation/` and `fhir-server/` are its five packages. Commands: `raco fhir` (foundation),
+`raco fhir-tx`, `raco fhir-validate`, `raco fhir-server`, and per language `raco fhirpath|cql|fsh|vcl|fml`.
 
 ## Diagnostics: machine-readable feedback (`fhir/diagnostic`)
 Every language reports errors as one value, `(diagnostic lang phase severity message loc)` with
@@ -155,7 +156,7 @@ Context comes from parameters: `current-data-source` — FHIR data as a value: i
 value sets). Implemented, each by the package that does the work, under the core OD canonicals:
 `$snapshot` (fhir, `fhir/sd/operations`), `$validate` and `ensure-valid` (fhir-validation,
 `fhir/conformance/operations`), `$expand`, `ValueSet/$validate-code`, `$lookup`, `$translate`
-(fhir-validation, `fhir/terminology/operations`; the service's `tx-*` functions answer FHIR JSON,
+(fhir-tx, `fhir/terminology/operations`; the service's `tx-*` functions answer FHIR JSON,
 FHIRPath's `%terminologies` closures wrap it), `$transform` (fml, `fml/operations`: runs FML given as
 `#:srcMap`), `$evaluate-measure` (cql, `cql/measure`: over any data source; the R4 OD, which returns a
 MeasureReport). fhir-server serves every registered operation its IG's ODs name, at every level they
@@ -216,14 +217,14 @@ This codebase is written in the **How to Design Programs** idiom; keep new code 
 
 ## Verify
 ```sh
-raco test -p fhir fhir-spec fhirpath vcl fhir-validation cql fml fsh fhir-server fhir-examples
+raco test -p fhir fhir-spec fhirpath vcl fhir-tx fhir-validation cql fml fsh fhir-server fhir-examples
 racket fhir/examples/patient.fhir6       # prints FHIR JSON
 racket fhir/examples/demo.cql            # #lang cql — prints ELM JSON
 raco fhir check all                      # determinism guard (r6 r4 r5)
 raco fhirpath --tck r5                   # FHIRPath conformance (or r4); raco fhirpath --ucum-tck
 raco cql --tck                           # CQL expression conformance; raco fml --tck
 raco fhir roundtrip-tck r5               # parse+serialize round-trip the whole R5 corpus (or r4)
-raco fhir-validate --tx-tck              # the terminology suite
+raco fhir-tx tck                        # the terminology suite
 raco fsh check ../fsh/tests/vendor/mcode-4.0.0 --capability mcode-sender-patients-in-group   # exit 0
 ```
 
@@ -425,7 +426,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | **CQL execution** | **4 eCQMs over 76 test patients (cqframework/ecqm-content-r4-2021): populations vs expected** | `cql/tests/measure-test.rkt` (cql repo) | **71/76** (5 named corpus disagreements) |
 | **CQL real libraries** | **32 published libraries (FHIRHelpers, CQF Measures, CQL IG) vs the reference ELM** | `cql/tests/elm-corpus-test.rkt` (cql repo) | **32/32 parse + compile; 742/803 defs ELM-equal** |
 | **SQL on FHIR** | **the shared suite from FHIR/sql-on-fhir.js, over the model generated from the 3.0.0-ballot package** | `raco sql-on-fhir tck` (sql-on-fhir repo) | **144/144** |
-| **terminology** | **hl7.fhir.uv.tx-ecosystem 1.9.3** | **`raco fhir-validate --tx-tck`** | **463/553** |
+| **terminology** | **hl7.fhir.uv.tx-ecosystem 1.9.3** | **`raco fhir-tx tck`** (fhir-tx) | **463/553** |
 
 A later pass closed every remaining gap that needs no external terminology — the corpora drove
 these fixes, each one a real defect:
