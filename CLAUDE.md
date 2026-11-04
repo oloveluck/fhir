@@ -194,7 +194,8 @@ over HTTP through fhir-server's operations app, which now answers `GET /metadata
 (an `app`'s `metadata` hash) and routes a batch Bundle entry by entry when the app has no
 transaction processor. FHIRPath's `expand()` takes a Parameters, `validateVS()`/`translate()` a
 Coding or CodeableConcept and a system. CI runs the service, operations and router tests and
-`raco fhir-tx tck` on every push.
+`raco fhir-tx tck` on every push. The includes-by-value-set and pre-expanded fixes took the suite
+from 463 to 473/553 (floor 473).
 
 ## How-to-use docs
 User-facing usage/how-to lives in `.claude/skills/` — `fhir-authoring` (write/run the langs, `raco fsh
@@ -444,11 +445,11 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | **CQL execution** | **4 eCQMs over 76 test patients (cqframework/ecqm-content-r4-2021): populations vs expected** | `cql/tests/measure-test.rkt` (cql repo) | **71/76** (5 named corpus disagreements) |
 | **CQL real libraries** | **32 published libraries (FHIRHelpers, CQF Measures, CQL IG) vs the reference ELM** | `cql/tests/elm-corpus-test.rkt` (cql repo) | **32/32 parse + compile; 742/803 defs ELM-equal** |
 | **SQL on FHIR** | **the shared suite from FHIR/sql-on-fhir.js, over the model generated from the 3.0.0-ballot package** | `raco sql-on-fhir tck` (sql-on-fhir repo) | **144/144** |
-| **terminology** | **hl7.fhir.uv.tx-ecosystem 1.9.3** | **`raco fhir-tx tck`** (fhir-tx) | **463/553** |
+| **terminology** | **hl7.fhir.uv.tx-ecosystem 1.9.3** | **`raco fhir-tx tck`** (fhir-tx) | **473/553** |
 
 A later pass closed every remaining gap that needs no external terminology — the corpora drove
 these fixes, each one a real defect:
-- **tx** (441→**463/553**, and the denominator is now honest): wildcard version pins (`1.x.x`) keep
+- **tx** (441→**473/553**, and the denominator is now honest): wildcard version pins (`1.x.x`) keep
   the PATTERN as the member version so any matching version validates; expansion members dedup and
   exclude by (system, code, **version**) so two versions of a system coexist; a CodeableConcept is
   invalid when a coding names an unknown code in a *complete* CodeSystem, while still echoing the

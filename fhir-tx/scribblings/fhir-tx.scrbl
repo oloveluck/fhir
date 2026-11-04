@@ -9,7 +9,7 @@ CodeSystems, ValueSets and ConceptMaps in FHIR NPM packages or in resources you 
 lazily, and the TerminologyCapabilities that describes them. The same service is a @tt{fhir/operation} value,
 the @tt{%terminologies} handle FHIRPath takes, what the validator checks bindings with, what
 fhir-server serves, and what expands VCL's implicit value set urls. The official
-hl7.fhir.uv.tx-ecosystem suite stands at 463/553, with what rests on external code systems skipped.
+hl7.fhir.uv.tx-ecosystem suite stands at 473/553, with what rests on external code systems skipped.
 
 Part of the @hyperlink["https://github.com/oloveluck/fhir"]{fhir} family, in the @tt{fhir}
 collection; depends on @tt{fhir}, @tt{fhir-spec}, @tt{fhirpath} (the handle) and @tt{vcl}.
@@ -127,7 +127,7 @@ is forward only, by source code and system, with no target, @tt{dependsOn} or @t
 handling and no ConceptMap version. Hierarchy comes from nested concepts, not from @tt{parent} or
 @tt{subsumedBy} properties. Version resolution picks the highest version by string order. Anything
 resting on a code system the service cannot see (SNOMED CT, LOINC, RxNorm) is undecidable and
-reported as unknown, never as invalid; the tx-ecosystem suite stands at 463/553 with those skipped.}
+reported as unknown, never as invalid; the tx-ecosystem suite stands at 473/553 with those skipped.}
 @item{@bold{FHIRPath's @tt{%terminologies}} offers @tt{expand()} (with a Parameters argument),
 @tt{validateVS()} and @tt{translate()} (a code, a Coding or a CodeableConcept, and a system); the
 handle has no @tt{lookup()}, @tt{subsumes()} or @tt{validateCS()}.}]
@@ -143,7 +143,7 @@ patterns, implicit VCL urls) with the expansion parameters (offset, count, activ
 displayLanguage, includeDesignations, property). Validation takes a code, a Coding or a
 CodeableConcept, checks displays against designations, and honours system and value set versions.
 What rests on a code system the service does not have (SNOMED, LOINC) is undecidable; the
-hl7.fhir.uv.tx-ecosystem suite is at 463/553 with those skipped.
+hl7.fhir.uv.tx-ecosystem suite is at 473/553 with those skipped.
 
 A @italic{resolver} is @tt{(url [version]) -> resource | #f}.
 

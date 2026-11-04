@@ -7,7 +7,7 @@
                   tx-results-skip tx-results-failures))
 
 ;; NEVER LOWER. Raise as $expand/$validate-code gain capability.
-(define floor-pass 463)
+(define floor-pass 473)
 
 (module+ main
   (define verbose? (and (member "-v" (vector->list (current-command-line-arguments))) #t))
