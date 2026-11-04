@@ -18,7 +18,8 @@
 ;;; resource -> #(type Name); Resource -> #(resource); anything else -> #(unknown).
 
 (require racket/contract racket/list racket/string
-         (only-in fhir/model/registry register-type! register-element! type-registered? primitive-name? fhir-spec)
+         (only-in fhir/model/registry register-type! register-element! type-registered? type-spec-of
+                  primitive-name? fhir-spec fhir-spec-url fhir-spec-constraint)
          (only-in fhir/model/schema type-schema schema-field max-of)
          (only-in fhir/sd/sd-index resolve-sd-raw)
          (only-in fhir/data-source current-data-source data-source-all))
@@ -45,9 +46,18 @@
 
 (define (register-structure-definition! sd #:resolve [resolve resolve-structure-definition/data])
   (define sym (structure-definition-type sd))
+  ;; the same type name defined by ANOTHER StructureDefinition (a tutorial's TLeft, one per step)
+  ;; replaces the earlier registration — only one this module made (kind 'logical): a tower type
+  ;; is never replaced, and a profile (derivation constraint) never redefines its base type
+  (define replace?
+    (and sym (type-registered? sym)
+         (not (equal? (jref sd 'derivation) "constraint"))
+         (let ([spec (type-spec-of sym)])
+           (and spec (eq? (fhir-spec-constraint spec) 'logical)
+                (string? (jref sd 'url)) (not (equal? (fhir-spec-url spec) (jref sd 'url)))))))
   (cond
     [(not sym) #f]
-    [(type-registered? sym) sym]
+    [(and (type-registered? sym) (not replace?)) sym]
     [else
      (define elements (let ([s (jref sd 'snapshot)] [d (jref sd 'differential)])
                         (or (and s (jlist s 'element)) (and d (jlist d 'element)) '())))
@@ -84,7 +94,7 @@
                (list (schema-field (string->symbol name) min max
                                    (if (pair? types) (ftype-of tsym name (car types) (jref e 'path)) (vector 'unknown))
                                    #f (spec-url (jref e 'path)) #f))]))))
-       (register-type! tsym (fhir-spec tsym (or url (symbol->string tsym)) 'type)
+       (register-type! tsym (fhir-spec tsym (or url (symbol->string tsym)) 'logical)
                        #:schema (type-schema tsym #f parent (or url (symbol->string tsym)) fields #f #f))
        (for ([e (in-list (hash-ref children path '()))])
          (register-element! (jref e 'path) (fhir-spec (string->symbol (jref e 'path)) (spec-url (jref e 'path)) 'element))))
@@ -103,7 +113,7 @@
           (if prim (vector 'prim prim) (vector 'unknown))]
          [(and (member code '("BackboneElement" "Element")) (pair? (hash-ref children path '())))
           (define nested (string->symbol (string-append (symbol->string owner) (capitalize name))))
-          (unless (type-registered? nested) (register-node! nested path 'Element))
+          (when (or replace? (not (type-registered? nested))) (register-node! nested path 'Element))
           (vector 'type nested)]
          [(and (string? code) (primitive-name? (string->symbol code))) (vector 'prim code)]
          [(and (string? code) (member code '("Resource" "DomainResource"))) (vector 'resource)]
@@ -127,7 +137,7 @@
 (define (capitalize s) (if (zero? (string-length s)) s (string-append (string-upcase (substring s 0 1)) (substring s 1))))
 
 (module+ test
-  (require rackunit json
+  (require rackunit json (only-in fhir/model/introspect full-field-specs) (only-in fhir/model/schema fs-name)
            (only-in fhir/r5/schemas)
            (only-in fhir/serialize/from-json from-json)
            (only-in fhir/serialize/to-json node->jsexpr)
@@ -161,5 +171,22 @@
                                          'valueQuantity (hasheq 'value 3 'unit "kg") 'in (list (hasheq 'ab "deep"))))
   ;; strict parsing still rejects what the model does not define
   (check-false (ok? (from-json (hasheq 'resourceType "TLeft" 'nope 1))))
-  ;; a registered type is left alone
-  (check-equal? (register-structure-definition! (sd "Patient" (el "Patient.zzz" 0 "1" "string"))) 'Patient))
+  ;; a tower type is left alone, whatever StructureDefinition names it
+  (check-equal? (register-structure-definition! (sd "Patient" (el "Patient.zzz" 0 "1" "string"))) 'Patient)
+  (check-false (memq 'zzz (map fs-name (full-field-specs 'Patient))))
+  ;; the same logical type from ANOTHER definition replaces the first (a tutorial's TLeft per step);
+  ;; the same definition again is a no-op
+  (define left2 (hash-set (sd "TLeft" (el "TLeft.b" 1 "1" "string") (el "TLeft.aa" 0 "*" "BackboneElement")
+                              (el "TLeft.aa.ac" 1 "1" "integer"))
+                          'url "http://x/TLeft-2"))
+  (check-equal? (register-structure-definition! left2) 'TLeft)
+  (check-equal? (map fs-name (full-field-specs 'TLeft)) '(id extension b aa))
+  (check-equal? (map fs-name (full-field-specs 'TLeftAa)) '(id extension ac))
+  (check-true (ok? (from-json (hasheq 'resourceType "TLeft" 'b "x" 'aa (list (hasheq 'ac 1))))))
+  (check-false (ok? (from-json (hasheq 'resourceType "TLeft" 'a "hi"))))
+  (check-equal? (register-structure-definition! left2) 'TLeft)
+  ;; a profile of it does not redefine it
+  (check-equal? (register-structure-definition! (hash-set* (sd "TLeft" (el "TLeft.q" 0 "1" "string"))
+                                                           'url "http://x/TLeft-profile" 'derivation "constraint"))
+                'TLeft)
+  (check-equal? (map fs-name (full-field-specs 'TLeft)) '(id extension b aa)))
