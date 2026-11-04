@@ -44,7 +44,7 @@
   [build-app (->* (#:capability fhir? #:operation-definitions (listof fhir?)
                    #:repositories (listof (cons/c symbol? repository?))
                    #:operations (listof operation-entry?))
-                  (#:transaction (or/c #f (-> hash? hash?))) app?)]
+                  (#:transaction (or/c #f (-> hash? hash?)) #:metadata hash?) app?)]
   [dispatch (-> app? request? fhir?)]
   ;; request smart constructors
   [read-request   (-> symbol? string? request?)]
