@@ -203,7 +203,10 @@ rest.resource entry of its own. Dispatch falls back to an operation's `Resource`
 ## The terminology server (fhir-tx)
 The service is a resolver (`(url [version]) -> resource | #f`) over per-package indexes (`index-of`,
 one lazy table per .tgz, shared) with a per-CodeSystem concept index (`cs-index`: code -> concept,
-parent, children, weakly cached on the resource) and an expansion cache per resolver. `$expand`
+parent, children, weakly cached on the resource) and an expansion cache per resolver. The sources
+are `terminology/index.rkt` (the package and resource indexes, versioned resolution, the concept
+tree's questions, the Member of an expansion with its accessors) — pure jsexpr, tested without the
+tower or VCL; `service.rkt` is the operations over them. `$expand`
 follows `compose.include.valueSet` (intersection; a system include narrowed by it), a pre-expanded
 ValueSet (expansion, no compose), every FHIR filter operator including `generalizes` and
 `descendent-leaf`, `useSupplement` designations/properties, and the server-level version policy.

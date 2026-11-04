@@ -14,37 +14,32 @@
 ;;;
 ;;; `make-terminology` returns a `tx-service` (fhirpath/terminology) whose three closures the
 ;;; FHIRPath engine dispatches on as the `%terminologies` handle.
+;;;
+;;; The sources — the package and resource indexes, versioned resolution, a CodeSystem's concept
+;;; tree and the Member of an expansion — are index.rkt's; this module is the operations over them.
 
 (require (only-in fhir/spec-package spec-package-path) (only-in fhir/serialize/jsexpr-util jref jlist))
 (require json racket/contract
-         file/gunzip
-         file/untar
          (only-in net/uri-codec uri-decode)
          (only-in vcl/compile vcl->compose)
          racket/list
          racket/string
-         racket/promise
-         racket/runtime-path
          (only-in fhirpath/terminology tx-service tx-service?)
          (only-in fhir/serialize/jsexpr-util drop-false)
          (only-in fhir/serialize/from-json from-json)
-         (only-in fhir/result/result ok? ok-value))
-
-;; A Resolver is (url [version] -> resource | #f): how a canonical becomes a resource — over the
-;; packages' indexes, an explicit list of resources, or both.
-(define resolver/c (->* (string?) ((or/c string? #f)) (or/c hash? #f)))
+         (only-in fhir/result/result ok? ok-value)
+         "index.rkt")
 (provide
+ resolver/c
  (contract-out
   [make-terminology (-> path-string? tx-service?)]
   [make-r5-terminology (-> tx-service?)]
   [make-r4-terminology (-> tx-service?)]
   ;; a service over SEVERAL packages, searched in order (an IG first, then its core)
   [make-terminology/packages (-> (listof path-string?) tx-service?)]
-  [packages->resolver (-> (listof path-string?) resolver/c)]
   ;; a service over an EXPLICIT list of resources (the tx-ecosystem conformance suite
   ;; ships its own CodeSystems/ValueSets as per-suite setup files)
   [make-terminology/resources (-> (listof hash?) tx-service?)]
-  [resources->resolver (-> (listof hash?) resolver/c)]
   [make-terminology/resolver (-> resolver/c tx-service?)]
   ;; operations beyond the tx-service handle's three closures, used by the conformance
   ;; harness (and available to any caller): CodeSystem $lookup and CodeSystem-level
@@ -61,83 +56,20 @@
   ;; the subsumption relation two codes of a system stand in (for $closure)
   [closure-relation (->* (resolver/c string? string? string?) ((or/c string? #f)) (or/c string? #f))]
   ;; the CodeSystems a package list holds, and what a server publishes about all this
-  [packages->code-systems (-> (listof path-string?) (listof hash?))]
   [terminology-capabilities (->* ((listof hash?)) (#:url (or/c string? #f)) hash?)])
  (struct-out version-policy)
+ ;; the index layer (index.rkt): resolvers over packages or resources, and what they hold
+ packages->resolver resources->resolver packages->code-systems
  ;; the same operations as FHIR JSON (no type tower needed), for terminology/operations:
  ;; resolver url ... -> ValueSet | Parameters jsexpr
  (rename-out [tx-expand expand/json] [tx-validate validate-code/json]
              [tx-lookup lookup/json] [tx-translate translate/json]
              [tx-cs-validate cs-validate-code/json] [tx-subsumes subsumes/json]
              [tx-find-matches find-matches/json]))
-
 (define r5-core-tgz (spec-package-path "hl7.fhir.r5.core.tgz"))
 (define r4-core-tgz (spec-package-path "hl7.fhir.r4.core.tgz"))
 
-;; ---- loading / indexing ---------------------------------------------------------------------
-
-;; a resource file we care about; the prefix filter skips the thousands of other files cheaply.
-(define tx-file-rx #px"^package/(CodeSystem|ValueSet|ConceptMap)-.*\\.json$")
-
-;; a core .tgz -> a VERSIONED index: url -> (listof jsexpr resource), so several versions of the
-;; same canonical coexist (streamed gunzip -> untar, no disk extract).
-(define (load-index tgz-path)
-  (define table (make-hash))
-  (define-values (pin pout) (make-pipe (* 1024 1024)))
-  (define inflate
-    (thread (lambda ()
-              (call-with-input-file tgz-path (lambda (gz) (gunzip-through-ports gz pout)))
-              (close-output-port pout))))
-  (untar pin
-         #:handle-entry
-         (lambda (kind name content size attribs)
-           (when (eq? kind 'file)
-             (define bytes (if (= size 0) #"" (read-bytes size content)))  ; always consume `size`
-             (when (regexp-match? tx-file-rx (path->string name))
-               (define js (bytes->jsexpr bytes))
-               (define url (and (hash? js) (hash-ref js 'url #f)))
-               (when (string? url) (hash-update! table url (lambda (l) (cons js l)) '()))))
-           '()))
-  (thread-wait inflate)
-  table)
-
-;; ---- versioned canonical resolution ----------------------------------------------------------
-;; A canonical may carry `|version`, and a request may pin one (systemVersion / valueSetVersion).
-;; Resolution order: exact version, then a resource that states no version, then the LATEST
-;; (highest version string). #f when the url is unknown or the pinned version is absent.
-(define (index-resolve table url [version #f])
-  (define-values (base inline-version) (split-canonical url))
-  (define v (or version inline-version))
-  (define candidates (hash-ref table base '()))
-  (cond
-    [(null? candidates) #f]
-    ;; a pinned version may be a PATTERN with `x` wildcards ("1.x.x" matches 1.0.0 and 1.2.0)
-    [v (or (for/or ([r (in-list candidates)]) (and (equal? (jref r 'version) v) r))
-           (for/or ([r (in-list candidates)]) (and (version-matches? (jref r 'version) v) r)))]
-    [else (or (for/or ([r (in-list candidates)]) (and (not (jref r 'version)) r))
-              (car (sort candidates string>? #:key (lambda (r) (or (jref r 'version) "")))))]))
-
-(define (wildcard-version? v)
-  (and (string? v) (for/or ([seg (in-list (string-split v "."))]) (string-ci=? seg "x"))))
-
-;; does a concrete version satisfy a (possibly wildcarded) pattern? "1.0.0" vs "1.x.x" -> #t
-(define (version-matches? actual pattern)
-  (and (string? actual) (string? pattern)
-       (let ([a (string-split actual ".")] [p (string-split pattern ".")])
-         (and (= (length a) (length p))
-              (for/and ([x (in-list a)] [y (in-list p)])
-                (or (string-ci=? y "x") (equal? x y)))))))
-
-;; "http://x|2.0.0" -> (values "http://x" "2.0.0")
-(define (split-canonical url)
-  (define m (regexp-match #px"^([^|]*)\\|(.*)$" url))
-  (if m (values (cadr m) (caddr m)) (values url #f)))
-
-;; ---- small jsexpr helpers -------------------------------------------------------------------
-
-
 ;; ---- $expand --------------------------------------------------------------------------------
-
 ;; a member is (vector system code display version) — the VERSION matters: a compose.include may
 ;; pin a CodeSystem version, and validation of a versioned Coding must compare against it.
 ;; Expand a ValueSet url -> (listof member), applying
@@ -164,7 +96,7 @@
           (define ms (include-members resource inc policy seen))
           (if keep-inactive? ms
               (let ([cs (let ([sys (jref inc 'system)]) (and (string? sys) (resource sys)))])
-                (filter (lambda (m) (not (inactive-concept? cs (vector-ref m 1)))) ms))))
+                (filter (lambda (m) (not (inactive-concept? cs (member-code m)))) ms))))
         (define included (append-map members (jlist compose 'include)))
         (define excluded (append-map members (jlist compose 'exclude)))
         (define ex-keys (for/hash ([m (in-list excluded)]) (values (member-key m) #t)))
@@ -173,7 +105,7 @@
 ;; expansion.contains (nested) -> members
 (define (contains->members entries)
   (append-map (lambda (e)
-                (cons (vector (jref e 'system) (jref e 'code) (jref e 'display) (jref e 'version))
+                (cons (make-member (jref e 'system) (jref e 'code) (jref e 'display) (jref e 'version))
                       (contains->members (jlist e 'contains))))
               entries))
 
@@ -203,9 +135,9 @@
       (expand-members resource u #f policy visited)))
   (define vs-sets
     (for/list ([ms (in-list vs-lists)])
-      (for/hash ([m (in-list ms)]) (values (list (vector-ref m 0) (vector-ref m 1)) #t))))
+      (for/hash ([m (in-list ms)]) (values (list (member-system m) (member-code m)) #t))))
   (define (in-all? m)
-    (for/and ([s (in-list vs-sets)]) (hash-ref s (list (vector-ref m 0) (vector-ref m 1)) #f)))
+    (for/and ([s (in-list vs-sets)]) (hash-ref s (list (member-system m) (member-code m)) #f)))
   (define base (include-base resource inc system policy))
   (cond
     [(and (not (string? system)) (pair? vs-lists)) (filter in-all? (car vs-lists))]
@@ -238,18 +170,18 @@
                           (values (jref c 'code) c))))
      (for/list ([c (in-list concepts)]
                 #:when (or (not known) (hash-ref known (jref c 'code) #f)))
-       (vector system (jref c 'code)
-               (or (jref c 'display)
-                   (and known (jref (hash-ref known (jref c 'code) (hasheq)) 'display)))
-               version))]
+       (make-member system (jref c 'code)
+                    (or (jref c 'display)
+                        (and known (jref (hash-ref known (jref c 'code) (hasheq)) 'display)))
+                    version))]
     [(and (string? system) (pair? filters))
      ;; compose.include.filter: every filter must hold (AND), evaluated over the CodeSystem
      (for/list ([c (in-list (all-concepts (jlist cs 'concept)))]
                 #:when (for/and ([f (in-list filters)]) (concept-passes? cs c f)))
-       (vector system (jref c 'code) (jref c 'display) version))]
+       (make-member system (jref c 'code) (jref c 'display) version))]
     [(string? system)
      (for/list ([c (in-list (all-concepts (jlist cs 'concept)))])
-       (vector system (jref c 'code) (jref c 'display) version))]
+       (make-member system (jref c 'code) (jref c 'display) version))]
     [else '()]))
 
 ;; ---- filter evaluation (https://hl7.org/fhir/valueset-definitions.html#ValueSet.compose…filter)
@@ -296,88 +228,6 @@
   (with-handlers ([exn:fail? (lambda (_) #f)])
     (pregexp (string-append "^(?:" translated ")$"))))
 
-;; the value a filter's `property` names on a concept: the concept's own code/display, else the
-;; matching CodeSystem property value
-(define (concept-value cs concept prop)
-  (cond
-    [(equal? prop "concept") (jref concept 'code)]
-    [(equal? prop "code") (jref concept 'code)]
-    [(equal? prop "display") (jref concept 'display)]
-    [else
-     (for/or ([p (in-list (jlist concept 'property))]
-              #:when (equal? (jref p 'code) prop))
-       (or (jref p 'valueCode) (jref p 'valueString) (jref p 'valueCoding)
-           (let ([b (jref p 'valueBoolean)]) (and (boolean? b) (if b "true" "false")))
-           (let ([i (jref p 'valueInteger)]) (and i (number->string i)))))]))
-
-;; ---- per-CodeSystem concept index ------------------------------------------------------------
-;; A CsIndex is (csix by-code parent children): code -> concept, code -> parent code (#f at a
-;; root), code -> (listof child code) in tree order. Built once per CodeSystem resource and kept
-;; on it weakly, so a lookup or a hierarchy test is O(1) instead of a walk of the whole tree.
-(struct csix (by-code parent children))
-(define cs-indexes (make-weak-hasheq))
-(define (cs-index cs)
-  (hash-ref! cs-indexes cs
-             (lambda ()
-               (define by-code (make-hash))
-               (define parent (make-hash))
-               (define children (make-hash))
-               (let walk ([concepts (jlist cs 'concept)] [par #f])
-                 (for ([c (in-list concepts)])
-                   (define code (jref c 'code))
-                   (unless (hash-has-key? by-code code)
-                     (hash-set! by-code code c)
-                     (hash-set! parent code par))
-                   (when par (hash-update! children par (lambda (l) (append l (list code))) '()))
-                   (walk (jlist c 'concept) code)))
-               (csix by-code parent children))))
-
-;; the concept with `code` anywhere in a CodeSystem's (nested) concept tree
-(define (find-concept cs code)
-  (and cs (hash-ref (csix-by-code (cs-index cs)) code #f)))
-
-;; is `code` a DIRECT child of `parent`?
-(define (child-of? cs code parent)
-  (and cs (equal? (hash-ref (csix-parent (cs-index cs)) code #f) parent)))
-
-;; is `code` a proper descendant of `ancestor` in the CodeSystem's nested concept tree?
-(define (descendant-of? cs code ancestor)
-  (and cs
-       (let ([parent (csix-parent (cs-index cs))])
-         (let loop ([c (hash-ref parent code #f)])
-           (cond [(not c) #f]
-                 [(equal? c ancestor) #t]
-                 [else (loop (hash-ref parent c #f))])))))
-
-;; a concept with no children
-(define (leaf-concept? cs code)
-  (and cs (null? (hash-ref (csix-children (cs-index cs)) code '()))))
-
-;; a concept the CodeSystem marks not-active (property `status` retired/deprecated/inactive, or
-;; a boolean `inactive` property)
-(define (inactive-concept? cs code)
-  (define c (find-concept cs code))
-  (and c (for/or ([p (in-list (jlist c 'property))])
-           (case (jref p 'code)
-             [("status") (member (jref p 'valueCode) '("retired" "deprecated" "inactive"))]
-             [("inactive") (eq? (jref p 'valueBoolean) #t)]
-             [else #f]))
-       #t))
-
-;; flatten a CodeSystem concept tree (concepts may nest via `concept`).
-(define (all-concepts concepts)
-  (append-map (lambda (c) (cons c (all-concepts (jlist c 'concept)))) concepts))
-
-;; system+code+VERSION: two versions of one system are distinct members (the `overload` suite
-;; expects both), and an exclusion pinned to one version must not remove the others
-(define (member-key m) (list (vector-ref m 0) (vector-ref m 1) (vector-ref m 3)))
-(define (dedup ms)
-  (let loop ([ms ms] [seen (hash)] [acc '()])
-    (cond
-      [(null? ms) (reverse acc)]
-      [(hash-ref seen (member-key (car ms)) #f) (loop (cdr ms) seen acc)]
-      [else (loop (cdr ms) (hash-set seen (member-key (car ms)) #t) (cons (car ms) acc))])))
-
 ;; $expand with the operation's parameters (https://hl7.org/fhir/valueset-operation-expand.html).
 ;; `params` is a hash of parameter-name -> value:
 ;;   offset/count           page the member list (expansion.offset/.total describe the WHOLE set)
@@ -421,17 +271,17 @@
 ;; nest each entry under its parent concept when that parent is also in the expansion
 (define (nest-contains resource members entries)
   (define by-code (for/hash ([m (in-list members)] [e (in-list entries)])
-                    (values (vector-ref m 1) e)))
+                    (values (member-code m) e)))
   (define parent-of                       ; code -> parent code, from the CodeSystem's tree
     (for/fold ([h (hash)]) ([m (in-list members)])
-      (define cs (resource (vector-ref m 0) (vector-ref m 3)))
-      (define par (and cs (hash-ref (csix-parent (cs-index cs)) (vector-ref m 1) #f)))
-      (if par (hash-set h (vector-ref m 1) par) h)))
-  (define present (for/hash ([m (in-list members)]) (values (vector-ref m 1) #t)))
+      (define cs (resource (member-system m) (member-version m)))
+      (define par (and cs (hash-ref (csix-parent (cs-index cs)) (member-code m) #f)))
+      (if par (hash-set h (member-code m) par) h)))
+  (define present (for/hash ([m (in-list members)]) (values (member-code m) #t)))
   ;; build bottom-up: a child is attached to its parent's entry
   (define children                        ; parent code -> (listof child code), in member order
     (for/fold ([h (hash)]) ([m (in-list members)])
-      (define code (vector-ref m 1))
+      (define code (member-code m))
       (define par (hash-ref parent-of code #f))
       (if (and par (hash-ref present par #f))
           (hash-update h par (lambda (l) (append l (list code))) '())
@@ -441,29 +291,29 @@
     (define kids (hash-ref children code '()))
     (if (null? kids) e (hash-set e 'contains (for/list ([k (in-list kids)]) (build k)))))
   (for/list ([m (in-list members)]
-             #:unless (let ([par (hash-ref parent-of (vector-ref m 1) #f)])
+             #:unless (let ([par (hash-ref parent-of (member-code m) #f)])
                         (and par (hash-ref present par #f))))
-    (build (vector-ref m 1))))
+    (build (member-code m))))
 
 ;; one expansion member -> a contains entry, honouring displayLanguage / includeDesignations /
 ;; property
 (define (member->contains resource m params)
   (define (p name [d #f]) (hash-ref params name d))
-  (define cs (resource (vector-ref m 0) (vector-ref m 3)))
-  (define concept (and cs (find-concept cs (vector-ref m 1))))
+  (define cs (resource (member-system m) (member-version m)))
+  (define concept (and cs (find-concept cs (member-code m))))
   (define lang (p "displayLanguage"))
   (define-values (sup-designations sup-properties)
-    (supplement-parts resource (p "useSupplement") (vector-ref m 1)))
+    (supplement-parts resource (p "useSupplement") (member-code m)))
   (define designations (append (if concept (jlist concept 'designation) '()) sup-designations))
   (define properties (append (if concept (jlist concept 'property) '()) sup-properties))
   (define display
     (or (and lang (for/or ([d (in-list designations)])
                     (and (equal? (jref d 'language) lang) (jref d 'value))))
-        (vector-ref m 2)))
+        (member-display m)))
   (drop-false
-   (hasheq 'system (vector-ref m 0)
-           'version (vector-ref m 3)
-           'code (vector-ref m 1)
+   (hasheq 'system (member-system m)
+           'version (member-version m)
+           'code (member-code m)
            'display display
            'designation (and (eq? (p "includeDesignations") #t) (pair? designations)
                              (for/list ([d (in-list designations)])
@@ -477,17 +327,16 @@
                                                    #:when (member (jref pr 'code) names))
                                           pr)])
                                 (and (pair? ps) ps))))))))
-
 (define (member-active? resource m)
-  (define cs (resource (vector-ref m 0) (vector-ref m 3)))
-  (not (inactive-concept? cs (vector-ref m 1))))
+  (define cs (resource (member-system m) (member-version m)))
+  (not (inactive-concept? cs (member-code m))))
 
 ;; the filter parameter is a case-insensitive substring match over code and display
 (define (member-matches-filter? m f)
   (define needle (string-downcase f))
   (define (has? s) (and (string? s) (regexp-match? (regexp (regexp-quote needle))
                                                    (string-downcase s))))
-  (or (has? (vector-ref m 1)) (has? (vector-ref m 2))))
+  (or (has? (member-code m)) (has? (member-display m))))
 
 ;; ---- $validate-code (against a ValueSet) ----------------------------------------------------
 
@@ -513,14 +362,12 @@
 (define (parse-versioned-canonical s)
   (define m (and (string? s) (regexp-match #px"^([^|]+)[|](.+)$" s)))
   (and m (cons (cadr m) (caddr m))))
-
 (define (policy-of default-vs force-vs check-vs)
   (define (->hash vs)
     (for/fold ([h (hash)]) ([v (in-list (if (list? vs) vs (if vs (list vs) '())))])
       (define p (parse-versioned-canonical (format "~a" v)))
       (if p (hash-set h (car p) (cdr p)) h)))
   (version-policy (->hash default-vs) (->hash force-vs) (->hash check-vs)))
-
 (define (tx-validate resource url [code #f] [system #f]
                      #:coding [coding #f] #:codeable-concept [cc #f]
                      #:display [display #f] #:lenient-display? [lenient? #f]
@@ -582,16 +429,16 @@
   (define member?
     (and (or (not version) cs)
          (for/or ([m (in-list members)])
-           (and (equal? (vector-ref m 1) code)
-                (or (not system) (not (vector-ref m 0)) (equal? (vector-ref m 0) system))
+           (and (equal? (member-code m) code)
+                (or (not system) (not (member-system m)) (equal? (member-system m) system))
                 ;; when BOTH the coding and the expansion state a version, they must agree
-                (or (not version) (not (vector-ref m 3))
-                    (equal? version (vector-ref m 3))
-                    (version-matches? version (vector-ref m 3)))
+                (or (not version) (not (member-version m))
+                    (equal? version (member-version m))
+                    (version-matches? version (member-version m)))
                 m))))
   (define concept (and cs (find-concept cs code)))
   (define official (or (and concept (jref concept 'display))
-                       (and member? (vector-ref member? 2))))
+                       (and member? (member-display member?))))
   (cond
     ;; check-system-version: a Coding that states a DIFFERENT version than the server requires
     [(and checked stated (not (equal? stated checked)) (not (version-matches? stated checked)))
@@ -616,15 +463,10 @@
                               (if official (format ", should be '~a'" official) "")))]
     [else (hasheq 'ok #t 'code code 'system system 'display official)]))
 
-;; only a CodeSystem that claims to enumerate every code can prove a code does NOT exist
-(define (complete-codesystem? cs)
-  (member (jref cs 'content) '("complete" "supplement")))
-
 ;; the supplied display must equal the concept's display or one of its designations
 (define (display-matches? concept official supplied)
   (or (equal? supplied official)
       (for/or ([d (in-list (concept-designations concept))]) (equal? supplied d))))
-
 (define (concept-designations concept)
   (for/list ([d (in-list (jlist concept 'designation))]) (jref d 'value)))
 
@@ -812,26 +654,23 @@
                 '()))
           (jlist g 'element))))
    (jlist cm 'group)))
-
 (define (tx-translate resource url code [system #f])
   (define matches (translate-matches resource url code system))
   (values
    (hasheq 'resourceType "Parameters"
            'parameter
            (cons (hasheq 'name "result" 'valueBoolean (pair? matches))
-                 (for/list ([m (in-list matches)])
+                 (for/list ([mt (in-list matches)])
                    (hasheq 'name "match"
                            'part
-                           (list (drop-false (hasheq 'name "relationship" 'valueCode (vector-ref m 0)))
+                           (list (drop-false (hasheq 'name "relationship" 'valueCode (vector-ref mt 0)))
                                  (hasheq 'name "concept"
                                          'valueCoding
-                                         (drop-false (hasheq 'system (vector-ref m 1)
-                                                             'code (vector-ref m 2)
-                                                             'display (vector-ref m 3)))))))))))
+                                         (drop-false (hasheq 'system (vector-ref mt 1)
+                                                             'code (vector-ref mt 2)
+                                                             'display (vector-ref mt 3)))))))))))
 
 ;; ---- result construction --------------------------------------------------------------------
-
-;; drop keys whose value is #f (absent optional fields) so from-json doesn't try to parse them.
 
 ;; build a jsexpr resource into a typed node -> a one-element FHIRPath collection (or empty on failure).
 ;; The tx-* functions answer FHIR JSON; the tx-service closures (FHIRPath's %terminologies) wrap it.
@@ -845,41 +684,9 @@
 ;; (by when the caller's type tower is registered). The caller must have the matching tower loaded
 ;; (require fhir/r5/schemas or fhir/r4/schemas) so the result ValueSet/Parameters nodes build.
 (define (make-terminology tgz-path) (make-terminology/resolver (packages->resolver (list tgz-path))))
-
-;; packages->resolver : (listof tgz) -> resolver   each package indexed lazily, first match wins
-;; one lazily built index per package file, shared by every resolver over it
-(define package-indexes (make-hash))
-(define (index-of tgz)
-  (hash-ref! package-indexes (path->string (simplify-path (path->complete-path tgz)))
-             (lambda () (delay (load-index tgz)))))
-
-(define (packages->resolver tgzs)
-  (define indexes (map index-of tgzs))
-  (lambda (url [version #f])
-    (for/or ([ix (in-list indexes)]) (index-resolve (force ix) url version))))
-
-;; packages->code-systems : (listof tgz) -> (listof CodeSystem jsexpr)   every CodeSystem they hold
-(define (packages->code-systems tgzs)
-  (for*/list ([t (in-list tgzs)]
-              [(url rs) (in-hash (force (index-of t)))]
-              [r (in-list rs)]
-              #:when (equal? (jref r 'resourceType) "CodeSystem"))
-    r))
 (define (make-terminology/packages tgzs) (make-terminology/resolver (packages->resolver tgzs)))
-
-;; a service over an explicit LIST of resources (the conformance suite's per-suite setup files);
-;; indexed the same versioned way as a package
-;; resources -> a versioned RESOLVER (url [version] -> resource|#f). Exposed so a caller can build
-;; the CodeSystem-level operations (make-lookup / make-cs-validate) over the same index.
-(define (resources->resolver resources)
-  (define table (make-hash))
-  (for ([r (in-list resources)] #:when (string? (jref r 'url)))
-    (hash-update! table (jref r 'url) (lambda (l) (cons r l)) '()))
-  (lambda (url [version #f]) (index-resolve table url version)))
-
 (define (make-terminology/resources resources)
   (make-terminology/resolver (resources->resolver resources)))
-
 (define (make-terminology/resolver resource)
   (tx-service (lambda (url [vs-version #f] [params (hash)] [policy no-version-policy] . _)
                 (node (tx-expand resource url vs-version params policy)))
@@ -922,10 +729,8 @@
                      #:display display #:lenient-display? lenient?
                      #:system-version system-version #:valueset-version vs-version
                      #:policy policy)))
-
 (define (make-r5-terminology) (make-terminology r5-core-tgz))
 (define (make-r4-terminology) (make-terminology r4-core-tgz))
-
 ;; ---- living examples ------------------------------------------------------------------------
 
 (module+ test

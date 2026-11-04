@@ -39,7 +39,7 @@ jobs:
             "https://github.com/oloveluck/fsh.git"
       - name: Test the terminology package and the server seams it uses
         run: |
-          raco test fhir-tx/terminology/service.rkt fhir-tx/terminology/operations.rkt fhir-tx/tx-cli.rkt
+          raco test fhir-tx/terminology/index.rkt fhir-tx/terminology/service.rkt fhir-tx/terminology/operations.rkt fhir-tx/tx-cli.rkt
           raco test fhir/registry.rkt fhir/sd/operations.rkt fhir/sd/logical.rkt fhir/serialize/jsexpr-util.rkt fhir/codegen/gen.rkt fhir-server/http/router.rkt fhir-server/capability/operations.rkt fhir-server/tests/operations-http-test.rkt
       - name: The terminology conformance suite (floor-ratcheted)
         run: raco fhir-tx tck
