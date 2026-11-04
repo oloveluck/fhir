@@ -21,15 +21,18 @@
 
 (require racket/contract racket/list racket/string racket/match
          json
+         (only-in fhir/parallel parallel-map)
          "fhir-sqlite.rkt" "fhir-engine.rkt")
 
 (provide
  (contract-out
   ;; process a transaction|batch Bundle -> the response Bundle (raises on a malformed Bundle;
   ;; a transaction whose any entry fails raises AFTER rolling everything back)
-  [process-bundle! (->* (fhir-store? jsexpr?) (#:search-params hash?) jsexpr?)]
+  ;; #:tower names the type tower the store runs on (fhir/r4/schemas …): with it, a bulk load's
+  ;; index rows are extracted on every core (index-ahead) before the writes
+  [process-bundle! (->* (fhir-store? jsexpr?) (#:search-params hash? #:tower (or/c module-path? #f)) jsexpr?)]
   ;; prepopulation: transaction|batch|collection -> (values created-count response-bundle)
-  [load-bundle!    (->* (fhir-store? jsexpr?) (#:search-params hash?) (values exact-nonnegative-integer? jsexpr?))]))
+  [load-bundle!    (->* (fhir-store? jsexpr?) (#:search-params hash? #:tower (or/c module-path? #f)) (values exact-nonnegative-integer? jsexpr?))]))
 
 ;; ---- entry model -------------------------------------------------------------
 ;; An Entry is (entry index full-url method url resource) — one Bundle.entry, in request order.
@@ -80,16 +83,17 @@
 ;; inside store bundles — they'd be non-deterministic mid-transaction)
 (define (method-rank m) (match m ["DELETE" 0] ["POST" 1] ["PUT" 2] [_ 3]))
 
-;; apply one entry on an open connection -> a response-entry jsexpr (raises on failure)
-(define (apply-entry! c e sps)
+;; apply one entry on an open connection -> a response-entry jsexpr (raises on failure); `rows`
+;; are the entry's index rows when a bulk load extracted them ahead (else the engine extracts)
+(define (apply-entry! c e sps [rows #f])
   (match e
     [(entry _ _ "POST" _ (? hash? res))
-     (define-values (rtype id vid) (create-in! c res sps))
+     (define-values (rtype id vid) (create-in! c res sps #:rows rows))
      (hasheq 'response (hasheq 'status "201 Created"
                                'location (format "~a/~a/_history/~a" rtype id vid)))]
     [(entry _ _ "PUT" url (? hash? res))
      (define-values (rtype id) (parse-type/id url))
-     (define vid (update-in! c (hash-set* res 'resourceType rtype 'id id) sps))
+     (define vid (update-in! c (written-resource e) sps #:rows rows))
      (hasheq 'response (hasheq 'status "200 OK"
                                'location (format "~a/~a/_history/~a" rtype id vid)))]
     [(entry _ _ "DELETE" url _)
@@ -104,8 +108,35 @@
     [(list _ t id) (values t id)]
     [_ (error 'process-bundle! "entry url is not Type/id: ~a" url)]))
 
+;; written-resource : Entry -> jsexpr | #f   the resource as it will be stored (a PUT takes its
+;; type and id from the url)
+(define (written-resource e)
+  (match e
+    [(entry _ _ "POST" _ (? hash? res)) res]
+    [(entry _ _ "PUT" url (? hash? res)) (let-values ([(rtype id) (parse-type/id url)]) (hash-set* res 'resourceType rtype 'id id))]
+    [_ #f]))
+
+;; index-ahead : (listof Entry) catalog module-path|#f -> (vectorof (or rows #f)), by entry index
+;; a bulk load's index rows, extracted on every core before the writes (fhir/parallel; the workers
+;; load the tower). Below `parallel-threshold` entries the workers would cost more than they save,
+;; so the engine extracts as it writes (#f). Rows come from the resource before the engine stamps
+;; meta.versionId/lastUpdated, which no indexed parameter reads (_lastUpdated is a column).
+(define parallel-threshold 32)
+(define (index-ahead entries sps tower)
+  (define rows (make-vector (length entries) #f))
+  (define writes (filter written-resource entries))
+  (when (and tower (>= (length writes) parallel-threshold))
+    (define extracted
+      (parallel-map '(fhir/store/fhir-engine index-rows/text)
+                    (for/list ([e (in-list writes)])
+                      (define res (written-resource e))
+                      (list (jsexpr->string res) (indexed-entries sps (hash-ref res 'resourceType ""))))
+                    #:setup tower))
+    (for ([e (in-list writes)] [r (in-list extracted)]) (vector-set! rows (entry-index e) r)))
+  rows)
+
 ;; ---- the two bundle kinds ----------------------------------------------------
-(define (process-bundle! store bundle #:search-params [sps default-search-params])
+(define (process-bundle! store bundle #:search-params [sps default-search-params] #:tower [tower #f])
   (define ty (hash-ref bundle 'type #f))
   (unless (member ty '("transaction" "batch"))
     (error 'process-bundle! "bundle type must be transaction or batch, got ~a" ty))
@@ -115,6 +146,8 @@
       (struct-copy entry e [resource (and (entry-resource e)
                                           (rewrite-refs (entry-resource e) urn->ref))])))
   (define ordered (sort resolved < #:key (lambda (e) (method-rank (entry-method e)))))
+  (define rows (index-ahead resolved sps tower))
+  (define (apply! c e) (apply-entry! c e sps (vector-ref rows (entry-index e))))
   (cond
     [(equal? ty "transaction")
      ;; ONE store transaction: any raise rolls back every entry
@@ -122,7 +155,7 @@
      (call-with-store-transaction store
        (lambda (c)
          (for ([e (in-list ordered)])
-           (vector-set! responses (entry-index e) (apply-entry! c e sps)))))
+           (vector-set! responses (entry-index e) (apply! c e)))))
      (response-bundle "transaction-response" (vector->list responses))]
     [else
      ;; batch: each entry its OWN transaction; failures become error response entries
@@ -132,7 +165,7 @@
         responses (entry-index e)
         (with-handlers ([exn:fail? (lambda (x) (error-entry (exn-message x)))])
           (call-with-store-transaction store
-            (lambda (c) (apply-entry! c e sps))))))
+            (lambda (c) (apply! c e))))))
      (response-bundle "batch-response" (vector->list responses))]))
 
 (define (error-entry msg)
@@ -147,7 +180,7 @@
 ;; ---- prepopulation loader ----------------------------------------------------
 ;; a collection (e.g. a Synthea export without request entries) loads as creates; transaction/batch
 ;; go through the full processor. -> (values created-count response)
-(define (load-bundle! store bundle #:search-params [sps default-search-params])
+(define (load-bundle! store bundle #:search-params [sps default-search-params] #:tower [tower #f])
   (define ty (hash-ref bundle 'type #f))
   (define b
     (if (member ty '("transaction" "batch"))
@@ -160,7 +193,7 @@
                                  'resource (hash-ref e 'resource)
                                  'request (hasheq 'method "POST"
                                                   'url (hash-ref (hash-ref e 'resource) 'resourceType "")))))))
-  (define resp (process-bundle! store b #:search-params sps))
+  (define resp (process-bundle! store b #:search-params sps #:tower tower))
   (define created (for/sum ([e (in-list (hash-ref resp 'entry '()))]
                             #:when (let ([r (hash-ref e 'response (hasheq))])
                                      (string-prefix? (hash-ref r 'status "") "2")))

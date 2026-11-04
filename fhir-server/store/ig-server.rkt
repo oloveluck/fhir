@@ -176,7 +176,8 @@
                               (parameterize ([current-data-source data] [current-sd-packages sd-packages]
                                              [current-measure-offset offset])
                                 (thunk))))))
-               #:transaction (lambda (bundle-js) (process-bundle! store bundle-js #:search-params catalog))))
+               #:transaction (lambda (bundle-js) (process-bundle! store bundle-js #:search-params catalog
+                                                                  #:tower (ig-plan-tower plan)))))
   (ig-server plan app gaps catalog sd-packages store validate? tgz))
 
 (define (ig-server-put! srv js0)

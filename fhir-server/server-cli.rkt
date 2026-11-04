@@ -55,7 +55,8 @@
      ;; --load <file|dir> (repeatable): Bundles, resources, .cql libraries into the store
      (for ([m (in-list (let loop ([as args]) (cond [(member "--load" as) => (lambda (t) (if (pair? (cdr t)) (cons (cadr t) (loop (cddr t))) '()))] [else '()])))])
        (define n (report-loaded ((dynamic-require 'fhir/store/load 'load-files!) store m
-                                 #:search-params ((dynamic-require 'fhir/store/ig-server 'ig-server-catalog) srv))))
+                                 #:search-params ((dynamic-require 'fhir/store/ig-server 'ig-server-catalog) srv)
+                                 #:tower ((dynamic-require 'fhir/store/ig-server 'ig-plan-tower) (srv-plan srv)))))
        (printf "loaded ~a resource(s) from ~a\n" n m))
      (unless (flag? "--no-examples")
        (define-values (n rejected) (load-ig-examples! srv))

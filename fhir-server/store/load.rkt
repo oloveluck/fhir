@@ -13,7 +13,7 @@
          "fhir-sqlite.rkt" "fhir-engine.rkt" (only-in "bundle.rkt" load-bundle!))
 
 (provide (contract-out
-          [load-files!   (->* (fhir-store? path-string?) (#:search-params hash? #:library-base string?)
+          [load-files!   (->* (fhir-store? path-string?) (#:search-params hash? #:library-base string? #:tower (or/c module-path? #f))
                               (listof (cons/c string? exact-nonnegative-integer?)))]
           [cql->library  (->* (string?) (#:library-base string?) hash?)]))
 
@@ -31,7 +31,8 @@
   (if (caddr m) (hash-set lib 'version (caddr m)) lib))
 
 ;; load-files! : store path -> (listof (cons file-name count))   a file, or every .json/.cql under a dir
-(define (load-files! store src #:search-params [sps default-search-params] #:library-base [base "http://localhost/fhir"])
+(define (load-files! store src #:search-params [sps default-search-params] #:library-base [base "http://localhost/fhir"]
+                     #:tower [tower #f])
   (define files (if (directory-exists? src)
                     (sort (for/list ([f (in-directory src)] #:when (regexp-match? #rx"[.](json|cql)$" (path->string f))) f)
                           string<? #:key path->string)
@@ -46,6 +47,6 @@
        (define js (with-handlers ([exn:fail? (lambda (_) #f)]) (call-with-input-file f read-json)))
        (cond [(not (and (hash? js) (hash-ref js 'resourceType #f))) (cons name 0)]
              [(equal? (hash-ref js 'resourceType) "Bundle")
-              (define-values (n _resp) (load-bundle! store js #:search-params sps)) (cons name n)]
+              (define-values (n _resp) (load-bundle! store js #:search-params sps #:tower tower)) (cons name n)]
              [(hash-ref js 'id #f) (fhir-update! store js #:search-params sps) (cons name 1)]
              [else (fhir-create! store js #:search-params sps) (cons name 1)])])))

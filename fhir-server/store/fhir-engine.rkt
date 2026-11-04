@@ -11,6 +11,11 @@
 ;;; by the param's KIND (search-index.rkt). All index tables are rebuilt for a resource inside the
 ;;; SAME transaction as the write, so the indexes can never drift from the store.
 ;;;
+;;; Indexing is two steps: `index-rows` EXTRACTS a resource's rows (pure: parse, evaluate every
+;;; indexed parameter's path, rows-for) and `write-index!` stores them; a bulk load extracts on every
+;;; core first (index-rows/text is the worker entry point, fhir/parallel) and hands the rows to
+;;; create-in!/update-in! with #:rows. An IndexRow is (list param-name table (listof value)).
+;;;
 ;;; Search: each query parameter is compiled by its catalog KIND (search-index.rkt documents the
 ;;; supported grammar: modifiers, comma-OR, prefixes, date ranges). Built in: `_id`, `_lastUpdated`.
 ;;; Parameters the catalog doesn't know, or uses an unsupported modifier on, are IGNORED (the FHIR
@@ -51,8 +56,12 @@
                             (#:search-params hash?) (values (listof jsexpr?) (listof string?)))]
   ;; connection-taking write variants: compose several writes into ONE transaction
   ;; (call-with-store-transaction + these = an atomic FHIR transaction Bundle)
-  [create-in!    (-> connection? jsexpr? hash? (values string? string? exact-positive-integer?))]
-  [update-in!    (-> connection? jsexpr? hash? exact-positive-integer?)]
+  [create-in!    (->* (connection? jsexpr? hash?) (#:rows (or/c #f list?)) (values string? string? exact-positive-integer?))]
+  [update-in!    (->* (connection? jsexpr? hash?) (#:rows (or/c #f list?)) exact-positive-integer?)]
+  ;; the catalog's indexed parameters of a type, as (name kind path) rows a worker can be handed
+  [indexed-entries (-> hash? string? (listof (list/c string? symbol? string?)))]
+  ;; a resource's index rows from its JSON text and those entries — what a worker process runs
+  [index-rows/text (-> (list/c string? list?) (listof (list/c string? string? list?)))]
   [delete-in!    (-> connection? string? string? boolean?)]))
 
 (struct search-param (name kind path) #:transparent)
@@ -74,7 +83,7 @@
 (define (fhir-create! store resource #:search-params [sps default-search-params])
   (call-with-store-transaction store (lambda (c) (create-in! c resource sps))))
 
-(define (create-in! c resource sps)
+(define (create-in! c resource sps #:rows [rows #f])
   (define rtype (hash-ref resource 'resourceType
                           (lambda () (error 'fhir-create! "resource has no resourceType"))))
   (define id (or (hash-ref resource 'id #f) (fresh-id)))
@@ -87,7 +96,7 @@
   (define vid (add1 (if (exact-integer? prev) prev 0)))
   (define stored (stamp-meta (hash-set resource 'id id) vid now))
   (write-version! c rtype id vid now stored)
-  (reindex! c rtype id stored sps)
+  (write-index! c rtype id (or rows (index-rows stored (indexed-entries sps rtype))))
   (values rtype id vid))
 
 (define (fhir-read store rtype id)
@@ -99,7 +108,7 @@
 (define (fhir-update! store resource #:search-params [sps default-search-params])
   (call-with-store-transaction store (lambda (c) (update-in! c resource sps))))
 
-(define (update-in! c resource sps)
+(define (update-in! c resource sps #:rows [rows #f])
   (define rtype (hash-ref resource 'resourceType
                           (lambda () (error 'fhir-update! "resource has no resourceType"))))
   (define id (hash-ref resource 'id (lambda () (error 'fhir-update! "resource has no id"))))
@@ -111,7 +120,7 @@
   (define vid (add1 (if (exact-integer? prev) prev 0)))
   (define stored (stamp-meta resource vid now))
   (write-version! c rtype id vid now stored)
-  (reindex! c rtype id stored sps)
+  (write-index! c rtype id (or rows (index-rows stored (indexed-entries sps rtype))))
   vid)
 
 ;; fhir-history : every version, NEWEST first
@@ -182,25 +191,43 @@
           (p2 (date-hour d)) (p2 (date-minute d)) (p2 (date-second d))))
 
 ;; ---- indexing ---------------------------------------------------------------
-;; rebuild every index table for one resource (runs inside the write transaction)
-(define (reindex! c rtype id stored sps)
+;; indexed-entries : catalog type -> (listof (list name kind path))   the type's indexed parameters
+(define (indexed-entries sps rtype)
+  (for/list ([sp (in-list (hash-ref sps (string->symbol rtype) '()))]
+             #:when (indexed-kind? (search-param-kind sp)))
+    (list (search-param-name sp) (search-param-kind sp) (search-param-path sp))))
+
+;; index-rows : jsexpr (listof (list name kind path)) -> (listof IndexRow)
+;; the rows every indexed parameter's path selects in the resource; a path that fails to evaluate
+;; indexes nothing, a resource that does not parse indexes nothing
+(define (index-rows stored entries)
+  (define node (let ([r (from-json stored #:lenient? #t)]) (and (ok? r) (ok-value r))))
+  (if (not node)
+      '()
+      (for*/list ([e (in-list entries)]
+                  [row (in-list (rows-for (cadr e)
+                                          (with-handlers ([exn:fail? (lambda (_) '())])
+                                            (eval-fhirpath (parse-fhirpath (caddr e)) (list node) #:strict? #f))))])
+        (define-values (table vals) (row-table+values row))
+        (list (car e) table vals))))
+
+;; index-rows/text : (list json-text entries) -> (listof IndexRow)   index-rows for a worker
+(define (index-rows/text item) (index-rows (string->jsexpr (car item)) (cadr item)))
+
+;; write-index! : connection type id (listof IndexRow) -> Void
+;; replace every index row of one resource (inside the write transaction)
+(define (write-index! c rtype id rows)
   (for ([t (in-list index-tables)])
     (query-exec c (format "DELETE FROM ~a WHERE resource_type=? AND resource_id=?" (car t)) rtype id))
-  (define node (let ([r (from-json stored #:lenient? #t)]) (and (ok? r) (ok-value r))))
-  (when node
-    (for ([sp (in-list (hash-ref sps (string->symbol rtype) '()))]
-          #:when (indexed-kind? (search-param-kind sp)))
-      (define items (with-handlers ([exn:fail? (lambda (_) '())])
-                      (eval-fhirpath (parse-fhirpath (search-param-path sp)) (list node) #:strict? #f)))
-      (for ([row (in-list (rows-for (search-param-kind sp) items))])
-        (define-values (table vals) (row-table+values row))
-        (define cols (cdr (assoc table index-tables)))
-        (apply query-exec c
-               (format "INSERT INTO ~a (resource_type,resource_id,param_name,~a) VALUES (?,?,?,~a)"
-                       table (string-join (map symbol->string cols) ",")
-                       (string-join (map (lambda (_) "?") cols) ","))
-               rtype id (search-param-name sp)
-               (map (lambda (v) (or v sql-null)) vals))))))
+  (for ([row (in-list rows)])
+    (define table (cadr row))
+    (define cols (cdr (assoc table index-tables)))
+    (apply query-exec c
+           (format "INSERT INTO ~a (resource_type,resource_id,param_name,~a) VALUES (?,?,?,~a)"
+                   table (string-join (map symbol->string cols) ",")
+                   (string-join (map (lambda (_) "?") cols) ","))
+           rtype id (car row)
+           (map (lambda (v) (or v sql-null)) (caddr row)))))
 
 ;; ---- search -----------------------------------------------------------------
 (define (fhir-search store rtype query-params #:search-params [sps default-search-params])

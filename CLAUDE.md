@@ -423,7 +423,10 @@ rewritten to `Type/id` BEFORE applying; entries apply in spec order (DELETEs, PO
 `transaction` runs in ONE store transaction (the engine's `create-in!`/`update-in!`/`delete-in!`
 connection-taking variants — any failure rolls back everything), `batch` per-entry with error
 response entries; the response is a `transaction-response`/`batch-response` Bundle mirroring
-request order. `load-bundle!` also accepts `collection` (a batch of creates — the Synthea shape);
+request order. `load-bundle!` also accepts `collection` (a batch of creates — the Synthea shape); with `#:tower`
+(the store's type tower) a bulk load of 32+ entries extracts every resource's index rows on every
+core first (`index-ahead` -> the engine's pure `index-rows`, `fhir/parallel`) and the transaction
+only writes;
 `raco fhir-server load <store.db> <bundle.json|dir>` prepopulates a store from files. The version chain is
 CONTINUOUS across delete/recreate (create/update read `MAX(version_id)` from the immutable history
 — writing v1 again would collide with the retained history row; caught by the bundle tests). The
