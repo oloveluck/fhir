@@ -525,6 +525,13 @@ trimmed is a `gap` (type, what, name, SHALL/SHOULD/MAY, reason). IG operations a
 OperationDefinition canonical (the registered operation values, see "Operations as values") — the OD itself comes
 from the package and drives input validation. `raco fhir-server serve-ig hl7.fhir.us.core [--db f] [--port n]`
 loads the IG's examples and serves; `--gaps` prints the unmet requirements.
+Reading the IG's statement: a server resource that lists search parameters or includes but omits
+the `search-type` interaction is read as searchable (`with-implied-search`: mCODE, IPA and SDC all do
+this); a bare include name (`formulary-coverage`) is the resource's own (`includes-of`); `Type:*`
+includes follow every reference parameter; search parameters and includes are advertised only where
+search is (`searchable-only`). Dependencies are resolved transitively, in `current-package-directories`
+(fhir/spec-package) before fhir-spec, version patterns (`3.3.x`) included. Six more IGs are held to
+their own examples, search parameters, includes and profiles in fhir-examples's `ig-servers/`.
 US Core status: NO unmet requirement at any level (SHALL, SHOULD, MAY) except authorization (SMART is
 not modelled in the CapabilityStatement's resources). Implemented for it: history-instance/-type
 (`GET /T/id/_history`, `GET /T/_history`, `_since`, `_count`; Bundle type history), PATCH as JSON Patch

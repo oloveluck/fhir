@@ -12,13 +12,20 @@
 (provide (contract-out
           ;; spec-package-path : file-name [#:optional? boolean] -> (or/c path? #f)
           [spec-package-path (->* (string?) (#:optional? boolean?) (or/c path? #f))]
+          ;; more directories of packages, searched before fhir-spec (a cache of fetched IGs)
+          [current-package-directories (parameter/c (listof path-string?))]
           ;; is the fhir-spec package installed?
           [spec-package-available? (-> boolean?)]))
+
+;; current-package-directories : (parameter (listof dir))
+(define current-package-directories (make-parameter '()))
 
 ;; collection-file-path answers a path whenever the COLLECTION exists, whether or not the file does,
 ;; so existence is checked here: a missing file and a missing package are the same failure.
 (define (spec-package-path file #:optional? [optional? #f])
-  (define p (collection-file-path file "fhir-spec" #:fail (lambda (msg) #f)))
+  (define p (or (for/or ([d (in-list (current-package-directories))])
+                  (let ([q (build-path d file)]) (and (file-exists? q) q)))
+                (collection-file-path file "fhir-spec" #:fail (lambda (msg) #f))))
   (cond
     [(and p (file-exists? p)) p]
     [optional? #f]
@@ -31,7 +38,11 @@
   (and (spec-package-path "hl7.fhir.r5.core.tgz" #:optional? #t) #t))
 
 (module+ test
-  (require rackunit)
+  (require rackunit racket/file)
   (check-pred boolean? (spec-package-available?))
   (check-equal? (spec-package-path "no-such-package.tgz" #:optional? #t) #f)
-  (check-exn exn:fail:user? (lambda () (spec-package-path "no-such-package.tgz"))))
+  (check-exn exn:fail:user? (lambda () (spec-package-path "no-such-package.tgz")))
+  (define d (make-temporary-directory))
+  (call-with-output-file (build-path d "x.tgz") void)
+  (check-equal? (parameterize ([current-package-directories (list d)]) (spec-package-path "x.tgz"))
+                (build-path d "x.tgz")))

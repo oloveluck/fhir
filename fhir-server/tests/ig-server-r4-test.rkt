@@ -48,6 +48,13 @@
 (check-equal? (ids (go "GET" "/MedicationRequest" '((_id . "medicationrequest-referenced-oral-axid")
                                                      (_include . "MedicationRequest:medication"))))
               '(("match" "medicationrequest-referenced-oral-axid") ("include" "uscore-med2")))
+;; `*`: every reference parameter (medication, patient/subject, requester, encounter, …)
+(define wild (ids (go "GET" "/MedicationRequest" '((_id . "medicationrequest-referenced-oral-axid")
+                                                   (_include . "MedicationRequest:*")))))
+(check-not-false (member '("include" "uscore-med2") wild))
+(check-true (> (length wild) 2))
+(check-equal? (ids (go "GET" "/Patient" '((_id . "example") (_revinclude . "Encounter:*"))))
+              (ids (go "GET" "/Patient" '((_id . "example") (_revinclude . "Encounter:patient")))))
 (check-equal? (length (ids (go "GET" "/DocumentReference/$docref" '((patient . "example"))))) 5)
 (check-equal? (car (go "GET" "/DocumentReference/$docref")) 400)               ; patient is 1..1
 

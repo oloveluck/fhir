@@ -229,8 +229,8 @@
 
 ;; ---- _include / _revinclude ----------------------------------------------------
 ;; Both follow the REFERENCE INDEX (so they need the reference parameter in the catalog at index
-;; time, as search does). Values: `Source:param` or `Source:param:Target`; `*` and :iterate are not
-;; supported (ignored). Included resources already among the matches are not repeated.
+;; time, as search does). Values: `Source:param`, `Source:param:Target`, or `Source:*` (every
+;; reference parameter); :iterate is not supported (ignored). Included resources already among the matches are not repeated.
 (define (fhir-includes store rtype matches query-params)
   (define match-ids (for/list ([m (in-list matches)]) (hash-ref m 'id #f)))
   (define seen (make-hash (for/list ([id (in-list match-ids)]) (cons (cons rtype id) #t))))
@@ -249,9 +249,11 @@
                            [row (in-list (apply query-rows c
                                                 (string-append
                                                  "SELECT target_type, target_id FROM fhir_reference_index
-                                                  WHERE resource_type=? AND resource_id=? AND param_name=?"
+                                                  WHERE resource_type=? AND resource_id=?"
+                                                 (if (equal? param "*") "" " AND param_name=?")
                                                  (if target " AND target_type=?" ""))
-                                                rtype id param (if target (list target) '())))]
+                                                rtype id (append (if (equal? param "*") '() (list param))
+                                                                 (if target (list target) '()))))]
                            #:when (string? (vector-ref row 0))
                            #:when (fresh! (vector-ref row 0) (vector-ref row 1))
                            [js (in-value (fhir-read store (vector-ref row 0) (vector-ref row 1)))]
@@ -262,9 +264,12 @@
                                                 (string-append
                                                  "SELECT r.raw_resource FROM fhir_resources r WHERE r.resource_type=? AND EXISTS
                                                   (SELECT 1 FROM fhir_reference_index x WHERE x.resource_type=r.resource_type
-                                                   AND x.resource_id=r.id AND x.param_name=? AND x.target_type=? AND x.target_id IN ("
+                                                   AND x.resource_id=r.id"
+                                                 (if (equal? param "*") "" " AND x.param_name=?")
+                                                 " AND x.target_type=? AND x.target_id IN ("
                                                  (string-join (map (lambda (_) "?") match-ids) ",") "))")
-                                                source param rtype match-ids))]
+                                                source (append (if (equal? param "*") '() (list param))
+                                                               (list rtype) match-ids)))]
                            [js (in-value (string->jsexpr raw))]
                            #:when (fresh! source (hash-ref js 'id #f)))
                  js)]

@@ -36,7 +36,7 @@
 (require racket/contract racket/list racket/string racket/match
          json
          (only-in fhir/package read-package)
-         (only-in fhir/spec-package spec-package-path)
+         (only-in fhir/spec-package spec-package-path current-package-directories)
          (only-in fhir/sd/sd-index current-sd-packages)
          (only-in fhir/serialize/from-json from-json)
          (only-in fhir/serialize/to-json node->jsexpr)
@@ -121,7 +121,7 @@
                (cond [(and (list? vs) (pair? vs)) (car vs)]
                      [else (raise-user-error 'fhir "~a: package.json declares no fhirVersions" tgz)])))
   (define-values (tower core-file) (tower-for fv))
-  (define server-cs
+  (define server-cs0
     (for/or ([r (in-list resources)])
       (define js (cdr r))
       (and (equal? (hash-ref js 'resourceType #f) "CapabilityStatement")
@@ -129,9 +129,10 @@
            (for/or ([rest (in-list (let ([x (hash-ref js 'rest '())]) (if (list? x) x '())))])
              (equal? (hash-ref rest 'mode #f) "server"))
            js)))
-  (unless server-cs
+  (unless server-cs0
     (raise-user-error 'fhir "~a ships no server CapabilityStatement (rest.mode = server)~a" tgz
                       (if capability (format " with id or url ~a" capability) "")))
+  (define server-cs (with-implied-search server-cs0))
   (define rest (findf (lambda (r) (equal? (hash-ref r 'mode #f) "server")) (hash-ref server-cs 'rest)))
   (define rs
     (for/list ([res (in-list (hash-ref rest 'resource '()))])
@@ -145,19 +146,68 @@
   (ig-plan (and manifest (hash-ref manifest 'name #f)) (and manifest (hash-ref manifest 'version #f))
            fv tower (spec-package-path core-file) server-cs rs))
 
-;; dependency-packages : tgz -> (listof path)   package.json `dependencies` located in fhir-spec as
-;; <name>-<version>.tgz (or <name>.tgz when that IS the version); core packages and ones not
-;; vendored are left out (the core is added separately; a missing one only narrows validation)
+;; with-implied-search : CapabilityStatement -> CapabilityStatement   a server resource that lists
+;; search parameters or includes but not the search-type interaction is read as searchable: the
+;; parameters mean nothing otherwise, and IGs do omit it (mCODE lists Patient `_id` on a read-only
+;; Patient, IPA includes on PractitionerRole, SDC dozens of parameters). The interaction added
+;; takes the resource's own expectation.
+(define (with-implied-search cs)
+  (define (fix res)
+    (define codes (for/list ([i (in-list (hash-ref res 'interaction '()))]) (hash-ref i 'code #f)))
+    (if (and (not (member "search-type" codes))
+             (for/or ([k (in-list '(searchParam searchInclude searchRevInclude))]) (pair? (hash-ref res k '()))))
+        (hash-set res 'interaction
+                  (append (hash-ref res 'interaction '())
+                          (list (hasheq 'code "search-type"
+                                        'extension (list (hasheq 'url "http://hl7.org/fhir/StructureDefinition/capabilitystatement-expectation"
+                                                                 'valueCode (expectation-of res)))))))
+        res))
+  (hash-set cs 'rest
+            (for/list ([r (in-list (hash-ref cs 'rest '()))])
+              (if (equal? (hash-ref r 'mode #f) "server")
+                  (hash-set r 'resource (map fix (hash-ref r 'resource '())))
+                  r))))
+
+;; dependency-packages : tgz -> (listof path)   package.json `dependencies`, transitively (nearest
+;; first, each once), located as <name>-<version>.tgz (or <name>.tgz when that IS the version) in
+;; `current-package-directories` or fhir-spec; a version may be a pattern (`3.3.x`). Core packages
+;; and ones not found are left out (the core is added separately; a missing one only narrows
+;; validation)
 (define (dependency-packages tgz)
+  (let loop ([todo (direct-dependencies tgz)] [seen '()])
+    (cond [(null? todo) (reverse seen)]
+          [(member (car todo) seen) (loop (cdr todo) seen)]
+          [else (loop (append (cdr todo) (direct-dependencies (car todo))) (cons (car todo) seen))])))
+
+(define (direct-dependencies tgz)
   (define m (package-manifest tgz))
   (define ds (if (and m (hash? (hash-ref m 'dependencies #f))) (hash-ref m 'dependencies) (hash)))
   (for*/list ([(name version) (in-hash ds)]
               #:unless (regexp-match? #px"^hl7[.]fhir[.]r[0-9]+b?[.]core$|^hl7[.]terminology|[.]extensions" (symbol->string name))
-              [p (in-value (or (spec-package-path (format "~a-~a.tgz" name version) #:optional? #t)
-                               (let ([q (spec-package-path (format "~a.tgz" name) #:optional? #t)])
-                                 (and q (let ([qm (package-manifest q)]) (and qm (equal? (hash-ref qm 'version #f) version))) q))))]
+              [p (in-value (find-package (symbol->string name) version))]
               #:when p)
     p))
+
+;; find-package : name version-or-pattern -> (or/c path #f)
+(define (find-package name version)
+  (define (version-ok? q) (let ([qm (package-manifest q)])
+                            (and qm (version-matches? (hash-ref qm 'version "") version))))
+  (or (spec-package-path (format "~a-~a.tgz" name version) #:optional? #t)
+      (for*/first ([d (in-list (current-package-directories))]
+                   #:when (directory-exists? d)
+                   [f (in-list (sort (directory-list d) string>? #:key path->string))]   ; newest first
+                   #:when (regexp-match? (pregexp (format "^~a-[^-]+[.]tgz$" (regexp-quote name))) (path->string f))
+                   #:when (version-ok? (build-path d f)))
+        (build-path d f))
+      (let ([q (spec-package-path (format "~a.tgz" name) #:optional? #t)])
+        (and q (version-ok? q) q))))
+
+;; version-matches? : "3.3.2" "3.3.x" -> #t   (x / * stand for any one part)
+(define (version-matches? v pattern)
+  (define ps (string-split pattern "."))
+  (define vs (string-split v "."))
+  (and (= (length ps) (length vs))
+       (for/and ([p (in-list ps)] [x (in-list vs)]) (or (member p '("x" "X" "*")) (equal? p x)))))
 
 ;; ---- the app ------------------------------------------------------------------------------------
 
@@ -232,19 +282,22 @@
                  #:unless (member (car i) supported-interactions))
        (gap (ig-resource-type r) 'interaction (car i) (cdr i) "interaction not implemented"))
      (for*/list ([r (in-list served)] [sp (in-list (ig-resource-search-params r))]
-                 #:unless (executable? catalog (ig-resource-type r) (car sp)))
+                 #:unless (and (executable? catalog (ig-resource-type r) (car sp))
+                               (assoc "search-type" (ig-resource-interactions r))))
        (gap (ig-resource-type r) 'search-param (car sp) (caddr sp)
-            (format "~a parameter not executable" (or (cadr sp) "unknown"))))
+            (if (assoc "search-type" (ig-resource-interactions r))
+                (format "~a parameter not executable" (or (cadr sp) "unknown"))
+                "the IG does not declare search-type for this type")))
      (let ([rest (findf (lambda (x) (equal? (hash-ref x 'mode #f) "server")) (hash-ref (ig-plan-ig-cs plan) 'rest))])
        (append
         (for/list ([sp (in-list (hash-ref rest 'searchParam '()))])
           (gap "*" 'search-param (hash-ref sp 'name) (expectation-of sp) "system-level search not implemented"))
         (for*/list ([res (in-list (hash-ref rest 'resource '()))]
                     [k (in-list '(searchInclude searchRevInclude))]
-                    [v (in-list (hash-ref res k '()))]
-                    #:unless (include-supported? v))
-          (gap (hash-ref res 'type) (if (eq? k 'searchInclude) '_include '_revinclude) v
-               (expectation-of res) "wildcard / :iterate includes not implemented"))
+                    [v (in-list (includes-of res k))]
+                    #:unless (and (include-supported? v) (searchable? res)))
+          (gap (hash-ref res 'type) (if (eq? k 'searchInclude) '_include '_revinclude) v (expectation-of res)
+               (if (searchable? res) ":iterate includes not implemented" "the IG does not declare search-type for this type")))
         (for*/list ([res (in-list (hash-ref rest 'resource '()))]
                     [op (in-list (hash-ref res 'operation '()))]
                     #:unless (operation-implemented? op))
@@ -296,14 +349,16 @@
 ;; $docref is built here from the IG's own OperationDefinition (it needs the store's search)
 (define (implementation-of url ods)
   (cond [(member url (map operation-url (registered-operations))) (operation url)]
-        [(equal? url docref-url) (docref-operation (hash-ref ods url))]
+        [(member url docref-urls) (docref-operation (hash-ref ods url))]
         [else #f]))
 
 ;; US Core $docref (https://hl7.org/fhir/us/core/OperationDefinition-docref.html): the patient's
 ;; DocumentReferences, start/end bounding DocumentReference.context.period, `type` matching. Only
 ;; EXISTING documents are returned: on-demand generation and the profile filter are not supported
 ;; (on-demand=true is answered from storage, which the operation permits when nothing is generated).
+;; IPA defines the same operation (same parameters) under its own canonical
 (define docref-url "http://hl7.org/fhir/us/core/OperationDefinition/docref")
+(define docref-urls (list docref-url "http://hl7.org/fhir/uv/ipa/OperationDefinition/docref"))
 (define (docref-operation od)
   (make-operation
    (strip-jnum od)
@@ -331,15 +386,36 @@
   (define def (hash-ref cs-op 'definition #f))
   (and (string? def)
        (let ([u (car (string-split def "|"))])
-         (or (equal? u docref-url) (and (member u (map operation-url (registered-operations))) #t)))))
+         (or (and (member u docref-urls) #t) (and (member u (map operation-url (registered-operations))) #t)))))
 
-;; Source:param[:Target] includes are implemented (fhir-includes); `*` and :iterate are not
-(define (include-supported? v) (and (regexp-match? #px"^[A-Z][A-Za-z]+:[A-Za-z0-9_-]+(:[A-Z][A-Za-z]+)?$" v) #t))
+;; Source:param[:Target] and Source:* includes are implemented (fhir-includes); :iterate is not
+(define (include-supported? v) (and (regexp-match? #px"^[A-Z][A-Za-z]+:([A-Za-z0-9_-]+(:[A-Z][A-Za-z]+)?|[*])$" v) #t))
+
+;; includes-of : CapabilityStatement.rest.resource key -> (listof string)   its searchInclude /
+;; searchRevInclude values; a bare parameter name in searchInclude (Da Vinci Drug Formulary writes
+;; `formulary-coverage`) is read as the resource's own: `InsurancePlan:formulary-coverage`
+(define (includes-of res k)
+  (for/list ([v (in-list (hash-ref res k '()))])
+    (if (and (eq? k 'searchInclude) (not (regexp-match? #rx":" v)))
+        (string-append (hash-ref res 'type) ":" v)
+        v)))
 
 (define (executable? catalog type name)
   (or (member name '("_id" "_lastUpdated"))
       (for/or ([sp (in-list (hash-ref catalog (string->symbol type) '()))])
         (and (equal? (search-param-name sp) name) (indexed-kind? (search-param-kind sp))))))
+
+;; searchable? : CapabilityStatement.rest.resource -> boolean   does it declare search-type?
+(define (searchable? res)
+  (for/or ([i (in-list (hash-ref res 'interaction '()))]) (equal? (hash-ref i 'code #f) "search-type")))
+
+;; searchable-only : rest.resource -> rest.resource   search parameters and includes are only
+;; advertised where search is (IPA lists includes on PractitionerRole, which it only lets clients read)
+(define (searchable-only res)
+  (if (searchable? res)
+      res
+      (for/fold ([h res]) ([k (in-list '(searchParam searchInclude _searchInclude searchRevInclude _searchRevInclude))])
+        (hash-remove h k))))
 
 ;; the IG's server CapabilityStatement, as this server's instance statement: same resources,
 ;; profiles and expectations, trimmed to the interactions and parameters actually executed
@@ -351,12 +427,13 @@
     (for/list ([res (in-list (hash-ref rest 'resource '()))]
                #:when (member (hash-ref res 'type) served-types))
       (define t (hash-ref res 'type))
-      (for/fold ([h (for/fold ([h (let ([ops (filter operation-implemented? (hash-ref res 'operation '()))])
+      (searchable-only
+       (for/fold ([h (for/fold ([h (let ([ops (filter operation-implemented? (hash-ref res 'operation '()))])
                                     (if (null? ops) (hash-remove res 'operation) (hash-set res 'operation ops)))])
                               ([k (in-list '(searchInclude searchRevInclude))])
                       ;; keep the includes this server executes (their _ extension arrays would no
                       ;; longer line up once filtered, so they are dropped)
-                      (define kept (filter include-supported? (hash-ref h k '())))
+                      (define kept (filter include-supported? (includes-of h k)))
                       (define h2 (hash-remove h (string->symbol (string-append "_" (symbol->string k)))))
                       (if (null? kept) (hash-remove h2 k) (hash-set h2 k kept)))])
                 ([k (in-list '(interaction searchParam))])
@@ -365,7 +442,7 @@
                                   (member (hash-ref x 'code #f) supported-interactions)
                                   (executable? catalog t (hash-ref x 'name ""))))
                   (hash-ref res k '())))
-        (if (null? kept) (hash-remove h k) (hash-set h k kept)))))
+        (if (null? kept) (hash-remove h k) (hash-set h k kept))))))
   (define base
     (for/fold ([h cs]) ([k (in-list '(id meta text url version name title _title publisher contact
                                       jurisdiction copyright instantiates imports _instantiates))])
