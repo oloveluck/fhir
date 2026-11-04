@@ -71,6 +71,19 @@
 (for-each thread-wait writers)
 (check-equal? (length (fhir-search store "Observation" (list (cons "code" "http://loinc.org|718-7")))) 5)
 
+;; ---- 4. _sort and _offset ----------------------------------------------------
+(define (mrns qs) (for/list ([p (in-list (fhir-search store "Patient" qs))])
+                    (hash-ref (car (hash-ref p 'identifier)) 'value)))
+(check-equal? (mrns (list (cons "_sort" "identifier"))) '("MRN-0" "MRN-1" "MRN-2"))
+(check-equal? (mrns (list (cons "_sort" "-identifier"))) '("MRN-2" "MRN-1" "MRN-0"))
+(check-equal? (mrns (list (cons "_sort" "identifier") (cons "_offset" "1") (cons "_count" "1"))) '("MRN-1"))
+(check-equal? (map (lambda (p) (hash-ref p 'id)) (fhir-search store "Patient" (list (cons "_sort" "_id"))))
+              (sort patient-ids string<?))
+;; a _sort naming nothing sortable is ignored as a whole, and said so
+(let-values ([(rs ignored) (fhir-search/ignored store "Patient" (list (cons "_sort" "identifier,nope")))])
+  (check-equal? (length rs) 3)
+  (check-equal? ignored '("_sort")))
+
 (close-fhir-store store)
 (delete-file tmp)
 (printf "fhir-store integration: all green (CRUD, search, WAL concurrency)\n")

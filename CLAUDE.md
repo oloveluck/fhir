@@ -568,8 +568,9 @@ picks its index table (token / reference / string / date / number / quantity / u
 matching rules — string = case+accent-folded starts-with (`:exact`, `:contains`), date = the value's
 implicit RANGE with eq/ne/gt/lt/ge/le/sa/eb/ap (zoned values shifted to UTC), number/quantity =
 precision-aware eq + prefixes, comma = OR, `:missing`, token `:not`, `_id`, `_lastUpdated`, `_count`.
-Unknown parameters and unsupported modifiers are ignored (FHIR's lenient default) and reported by
-`fhir-search/ignored`; the derived CapabilityStatement advertises only executable kinds (composite and
+`_sort` (by `_id`, `_lastUpdated` or any indexed parameter, `-name` descending, a repeating value
+by its smallest) and `_offset` with `_count` page. Unknown parameters and unsupported modifiers are
+ignored (FHIR's lenient default) and reported by `fhir-search/ignored`; the derived CapabilityStatement advertises only executable kinds (composite and
 special are not). Before this, search guessed token-vs-reference from the VALUE's shape and string/
 date/number/quantity parameters silently matched nothing.
 

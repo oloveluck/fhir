@@ -44,7 +44,7 @@
  (struct-out token-row) (struct-out reference-row) (struct-out string-row)
  (struct-out date-row) (struct-out number-row) (struct-out quantity-row)
  (struct-out clause)
- index-tables
+ index-tables table-of
  (contract-out
   [indexed-kind?   (-> symbol? boolean?)]
   [rows-for        (-> symbol? list? list?)]

@@ -20,6 +20,9 @@
 ;;; supported grammar: modifiers, comma-OR, prefixes, date ranges). Built in: `_id`, `_lastUpdated`.
 ;;; Parameters the catalog doesn't know, or uses an unsupported modifier on, are IGNORED (the FHIR
 ;;; default "lenient" handling) and reported by `fhir-search/ignored`. Multiple parameters AND.
+;;; `_sort` orders by `_id`, `_lastUpdated` or any indexed parameter (`-name` descends; a repeating
+;;; value sorts by its smallest), `_count` and `_offset` page; a `_sort` naming anything else is
+;;; ignored as a whole and reported.
 
 (require racket/contract racket/string racket/list racket/random racket/match
          db json file/sha1
@@ -240,19 +243,55 @@
     (for/fold ([cs '()] [ig '()]) ([qp (in-list query-params)])
       (define c (param->clause catalog (car qp) (cdr qp)))
       (if c (values (cons c cs) ig) (values cs (cons (car qp) ig)))))
-  (define count (let ([c (assoc "_count" query-params)]) (and c (string->number (cdr c)))))
+  (define (number-of name) (let ([c (assoc name query-params)]) (and c (string->number (cdr c)))))
+  (define count (number-of "_count"))
+  (define offset (number-of "_offset"))
+  (define order (sort-keys catalog (let ([s (assoc "_sort" query-params)]) (and s (cdr s)))))
   (define sql
     (string-append "SELECT raw_resource FROM fhir_resources r WHERE r.resource_type=?"
                    (apply string-append (for/list ([c (in-list (reverse clauses))])
                                           (string-append " AND " (clause-sql c))))
-                   " ORDER BY r.last_updated, r.id"
-                   (if (exact-nonnegative-integer? count) (format " LIMIT ~a" count) "")))
+                   " ORDER BY " (if order (string-join (map car order) ", ") "r.last_updated, r.id")
+                   (if (exact-nonnegative-integer? count) (format " LIMIT ~a" count) " LIMIT -1")
+                   (if (exact-positive-integer? offset) (format " OFFSET ~a" offset) "")))
   (values
    (call-with-store-connection store
      (lambda (c)
-       (for/list ([raw (in-list (apply query-list c sql rtype (append-map clause-args (reverse clauses))))])
+       (for/list ([raw (in-list (apply query-list c sql rtype (append (append-map clause-args (reverse clauses))
+                                                                     (if order (append-map cdr order) '()))))])
          (string->jsexpr raw))))
-   (filter (lambda (n) (not (member n '("_count" "_include" "_revinclude")))) (reverse ignored))))
+   (append (filter (lambda (n) (not (member n '("_count" "_offset" "_sort" "_include" "_revinclude")))) (reverse ignored))
+           (if (and (assoc "_sort" query-params) (not order)) '("_sort") '()))))
+
+;; ---- _sort ------------------------------------------------------------------
+;; A SortKey is (cons sql-expression (listof arg)): an ORDER BY term over the resource row `r`.
+;; sort-keys : catalog (or/c string #f) -> (listof SortKey) | #f
+;; `_sort`'s comma-separated names, `-name` descending: `_id` and `_lastUpdated` are columns, an
+;; indexed parameter sorts by the smallest of its index values (a correlated subquery); any other
+;; name makes the whole `_sort` undecidable (#f: ignored and reported)
+(define (sort-keys catalog spec)
+  (and spec
+       (let ([keys (for/list ([name (in-list (string-split spec ","))]) (sort-key catalog (string-trim name)))])
+         (and (andmap values keys) (pair? keys) keys))))
+(define (sort-key catalog name0)
+  (define desc? (string-prefix? name0 "-"))
+  (define name (if desc? (substring name0 1) name0))
+  (define dir (if desc? " DESC" ""))
+  (define sp (findf (lambda (sp) (equal? (search-param-name sp) name)) catalog))
+  (cond
+    [(equal? name "_id") (cons (string-append "r.id" dir) '())]
+    [(equal? name "_lastUpdated") (cons (string-append "r.last_updated" dir) '())]
+    [(and sp (sort-column (search-param-kind sp)))
+     => (lambda (col)
+          (cons (format "(SELECT MIN(i.~a) FROM ~a i WHERE i.resource_type=r.resource_type AND i.resource_id=r.id AND i.param_name=?)~a"
+                        col (table-of (search-param-kind sp)) dir)
+                (list name)))]
+    [else #f]))
+;; sort-column : Kind -> column | #f   the index column a kind orders by
+(define (sort-column kind)
+  (case kind
+    [(token uri) "code"] [(reference) "target_id"] [(string) "value_norm"]
+    [(date) "low"] [(number quantity) "value"] [else #f]))
 
 ;; ---- _include / _revinclude ----------------------------------------------------
 ;; Both follow the REFERENCE INDEX (so they need the reference parameter in the catalog at index
