@@ -22,6 +22,7 @@
                   primitive-name? fhir-spec fhir-spec-url fhir-spec-constraint)
          (only-in fhir/model/schema type-schema schema-field max-of)
          (only-in fhir/sd/sd-index resolve-sd-raw)
+         (only-in fhir/serialize/jsexpr-util jref jlist)
          (only-in fhir/data-source current-data-source data-source-all)
          (only-in fhir/registry registered-resource))
 
@@ -33,8 +34,6 @@
           ;; resources, then the packages
           [resolve-structure-definition/data (-> string? (or/c hash? #f))]))
 
-(define (jref h k [d #f]) (if (hash? h) (hash-ref h k d) d))
-(define (jlist h k) (let ([v (jref h k '())]) (if (list? v) v '())))
 
 (define (structure-definition-type sd)
   (define t (jref sd 'type))

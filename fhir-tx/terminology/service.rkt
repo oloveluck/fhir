@@ -15,7 +15,7 @@
 ;;; `make-terminology` returns a `tx-service` (fhirpath/terminology) whose three closures the
 ;;; FHIRPath engine dispatches on as the `%terminologies` handle.
 
-(require (only-in fhir/spec-package spec-package-path))
+(require (only-in fhir/spec-package spec-package-path) (only-in fhir/serialize/jsexpr-util jref jlist))
 (require json
          file/gunzip
          file/untar
@@ -119,8 +119,6 @@
 
 ;; ---- small jsexpr helpers -------------------------------------------------------------------
 
-(define (jref h k [d #f]) (if (hash? h) (hash-ref h k d) d))
-(define (jlist h k) (let ([v (jref h k '())]) (if (list? v) v '())))
 
 ;; ---- $expand --------------------------------------------------------------------------------
 
