@@ -16,7 +16,7 @@
 ;;; FHIRPath engine dispatches on as the `%terminologies` handle.
 
 (require (only-in fhir/spec-package spec-package-path) (only-in fhir/serialize/jsexpr-util jref jlist))
-(require json
+(require json racket/contract
          file/gunzip
          file/untar
          (only-in net/uri-codec uri-decode)
@@ -30,30 +30,46 @@
          (only-in fhir/serialize/from-json from-json)
          (only-in fhir/result/result ok? ok-value))
 
-(provide make-terminology make-r5-terminology make-r4-terminology
-         ;; a service over SEVERAL packages, searched in order (an IG first, then its core)
-         make-terminology/packages packages->resolver
-         ;; a service over an EXPLICIT list of resources (the tx-ecosystem conformance suite
-         ;; ships its own CodeSystems/ValueSets as per-suite setup files)
-         make-terminology/resources resources->resolver make-terminology/resolver
-         ;; operations beyond the tx-service handle's three closures, used by the conformance
-         ;; harness (and available to any caller): CodeSystem $lookup and CodeSystem-level
-         ;; $validate-code
-         make-lookup make-cs-validate
-         ;; server-level version parameters (system-version / force- / check-)
-         (struct-out version-policy) no-version-policy policy-of
-         ;; a ValueSet whose compose names a code system the resolver cannot see is UNDECIDABLE
-         ;; offline — the conformance harness skips such cases instead of guessing
-         make-undecidable?
-         ;; the same operations as FHIR JSON (no type tower needed), for terminology/operations:
-         ;; resolver url ... -> ValueSet | Parameters jsexpr
-         (rename-out [tx-expand expand/json] [tx-validate validate-code/json]
-                     [tx-lookup lookup/json] [tx-translate translate/json]
-                     [tx-cs-validate cs-validate-code/json] [tx-subsumes subsumes/json]
-                     [tx-find-matches find-matches/json])
-         ;; the subsumption relation two codes of a system stand in (for $closure), the
-         ;; CodeSystems a package list holds, and what a server publishes about all this
-         closure-relation packages->code-systems terminology-capabilities)
+;; A Resolver is (url [version] -> resource | #f): how a canonical becomes a resource — over the
+;; packages' indexes, an explicit list of resources, or both.
+(define resolver/c (->* (string?) ((or/c string? #f)) (or/c hash? #f)))
+(provide
+ (contract-out
+  [make-terminology (-> path-string? tx-service?)]
+  [make-r5-terminology (-> tx-service?)]
+  [make-r4-terminology (-> tx-service?)]
+  ;; a service over SEVERAL packages, searched in order (an IG first, then its core)
+  [make-terminology/packages (-> (listof path-string?) tx-service?)]
+  [packages->resolver (-> (listof path-string?) resolver/c)]
+  ;; a service over an EXPLICIT list of resources (the tx-ecosystem conformance suite
+  ;; ships its own CodeSystems/ValueSets as per-suite setup files)
+  [make-terminology/resources (-> (listof hash?) tx-service?)]
+  [resources->resolver (-> (listof hash?) resolver/c)]
+  [make-terminology/resolver (-> resolver/c tx-service?)]
+  ;; operations beyond the tx-service handle's three closures, used by the conformance
+  ;; harness (and available to any caller): CodeSystem $lookup and CodeSystem-level
+  ;; $validate-code — each takes the resolver and gives the operation as a procedure
+  [make-lookup (-> resolver/c procedure?)]
+  [make-cs-validate (-> resolver/c procedure?)]
+  ;; server-level version parameters (system-version / force- / check-): canonicals with
+  ;; |version, given singly or as lists
+  [no-version-policy version-policy?]
+  [policy-of (-> any/c any/c any/c version-policy?)]
+  ;; a ValueSet whose compose names a code system the resolver cannot see is UNDECIDABLE
+  ;; offline — the conformance harness skips such cases instead of guessing
+  [make-undecidable? (-> resolver/c procedure?)]
+  ;; the subsumption relation two codes of a system stand in (for $closure)
+  [closure-relation (->* (resolver/c string? string? string?) ((or/c string? #f)) (or/c string? #f))]
+  ;; the CodeSystems a package list holds, and what a server publishes about all this
+  [packages->code-systems (-> (listof path-string?) (listof hash?))]
+  [terminology-capabilities (->* ((listof hash?)) (#:url (or/c string? #f)) hash?)])
+ (struct-out version-policy)
+ ;; the same operations as FHIR JSON (no type tower needed), for terminology/operations:
+ ;; resolver url ... -> ValueSet | Parameters jsexpr
+ (rename-out [tx-expand expand/json] [tx-validate validate-code/json]
+             [tx-lookup lookup/json] [tx-translate translate/json]
+             [tx-cs-validate cs-validate-code/json] [tx-subsumes subsumes/json]
+             [tx-find-matches find-matches/json]))
 
 (define r5-core-tgz (spec-package-path "hl7.fhir.r5.core.tgz"))
 (define r4-core-tgz (spec-package-path "hl7.fhir.r4.core.tgz"))
