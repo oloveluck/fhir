@@ -42,6 +42,8 @@
                   repository-create repository-update repository-delete repository-search
                   repository-history)
          (only-in fhir/conformance/validate validate-issues issue-severity issue-code issue-path issue-msg)
+         (only-in fhir/parallel parallel-map)
+         (only-in json jsexpr->string)
          "fhir-sqlite.rkt" "fhir-engine.rkt" "ig-params.rkt" "bundle.rkt" "ig-plan.rkt" "ig-capability.rkt"
          (only-in "search-index.rkt" indexed-kind?)
          (only-in "serve.rkt" store-repository)
@@ -244,21 +246,30 @@
   (define examples (append (filter (lambda (r) (member (hash-ref (cdr r) 'resourceType #f) '("ValueSet" "CodeSystem")))
                                    resources)
                            examples0))
+  (define admitted (for/list ([ex (in-list examples)] #:when (loadable? (cdr ex))) (cons (car ex) (strip-jnum (cdr ex)))))
+  ;; validation is the cost, and each example's is independent: every core validates a share
+  ;; (fhir/parallel; the workers load this server's tower), then the writes go in, in order
+  (define errors
+    (if (ig-server-validate? srv)
+        (parallel-map '(fhir/conformance/validate write-errors/rows)
+                      (for/list ([ex (in-list admitted)])
+                        (list (jsexpr->string (cdr ex)) (map path-string (ig-server-sd-packages srv))))
+                      #:setup (ig-plan-tower (ig-server-plan srv)))
+        (map (lambda (_) '()) admitted)))
   (for/fold ([n 0] [rejected '()] #:result (values n (reverse rejected)))
-            ([ex (in-list examples)])
-    (define js (cdr ex))
-    (define t (hash-ref js 'resourceType #f))
+            ([ex (in-list admitted)] [rows (in-list errors)])
     (cond
-      [(not (and (string? t) (type-registered? (string->symbol t)) (string? (hash-ref js 'id #f))))
-       (values n rejected)]
+      [(null? rows)
+       (fhir-update! (ig-server-store srv) (cdr ex) #:search-params (ig-server-catalog srv))
+       (values (add1 n) rejected)]
       [else
-       (define r (ig-server-put! srv js))
-       (if (eq? r 'ok)
-           (values (add1 n) rejected)
-           (values n (cons (cons (car ex)
-                                 (string-join (for/list ([i (in-list (cdr (hash-ref (node->jsexpr r) 'issue '())))])
-                                                (format "~a ~a" (car (hash-ref i 'expression '(""))) (hash-ref i 'diagnostics "")))
-                                              "; "))
-                           rejected)))])))
+       (values n (cons (cons (car ex) (string-join (for/list ([r (in-list rows)]) (format "~a ~a" (or (caddr r) "") (cadddr r))) "; "))
+                       rejected))])))
 
+;; loadable? : jsexpr -> Boolean   a resource of a type this tower has, with an id to store it under
+(define (loadable? js)
+  (define t (hash-ref js 'resourceType #f))
+  (and (string? t) (type-registered? (string->symbol t)) (string? (hash-ref js 'id #f))))
 
+;; path-string : path-string -> String
+(define (path-string p) (if (path? p) (path->string p) p))

@@ -11,7 +11,7 @@
 ;;; OperationOutcome node. Validate the RAW jsexpr (lenient parsing would hide unknown elements); the
 ;;; typed node is used only for invariants.
 
-(require racket/contract (only-in json jsexpr->string)
+(require racket/contract (only-in json jsexpr->string string->jsexpr)
          racket/string
          racket/list
          (only-in fhir/sd/sd-index resolve-sd-raw)
@@ -36,9 +36,21 @@
  (struct-out issue)
  (contract-out
   [validate-issues (->* (hash?) (#:profiles (listof hash?) #:terminology any/c #:invariants? boolean? #:duplicates (listof string?)) (listof issue?))]
-  [validate-json   (->* (hash?) (#:profiles (listof hash?) #:terminology any/c #:invariants? boolean? #:duplicates (listof string?)) any/c)]))
+  [validate-json   (->* (hash?) (#:profiles (listof hash?) #:terminology any/c #:invariants? boolean? #:duplicates (listof string?)) any/c)]
+  ;; the error-severity issues of a resource given as JSON text, validated over the named
+  ;; packages, as rows — what a worker process (fhir/parallel) can be handed and can answer
+  [write-errors/rows (-> (list/c string? (listof string?)) (listof (list/c string? string? (or/c string? #f) string?)))]))
 
 (struct issue (severity code path msg) #:transparent)
+
+;; write-errors/rows : (list json-text (listof package-path)) -> (listof (list severity code path msg))
+;; the issues a write must refuse on (error or fatal), each as a row; the packages are the
+;; validation context (an IG, its dependencies, the core), as current-sd-packages takes them
+(define (write-errors/rows item)
+  (parameterize ([current-sd-packages (cadr item)])
+    (for/list ([i (in-list (validate-issues (string->jsexpr (car item))))]
+               #:when (member (issue-severity i) '("error" "fatal")))
+      (list (issue-severity i) (issue-code i) (issue-path i) (issue-msg i)))))
 
 ;; ---- entry -----------------------------------------------------------------------------------
 ;; Invariants are OFF by default: our FHIRPath engine (TCK-complete, but not identical to the Java

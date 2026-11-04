@@ -585,7 +585,9 @@ OWN CapabilityStatement as `kind: instance`, trimmed to what this server execute
 trimmed is a `gap` (type, what, name, SHALL/SHOULD/MAY, reason). IG operations are a table keyed by
 OperationDefinition canonical (the registered operation values, see "Operations as values") — the OD itself comes
 from the package and drives input validation. `raco fhir-server serve-ig hl7.fhir.us.core [--db f] [--port n]`
-loads the IG's examples and serves; `--gaps` prints the unmet requirements.
+loads the IG's examples and serves; `--gaps` prints the unmet requirements. The loader validates
+the examples on every core (`fhir/parallel`: the workers load the server's tower and the packages,
+only the JSON text and the issue rows cross) and then writes them in order.
 Reading the IG's statement: a server resource that lists search parameters or includes but omits
 the `search-type` interaction is read as searchable (`with-implied-search`: mCODE, IPA and SDC all do
 this); a bare include name (`formulary-coverage`) is the resource's own (`includes-of`); `Type:*`
