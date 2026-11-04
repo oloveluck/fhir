@@ -25,7 +25,7 @@
   [roundtrip-result (-> any/c symbol?)]                 ; 'ok | 'parse-fail | 'reparse-fail | 'not-idempotent
   [run-dir          (->* (path-string?) (#:tower (or/c module-path? #f)) (values exact-integer? (listof (cons/c string? symbol?))))]
   [run-package      (->* (path-string?) (#:tower (or/c module-path? #f)) (values exact-integer? (listof (cons/c string? symbol?))))]
-  [verdict          (-> string? symbol?)]
+  [verdict          (-> any/c symbol?)]
   ;; what the worker processes run (fhir/parallel): one file, one shard of a package
   [file-finding     (-> list? (or/c list? #f))]
   [package-shard    (-> list? list?)]))
@@ -50,10 +50,8 @@
        (let ([rt (hash-ref js 'resourceType #f)])
          (and (string? rt) (type-registered? (string->symbol rt))))))
 
-;; verdict : String -> Symbol   the round-trip verdict of a resource's JSON text (parsed here, so a
-;; worker parses its own share); an exception counts as the verdict 'exn
-(define (verdict text)
-  (with-handlers ([exn:fail? (lambda (_) 'exn)]) (roundtrip-result (string->jsexpr text))))
+;; verdict : jsexpr -> Symbol   roundtrip-result, an exception counting as the verdict 'exn
+(define (verdict js) (with-handlers ([exn:fail? (lambda (_) 'exn)]) (roundtrip-result js)))
 
 ;; A Finding is (list ordinal name verdict): one resource's verdict, with its place in the corpus.
 ;; count : (listof Finding) -> (values passes failures)   in corpus order
@@ -80,9 +78,8 @@
 
 ;; file-finding : (list ordinal name path) -> Finding | #f   #f when the file is not a FHIR resource
 (define (file-finding item)
-  (define text (file->string (caddr item)))
-  (and (fhir-resource? (with-handlers ([exn:fail? (lambda (_) #f)]) (string->jsexpr text)))
-       (list (car item) (cadr item) (verdict text))))
+  (define js (with-handlers ([exn:fail? (lambda (_) #f)]) (string->jsexpr (file->string (caddr item)))))
+  (and (fhir-resource? js) (list (car item) (cadr item) (verdict js))))
 
 ;; run-package : core .tgz [#:tower] -> (values passes failures)   every conformance resource it
 ;; holds. The archive is streamed (gunzip -> untar, no disk extract) by EACH worker, which keeps
@@ -112,10 +109,8 @@
                (when (= (modulo ordinal k) i)
                  (define js (with-handlers ([exn:fail? (lambda (_) #f)]) (bytes->jsexpr bytes)))
                  (when (fhir-resource? js)
-                   (set! findings (cons (list ordinal (path->string name) (verdict* js)) findings))))
+                   (set! findings (cons (list ordinal (path->string name) (verdict js)) findings))))
                (set! ordinal (add1 ordinal))))
            '()))
   (thread-wait inflate)
   (reverse findings))
-;; verdict* : jsexpr -> Symbol   as verdict, from the parsed resource
-(define (verdict* js) (with-handlers ([exn:fail? (lambda (_) 'exn)]) (roundtrip-result js)))
