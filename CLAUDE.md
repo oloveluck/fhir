@@ -427,7 +427,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | FHIRPath | HL7 R4/R5 XML suites | `raco fhirpath --tck r5\|r4` | 1044/1044, 932/934 |
 | CQL | cqframework/cql-tests | `raco cql --tck` | 1820/1823 |
 | FML | fhir-test-cases r5/structure-mapping | `raco fml --tck` | 6/6 exec, 15/15 parse |
-| **FML corpus 2** | **ahdis/matchbox's maps + the FHIR mapping-language tutorial (13 steps over logical models); FHIR/interversion R3/R4 maps parsed in CI** | `raco fml --tck` (fml repo, `tests/matchbox-harness.rkt`) | **43/43 parse, 17/17 run, tutorial 36/38** (2 named); interversion 332/332 parse |
+| **FML corpus 2** | **ahdis/matchbox's maps + the FHIR mapping-language tutorial (13 steps over logical models); FHIR/interversion R3/R4 maps parsed in CI** | `raco fml --tck` (fml repo, `tests/matchbox-harness.rkt`) | **43/43 parse, 17/17 run, tutorial 37/37** (2 stale result files set aside with evidence); interversion 332/332 parse |
 | **UCUM** | **FHIR/Ucum-java UcumFunctionalTests.xml** | **`raco fhirpath --ucum-tck`** | **573/573** (all sections) |
 | VCL | the spec page's 60 examples | `raco test vcl/` | 60/60 parse + fixpoint |
 | round-trip | HL7 examples + R4/R5 core packages | `raco fhir roundtrip-tck r5\|r4` | 2968+77, 4581+72 |
