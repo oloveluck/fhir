@@ -17,6 +17,7 @@
          racket/match
          net/base64
          (only-in json read-json jsexpr->string)
+         (only-in fhir/serialize/jsexpr-util drop-false)
          (only-in fhir/model/node fhir? fhir-type fhir-ref)
          (only-in fhir/model/registry type-registered?)
          (only-in fhir/serialize/from-json from-json)
@@ -63,44 +64,37 @@
              (string->bytes/utf-8 (if node (jsexpr->string (node->jsexpr node)) ""))
              fhir-json-type)]))
 
+;; route : app method (listof segment) query body -> (values kind node)
+;; the FHIR REST grammar as the SHAPE of the path: each clause is one URL form (the operators
+;; and history forms before the plain type and instance forms, so `$op` and `_history` are never
+;; read as an id)
 (define (route app method segs query body)
-  (define (op-seg? s) (and (string? s) (> (string-length s) 0) (char=? (string-ref s 0) #\$)))
-  (cond
-    ;; capability statement
-    [(and (equal? method "GET") (equal? segs '("metadata")))
-     ;; ?mode=terminology (or any mode the app has metadata for) answers that resource instead
+  (match* (method segs)
+    ;; capability statement; ?mode=terminology (or any mode the app has metadata for) answers that
+    ;; resource instead
+    [("GET" '("metadata"))
      (values 'metadata (or (let ([m (assq 'mode query)]) (and m (hash-ref (app-metadata app) (cdr m) #f)))
                            (app-capability-statement app)))]
     ;; system root: POST / with a transaction|batch Bundle
-    [(and (equal? method "POST") (null? segs))
-     (transaction-route app body)]
-    ;; system-level operation:  /$op
-    [(and (pair? segs) (null? (cdr segs)) (op-seg? (car segs)))
-     (invoke app method 'system #f #f (op-code (car segs)) query body)]
-    ;; type-level operation:  /{Type}/$op
-    [(and (= (length segs) 2) (op-seg? (cadr segs)) (known-type? (car segs)))
-     (invoke app method 'type (sym (car segs)) #f (op-code (cadr segs)) query body)]
-    ;; instance-level operation:  /{Type}/{id}/$op
-    [(and (= (length segs) 3) (op-seg? (caddr segs)) (known-type? (car segs)))
-     (invoke app method 'instance (sym (car segs)) (cadr segs) (op-code (caddr segs)) query body)]
-    ;; history:  /{Type}/{id}/_history   and   /{Type}/_history
-    [(and (equal? method "GET") (= (length segs) 3) (equal? (caddr segs) "_history") (known-type? (car segs)))
-     (values 'history (dispatch app (history-request (sym (car segs)) (cadr segs) query)))]
-    [(and (equal? method "GET") (= (length segs) 2) (equal? (cadr segs) "_history") (known-type? (car segs)))
-     (values 'history (dispatch app (history-request (sym (car segs)) #f query)))]
-    ;; vread:  /{Type}/{id}/_history/{vid}
-    [(and (equal? method "GET") (= (length segs) 4) (equal? (caddr segs) "_history") (known-type? (car segs)))
-     (values 'read (dispatch app (vread-request (sym (car segs)) (cadr segs) (cadddr segs))))]
+    [("POST" '()) (transaction-route app body)]
+    ;; operations at the three levels:  /$op   /{Type}/$op   /{Type}/{id}/$op
+    [(_ (list (? op-seg? op))) (invoke app method 'system #f #f (op-code op) query body)]
+    [(_ (list (? known-type? t) (? op-seg? op))) (invoke app method 'type (sym t) #f (op-code op) query body)]
+    [(_ (list (? known-type? t) id (? op-seg? op))) (invoke app method 'instance (sym t) id (op-code op) query body)]
+    ;; history:  /{Type}/{id}/_history   and   /{Type}/_history ; vread:  /{Type}/{id}/_history/{vid}
+    [("GET" (list (? known-type? t) id "_history")) (values 'history (dispatch app (history-request (sym t) id query)))]
+    [("GET" (list (? known-type? t) "_history")) (values 'history (dispatch app (history-request (sym t) #f query)))]
+    [("GET" (list (? known-type? t) id "_history" vid)) (values 'read (dispatch app (vread-request (sym t) id vid)))]
     ;; type collection:  /{Type}
-    [(and (= (length segs) 1) (known-type? (car segs)))
-     (define t (sym (car segs)))
+    [(_ (list (? known-type? type)))
+     (define t (sym type))
      (case method
        [("GET")  (values 'search (dispatch app (search-request t query)))]
        [("POST") (with-body body (lambda (n) (values 'create (dispatch app (create-request t n)))))]
-       [else (values 'error (operation-outcome-not-supported (format "~a not allowed on /~a" method (car segs))))])]
+       [else (values 'error (operation-outcome-not-supported (format "~a not allowed on /~a" method type)))])]
     ;; instance:  /{Type}/{id}
-    [(and (= (length segs) 2) (known-type? (car segs)))
-     (define t (sym (car segs))) (define id (cadr segs))
+    [(_ (list (? known-type? type) id))
+     (define t (sym type))
      (case method
        [("GET")    (values 'read (dispatch app (read-request t id)))]
        [("PUT")    (with-body body (lambda (n) (values 'update (dispatch app (update-request t id n)))))]
@@ -111,8 +105,8 @@
         (if (list? ops)
             (values 'update (dispatch app (patch-request t id ops)))
             (values 'error (operation-outcome-invalid "PATCH body must be a JSON Patch array (application/json-patch+json)")))]
-       [else (values 'error (operation-outcome-not-supported (format "~a not allowed on /~a/~a" method (car segs) id)))])]
-    [else (values 'error (operation-outcome-not-supported (format "no route for ~a /~a" method (string-join segs "/"))))]))
+       [else (values 'error (operation-outcome-not-supported (format "~a not allowed on /~a/~a" method type id)))])]
+    [(_ _) (values 'error (operation-outcome-not-supported (format "no route for ~a /~a" method (string-join segs "/"))))]))
 
 ;; POST / : hand the raw Bundle jsexpr to the app's transaction processor. The response Bundle is
 ;; parsed back to a typed node so it flows through the same response path as everything else; a
@@ -151,8 +145,6 @@
                                              'outcome (and (>= status 400) out)))))))
   (hasheq 'resourceType "Bundle" 'type "batch-response" 'entry entries))
 
-(require (only-in json jsexpr->string) (only-in fhir/serialize/jsexpr-util drop-false))
-
 ;; invoke an operation; input Parameters come from the POST body or are synthesised from the query
 (define (invoke app method level type id code query body)
   (cond
@@ -168,6 +160,7 @@
           (string-split (car (string-split (string-append path "?") "?")) "/")))
 
 (define (known-type? s) (and (regexp-match? #px"^[A-Z]" s) (type-registered? (string->symbol s))))
+(define (op-seg? s) (and (string? s) (> (string-length s) 0) (char=? (string-ref s 0) #\$)))
 (define (sym s) (string->symbol s))
 (define (op-code s) (substring s 1))   ; drop the leading "$"
 

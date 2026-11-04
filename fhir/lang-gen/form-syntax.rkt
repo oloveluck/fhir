@@ -79,16 +79,19 @@
          (emit-base build-type parts))]               ; base layer: build the typed node
     [_ (raise-syntax-error type "expected (Type (field value …) …)" stx)]))
 
+;; A Part is (part name kind ftype values): one validated (field value …) of the form —
+;;   name : the field symbol ; kind : 'single | 'optional | 'list (the field-spec's) ;
+;;   ftype : the field's type (schema.rkt) ; values : the value syntaxes written
+(struct part (name kind ftype values))
+
 ;; emit-base : (node-build 'Type (list (list 'field 'kind (list leaf …)) …)), where each leaf is
 ;; wrapped by ftype — a primitive literal/expr becomes (build-prim "code" v); a nested form or raw
 ;; value passes through (its own macro produced a node, or it is already a jsexpr).
 (define (emit-base build-type parts)
   #`(node-build '#,build-type
                 (list #,@(for/list ([p (in-list parts)])
-                           (define fname (car p)) (define kind (cadr p))
-                           (define ftype (caddr p)) (define vs (cadddr p))
-                           #`(list '#,fname '#,kind
-                                   (list #,@(map (lambda (v) (wrap-leaf ftype v)) vs)))))))
+                           #`(list '#,(part-name p) '#,(part-kind p)
+                                   (list #,@(map (lambda (v) (wrap-leaf (part-ftype p) v)) (part-values p))))))))
 
 ;; wrap one value syntax by its ftype
 (define (wrap-leaf ftype v)
@@ -96,7 +99,9 @@
     [(ftype-prim? ftype) #`(build-prim #,(ftype-prim-code ftype) #,v)]
     [else v]))   ; nested type/resource form -> a node ; raw -> a plain value
 
-;; (field v …) -> a validated (field-name kind ftype value-syntaxes) part
+;; process-field : stx symbol (hash name -> field-spec) (hash name -> #t) syntax -> Part
+;; one (field v …) of the form, checked against its field-spec: known, not yet seen, the right
+;; number of values, each value of the field's type
 (define (process-field stx type schema present f)
   (syntax-parse f
     [(field:id v ...)
@@ -113,9 +118,10 @@
      (when (and (memq kind '(single optional)) (> (length vs) 1))
        (raise-syntax-error type (format "field ~a.~a is single-valued" type fname) f))
      (for ([vv (in-list vs)]) (check-value type fname ftype (fs-extra spec) vv))
-     (list fname kind ftype vs)]
+     (part fname kind ftype vs)]
     [_ (raise-syntax-error type "expected (field value …)" f)]))
 
+;; check-value : symbol symbol ftype extra syntax -> Void
 ;; compile-time check of one value against its ftype (+ its required-binding, when one is
 ;; registered — see model/binding.rkt; unregistered ValueSets FAIL OPEN)
 (define (check-value type fname ftype extra v)
@@ -138,8 +144,10 @@
             (format "field ~a.~a expects a (~a …) value" type fname T) v)])]
     [else (void)]))   ; resource / raw / unknown -> no compile-time shape check
 
+;; literal-datum? : Any -> Boolean   a value the macro can validate at compile time
 (define (literal-datum? d) (or (string? d) (number? d) (boolean? d)))
 
+;; check-binding : symbol symbol extra datum syntax -> Void
 ;; a required binding whose ValueSet expanded offline rejects literal codes outside it.
 ;; extra is the field-spec's extra slot: (list 'required vs-url) on required-bound code fields.
 (define (check-binding type fname extra d v)
