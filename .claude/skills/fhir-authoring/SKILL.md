@@ -139,7 +139,20 @@ Maps are values (`fml/registry`): `(structure-map "http://…/StructureMap/x")` 
 
 Declares `server`/`resource`/`operation` forms and DERIVES the CapabilityStatement + one
 OperationDefinition per operation. `racket examples/patient-app.rkt` prints `/metadata`. See the
-**fhir-serving** skill to expose it over HTTP.
+**fhir-serving** skill to expose it over HTTP. An inline `(operation $screen #:system #:in (...)
+#:out (...) #:handler h)` is ALSO an operation value: `$screen` is defined, registered by its
+canonical and provided, so a program applies it in-process (`($screen #:patient "ann")`,
+`(apply-operation "$screen" …)`) and the server routes `POST /$screen` to the same handler —
+declare a pipeline once (`fhir-examples/screening/app.rkt`).
+
+## The module system is the FHIR registry (`fhir/registry`)
+
+Requiring a module registers what it defines, by canonical: a `#lang fsh` module its profiles,
+value sets and code systems; `#lang vcl` its value set; `#lang fml` its StructureMap. Every
+resolver looks there after the data source and before the packages, so `ensure-valid #:profile`,
+a map's `uses`, `$expand #:url` and `$transform #:source` find a required module's artifacts with no
+`current-data-source` to set up — that parameter is for DATA (what a rule or a view runs over).
+`register-resources!` does the same for resources a program builds itself.
 
 ## Standalone checked literals
 

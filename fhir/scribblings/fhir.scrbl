@@ -1,6 +1,6 @@
 #lang scribble/manual
 @(require (for-label (except-in racket/base make-string make-date read-string write-string) racket/contract
-                     fhir/result/result fhir/model/node fhir/model/leaf fhir/model/registry
+                     fhir/result/result fhir/model/node fhir/model/leaf fhir/model/registry fhir/registry
                      fhir/serialize/to-json fhir/serialize/from-json fhir/serialize/read-json
                      fhir/primitives/primitives fhir/package fhir/spec-package fhir/operation
                      fhir/data-source fhir/diagnostic fhir/sd/sd-index fhir/sd/snapshot
@@ -401,6 +401,25 @@ one with real search.}
 @defthing[empty-data-source data-source?]
 @defproc[(patient-reference-of [resource hash?]) (listof string?)]{The @tt{Patient/id} references in @tt{patient}, @tt{subject}, @tt{beneficiary} and @tt{individual}.}
 @defproc[(bundle-resources [bundle hash?]) (listof hash?)]{A Bundle's entries, nested Bundles flattened; any other resource as itself.}
+
+@subsection[#:style 'unnumbered]{@tt{fhir/registry}}
+@defmodule[fhir/registry]
+
+The module system as the FHIR registry. A @hash-lang[] @tt{fsh} module registers its profiles, value
+sets and code systems when it is instantiated, a @hash-lang[] @tt{vcl} module its value set, a
+@hash-lang[] @tt{fml} module its StructureMap; every resolver in the family looks here between the
+current data source and the packages (profiles for @tt{#:profile} and @tt{meta.profile}, a map's
+@tt{uses}, the terminology resolver, @tt{$transform #:source}), so requiring a module is enough
+for what it defines to be found by canonical, with no data source to set up.
+
+@defproc[(register-resources! [resources (listof hash?)] [#:source source any/c #f]) void?]{
+Registers each resource with a @tt{url} or an @tt{id} under its kind. A canonical already registered
+with different content by another source is an error naming both; the same content again is
+accepted, and a source may redefine its own. Ids are not checked: the latest registration wins.}
+@defproc[(registered-resource [kind string?] [url-or-id string?]) (or/c hash? #f)]{A @tt{|version} suffix is ignored.}
+@defproc[(registered-resources [kind string?]) (listof hash?)]
+@defproc[(registered-source [kind string?] [url-or-id string?]) any/c]
+@defproc[(registered-kinds) (listof string?)]
 
 @subsection[#:style 'unnumbered]{@tt{fhir/diagnostic}}
 @defmodule[fhir/diagnostic]

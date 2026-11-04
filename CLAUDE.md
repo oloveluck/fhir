@@ -13,7 +13,7 @@ never `../model/node.rkt`. Dependency order (base first):
 
 | package | repo / dir | contents | depends on |
 |---|---|---|---|
-| `fhir` | `oloveluck/fhir` → `fhir/` | foundation: `result/ contracts.rkt model/ primitives/ kernel/ lang-gen/ serialize/ foundation/ codegen/ sd/ r4/ r5/ r6/ spec-package.rkt package.rkt diagnostic.rkt subcommands.rkt cli.rkt` (`raco fhir`), foundation `tests/` and `examples/` | base |
+| `fhir` | `oloveluck/fhir` → `fhir/` | foundation: `result/ contracts.rkt model/ primitives/ kernel/ lang-gen/ serialize/ foundation/ codegen/ sd/ r4/ r5/ r6/ spec-package.rkt package.rkt registry.rkt data-source.rkt operation.rkt diagnostic.rkt subcommands.rkt cli.rkt` (`raco fhir`), foundation `tests/` and `examples/` | base |
 | `fhir-spec` | `oloveluck/fhir` → `fhir-spec/` | the vendored HL7 NPM packages (`*.tgz`) — data only, located via `fhir/spec-package` | base |
 | `fhirpath` | `oloveluck/fhirpath` | the FHIRPath engine (with UCUM, `print.rkt`), `raco fhirpath` | fhir |
 | `vcl` | `oloveluck/vcl` | `#lang vcl`, `raco vcl` | fhir |
@@ -173,6 +173,19 @@ spec-author's loop for maps (findings positioned in the FML; examples transforme
 and a project of FSH structures runs it on its `.map` files under `raco fsh check` — the worked
 project is `fhir-examples/examples/intake-maps` (a logical model, a profile, the map between them, an
 instance; packed as one package; the map applied by canonical from it).
+**The module system is the FHIR registry** (`fhir/registry`): a `#lang fsh` module registers its
+profiles, value sets and code systems when instantiated, `#lang vcl` its value set, `#lang fml` its
+StructureMap (`register-resources!` with the module as source; a canonical defined differently by two
+modules is an error naming both). Every resolver looks there between the data source and the packages
+— `sd/operations` `resolve-structure-definition` (`#:profile`), the profiles a resource claims in
+`meta.profile` (fhir-validation), `sd/logical` (FML's `uses`), the terminology resolver (fhir-tx),
+`resolve-structure-map` (fml) — so requiring a module is enough for what it defines to be found;
+`current-data-source` is for DATA. CQL libraries and `.fhir6` instances are not registered yet.
+**An inline capability operation is an operation value too** (`declared-operation`, capability/
+operations.rkt): `(operation $screen … #:handler h)` in `#lang fhir/capability` defines `$screen` as a
+fhir/operation value — the same handler with an in-process request, a typed result returned as JSON,
+registered by its canonical (`urn:fhir-capability:operation:screen`) and provided — so a pipeline is
+declared once, served and applied in-process (fhir-examples/screening/app.rkt's `$screen`).
 **Over HTTP, the CapabilityStatement follows from what is served** (fhir-server's
 `capability/operations.rkt`): `(serve-operations (list $validate $expand) #:port 8080)` serves just
 operations, `(operations-app ops)` is that app; in `#lang fhir/capability`, `(operation "ValueSet/$expand")`

@@ -197,7 +197,11 @@ version. @racket[make-store-app] serves history and PATCH but advertises neither
 The @racket[server], @racket[resource] and @racket[operation] forms, as above; provides
 @racket[app], @racket[capability-statement] and @racket[operation-definitions]. Everything from
 @racket[fhir/capability/runtime], @racket[fhir/capability/derive] and @racket[fhir/r6/types] is in
-scope.
+scope. An inline @racket[(operation $code … #:handler h)] also defines @racket[$code] as a
+@tt{fhir/operation} value (@racket[declared-operation]): the same handler, applied in-process with the
+inputs and an in-process request, registered by its canonical and provided by the module — a
+pipeline declared once is served and callable (@racket[($code #:name value)],
+@racket[(apply-operation "$code" …)]).
 
 @subsection[#:style 'unnumbered]{@tt{fhir/capability/runtime}}
 @defmodule[fhir/capability/runtime]
