@@ -10,6 +10,11 @@
 ;;;   - choice [x] constraints set `type` (the path stays value[x]); contentReference expands;
 ;;;   - each element gets `id` and `base` (origin path/min/max).
 ;;; Maximal-faithful is the target; residual fields are documented by the comparison test.
+;;;
+;;; An Element is an ElementDefinition jsexpr; a Result is the (listof Element) under construction,
+;;; in snapshot order. Elements are found by id (`element-id`: the id, else the path — ids encode
+;;; slices, `component:systolic.code`) or by (path, sliceName) (`find-elem`), and inserted after the
+;;; last element of their parent's subtree (`insert-after-subtree`), so order is kept.
 
 (require racket/list
          racket/string
@@ -49,29 +54,27 @@
     (define next (expand-once elements))
     (if (or (zero? fuel) (= (length next) (length elements))) next (loop next (sub1 fuel)))))
 
+;; expand-once : Result -> Result   one round of the datatype expansion
 (define (expand-once elements)
   ;; by ID, so a slice's children (`agent:X.role.coding`) expand under the slice, not the base
-  (define (eid e) (hash-ref e 'id (lambda () (hash-ref e 'path ""))))
   (define dived                     ; ids the profile has descended into
-    (for/fold ([s (hash)]) ([e (in-list elements)])
-      (define id (eid e))
-      (define dot (for/last ([c (in-string id)] [i (in-naturals)] #:when (char=? c #\.)) i))
-      (if dot (hash-set s (substring id 0 dot) #t) s)))
+    (for/fold ([s (hash)]) ([e (in-list elements)] #:when (string-contains? (element-id e) "."))
+      (hash-set s (drop-last-segment (element-id e)) #t)))
   (for/fold ([result elements])
             ([e (in-list elements)]
-             #:when (hash-ref dived (eid e) #f))
+             #:when (hash-ref dived (element-id e) #f))
     (define t (element-type-code e))
     (cond
       [(or (not t) (not (complex-datatype? t))) result]
       [else
        (define path (hash-ref e 'path))
-       (define id (eid e))
+       (define id (element-id e))
        (for/fold ([r result]) ([k (in-list (cdr (base-type-snapshot t)))]   ; cdr drops the type's root
                                ;; only DIRECT children — deeper levels appear only if dived into
                                #:when (and (direct-child? t (hash-ref k 'path "")) (not (hash-ref k 'sliceName #f))))
          (define seg (substring (hash-ref k 'path) (add1 (string-length t))))
          (define kid (hash-set* k 'path (string-append path "." seg) 'id (string-append id "." seg)))
-         (define at (for/or ([x (in-list r)] [i (in-naturals)]) (and (equal? (eid x) (hash-ref kid 'id)) i)))
+         (define at (index-of-id r (hash-ref kid 'id)))
          (cond
            ;; the profile already constrains this child, but a DIFFERENTIAL element states only
            ;; what it changes — fill in the datatype's definition for every key it omits (notably
@@ -83,26 +86,51 @@
 ;; (`c:b.code` without `c:b`): the unsliced element's definition, optional, after the sliced element
 (define (apply-slice-stub result id path)
   (define sliced (regexp-replace #rx":[^.:]+$" id ""))
-  (define template (or (for/or ([e (in-list result)]) (and (equal? (hash-ref e 'id #f) sliced) e)) (hasheq)))
+  (define template (or (element-by-id result sliced) (hasheq)))
   (define el (hash-set* (hash-remove template 'slicing)
                         'id id 'path path 'sliceName (cadr (regexp-match #rx":([^.:]+)$" id)) 'min 0))
   (insert-under result sliced el))
 
-;; insert-under : result parent-id element -> result   after the last element of the parent's subtree
-;; (its children and its slices)
-(define (insert-under result parent el)
-  (define pos (for/fold ([pos #f]) ([e (in-list result)] [i (in-naturals)])
-                (define x (hash-ref e 'id (lambda () (hash-ref e 'path ""))))
-                (if (or (equal? x parent) (string-prefix? x (string-append parent "."))
-                        (string-prefix? x (string-append parent ":")))
-                    (add1 i) pos)))
-  (if pos (append (take result pos) (list el) (drop result pos)) (append result (list el))))
+;; ---- finding and placing elements -------------------------------------------------------------
+;; element-id : Element -> String   the id, else the path (ids encode slices)
+(define (element-id e) (hash-ref e 'id (lambda () (hash-ref e 'path ""))))
+;; index-of-id : Result String -> Nat | #f ; element-by-id : Result String -> Element | #f
+(define (index-of-id result id)
+  (for/or ([e (in-list result)] [i (in-naturals)]) (and (equal? (element-id e) id) i)))
+(define (element-by-id result id)
+  (for/or ([e (in-list result)]) (and (equal? (hash-ref e 'id #f) id) e)))
+;; drop-last-segment : String -> String   "A.b.c" -> "A.b" (an id or a path); a bare name stays
+(define (drop-last-segment s)
+  (define segs (string-split s "."))
+  (if (> (length segs) 1) (string-join (drop-right segs 1) ".") s))
 
-;; existing keys win; the datatype definition supplies the rest
+;; insert-after-subtree : Result (Element -> Boolean) Element -> Result
+;; after the last element of the subtree `in?` recognises; at the end when there is none
+(define (insert-after-subtree result in? el)
+  (define pos (for/fold ([pos #f]) ([e (in-list result)] [i (in-naturals)]) (if (in? e) (add1 i) pos)))
+  (if pos (append (take result pos) (list el) (drop result pos)) (append result (list el))))
+;; insert-under : Result parent-id Element -> Result   under the parent's subtree BY ID (its
+;; children and its slices)
+(define (insert-under result parent el)
+  (insert-after-subtree result
+                        (lambda (e) (let ([x (element-id e)])
+                                      (or (equal? x parent) (string-prefix? x (string-append parent "."))
+                                          (string-prefix? x (string-append parent ":")))))
+                        el))
+;; insert-element : Result Element -> Result   under its parent's subtree BY PATH
+(define (insert-element result d)
+  (define parent (drop-last-segment (hash-ref d 'path)))
+  (insert-after-subtree result
+                        (lambda (e) (let ([p (hash-ref e 'path)])
+                                      (or (string=? p parent) (string-prefix? p (string-append parent ".")))))
+                        d))
+
+;; fill-missing : Element Element -> Element   existing keys win; the datatype definition supplies the rest
 (define (fill-missing e defn)
   (for/fold ([h e]) ([(k v) (in-hash defn)])
     (if (hash-has-key? h k) h (hash-set h k v))))
 
+;; direct-child? : String String -> Boolean   is p one segment below parent?
 (define (direct-child? parent p)
   (and (string-prefix? p (string-append parent "."))
        (not (string-contains? (substring p (add1 (string-length parent))) "."))))
@@ -118,6 +146,7 @@
   (define s (elements-of sd 'snapshot))
   (if (pair? s) s (generate-snapshot sd)))
 
+;; elements-of : SD 'snapshot|'differential -> (listof Element)
 (define (elements-of sd key)
   (define o (hash-ref sd key #f))
   (if (hash? o) (hash-ref o 'element '()) '()))
@@ -125,6 +154,7 @@
 ;; -------------------------------------------------------------------
 ;; re-rooting (parent type prefix -> this type prefix)
 ;; -------------------------------------------------------------------
+;; reroot : (listof Element) String String -> (listof Element)   the type prefix of path and id rewritten
 (define (reroot elements from to)
   (for/list ([e (in-list elements)])
     (define e1 (hash-set e 'path (reroot-path (hash-ref e 'path) from to)))
@@ -140,6 +170,7 @@
 ;; -------------------------------------------------------------------
 ;; apply the differential onto the (re-rooted) base snapshot
 ;; -------------------------------------------------------------------
+;; apply-differential : Result (listof Element) -> Result   each differential element merged in or placed
 (define (apply-differential base diff)
   (for/fold ([result base]) ([d (in-list diff)])
     (define idx (find-elem result (hash-ref d 'path) (hash-ref d 'sliceName #f)))
@@ -177,11 +208,10 @@
 ;; a differential may skip ancestors (`agent:X.who.identifier` without `agent:X.who`): those inside
 ;; the slice are created first, from the unsliced element, so the datatype expansion can descend
 (define (apply-in-slice result0 d id)
-  (define parent-id (string-join (drop-right (string-split id ".") 1) "."))
+  (define parent-id (drop-last-segment id))
   (define result
-    (if (and (regexp-match? #rx":" parent-id)
-             (not (for/or ([e (in-list result0)]) (equal? (hash-ref e 'id #f) parent-id))))
-        (let ([pp (string-join (drop-right (string-split (hash-ref d 'path) ".") 1) ".")])
+    (if (and (regexp-match? #rx":" parent-id) (not (element-by-id result0 parent-id)))
+        (let ([pp (drop-last-segment (hash-ref d 'path))])
           (if (inside-slice? parent-id)
               (apply-in-slice result0 (hasheq 'id parent-id 'path pp) parent-id)
               (apply-slice-stub result0 parent-id pp)))
@@ -190,12 +220,11 @@
   (cond
     [at (list-set result at (merge-element (list-ref result at) d))]
     [else
-     (define template (or (for/or ([e (in-list result)]) (and (equal? (hash-ref e 'id #f) (strip-slices id)) e))
-                          (with-base d)))
+     (define template (or (element-by-id result (strip-slices id)) (with-base d)))
      (define merged (merge-element template d))
      ;; a slice (of a choice, a reslice) is optional unless the diff says otherwise
      (define el (if (and (hash-ref d 'sliceName #f) (not (hash-has-key? d 'min))) (hash-set merged 'min 0) merged))
-     (insert-under result (string-join (drop-right (string-split id ".") 1) ".") el)]))
+     (insert-under result parent-id el)]))
 
 ;; the base (non-slice) element at `path` in the current result, or #f
 (define (base-elem-at result path)
@@ -241,22 +270,8 @@
         (hash-set b 'constraint (append (hash-ref base 'constraint) (if (list? v) v (list v))))
         (hash-set b k v))))
 
-;; insert a new element after the last existing element under its parent path (keeps order)
-(define (insert-element result d)
-  (define parent (parent-path (hash-ref d 'path)))
-  (define pos
-    (for/fold ([pos #f]) ([e (in-list result)] [i (in-naturals)])
-      (define p (hash-ref e 'path))
-      (if (or (string=? p parent) (string-prefix? p (string-append parent ".")))
-          (add1 i) pos)))
-  (cond [pos (append (take result pos) (list d) (drop result pos))]
-        [else (append result (list d))]))
-
-(define (parent-path p)
-  (define segs (string-split p "."))
-  (if (> (length segs) 1) (string-join (reverse (cdr (reverse segs))) ".") p))
-
 ;; id defaults to the path (slices append :sliceName); base records the origin cardinality
+;; with-id / with-base : Element -> Element
 (define (with-id d)
   (if (hash-has-key? d 'id) d
       (hash-set d 'id (let ([p (hash-ref d 'path)] [s (hash-ref d 'sliceName #f)])
