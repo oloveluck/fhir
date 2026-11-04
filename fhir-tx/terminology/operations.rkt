@@ -10,7 +10,7 @@
 ;;; Definitions resolve from the inputs, then the current data source's ValueSets / CodeSystems /
 ;;; ConceptMaps, then `current-sd-packages` (indexed once per package list). Results are FHIR JSON.
 
-(require racket/list (only-in fhir/registry registered-resources)
+(require racket/contract racket/list (only-in fhir/registry registered-resources)
          (only-in fhir/r5/operations expand-definition ValueSet-validate-code-definition
                   CodeSystem-validate-code-definition lookup-definition translate-definition
                   subsumes-definition find-matches-definition closure-definition)
@@ -21,12 +21,17 @@
                   expand/json validate-code/json cs-validate-code/json lookup/json translate/json
                   subsumes/json find-matches/json closure-relation terminology-capabilities policy-of))
 
-(provide $expand $validate-code $cs-validate-code $lookup $subsumes $find-matches $translate $closure
-         ;; every terminology operation, in the order a server lists them
-         terminology-operations
-         ;; what a server over the current packages says about itself
-         current-terminology-capabilities
-         current-terminology-resolver)
+(provide
+ (contract-out
+  ;; the terminology operations as fhir/operation values, over current-data-source then the packages
+  [$expand operation?] [$validate-code operation?] [$cs-validate-code operation?] [$lookup operation?]
+  [$subsumes operation?] [$find-matches operation?] [$translate operation?] [$closure operation?]
+  ;; every terminology operation, in the order a server lists them
+  [terminology-operations (listof operation?)]
+  ;; what a server over the current packages says about itself: a TerminologyCapabilities jsexpr
+  [current-terminology-capabilities (->* () (#:url (or/c string? #f)) hash?)]
+  ;; the resolver of the moment: the data source's resources (and any extra), then the packages
+  [current-terminology-resolver (->* () ((listof hash?)) procedure?)]))
 
 ;; the packages' resolver, built once per package list (indexing a core package takes seconds)
 (define package-resolvers (make-hash))
