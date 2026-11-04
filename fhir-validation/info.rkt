@@ -15,7 +15,8 @@
 (define pkg-authors '(oloveluck))
 (define license 'MIT)
 (define deps '("base" "fhir" "fhir-spec" "fhirpath" "vcl"))
-(define build-deps '("rackunit-lib"))
+(define build-deps '("rackunit-lib" "scribble-lib" "racket-doc"))
+(define scribblings '(("scribblings/fhir-validation.scrbl" ())))
 (define raco-commands
   '(("fhir-validate" (submod fhir/validate-cli main) "validate FHIR resources against base types and profiles; run the terminology suite" #f)))
-(define test-omit-paths (quote ("tests/vendor" "conformance/tests/vendor")))
+(define test-omit-paths (quote ("tests/vendor" "conformance/tests/vendor" "scribblings")))

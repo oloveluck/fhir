@@ -16,7 +16,8 @@
 (define license 'MIT)
 (define deps '("base" "fhir" "fhir-spec" "fhirpath" "fhir-validation" "cql" "db-lib"))
 ;; fsh: the FSH -> package -> server test compiles mCODE's sources
-(define build-deps '("rackunit-lib" "fsh"))
+(define build-deps '("rackunit-lib" "fsh" "scribble-lib" "racket-doc"))
+(define scribblings '(("scribblings/fhir-server.scrbl" ())))
 (define raco-commands
   '(("fhir-server" (submod fhir/server-cli main) "serve a FHIR server generated from an IG package or a #lang fhir/capability app; load data; evaluate measures" #f)))
-(define test-omit-paths '("examples"))
+(define test-omit-paths '("examples" "scribblings"))

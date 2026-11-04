@@ -26,7 +26,7 @@
   [directory->data-source (-> path-string? data-source?)]
   [empty-data-source data-source?]
   [current-data-source (parameter/c data-source?)]
-  [patient-reference-of (-> hash? (listof string))]
+  [patient-reference-of (-> hash? (listof string?))]
   [bundle-resources (-> hash? (listof hash?))]))
 
 (struct data-source (all read of-patient search))
