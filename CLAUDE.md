@@ -178,6 +178,24 @@ there are none — FHIR has no `Resource` rest.resource), one on an undeclared t
 rest.resource entry of its own. Dispatch falls back to an operation's `Resource` route for any type.
 `examples/operations-server.rkt`; `tests/operations-http-test.rkt` (both paths, through the router).
 
+## The terminology server (fhir-tx)
+The service is a resolver (`(url [version]) -> resource | #f`) over per-package indexes (`index-of`,
+one lazy table per .tgz, shared) with a per-CodeSystem concept index (`cs-index`: code -> concept,
+parent, children, weakly cached on the resource) and an expansion cache per resolver. `$expand`
+follows `compose.include.valueSet` (intersection; a system include narrowed by it), a pre-expanded
+ValueSet (expansion, no compose), every FHIR filter operator including `generalizes` and
+`descendent-leaf`, `useSupplement` designations/properties, and the server-level version policy.
+Operations: `$expand`, ValueSet and CodeSystem `$validate-code`, `$lookup`, `$subsumes`,
+`$find-matches` (properties, exact or substring), `$translate`, `$closure` (tables in the process),
+`terminology-operations` lists them; `current-terminology-capabilities` derives a
+TerminologyCapabilities from the packages' CodeSystems. The operations' data-source resolver asks a
+searching data source (the store) for the url instead of scanning. `raco fhir-tx serve` puts it all
+over HTTP through fhir-server's operations app, which now answers `GET /metadata?mode=terminology`
+(an `app`'s `metadata` hash) and routes a batch Bundle entry by entry when the app has no
+transaction processor. FHIRPath's `expand()` takes a Parameters, `validateVS()`/`translate()` a
+Coding or CodeableConcept and a system. CI runs the service, operations and router tests and
+`raco fhir-tx tck` on every push.
+
 ## How-to-use docs
 User-facing usage/how-to lives in `.claude/skills/` — `fhir-authoring` (write/run the langs, `raco fsh
 check`), `fhir-cli` (`raco fhir`, `raco fhir-validate`), `fhir-serving` (`raco fhir-server`: store + HTTP).

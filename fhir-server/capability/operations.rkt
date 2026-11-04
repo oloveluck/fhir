@@ -33,9 +33,11 @@
   [operation->entries (->* (operation?) (#:read (or/c #f procedure?) #:around procedure?) list?)]
   [operation->rc (-> operation? any/c)]
   [operation->od (-> operation? any/c)]
-  [operations-app (->* ((listof operation?)) (#:url (or/c string? #f) #:fhir-version string?) app?)]
+  [operations-app (->* ((listof operation?)) (#:url (or/c string? #f) #:fhir-version string?
+                                               #:terminology-capabilities (or/c hash? #f)) app?)]
   [serve-operations (->* ((listof operation?)) (#:port exact-nonnegative-integer? #:url (or/c string? #f)
-                                                #:fhir-version string? #:bearer (or/c string? #f))
+                                                #:fhir-version string? #:bearer (or/c string? #f)
+                                                  #:terminology-capabilities (or/c hash? #f))
                          procedure?)]))
 
 ;; the stored resource an instance-level request names: the current app's repository for the type
@@ -79,7 +81,8 @@
 (define (operation->od op) (ok-or-raise (from-json (strip-jnum (operation-definition op)) #:lenient? #t)))
 
 ;; operations-app : (listof operation) -> app   /metadata derived from the operations themselves
-(define (operations-app ops #:url [url #f] #:fhir-version [fhir-version "5.0.0"])
+(define (operations-app ops #:url [url #f] #:fhir-version [fhir-version "5.0.0"]
+                        #:terminology-capabilities [capabilities #f])
   (define d (seconds->date (current-seconds) #f))
   (define (p2 n) (if (< n 10) (format "0~a" n) (number->string n)))
   (build-app #:capability (derive-capability-statement
@@ -89,8 +92,16 @@
                            '() (map operation->rc ops))
              #:operation-definitions (map operation->od ops)
              #:repositories '()
-             #:operations (append-map operation->entries ops)))
+             #:operations (append-map operation->entries ops)
+             ;; a TerminologyCapabilities (jsexpr) answers GET /metadata?mode=terminology
+             #:metadata (let ([r (and capabilities (from-json capabilities #:lenient? #t))])
+                          (if (and r (ok? r)) (hash "terminology" (ok-value r)) (hash)))))
 
 ;; serve-operations : (listof operation) -> stop-thunk   the operations over HTTP (http/server)
-(define (serve-operations ops #:port [port 8080] #:url [url #f] #:fhir-version [fv "5.0.0"] #:bearer [bearer #f])
-  ((dynamic-require 'fhir/http/server 'serve-app) (operations-app ops #:url url #:fhir-version fv) #:port port #:bearer bearer))
+(define (serve-operations ops #:port [port 8080] #:url [url #f] #:fhir-version [fv "5.0.0"] #:bearer [bearer #f]
+                          #:terminology-capabilities [capabilities #f])
+  ((dynamic-require 'fhir/http/server 'serve-app)
+   (operations-app ops #:url url #:fhir-version fv #:terminology-capabilities capabilities)
+   #:port port #:bearer bearer))
+
+(require (only-in fhir/serialize/from-json from-json) (only-in fhir/result/result ok? ok-value))

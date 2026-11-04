@@ -24,7 +24,7 @@
          (only-in fhir/result/result ok? ok-value)
          (only-in fhirpath/value item->system)
          (only-in fhir/capability/runtime
-                  app? app-capability-statement app-transaction dispatch
+                  app? app-capability-statement app-transaction app-metadata dispatch
                   read-request vread-request create-request update-request delete-request
                   search-request invoke-request history-request patch-request operation-outcome-invalid operation-outcome-not-supported))
 
@@ -68,7 +68,9 @@
   (cond
     ;; capability statement
     [(and (equal? method "GET") (equal? segs '("metadata")))
-     (values 'metadata (app-capability-statement app))]
+     ;; ?mode=terminology (or any mode the app has metadata for) answers that resource instead
+     (values 'metadata (or (let ([m (assq 'mode query)]) (and m (hash-ref (app-metadata app) (cdr m) #f)))
+                           (app-capability-statement app)))]
     ;; system root: POST / with a transaction|batch Bundle
     [(and (equal? method "POST") (null? segs))
      (transaction-route app body)]
@@ -117,17 +119,39 @@
 ;; transaction failure surfaces as a processing OperationOutcome (HTTP 400).
 (define (transaction-route app body)
   (define txn (app-transaction app))
+  (define js (with-handlers ([exn:fail? (lambda (_) #f)]) (read-json (open-input-string body))))
   (cond
-    [(not txn) (values 'error (operation-outcome-not-supported "transaction/batch is not supported"))]
+    [(not (and (hash? js) (equal? (hash-ref js 'resourceType #f) "Bundle")))
+     (values 'error (operation-outcome-invalid "request body must be a Bundle"))]
+    ;; an app without a transaction processor still answers a BATCH: each entry is routed on its
+    ;; own, as the request it is (operations included), and answered in place
+    [(and (not txn) (equal? (hash-ref js 'type #f) "batch"))
+     (values 'transaction (ok-value (from-json (batch-route app js) #:lenient? #t)))]
+    [(not txn) (values 'error (operation-outcome-not-supported "transaction is not supported"))]
     [else
-     (define js (with-handlers ([exn:fail? (lambda (_) #f)]) (read-json (open-input-string body))))
-     (cond
-       [(not (and (hash? js) (equal? (hash-ref js 'resourceType #f) "Bundle")))
-        (values 'error (operation-outcome-invalid "request body must be a Bundle"))]
-       [else
-        (with-handlers ([exn:fail? (lambda (e) (values 'error (operation-outcome-invalid (exn-message e))))])
-          (define resp (txn js))
-          (values 'transaction (ok-value (from-json resp #:lenient? #t))))])]))
+     (with-handlers ([exn:fail? (lambda (e) (values 'error (operation-outcome-invalid (exn-message e))))])
+       (define resp (txn js))
+       (values 'transaction (ok-value (from-json resp #:lenient? #t))))]))
+
+;; batch-route : app batch-Bundle -> batch-response Bundle (jsexpr)   per entry: its request
+;; through the router; the result as entry.resource, or as response.outcome when it failed
+(define (batch-route app js)
+  (define entries
+    (for/list ([e (in-list (let ([v (hash-ref js 'entry '())]) (if (list? v) v '())))])
+      (define req (let ([r (hash-ref e 'request #f)]) (if (hash? r) r (hasheq))))
+      (define url (let ([u (hash-ref req 'url "")]) (if (string? u) u "")))
+      (define parts (string-split (string-append url "?") "?"))
+      (define path (string-append "/" (car parts)))
+      (define query (parse-query (if (pair? (cdr parts)) (cadr parts) "")))
+      (define body (let ([r (hash-ref e 'resource #f)]) (if r (jsexpr->string r) "")))
+      (define-values (status out) (handle app (hash-ref req 'method "GET") path query body))
+      (drop-false
+       (hasheq 'resource (and (< status 400) out)
+               'response (drop-false (hasheq 'status (number->string status)
+                                             'outcome (and (>= status 400) out)))))))
+  (hasheq 'resourceType "Bundle" 'type "batch-response" 'entry entries))
+
+(require (only-in json jsexpr->string) (only-in fhir/serialize/jsexpr-util drop-false))
 
 ;; invoke an operation; input Parameters come from the POST body or are synthesised from the query
 (define (invoke app method level type id code query body)
@@ -215,5 +239,21 @@
   (check-equal? (hash-ref (cadr (go "GET" "/Patient")) 'type) "searchset")
   (check-equal? (car (go "DELETE" "/Patient/1")) 404)                  ; undeclared interaction
   (check-equal? (car (go "GET" "/Nope/1")) 404)                        ; unknown type
+  ;; a batch for an app without a transaction processor routes each entry on its own
+  (define batch (jsexpr->string (hasheq 'resourceType "Bundle" 'type "batch"
+                                        'entry (list (hasheq 'request (hasheq 'method "GET" 'url "Patient/1"))
+                                                     (hasheq 'request (hasheq 'method "GET" 'url "Patient/9"))))))
+  (define b (cadr (go "POST" "/" '() batch)))
+  (check-equal? (hash-ref b 'type) "batch-response")
+  (check-equal? (map (lambda (e) (hash-ref (hash-ref e 'response) 'status)) (hash-ref b 'entry)) '("200" "404"))
+  (check-equal? (hash-ref (hash-ref (car (hash-ref b 'entry)) 'resource) 'gender) "female")
+  ;; metadata by mode
+  (define tc (ok-value (from-json (hasheq 'resourceType "TerminologyCapabilities" 'status "active"
+                                          'date "2026-01-01" 'kind "instance"))))
+  (define app/tc (build-app #:capability (app-capability-statement app) #:operation-definitions '()
+                            #:repositories '() #:operations '() #:metadata (hash "terminology" tc)))
+  (check-equal? (hash-ref (cadr (call-with-values (lambda () (handle app/tc "GET" "/metadata" '((mode . "terminology")) "")) list))
+                          'resourceType)
+                "TerminologyCapabilities")
   ;; parse-query decodes + splits
   (check-equal? (parse-query "a=1&b=x%20y") '((a . "1") (b . "x y"))))

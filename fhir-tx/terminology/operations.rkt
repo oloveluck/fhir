@@ -12,13 +12,21 @@
 
 (require racket/list
          (only-in fhir/r5/operations expand-definition ValueSet-validate-code-definition
-                  lookup-definition translate-definition)
+                  CodeSystem-validate-code-definition lookup-definition translate-definition
+                  subsumes-definition find-matches-definition closure-definition)
          fhir/operation fhir/data-source
          (only-in fhir/sd/sd-index sd-context current-sd-packages)
-         (only-in "service.rkt" packages->resolver resources->resolver
-                  expand/json validate-code/json lookup/json translate/json))
+         (only-in fhir/serialize/jsexpr-util drop-false)
+         (only-in "service.rkt" packages->resolver resources->resolver packages->code-systems
+                  expand/json validate-code/json cs-validate-code/json lookup/json translate/json
+                  subsumes/json find-matches/json closure-relation terminology-capabilities policy-of))
 
-(provide $expand $validate-code $lookup $translate current-terminology-resolver)
+(provide $expand $validate-code $cs-validate-code $lookup $subsumes $find-matches $translate $closure
+         ;; every terminology operation, in the order a server lists them
+         terminology-operations
+         ;; what a server over the current packages says about itself
+         current-terminology-capabilities
+         current-terminology-resolver)
 
 ;; the packages' resolver, built once per package list (indexing a core package takes seconds)
 (define package-resolvers (make-hash))
@@ -27,13 +35,25 @@
   (hash-ref! package-resolvers pkgs (lambda () (packages->resolver pkgs))))
 
 ;; current-terminology-resolver : [extra-resources] -> (url [version] -> resource|#f)
+(define terminology-types '("ValueSet" "CodeSystem" "ConceptMap"))
 (define (current-terminology-resolver [extra '()])
-  (define local (resources->resolver
-                 (append extra
-                         (append-map (lambda (t) ((data-source-all (current-data-source)) t))
-                                     '("ValueSet" "CodeSystem" "ConceptMap")))))
+  (define ds (current-data-source))
+  (define search (data-source-search ds))
+  (define given (resources->resolver extra))
+  (define local
+    (if search
+        ;; a data source that searches (a store) is asked for the url, not scanned
+        (lambda (url [version #f])
+          (define base (car (regexp-split #rx"[|]" url)))
+          ((resources->resolver (append-map (lambda (t) (search t (list (cons "url" base)))) terminology-types))
+           url version))
+        (resources->resolver (append-map (lambda (t) ((data-source-all ds) t)) terminology-types))))
   (define packages (packages-resolver))
-  (lambda (url [version #f]) (or (local url version) (packages url version))))
+  (lambda (url [version #f]) (or (given url version) (local url version) (packages url version))))
+
+;; current-terminology-capabilities : [#:url] -> TerminologyCapabilities jsexpr   over the packages
+(define (current-terminology-capabilities #:url [url #f])
+  (terminology-capabilities (packages->code-systems (sd-context)) #:url url))
 
 ;; the ValueSet an operation is about: piped (instance), `valueSet`, or `url` -> (values url resolver)
 (define (target-valueset in subject what)
@@ -55,10 +75,16 @@
      (define-values (url resolver) (target-valueset in subject "$expand"))
      (define params
        (for/hash ([k (in-list '("filter" "count" "offset" "activeOnly" "excludeNested" "displayLanguage"
-                                "includeDesignations" "property"))]
+                                "includeDesignations"))]
                   #:when (input in k))
          (values k (input in k))))
-     (expand/json resolver url (input in "valueSetVersion") params))))
+     (define params*                       ; the repeatable ones, as lists
+       (for/fold ([h params]) ([k (in-list '("property" "useSupplement"))])
+         (define vs (hash-ref in k '()))
+         (if (pair? vs) (hash-set h k vs) h)))
+     (define policy (policy-of (hash-ref in "system-version" '()) (hash-ref in "force-system-version" '())
+                               (hash-ref in "check-system-version" '())))
+     (expand/json resolver url (input in "valueSetVersion") params* policy))))
 
 (define $validate-code
   (make-operation
@@ -67,7 +93,96 @@
      (define-values (url resolver) (target-valueset in subject "$validate-code"))
      (validate-code/json resolver url (input in "code") (input in "system")
                          #:coding (input in "coding") #:codeable-concept (input in "codeableConcept")
-                         #:display (input in "display") #:valueset-version (input in "valueSetVersion")))))
+                         #:display (input in "display") #:valueset-version (input in "valueSetVersion")
+                         #:system-version (input in "systemVersion")))))
+
+;; CodeSystem/$validate-code: the code system is the subject, `codeSystem`, `url`, or the coding's
+(define $cs-validate-code
+  (make-operation
+   CodeSystem-validate-code-definition
+   (lambda (in subject)
+     (define cs (or subject (input in "codeSystem")))
+     (define coding (or (input in "coding")
+                        (let ([cc (input in "codeableConcept")])
+                          (and cc (let ([cs (hash-ref cc 'coding '())]) (and (pair? cs) (car cs)))))))
+     (define system (or (input in "url") (and cs (hash-ref cs 'url #f)) (and coding (hash-ref coding 'system #f))))
+     (define code (or (input in "code") (and coding (hash-ref coding 'code #f))))
+     (unless (and system code)
+       (operation-error "required" "CodeSystem/$validate-code needs a code and a code system url (or a coding)"))
+     (cs-validate-code/json (current-terminology-resolver (if cs (list cs) '())) system code
+                            (or (input in "version") (and coding (hash-ref coding 'version #f)))
+                            #:display (or (input in "display") (and coding (hash-ref coding 'display #f)))))))
+
+(define $subsumes
+  (make-operation
+   subsumes-definition
+   (lambda (in subject)
+     (define a (input in "codingA"))
+     (define b (input in "codingB"))
+     (define system (or (input in "system") (and subject (hash-ref subject 'url #f)) (and a (hash-ref a 'system #f))))
+     (define code-a (or (input in "codeA") (and a (hash-ref a 'code #f))))
+     (define code-b (or (input in "codeB") (and b (hash-ref b 'code #f))))
+     (unless (and system code-a code-b)
+       (operation-error "required" "$subsumes needs codeA, codeB and a system (or codingA and codingB)"))
+     (define version (or (input in "version") (and a (hash-ref a 'version #f))))
+     (define answer
+       (with-handlers ([exn:fail? (lambda (e) (lambda () (operation-error "not-found" "~a" (exn-message e))))])
+         (define ps (subsumes/json (current-terminology-resolver (if subject (list subject) '())) system code-a code-b version))
+         (lambda () ps)))
+     (answer))))
+
+(define $find-matches
+  (make-operation
+   find-matches-definition
+   (lambda (in subject)
+     (define system (or (input in "system") (and subject (hash-ref subject 'url #f))
+                        (operation-error "required" "$find-matches needs a system")))
+     ;; each `property` input is a parameter with parts `code` and `value`
+     (define (part-value q) (for/first ([(k v) (in-hash q)] #:when (regexp-match? #rx"^value" (symbol->string k))) v))
+     (define props
+       (for/list ([p (in-list (hash-ref in "property" '()))] #:when (hash? p))
+         (define parts (filter hash? (hash-ref p 'part '())))
+         (define (part name) (for/first ([q (in-list parts)] #:when (equal? (hash-ref q 'name #f) name)) (part-value q)))
+         (cons (part "code") (let ([v (part "value")]) (if (string? v) v (format "~a" v))))))
+     (define answer
+       (with-handlers ([exn:fail? (lambda (e) (lambda () (operation-error "not-found" "~a" (exn-message e))))])
+         (define ps (find-matches/json (current-terminology-resolver (if subject (list subject) '())) system props
+                                       (input in "version") (not (eq? (input in "exact") #f))))
+         (lambda () ps)))
+     (answer))))
+
+;; $closure keeps a named table of the concepts a client has sent and answers each addition with
+;; the subsumption relations between the new concepts and the table, as a ConceptMap
+;; (https://hl7.org/fhir/conceptmap-operation-closure.html); no concepts (re)initialise the table
+(define closure-tables (make-hash))     ; name -> (listof Coding jsexpr), oldest first
+(define $closure
+  (make-operation
+   closure-definition
+   (lambda (in subject)
+     (define name (or (input in "name") (operation-error "required" "$closure needs a name")))
+     (define new (filter hash? (hash-ref in "concept" '())))
+     (define old (hash-ref closure-tables name '()))
+     (hash-set! closure-tables name (if (null? new) '() (append old new)))
+     (define resolver (current-terminology-resolver))
+     (define (relation a b)
+       (define sys (hash-ref a 'system #f))
+       (and sys (equal? sys (hash-ref b 'system #f))
+            (with-handlers ([exn:fail? (lambda (_) #f)])
+              (closure-relation resolver sys (hash-ref a 'code #f) (hash-ref b 'code #f)))))
+     (define by-system                   ; system -> elements
+       (for*/fold ([h (hash)]) ([a (in-list new)] [b (in-list (append old new))]
+                                #:unless (eq? a b)
+                                [rel (in-value (relation a b))] #:when rel)
+         (hash-update h (hash-ref a 'system)
+                      (lambda (l) (append l (list (hasheq 'code (hash-ref a 'code #f)
+                                                          'target (list (hasheq 'code (hash-ref b 'code #f)
+                                                                                'relationship rel))))))
+                      '())))
+     (drop-false
+      (hasheq 'resourceType "ConceptMap" 'name name 'status "active" 'version (input in "version")
+              'group (and (positive? (hash-count by-system))
+                          (for/list ([(sys els) (in-hash by-system)])
+                            (hasheq 'source sys 'target sys 'element els))))))))
 
 (define $lookup
   (make-operation
@@ -77,7 +192,8 @@
      (define system (or (input in "system") (and coding (hash-ref coding 'system #f)) (and subject (hash-ref subject 'url #f))))
      (define code (or (input in "code") (and coding (hash-ref coding 'code #f))))
      (unless (and system code) (operation-error "required" "$lookup needs a code and a system (or a coding)"))
-     (lookup/json (current-terminology-resolver (if subject (list subject) '())) system code (input in "version")))))
+     (lookup/json (current-terminology-resolver (if subject (list subject) '())) system code (input in "version")
+                  #:supplements (hash-ref in "useSupplement" '())))))
 
 (define $translate
   (make-operation
@@ -93,7 +209,9 @@
      (translate/json (current-terminology-resolver (if cm (list cm) '())) url code
                      (or (input in "system") (let ([c (input in "sourceCoding")]) (and c (hash-ref c 'system #f))))))))
 
-(for-each register-operation! (list $expand $validate-code $lookup $translate))
+(define terminology-operations
+  (list $expand $validate-code $cs-validate-code $lookup $subsumes $find-matches $translate $closure))
+(for-each register-operation! terminology-operations)
 
 (module+ test
   (require rackunit (only-in fhir/spec-package spec-package-path))
@@ -110,6 +228,11 @@
       (check-true (result ($validate-code #:url gender #:code "male" #:system "http://hl7.org/fhir/administrative-gender")))
       (check-false (result ($validate-code #:url gender #:code "florp" #:system "http://hl7.org/fhir/administrative-gender")))
       (check-exn #rx"not in the data source or the packages" (lambda () ($expand #:url "http://example.org/nope")))
+      (check-true (result ($cs-validate-code #:url "http://hl7.org/fhir/administrative-gender" #:code "male")))
+      (check-false (result ($cs-validate-code #:url "http://hl7.org/fhir/administrative-gender" #:code "florp")))
+      (check-equal? (hash-ref (car (hash-ref ($subsumes #:system "http://hl7.org/fhir/administrative-gender" #:codeA "male" #:codeB "male") 'parameter)) 'valueCode) "equivalent")
+      (check-equal? (hash-ref (current-terminology-capabilities) 'resourceType) "TerminologyCapabilities")
+      (check-equal? (hash-ref ($closure #:name "t") 'resourceType) "ConceptMap")
       ;; a ValueSet from the data source
       (define local (hasheq 'resourceType "ValueSet" 'url "http://example.org/vs"
                             'compose (hasheq 'include (list (hasheq 'system "http://hl7.org/fhir/administrative-gender"

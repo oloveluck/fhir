@@ -103,11 +103,13 @@ serves it. The module provides @racket[app], @racket[capability-statement] and
 runs a request in process. Served resources are R6 typed nodes.
 
 @bold{Operations over HTTP.} Any @tt{fhir/operation} values, with a CapabilityStatement derived from
-them:
+them; a TerminologyCapabilities, when given, answers @tt{GET /metadata?mode=terminology}, and a
+batch Bundle posted to @tt{/} is answered entry by entry.
 
 @racketblock[
 (require fhir/capability/operations fhir/conformance/operations fhir/terminology/operations)
-(define stop (serve-operations (list $validate $expand $validate-code) #:port 8080))
+(define stop (serve-operations (cons $validate terminology-operations) #:port 8080
+                               #:terminology-capabilities (current-terminology-capabilities)))
 ]
 
 @bold{A store.} The SQLite store behind the generated servers is usable on its own: versioned CRUD
@@ -161,11 +163,13 @@ with an existing id is a 500, not a 409.}
 @item{@bold{History.} Instance and type level with @litchar{_since} and @litchar{_count}; no system
 level, no @litchar{_at}, no paging, and a delete leaves no entry (history keeps the versions, not the
 deletion).}
-@item{@bold{Transactions.} Atomic transaction and batch, @tt{urn:} fullUrls rewritten for POST
-entries; no GET, HEAD or PATCH entries, no conditional references or @tt{ifNoneExist}/@tt{ifMatch},
-response entries without the resource. In the generated IG server the transaction endpoint writes
-through the store directly: it does not validate against profiles or apply the IG's per-type
-interaction restrictions, as REST writes do.}
+@item{@bold{Transactions.} Over a store: atomic transaction and batch, @tt{urn:} fullUrls rewritten
+for POST entries; no GET, HEAD or PATCH entries, no conditional references or
+@tt{ifNoneExist}/@tt{ifMatch}, response entries without the resource. In the generated IG server the
+transaction endpoint writes through the store directly: it does not validate against profiles or
+apply the IG's per-type interaction restrictions, as REST writes do. An app without a store (the
+operations app) answers a batch by routing each entry through the router, operations included, and
+has no transaction.}
 @item{@bold{PATCH} is JSON Patch only; no FHIRPath Patch.}
 @item{@bold{Transport.} JSON only (no XML, @litchar{_format} or content negotiation), HTTP/1.1 with
 one request per connection and @tt{Content-Length} bodies, no TLS, no CORS, no HEAD or OPTIONS. The
@@ -200,7 +204,7 @@ scope.
 
 The in-process app: structs of closures, a request as plain data, and @racket[dispatch].
 
-@defstruct*[app ([capability-statement fhir?] [operation-definitions list?] [repositories hash?] [operations hash?] [transaction (or/c procedure? #f)])]
+@defstruct*[app ([capability-statement fhir?] [operation-definitions list?] [repositories hash?] [operations hash?] [transaction (or/c procedure? #f)] [metadata hash?])]{@racket[metadata] maps a @tt{mode} to the resource @tt{GET /metadata?mode=} answers.}
 @defstruct*[repository ([read any/c] [vread any/c] [create any/c] [update any/c] [delete any/c] [search any/c] [history any/c] [patch any/c])]{
 A closure per interaction, or @racket[#f]: @tt{read (id)}, @tt{vread (id vid)}, @tt{create (node)},
 @tt{update (id node)}, @tt{delete (id)}, @tt{search (params)} answering nodes or a
@@ -211,7 +215,7 @@ A closure per interaction, or @racket[#f]: @tt{read (id)}, @tt{vread (id vid)}, 
 In memory, implementing the interactions given, with search by each parameter's FHIRPath.}
 @defproc[(build-app [#:capability cs fhir?] [#:operation-definitions ods (listof fhir?)]
                     [#:repositories repos (listof (cons/c symbol? repository?))] [#:operations ops (listof operation-entry?)]
-                    [#:transaction transaction (or/c #f (-> hash? hash?)) #f]) app?]
+                    [#:transaction transaction (or/c #f (-> hash? hash?)) #f] [#:metadata metadata hash? (hash)]) app?]
 @defstruct*[request ([kind symbol?] [type any/c] [id any/c] [vid any/c] [params list?] [level any/c] [code any/c] [body any/c])]
 @deftogether[(
 @defproc[(read-request [type symbol?] [id string?]) request?]
@@ -259,9 +263,11 @@ join key between @tt{rest.resource.operation.definition} and @tt{OperationDefini
 @tt{fhir/operation} values served over HTTP, with the CapabilityStatement derived from them.
 
 @defproc[(serve-operations [ops (listof operation?)] [#:port port exact-nonnegative-integer? 8080] [#:url url (or/c string? #f) #f]
-                           [#:fhir-version version string? "5.0.0"] [#:bearer bearer (or/c string? #f) #f]) procedure?]{
+                           [#:fhir-version version string? "5.0.0"] [#:bearer bearer (or/c string? #f) #f]
+                           [#:terminology-capabilities capabilities (or/c hash? #f) #f]) procedure?]{
 @racket[(serve-operations (list $validate $expand) #:port 8080)]; returns the stop thunk.}
-@defproc[(operations-app [ops (listof operation?)] [#:url url (or/c string? #f) #f] [#:fhir-version version string? "5.0.0"]) app?]
+@defproc[(operations-app [ops (listof operation?)] [#:url url (or/c string? #f) #f] [#:fhir-version version string? "5.0.0"]
+                         [#:terminology-capabilities capabilities (or/c hash? #f) #f]) app?]
 @defproc[(operation->entries [op operation?] [#:read read (or/c procedure? #f) #f] [#:around around procedure? (lambda (thunk) (thunk))]) list?]{
 Routes at every level and type the definition declares, the request Parameters as inputs, the stored
 resource as the instance-level subject (through @racket[current-app], or @racket[read]);
@@ -279,7 +285,8 @@ stops it. With @racket[bearer], every request but @tt{GET /metadata} needs that 
 @defmodule[fhir/http/router]
 
 @defproc[(handle [a app?] [method string?] [path string?] [query (listof (cons/c symbol? string?))] [body string?]) (values exact-integer? (or/c hash? #f))]{
-The pure router: @tt{GET /metadata}; @tt{POST /} (transaction or batch); @tt{GET|POST /{Type}};
+The pure router: @tt{GET /metadata} (@tt{?mode=} picks another metadata resource); @tt{POST /}
+(a transaction through the app's processor; a batch entry by entry when it has none); @tt{GET|POST /{Type}};
 @tt{GET|PUT|DELETE|PATCH /{Type}/{id}} (PATCH as JSON Patch); @tt{/{Type}/{id}/_history[/{vid}]},
 @tt{/{Type}/_history}; @tt{GET|POST /$op}, @tt{/{Type}/$op}, @tt{/{Type}/{id}/$op}. The status comes
 from the result: 201 on create, and for an OperationOutcome its first issue code (not-found 404,

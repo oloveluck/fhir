@@ -124,13 +124,15 @@
 
 ;; repositories : hasheq type-sym -> repository ; operations : hash (list level code target) -> handler
 ;; transaction : (jsexpr-Bundle -> jsexpr-Bundle) | #f — the whole-Bundle processor (POST /);
-;; #f (the default) means transaction/batch is not supported by this app
-(struct app (capability-statement operation-definitions repositories operations transaction)
+;; #f (the default) means a transaction is not supported by this app (a batch is routed entry by
+;; entry regardless); metadata : hash mode-string -> node, what GET /metadata?mode=<mode> answers
+;; besides the CapabilityStatement (a TerminologyCapabilities under "terminology")
+(struct app (capability-statement operation-definitions repositories operations transaction metadata)
   #:transparent)
 
 (define (build-app #:capability cap #:operation-definitions ods
                    #:repositories repo-entries #:operations op-entries
-                   #:transaction [txn #f])
+                   #:transaction [txn #f] #:metadata [metadata (hash)])
   ;; entry -> OperationDefinition join: the derived urn convention first, then the OD's own `code`
   ;; element — so an IG-shipped OD (with its real canonical url) validates its operation too
   (define od-by-url
@@ -145,7 +147,7 @@
       (values (list (operation-entry-level e) code (operation-entry-target e))
               (operation-handler (operation-entry-proc e) od
                                  (operation-entry-level e) (operation-entry-target e)))))
-  (app cap ods (make-immutable-hasheq repo-entries) ops txn))
+  (app cap ods (make-immutable-hasheq repo-entries) ops txn metadata))
 
 (define (od-url od) (leaf->string (single (navigate (list od) 'url))))
 (define (od-code od) (leaf->string (single (navigate (list od) 'code))))

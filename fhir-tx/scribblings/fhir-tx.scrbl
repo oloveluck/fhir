@@ -4,8 +4,9 @@
 @title{fhir-tx: a FHIR terminology service}
 
 A terminology server as a value: @tt{$expand}, @tt{$validate-code} (ValueSet and CodeSystem),
-@tt{$lookup} and @tt{$translate} over the CodeSystems, ValueSets and ConceptMaps in FHIR NPM
-packages or in resources you hold, indexed lazily. The same service is a @tt{fhir/operation} value,
+@tt{$lookup}, @tt{$subsumes}, @tt{$find-matches}, @tt{$translate} and @tt{$closure} over the
+CodeSystems, ValueSets and ConceptMaps in FHIR NPM packages or in resources you hold, indexed
+lazily, and the TerminologyCapabilities that describes them. The same service is a @tt{fhir/operation} value,
 the @tt{%terminologies} handle FHIRPath takes, what the validator checks bindings with, what
 fhir-server serves, and what expands VCL's implicit value set urls. The official
 hl7.fhir.uv.tx-ecosystem suite stands at 463/553, with what rests on external code systems skipped.
@@ -23,9 +24,11 @@ raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-t
 
 @section{Using it}
 
-@bold{The operations.} The service answers @tt{$expand}, @tt{$validate-code}, @tt{$lookup} and
-@tt{$translate} as FHIR JSON over the CodeSystems, ValueSets and ConceptMaps in packages or
-resources, lazily indexed. As operations:
+@bold{The operations.} The service answers @tt{ValueSet/$expand}, @tt{ValueSet/$validate-code},
+@tt{CodeSystem/$validate-code}, @tt{CodeSystem/$lookup}, @tt{CodeSystem/$subsumes},
+@tt{CodeSystem/$find-matches}, @tt{ConceptMap/$translate} and @tt{ConceptMap/$closure} as FHIR
+JSON over the CodeSystems, ValueSets and ConceptMaps in packages or resources, lazily indexed. As
+operations:
 
 @racketblock[
 (require fhir/terminology/operations)
@@ -35,6 +38,9 @@ resources, lazily indexed. As operations:
 ($validate-code #:url "http://hl7.org/fhir/ValueSet/administrative-gender"
                 #:system "http://hl7.org/fhir/administrative-gender" #:code "female")
 ($lookup #:system "http://loinc.org" #:code "85354-9")
+($cs-validate-code #:url "http://hl7.org/fhir/administrative-gender" #:code "male")
+($subsumes #:system "http://snomed.info/sct" #:codeA "73211009" #:codeB "44054006")
+($closure #:name "diabetes" #:concept (list (hasheq 'system "http://snomed.info/sct" 'code "44054006")))
 ]
 
 An implicit VCL url (@tt{http://fhir.org/VCL?v1=…}) expands too. As a @racket[tx-service] handle,
@@ -55,14 +61,24 @@ functions take one and answer FHIR JSON with no tower loaded.
 (define tx (make-terminology/resolver r))        (code:comment "the handle: for validate-issues, for %terminologies")
 ]
 
+@bold{As a server.} @tt{raco fhir-tx serve} puts every operation over HTTP with fhir-server's
+operations app: @tt{GET /metadata} is the CapabilityStatement derived from the operations,
+@tt{GET /metadata?mode=terminology} the TerminologyCapabilities listing the code systems the
+packages hold, and a batch Bundle posted to @tt{/} is answered entry by entry. From Racket the same
+is @racket[(serve-operations terminology-operations #:terminology-capabilities (current-terminology-capabilities))]
+with @racket[current-sd-packages] set to the packages.
+
 @bold{Command line.}
 
 @verbatim{
+raco fhir-tx serve --package hl7.fhir.us.core-6.1.0.tgz --port 8080
+curl 'localhost:8080/ValueSet/$expand?url=http://hl7.org/fhir/ValueSet/administrative-gender'
 raco fhir-tx expand http://hl7.org/fhir/ValueSet/administrative-gender
 raco fhir-tx expand <ValueSet url> --package hl7.fhir.us.core-6.1.0.tgz --filter diab
 raco fhir-tx validate-code <ValueSet url> <system> <code> [--display <text>]
 raco fhir-tx lookup http://hl7.org/fhir/administrative-gender female
 raco fhir-tx translate <ConceptMap url> <code> [--system <system>]
+raco fhir-tx subsumes <system> <codeA> <codeB>
 raco fhir-tx tck [-v]                 the tx-ecosystem suite (floor-ratcheted)
 }
 
@@ -102,24 +118,19 @@ validates no codes.}]
 @section{Limits}
 
 @itemlist[
-@item{@bold{What the terminology service does not do.} @tt{$subsumes}, @tt{$closure},
-@tt{$find-matches}, batch validation, CodeSystem supplements. Expansion ignores
-@tt{compose.include.valueSet} (an include by value set contributes nothing, and a system include is
-not narrowed by one), and a ValueSet that carries only an @tt{expansion} and no @tt{compose}
-expands to nothing. The filter operators @tt{generalizes}, @tt{descendent-leaf} and @tt{of} match
-nothing, so a VCL expression using them expands to nothing; @tt{is-a} and @tt{descendent-of} use the
-concept tree, not the named property. @tt{$expand} does not take @tt{includeDefinition},
-@tt{excludeNotForUI} or @tt{limit}, and emits no @tt{abstract} or @tt{inactive} flags;
-@tt{displayLanguage} matches a tag exactly. @tt{$lookup} drops a designation's @tt{use} and any
-property that is not a code, string or boolean. @tt{$translate} is forward only, by source code and
-system, with no target, @tt{dependsOn} or @tt{unmapped} handling and no ConceptMap version. Version
-resolution picks the highest version by string order. Concept lookups scan linearly, so
-@tt{activeOnly} and @tt{is-a} are quadratic in the code system's size. Anything resting on a code
-system the service cannot see (SNOMED CT, LOINC, RxNorm) is undecidable and reported as unknown,
-never as invalid; the tx-ecosystem suite stands at 463/553 with those skipped.}
-@item{@bold{FHIRPath's @tt{%terminologies}} offers @tt{expand()}, @tt{validateVS()} and
-@tt{translate()}; @tt{expand()} drops its parameters argument and the other two their system
-argument, and there is no @tt{lookup()}, @tt{subsumes()} or @tt{validateCS()}.}]
+@item{@bold{What the terminology service does not do.} CodeSystem supplements apply only when
+named by @tt{useSupplement}; nothing discovers them. @tt{$closure} tables live in the process.
+@tt{$find-matches} matches properties exactly or by substring, with no compositional grammar.
+@tt{$expand} does not take @tt{includeDefinition}, @tt{excludeNotForUI} or @tt{limit}, and emits no
+@tt{abstract} or @tt{inactive} flags; @tt{displayLanguage} matches a tag exactly. @tt{$translate}
+is forward only, by source code and system, with no target, @tt{dependsOn} or @tt{unmapped}
+handling and no ConceptMap version. Hierarchy comes from nested concepts, not from @tt{parent} or
+@tt{subsumedBy} properties. Version resolution picks the highest version by string order. Anything
+resting on a code system the service cannot see (SNOMED CT, LOINC, RxNorm) is undecidable and
+reported as unknown, never as invalid; the tx-ecosystem suite stands at 463/553 with those skipped.}
+@item{@bold{FHIRPath's @tt{%terminologies}} offers @tt{expand()} (with a Parameters argument),
+@tt{validateVS()} and @tt{translate()} (a code, a Coding or a CodeableConcept, and a system); the
+handle has no @tt{lookup()}, @tt{subsumes()} or @tt{validateCS()}.}]
 
 @section{Reference}
 
@@ -161,6 +172,17 @@ The operations over a resolver, answering a ValueSet or Parameters jsexpr; they 
 @racket[params] keys are the expansion parameter names as strings.}
 @defstruct*[version-policy ([default hash?] [force hash?] [check hash?])]{The server-level @tt{system-version}, @tt{force-system-version} and @tt{check-system-version} parameters, each system to version.}
 @deftogether[(@defthing[no-version-policy version-policy?] @defproc[(policy-of [default any/c] [force any/c] [check any/c]) version-policy?])]
+@deftogether[(
+@defproc[(cs-validate-code/json [resolver procedure?] [system string?] [code string?] [version (or/c string? #f) #f] [#:display display any/c #f]) hash?]
+@defproc[(subsumes/json [resolver procedure?] [system string?] [code-a string?] [code-b string?] [version (or/c string? #f) #f]) hash?]
+@defproc[(find-matches/json [resolver procedure?] [system string?] [properties (listof (cons/c string? string?))] [version (or/c string? #f) #f] [exact? boolean? #t]) hash?]
+@defproc[(closure-relation [resolver procedure?] [system string?] [code-a string?] [code-b string?]) (or/c string? #f)]
+@defproc[(packages->code-systems [packages (listof path-string?)]) (listof hash?)]
+@defproc[(terminology-capabilities [code-systems (listof hash?)] [#:url url (or/c string? #f) #f]) hash?])]{
+CodeSystem-level validation, subsumption (@racket["equivalent"], @racket["subsumes"],
+@racket["subsumed-by"], @racket["not-subsumed"]; an unknown system or code raises), concepts
+matching every property given, the ConceptMap relationship between two codes for @tt{$closure}, the
+CodeSystems a package list holds, and the TerminologyCapabilities describing them.}
 @deftogether[(@defproc[(make-lookup [resolver procedure?]) procedure?] @defproc[(make-cs-validate [resolver procedure?]) procedure?] @defproc[(make-undecidable? [resolver procedure?]) procedure?])]{
 CodeSystem-level @tt{$lookup} and @tt{$validate-code} as closures answering FHIRPath collections, and
 the test for a ValueSet that would need a code system the service lacks.}
@@ -171,10 +193,16 @@ the test for a ValueSet that would need a code system the service lacks.}
 @deftogether[(
 @defthing[$expand procedure?]
 @defthing[$validate-code procedure?]
+@defthing[$cs-validate-code procedure?]
 @defthing[$lookup procedure?]
-@defthing[$translate procedure?])]{
+@defthing[$subsumes procedure?]
+@defthing[$find-matches procedure?]
+@defthing[$translate procedure?]
+@defthing[$closure procedure?])]{
 The four as @tt{fhir/operation} values on the core OperationDefinitions, registered when the module
 loads. A ValueSet is the subject, @tt{#:valueSet}, or named by @tt{#:url}; the inputs are the
 definitions' parameters (@racket[($translate cm #:sourceCode "a" #:system url)]). Resources are
 looked up in the inputs, then @racket[current-data-source], then @racket[current-sd-packages].}
-@defproc[(current-terminology-resolver [extra (listof hash?) '()]) procedure?]{The resolver the operations use: the data source, then the packages, with @racket[extra] ahead.}
+@defproc[(current-terminology-resolver [extra (listof hash?) '()]) procedure?]{The resolver the operations use: @racket[extra], then the data source (asked by url when it searches, as a store does), then the packages.}
+@defthing[terminology-operations (listof procedure?)]{All eight, in the order a server lists them.}
+@defproc[(current-terminology-capabilities [#:url url (or/c string? #f) #f]) hash?]{A TerminologyCapabilities over the code systems in @racket[current-sd-packages].}

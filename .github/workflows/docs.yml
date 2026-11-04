@@ -39,8 +39,12 @@ jobs:
             "https://github.com/oloveluck/vcl.git" \
             "https://github.com/oloveluck/cql.git" \
             "https://github.com/oloveluck/fsh.git"
-      - name: Test the terminology package
-        run: raco test fhir-tx/terminology/service.rkt fhir-tx/terminology/operations.rkt fhir-tx/tx-cli.rkt
+      - name: Test the terminology package and the server seams it uses
+        run: |
+          raco test fhir-tx/terminology/service.rkt fhir-tx/terminology/operations.rkt fhir-tx/tx-cli.rkt
+          raco test fhir-server/http/router.rkt fhir-server/capability/operations.rkt fhir-server/tests/operations-http-test.rkt
+      - name: The terminology conformance suite (floor-ratcheted)
+        run: raco fhir-tx tck
       - name: Build the documentation
         run: |
           raco scribble +m --html --dest site --dest-name index.html --redirect-main https://docs.racket-lang.org/ docs/index.scrbl
