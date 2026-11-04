@@ -13,46 +13,36 @@
 ;;;   /metadata     — the IG's OWN CapabilityStatement turned into an `instance` statement and TRIMMED
 ;;;                   to what this server executes; everything trimmed is listed in the gap report
 ;;;
-;;; Data definitions
-;;;   An IgPlan is (ig-plan name version fhir-version tower core-tgz ig-cs resources)
-;;;     resources : (listof ig-resource)
-;;;   An IgResource is (ig-resource type interactions search-params profiles)
-;;;     interactions  : (listof (cons code expectation))   e.g. ("read" . "SHALL")
-;;;     search-params : (listof (list name type expectation))
-;;;     profiles      : (listof canonical)
-;;;   A Gap is (gap type what name expectation reason) — one IG requirement the server does not meet
+;;; Data definitions (the IgPlan and IgResource are ig-plan.rkt's, the Gap and Executes
+;;; ig-capability.rkt's)
+;;;   An IgServer is (ig-server plan app gaps catalog sd-packages store validate? tgz)
+;;;     app         : the capability app (serve with http/server)
+;;;     gaps        : (listof Gap)   the IG requirements this server does not meet
+;;;     catalog     : the search-param catalog (ig-params.rkt): core overlaid by the dependencies and the IG
+;;;     sd-packages : the validation context — the IG, its dependencies, the core
 ;;;
 ;;; Supported: interactions read vread create update delete search-type history-instance history-type
-;;; patch (JSON Patch);
-;;; search parameters of
-;;; every type except composite/special (store/search-index.rkt); transaction/batch Bundles.
-;;; _include/_revinclude of the form Source:param[:Target] (not `*`, not :iterate).
-;;; IG operations that have a registered implementation (fhir/operation: $validate, $snapshot, the
-;;; terminology operations, Measure $evaluate-measure from cql, US Core $docref here), at every level
-;;; their OperationDefinition declares; they run with the store as `current-data-source` and the
-;;; server's packages as `current-sd-packages`.
-;;; Not yet: patch, history, chained parameters, other IG operations, SMART auth — each listed as a gap.
+;;; patch (JSON Patch); search parameters of every type except composite/special
+;;; (store/search-index.rkt); transaction/batch Bundles; _include/_revinclude of the form
+;;; Source:param[:Target] (not :iterate). IG operations that have a registered implementation
+;;; (fhir/operation: $validate, $snapshot, the terminology operations, Measure $evaluate-measure from
+;;; cql, US Core $docref here), at every level their OperationDefinition declares; they run with the
+;;; store as `current-data-source` and the server's packages as `current-sd-packages`.
+;;; Not yet: chained parameters, other IG operations, SMART auth — each listed as a gap.
 
-(require racket/contract racket/list racket/string racket/match
-         json
+(require racket/contract racket/list racket/string
          (only-in fhir/package read-package)
-         (only-in fhir/spec-package spec-package-path current-package-directories)
          (only-in fhir/sd/sd-index current-sd-packages)
          (only-in fhir/serialize/from-json from-json)
          (only-in fhir/serialize/to-json node->jsexpr)
          (only-in fhir/serialize/read-json strip-jnum)
-         (only-in fhir/result/result ok? ok-value ok-or-raise)
+         (only-in fhir/result/result ok-or-raise)
          (only-in fhir/model/registry type-registered?)
          (only-in fhir/capability/runtime make-repository build-app repository-read repository-vread
                   repository-create repository-update repository-delete repository-search
                   repository-history)
-         (only-in fhir/kernel/operation-entry operation-entry)
-         (only-in fhir/model/node fhir? fhir-ref)
-         (only-in fhir/model/leaf pv)
-         (only-in fhirpath/temporal-ops moment? moment->string)
-         (only-in fhirpath/terminology tx-service-expand)
          (only-in fhir/conformance/validate validate-issues issue-severity issue-code issue-path issue-msg)
-         "fhir-sqlite.rkt" "fhir-engine.rkt" "ig-params.rkt" "bundle.rkt"
+         "fhir-sqlite.rkt" "fhir-engine.rkt" "ig-params.rkt" "bundle.rkt" "ig-plan.rkt" "ig-capability.rkt"
          (only-in "search-index.rkt" indexed-kind?)
          (only-in "serve.rkt" store-repository)
          fhir/operation fhir/data-source
@@ -64,12 +54,10 @@
          (only-in cql/measure current-measure-offset))
 
 (provide
+ ;; the plan (ig-plan.rkt) and the gaps (ig-capability.rkt) are this module's API too
  (struct-out ig-plan) (struct-out ig-resource) (struct-out gap) (struct-out ig-server)
+ package-manifest ig-package-path plan-ig-server gap->list
  (contract-out
-  [package-manifest (-> path-string? (or/c hash? #f))]
-  [ig-package-path  (-> string? path?)]
-  [plan-ig-server   (->* (path-string?) ((or/c string? #f)) ig-plan?)]
-  [gap->list        (-> gap? list?)]
   [make-ig-server   (->* (fhir-store? path-string?)
                            (#:validate? boolean? #:url (or/c string? #f) #:capability (or/c string? #f)
                             #:offset (or/c exact-integer? #f))
@@ -79,135 +67,12 @@
   ;; every example in the IG package, through ig-server-put!
   [load-ig-examples! (-> ig-server? (values exact-nonnegative-integer? (listof (cons/c string? string?))))]))
 
-(struct ig-plan (name version fhir-version tower core-tgz ig-cs resources) #:transparent)
-(struct ig-resource (type interactions search-params profiles) #:transparent)
-(struct gap (type what name expectation reason) #:transparent)
-(define (gap->list g) (list (gap-type g) (gap-what g) (gap-name g) (gap-expectation g) (gap-reason g)))
 ;; app : the capability app (serve with http/server) ; gaps : (listof gap)
 (struct ig-server (plan app gaps catalog sd-packages store validate? tgz))
 
+;; the interactions the repository implements (ig-repository)
 (define supported-interactions '("read" "vread" "create" "update" "delete" "search-type"
                                  "history-instance" "history-type" "patch"))
-
-;; ---- reading the package -----------------------------------------------------------------------
-
-(define (package-manifest tgz) (let-values ([(m _r _e) (read-package tgz #:select (lambda (_) #f))]) m))
-
-;; ig-package-path : "hl7.fhir.us.core" | "x.tgz" | a path -> the package file
-(define (ig-package-path s)
-  (cond [(file-exists? s) (string->path s)]
-        [(regexp-match? #rx"[.]tgz$" s) (spec-package-path s)]
-        [else (spec-package-path (string-append s ".tgz"))]))
-
-;; fhir-version -> (values tower-module core-package-file)
-(define (tower-for v)
-  (match v
-    [(regexp #rx"^4[.]0") (values 'fhir/r4/schemas "hl7.fhir.r4.core.tgz")]
-    [(regexp #rx"^5[.]0") (values 'fhir/r5/schemas "hl7.fhir.r5.core.tgz")]
-    [(regexp #rx"^6[.]") (values 'fhir/r6/types "hl7.fhir.r6.core.tgz")]
-    [_ (raise-user-error 'fhir "unsupported FHIR version ~a (expected 4.0.x, 5.0.x or 6.x)" v)]))
-
-(define (expectation-of h)
-  (or (for/or ([e (in-list (let ([x (hash-ref h 'extension '())]) (if (list? x) x '())))])
-        (and (equal? (hash-ref e 'url #f) "http://hl7.org/fhir/StructureDefinition/capabilitystatement-expectation")
-             (hash-ref e 'valueCode #f)))
-      "MAY"))
-
-;; capability: which server CapabilityStatement (id or url) when the IG ships several (CQF Measures
-;; ships four); #f = the first
-(define (plan-ig-server tgz [capability #f])
-  (define-values (manifest resources _examples) (read-package tgz))
-  (define fv (let ([vs (and manifest (hash-ref manifest 'fhirVersions #f))])
-               (cond [(and (list? vs) (pair? vs)) (car vs)]
-                     [else (raise-user-error 'fhir "~a: package.json declares no fhirVersions" tgz)])))
-  (define-values (tower core-file) (tower-for fv))
-  (define server-cs0
-    (for/or ([r (in-list resources)])
-      (define js (cdr r))
-      (and (equal? (hash-ref js 'resourceType #f) "CapabilityStatement")
-           (or (not capability) (equal? (hash-ref js 'id #f) capability) (equal? (hash-ref js 'url #f) capability))
-           (for/or ([rest (in-list (let ([x (hash-ref js 'rest '())]) (if (list? x) x '())))])
-             (equal? (hash-ref rest 'mode #f) "server"))
-           js)))
-  (unless server-cs0
-    (raise-user-error 'fhir "~a ships no server CapabilityStatement (rest.mode = server)~a" tgz
-                      (if capability (format " with id or url ~a" capability) "")))
-  (define server-cs (with-implied-search server-cs0))
-  (define rest (findf (lambda (r) (equal? (hash-ref r 'mode #f) "server")) (hash-ref server-cs 'rest)))
-  (define rs
-    (for/list ([res (in-list (hash-ref rest 'resource '()))])
-      (ig-resource (hash-ref res 'type)
-                   (for/list ([i (in-list (hash-ref res 'interaction '()))]) (cons (hash-ref i 'code) (expectation-of i)))
-                   (for/list ([sp (in-list (hash-ref res 'searchParam '()))])
-                     (list (hash-ref sp 'name) (hash-ref sp 'type #f) (expectation-of sp)))
-                   (map (lambda (p) (car (string-split p "|")))
-                        (append (let ([p (hash-ref res 'profile #f)]) (if (string? p) (list p) '()))
-                                (hash-ref res 'supportedProfile '()))))))
-  (ig-plan (and manifest (hash-ref manifest 'name #f)) (and manifest (hash-ref manifest 'version #f))
-           fv tower (spec-package-path core-file) server-cs rs))
-
-;; with-implied-search : CapabilityStatement -> CapabilityStatement   a server resource that lists
-;; search parameters or includes but not the search-type interaction is read as searchable: the
-;; parameters mean nothing otherwise, and IGs do omit it (mCODE lists Patient `_id` on a read-only
-;; Patient, IPA includes on PractitionerRole, SDC dozens of parameters). The interaction added
-;; takes the resource's own expectation.
-(define (with-implied-search cs)
-  (define (fix res)
-    (define codes (for/list ([i (in-list (hash-ref res 'interaction '()))]) (hash-ref i 'code #f)))
-    (if (and (not (member "search-type" codes))
-             (for/or ([k (in-list '(searchParam searchInclude searchRevInclude))]) (pair? (hash-ref res k '()))))
-        (hash-set res 'interaction
-                  (append (hash-ref res 'interaction '())
-                          (list (hasheq 'code "search-type"
-                                        'extension (list (hasheq 'url "http://hl7.org/fhir/StructureDefinition/capabilitystatement-expectation"
-                                                                 'valueCode (expectation-of res)))))))
-        res))
-  (hash-set cs 'rest
-            (for/list ([r (in-list (hash-ref cs 'rest '()))])
-              (if (equal? (hash-ref r 'mode #f) "server")
-                  (hash-set r 'resource (map fix (hash-ref r 'resource '())))
-                  r))))
-
-;; dependency-packages : tgz -> (listof path)   package.json `dependencies`, transitively (nearest
-;; first, each once), located as <name>-<version>.tgz (or <name>.tgz when that IS the version) in
-;; `current-package-directories` or fhir-spec; a version may be a pattern (`3.3.x`). Core packages
-;; and ones not found are left out (the core is added separately; a missing one only narrows
-;; validation)
-(define (dependency-packages tgz)
-  (let loop ([todo (direct-dependencies tgz)] [seen '()])
-    (cond [(null? todo) (reverse seen)]
-          [(member (car todo) seen) (loop (cdr todo) seen)]
-          [else (loop (append (cdr todo) (direct-dependencies (car todo))) (cons (car todo) seen))])))
-
-(define (direct-dependencies tgz)
-  (define m (package-manifest tgz))
-  (define ds (if (and m (hash? (hash-ref m 'dependencies #f))) (hash-ref m 'dependencies) (hash)))
-  (for*/list ([(name version) (in-hash ds)]
-              #:unless (regexp-match? #px"^hl7[.]fhir[.]r[0-9]+b?[.]core$|^hl7[.]terminology|[.]extensions" (symbol->string name))
-              [p (in-value (find-package (symbol->string name) version))]
-              #:when p)
-    p))
-
-;; find-package : name version-or-pattern -> (or/c path #f)
-(define (find-package name version)
-  (define (version-ok? q) (let ([qm (package-manifest q)])
-                            (and qm (version-matches? (hash-ref qm 'version "") version))))
-  (or (spec-package-path (format "~a-~a.tgz" name version) #:optional? #t)
-      (for*/first ([d (in-list (current-package-directories))]
-                   #:when (directory-exists? d)
-                   [f (in-list (sort (directory-list d) string>? #:key path->string))]   ; newest first
-                   #:when (regexp-match? (pregexp (format "^~a-[^-]+[.]tgz$" (regexp-quote name))) (path->string f))
-                   #:when (version-ok? (build-path d f)))
-        (build-path d f))
-      (let ([q (spec-package-path (format "~a.tgz" name) #:optional? #t)])
-        (and q (version-ok? q) q))))
-
-;; version-matches? : "3.3.2" "3.3.x" -> #t   (x / * stand for any one part)
-(define (version-matches? v pattern)
-  (define ps (string-split pattern "."))
-  (define vs (string-split v "."))
-  (and (= (length ps) (length vs))
-       (for/and ([p (in-list ps)] [x (in-list vs)]) (or (member p '("x" "X" "*")) (equal? p x)))))
 
 ;; ---- the app ------------------------------------------------------------------------------------
 
@@ -273,43 +138,17 @@
       (merge-search-params c (search-params-from-package p))))
   (define served
     (filter (lambda (r) (type-registered? (string->symbol (ig-resource-type r)))) (ig-plan-resources plan)))
-  (define gaps
-    (append
-     (for*/list ([r (in-list (ig-plan-resources plan))]
-                 #:unless (memq r served))
-       (gap (ig-resource-type r) 'resource (ig-resource-type r) "SHALL" "type not in this FHIR version's tower"))
-     (for*/list ([r (in-list served)] [i (in-list (ig-resource-interactions r))]
-                 #:unless (member (car i) supported-interactions))
-       (gap (ig-resource-type r) 'interaction (car i) (cdr i) "interaction not implemented"))
-     (for*/list ([r (in-list served)] [sp (in-list (ig-resource-search-params r))]
-                 #:unless (and (executable? catalog (ig-resource-type r) (car sp))
-                               (assoc "search-type" (ig-resource-interactions r))))
-       (gap (ig-resource-type r) 'search-param (car sp) (caddr sp)
-            (if (assoc "search-type" (ig-resource-interactions r))
-                (format "~a parameter not executable" (or (cadr sp) "unknown"))
-                "the IG does not declare search-type for this type")))
-     (let ([rest (findf (lambda (x) (equal? (hash-ref x 'mode #f) "server")) (hash-ref (ig-plan-ig-cs plan) 'rest))])
-       (append
-        (for/list ([sp (in-list (hash-ref rest 'searchParam '()))])
-          (gap "*" 'search-param (hash-ref sp 'name) (expectation-of sp) "system-level search not implemented"))
-        (for*/list ([res (in-list (hash-ref rest 'resource '()))]
-                    [k (in-list '(searchInclude searchRevInclude))]
-                    [v (in-list (includes-of res k))]
-                    #:unless (and (include-supported? v) (searchable? res)))
-          (gap (hash-ref res 'type) (if (eq? k 'searchInclude) '_include '_revinclude) v (expectation-of res)
-               (if (searchable? res) ":iterate includes not implemented" "the IG does not declare search-type for this type")))
-        (for*/list ([res (in-list (hash-ref rest 'resource '()))]
-                    [op (in-list (hash-ref res 'operation '()))]
-                    #:unless (operation-implemented? op))
-          (gap (hash-ref res 'type) 'operation (hash-ref op 'name) (expectation-of op) "operation not implemented"))
-        ;; system-level operations (CQF Measures declares evaluate-measure there)
-        (for/list ([op (in-list (hash-ref rest 'operation '()))] #:unless (operation-implemented? op))
-          (gap "*" 'operation (hash-ref op 'name) (expectation-of op) "operation not implemented"))))))
   ;; the IG's OperationDefinitions, then the core package's (ValueSet-expand lives in core)
   (define ods (let ([core-ods (package-operation-definitions (ig-plan-core-tgz plan))])
                 (for/fold ([h core-ods]) ([(k v) (in-hash (package-operation-definitions tgz))]) (hash-set h k v))))
   (define sd-packages (append (list tgz) deps (list core)))
-  (define capability (ok-or-raise (from-json (instance-capability plan served catalog url) #:lenient? #t)))
+  ;; what this server executes, held against the IG's statement: the gaps and the instance statement
+  (define ex (executes (lambda (code) (and (member code supported-interactions) #t))
+                       (lambda (type name) (executable? catalog type name))
+                       include-supported?
+                       (lambda (u) (implemented-url? u))))
+  (define gaps (plan-gaps plan served ex))
+  (define capability (ok-or-raise (from-json (instance-capability plan served ex url) #:lenient? #t)))
   (define data (store->data-source store #:search-params catalog))
   (define served-ops                       ; (url . operation) for the IG's ODs with an implementation
     (for*/list ([(u od) (in-hash ods)] [op (in-value (implementation-of u ods))] #:when op) (cons u op)))
@@ -345,6 +184,11 @@
         [else (fhir-update! (ig-server-store srv) js #:search-params (ig-server-catalog srv)) 'ok]))
 
 ;; ---- IG operations ---------------------------------------------------------------------------
+;; implemented-url? : canonical -> Boolean   is there an implementation to serve under this url?
+(define (implemented-url? url)
+  (or (and (member url (map operation-url (registered-operations))) #t)
+      (and (member url docref-urls) #t)))
+
 ;; implementation-of : canonical ods -> operation|#f   the registered implementation; US Core's
 ;; $docref is built here from the IG's own OperationDefinition (it needs the store's search)
 (define (implementation-of url ods)
@@ -382,87 +226,16 @@
   (define-values (_m ods _e) (read-package tgz #:select (lambda (f) (string-prefix? f "OperationDefinition-"))))
   (for/hash ([od (in-list ods)] #:when (hash-ref (cdr od) 'url #f)) (values (hash-ref (cdr od) 'url) (cdr od))))
 
-(define (operation-implemented? cs-op)
-  (define def (hash-ref cs-op 'definition #f))
-  (and (string? def)
-       (let ([u (car (string-split def "|"))])
-         (or (and (member u docref-urls) #t) (and (member u (map operation-url (registered-operations))) #t)))))
-
+;; include-supported? : String -> Boolean
 ;; Source:param[:Target] and Source:* includes are implemented (fhir-includes); :iterate is not
 (define (include-supported? v) (and (regexp-match? #px"^[A-Z][A-Za-z]+:([A-Za-z0-9_-]+(:[A-Z][A-Za-z]+)?|[*])$" v) #t))
 
-;; includes-of : CapabilityStatement.rest.resource key -> (listof string)   its searchInclude /
-;; searchRevInclude values; a bare parameter name in searchInclude (Da Vinci Drug Formulary writes
-;; `formulary-coverage`) is read as the resource's own: `InsurancePlan:formulary-coverage`
-(define (includes-of res k)
-  (for/list ([v (in-list (hash-ref res k '()))])
-    (if (and (eq? k 'searchInclude) (not (regexp-match? #rx":" v)))
-        (string-append (hash-ref res 'type) ":" v)
-        v)))
-
+;; executable? : catalog type name -> Boolean   a parameter the store indexes (or a built-in one)
 (define (executable? catalog type name)
-  (or (member name '("_id" "_lastUpdated"))
+  (or (and (member name '("_id" "_lastUpdated")) #t)
       (for/or ([sp (in-list (hash-ref catalog (string->symbol type) '()))])
-        (and (equal? (search-param-name sp) name) (indexed-kind? (search-param-kind sp))))))
-
-;; searchable? : CapabilityStatement.rest.resource -> boolean   does it declare search-type?
-(define (searchable? res)
-  (for/or ([i (in-list (hash-ref res 'interaction '()))]) (equal? (hash-ref i 'code #f) "search-type")))
-
-;; searchable-only : rest.resource -> rest.resource   search parameters and includes are only
-;; advertised where search is (IPA lists includes on PractitionerRole, which it only lets clients read)
-(define (searchable-only res)
-  (if (searchable? res)
-      res
-      (for/fold ([h res]) ([k (in-list '(searchParam searchInclude _searchInclude searchRevInclude _searchRevInclude))])
-        (hash-remove h k))))
-
-;; the IG's server CapabilityStatement, as this server's instance statement: same resources,
-;; profiles and expectations, trimmed to the interactions and parameters actually executed
-(define (instance-capability plan served catalog url)
-  (define cs (ig-plan-ig-cs plan))
-  (define served-types (map ig-resource-type served))
-  (define rest (findf (lambda (x) (equal? (hash-ref x 'mode #f) "server")) (hash-ref cs 'rest)))
-  (define resources
-    (for/list ([res (in-list (hash-ref rest 'resource '()))]
-               #:when (member (hash-ref res 'type) served-types))
-      (define t (hash-ref res 'type))
-      (searchable-only
-       (for/fold ([h (for/fold ([h (let ([ops (filter operation-implemented? (hash-ref res 'operation '()))])
-                                    (if (null? ops) (hash-remove res 'operation) (hash-set res 'operation ops)))])
-                              ([k (in-list '(searchInclude searchRevInclude))])
-                      ;; keep the includes this server executes (their _ extension arrays would no
-                      ;; longer line up once filtered, so they are dropped)
-                      (define kept (filter include-supported? (includes-of h k)))
-                      (define h2 (hash-remove h (string->symbol (string-append "_" (symbol->string k)))))
-                      (if (null? kept) (hash-remove h2 k) (hash-set h2 k kept)))])
-                ([k (in-list '(interaction searchParam))])
-        (define kept
-          (filter (lambda (x) (if (eq? k 'interaction)
-                                  (member (hash-ref x 'code #f) supported-interactions)
-                                  (executable? catalog t (hash-ref x 'name ""))))
-                  (hash-ref res k '())))
-        (if (null? kept) (hash-remove h k) (hash-set h k kept))))))
-  (define base
-    (for/fold ([h cs]) ([k (in-list '(id meta text url version name title _title publisher contact
-                                      jurisdiction copyright instantiates imports _instantiates))])
-      (hash-remove h k)))
-  (hash-set* base
-             'kind "instance"
-             'status "active"
-             'date (let ([d (seconds->date (current-seconds) #f)])
-                     (format "~a-~a-~a" (date-year d) (~2 (date-month d)) (~2 (date-day d))))
-             'instantiates (list (string-append (hash-ref cs 'url) "|" (or (ig-plan-version plan) "")))
-             'software (hasheq 'name "fhir-server ig-server")
-             'implementation (if url (hasheq 'description "generated from the IG" 'url url)
-                                 (hasheq 'description (format "generated from ~a ~a" (ig-plan-name plan) (ig-plan-version plan))))
-             'rest (list (hash-set* (hash-remove (hash-remove rest 'searchParam) 'operation)
-                                    'resource resources
-                                    'interaction (filter (lambda (i) (member (hash-ref i 'code #f) '("transaction" "batch")))
-                                                         (append (hash-ref rest 'interaction '())
-                                                                 (list (hasheq 'code "transaction") (hasheq 'code "batch"))))))))
-
-(define (~2 n) (if (< n 10) (format "0~a" n) (number->string n)))
+        (and (equal? (search-param-name sp) name) (indexed-kind? (search-param-kind sp))))
+      #f))
 
 ;; load-ig-examples! : ig-server -> (values loaded rejected)   rejected : (listof (cons file reason))
 (define (load-ig-examples! srv)

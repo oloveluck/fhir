@@ -402,7 +402,7 @@ source; @tt{/metadata} is the IG's own statement trimmed to what runs, and every
 @racket[ig-server-app] is what @racket[serve-app] serves.}
 @defstruct*[gap ([type any/c] [what any/c] [name any/c] [expectation any/c] [reason any/c])]{One requirement the server does not meet, with its SHALL, SHOULD or MAY.}
 @defproc[(gap->list [g gap?]) list?]
-@defproc[(plan-ig-server [package path-string?] [capability (or/c string? #f) #f]) ig-plan?]{The reading of the IG's statement, without a store.}
+@defproc[(plan-ig-server [package path-string?] [capability (or/c string? #f) #f]) ig-plan?]{The reading of the IG's statement, without a store (@tt{fhir/store/ig-plan}, which also resolves the package's dependencies). The gaps and the instance statement are @tt{fhir/store/ig-capability}'s: the statement held against what the server executes, as four predicates.}
 @deftogether[(
 @defstruct*[ig-plan ([name string?] [version string?] [fhir-version string?] [tower any/c] [core-tgz any/c] [ig-cs any/c] [resources list?])]
 @defstruct*[ig-resource ([type any/c] [interactions list?] [search-params list?] [profiles list?])])]

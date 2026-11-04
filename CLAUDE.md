@@ -559,7 +559,14 @@ special are not). Before this, search guessed token-vs-reference from the VALUE'
 date/number/quantity parameters silently matched nothing.
 
 ## Servers generated from an IG (fhir-server's `store/ig-server.rkt`, `raco fhir-server serve-ig`)
-`make-ig-server store ig.tgz` derives the whole server from the IG package: package.json
+Three modules along the seams: `store/ig-plan.rkt` READS the package as the specification of a
+server (the IgPlan: tower, core package, the server CapabilityStatement with search implied, the
+IgResources; the dependency packages) — pure over the package, tested on US Core; `store/ig-capability.rkt`
+holds the IG's statement against WHAT THE SERVER EXECUTES — an `executes` value of four predicates
+(interaction, search parameter, include, operation) — and answers the gaps (`plan-gaps`) and the
+instance statement for `/metadata` (`instance-capability`), pure over jsexpr and tested on a small
+statement; `store/ig-server.rkt` builds the app (the validating repositories, the operations, the
+loader) and supplies the predicates. `make-ig-server store ig.tgz` derives the whole server from the IG package: package.json
 `fhirVersions` picks the tower (fhir/r4|r5|r6) and the core package; the IG's server
 CapabilityStatement (rest.mode = server) gives the types, interactions, search parameters, includes,
 supported profiles and operations; the search catalog is the core SearchParameters overlaid by the
