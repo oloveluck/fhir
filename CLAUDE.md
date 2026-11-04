@@ -164,6 +164,15 @@ declare (operations on Resource on every served type), with the store as data so
 `$docref` is built there from the IG's own OD (it needs the store's search).
 `fhir-examples/examples/pipeline.rkt` maps a QuestionnaireResponse to a Patient with FML,
 validates it and checks its gender against the core value set — by reference, no server.
+**A StructureMap is a value the same way** (fml/registry): `(structure-map "http://…/StructureMap/x")`
+resolves by canonical (maps registered in the process, `current-data-source`, the packages — `sd-index`
+indexes StructureMap and ConceptMap too) into a typed procedure from its source structure to its
+target (`smap-source`/`smap-target`; `compose-maps` checks the types); `$transform` takes `source`
+(a canonical) and `sourceMap` (a resource) as well as `srcMap`. `raco fml check` is the
+spec-author's loop for maps (findings positioned in the FML; examples transformed and validated),
+and a project of FSH structures runs it on its `.map` files under `raco fsh check` — the worked
+project is `fhir-examples/examples/intake-maps` (a logical model, a profile, the map between them, an
+instance; packed as one package; the map applied by canonical from it).
 **Over HTTP, the CapabilityStatement follows from what is served** (fhir-server's
 `capability/operations.rkt`): `(serve-operations (list $validate $expand) #:port 8080)` serves just
 operations, `(operations-app ops)` is that app; in `#lang fhir/capability`, `(operation "ValueSet/$expand")`
@@ -428,6 +437,8 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | CQL | cqframework/cql-tests | `raco cql --tck` | 1820/1823 |
 | FML | fhir-test-cases r5/structure-mapping | `raco fml --tck` | 6/6 exec, 15/15 parse |
 | **FML corpus 2** | **ahdis/matchbox's maps + the FHIR mapping-language tutorial (13 steps over logical models); FHIR/interversion R3/R4 maps parsed in CI** | `raco fml --tck` (fml repo, `tests/matchbox-harness.rkt`) | **43/43 parse, 17/17 run, tutorial 37/37** (2 stale result files set aside with evidence); interversion 332/332 parse |
+| **FML StructureMap form** | **every corpus map through its StructureMap and back; the tutorial run from the emitted resources by canonical; our StructureMap vs matchbox's rule by rule** | `raco fml --tck` | **58/58 round trip; 37/37 from our resources** (30/37 from the reference's, several predate their .map); **21/31 rules equal** |
+| **FML check** | **every corpus map checked against its structures** | `raco fml --tck` | **55/58 without an error finding** — the 3 are real (R4 elements R5 dropped; a typo in syntax.map) |
 | **UCUM** | **FHIR/Ucum-java UcumFunctionalTests.xml** | **`raco fhirpath --ucum-tck`** | **573/573** (all sections) |
 | VCL | the spec page's 60 examples | `raco test vcl/` | 60/60 parse + fixpoint |
 | round-trip | HL7 examples + R4/R5 core packages | `raco fhir roundtrip-tck r5\|r4` | 2968+77, 4581+72 |
@@ -589,4 +600,5 @@ of the patient's data; the three corpus disagreements the cql package documents)
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.
-- FML transforms beyond the TCK — future work over `model/node` + `model/registry` + `fhirpath`.
+- FML: `dateOp`, `escape`, `pointer`; a map pinned to R4 (`uses …|4.0.1`) still runs on the R5
+  tower (one tower per process).
