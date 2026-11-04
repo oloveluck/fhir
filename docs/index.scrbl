@@ -39,7 +39,7 @@ generated servers and @tt{raco fsh check} do not.}
 operations, as FHIRPath's @tt{%terminologies}, over HTTP, and for VCL's implicit value set urls.}]
 
 CQL and FSH do not use the service: CQL takes value set expansions as data, FSH records bindings and
-validates no codes, and FML has no @tt{translate}. The service's own limits (external code systems undecidable, supplements only when named) are in
+validates no codes; FML's @tt{translate} asks it for ConceptMaps it does not embed. The service's own limits (external code systems undecidable, supplements only when named) are in
 the fhir-tx document, with @tt{raco fhir-tx serve}, which puts it over HTTP.
 
 @section{What is missing}
@@ -48,5 +48,6 @@ Each document ends its usage section with a @italic{Limits} list, from the code.
 the server has no paging, sorting, chaining, conditional requests or SMART; the validator checks
 no references and no extension contexts and leaves invariants off; the terminology service cannot see
 external code systems; CQL scores proportion measures only and
-reads no terminology service; FML runs a subset of the transforms; FSH reproduces most but not all
+reads no terminology service; FML runs every transform but @tt{dateOp}, @tt{escape} and
+@tt{pointer}; FSH reproduces most but not all
 of what SUSHI writes for two real IGs; forms exist for R6 only; nothing reads or writes XML.

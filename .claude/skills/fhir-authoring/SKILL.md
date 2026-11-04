@@ -112,8 +112,28 @@ One expression per file; a parse error is a compile error. Provides `compose`/`v
 
 ## `#lang fml` — FHIR Mapping Language
 
-Prints the compiled StructureMap. `fml->structuremap` is the compiler; `run-map` executes
-groups/rules over typed resources (JSON-only — CDA/XML tests are out of scope).
+A `.map`/`.fml` file is one mapping: `uses` names the source and target structures by canonical
+(a FHIR type, a profile, or a logical model from the project, a data source or a package), groups
+of rules read source elements and write target elements. Prints the compiled StructureMap; the
+module provides `transform` (FHIR JSON in, FHIR JSON out; `#:structures` gives logical models).
+
+```sh
+raco fml map.map                                   # the StructureMap JSON
+raco fml map.map --transform src.json [--structures sds/]
+raco fml check map.map [--structures sds/] [--examples ex/] [--profile sd.json]   # findings on their lines
+```
+
+`check` reports what the two StructureDefinitions decide — an element the type lacks, a value
+whose type cannot go into the element, a bad group call, a required target element never assigned —
+and with examples transforms each and validates the result, tracing issues to the rule that wrote
+the element. A project of FSH structures checks its `.map` files the same way under `raco fsh check`
+and packs their StructureMaps with the structures (`fhir-examples/examples/intake-maps`).
+
+Maps are values (`fml/registry`): `(structure-map "http://…/StructureMap/x")` resolves by canonical
+(maps registered in the process, `current-data-source`, the packages) into a typed procedure
+(`smap-source`/`smap-target`; `compose-maps`); `$transform` takes `source` (canonical), `sourceMap`
+(resource) or `srcMap` (text). A StructureMap resource runs without its FML
+(`structuremap->fml`). Not run: `dateOp`, `escape`, `pointer`; JSON only (CDA/XML out of scope).
 
 ## `#lang fhir/capability` — declare an app
 
