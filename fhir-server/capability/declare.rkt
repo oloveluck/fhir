@@ -10,7 +10,7 @@
 ;;; Load-bearing identifiers the user wrote (the #:repository value, the #:handler proc) are spliced
 ;;; through verbatim so they resolve at phase 0 against the user's own `define`s.
 
-(require racket/base
+(require racket/base racket/contract
          ;; identifiers emitted into the generated (user phase-0) code must be for-template here
          (for-template racket/base
                        (only-in "derive.rkt" rc-server rc-resource rc-operation rc-param derive-operation-definition)
@@ -24,7 +24,17 @@
          (only-in "interaction-codes.rkt"
                   type-interaction? system-interaction? search-param-type?))
 
-(provide parse-server parse-resource parse-operation (struct-out parsed-operation))
+(provide
+ (struct-out parsed-operation)
+ ;; the three declaration forms, each read at expansion time into the runtime expressions the
+ ;; module body emits (contracts here run at phase 1, when the module is expanded)
+ (contract-out
+  ;; (server …) -> the rc-server expression
+  [parse-server (-> syntax? syntax?)]
+  ;; (resource Type …) -> (values the rc-resource expression, the (cons 'Type repository) expression)
+  [parse-resource (-> syntax? (values syntax? syntax?))]
+  ;; (operation …) -> a ParsedOperation of expressions
+  [parse-operation (-> syntax? parsed-operation?)]))
 
 ;; ---- (server …) -----------------------------------------------------------------------------
 ;; -> syntax constructing an rc-server value
