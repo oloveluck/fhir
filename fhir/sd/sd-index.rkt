@@ -23,7 +23,8 @@
 (provide (contract-out
           [resolve-sd-raw (-> string? (or/c hash? #f))]
           ;; a CodeSystem / ValueSet / StructureDefinition by url, name or id
-          [resolve-canonical-raw (-> (or/c "CodeSystem" "ValueSet" "StructureDefinition") string? (or/c hash? #f))]
+          [resolve-canonical-raw (-> (or/c "CodeSystem" "ValueSet" "StructureDefinition" "StructureMap" "ConceptMap")
+                                     string? (or/c hash? #f))]
           ;; the FHIR NPM packages (.tgz) to resolve from, in priority order; #f = fhir-spec's R5 core
           [current-sd-packages (parameter/c (or/c #f (listof path-string?)))]
           ;; the effective package list — a cache key for anything derived from the index
@@ -39,8 +40,8 @@
 (define (sd-index-available?) (pair? (sd-context)))
 
 ;; indexed resource kinds: file-name prefix in a package -> table key
-(define indexed-kinds '("StructureDefinition" "CodeSystem" "ValueSet"))
-(define file-rx #px"^package/(StructureDefinition|CodeSystem|ValueSet)-.*\\.json$")
+(define indexed-kinds '("StructureDefinition" "CodeSystem" "ValueSet" "StructureMap" "ConceptMap"))
+(define file-rx #px"^package/(StructureDefinition|CodeSystem|ValueSet|StructureMap|ConceptMap)-.*\\.json$")
 
 ;; one index per package, built on first use; a lookup searches the context's packages in order.
 ;; A package index is kind -> (url | name | id -> resource), so a CodeSystem and a ValueSet that share
@@ -72,7 +73,8 @@
     tables)
 
 ;; resolve-canonical-raw : kind name-or-url -> resource | #f   (kind: "CodeSystem" | "ValueSet" |
-;; "StructureDefinition"; searched over the context's packages in order; |version suffix ignored)
+;; "StructureDefinition" | "StructureMap" | "ConceptMap"; searched over the context's packages in
+;; order; |version suffix ignored)
 (define (resolve-canonical-raw kind name-or-url)
   (define key (car (regexp-split #rx"[|]" name-or-url)))
   (for/or ([tgz (in-list (sd-context))])
