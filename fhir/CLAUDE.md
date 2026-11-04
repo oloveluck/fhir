@@ -110,3 +110,14 @@ repo's "Snapshot generation + validation" section.
 ## Operation entries (`kernel/operation-entry.rkt`)
 The one struct a generated tower's `operations.rkt` produces. Lives in the foundation so the
 towers depend only on fhir; `capability/runtime` (main package) re-exports it.
+
+## Parallelism (`parallel.rkt`)
+`parallel-map` runs a NAMED function (module path + export) over items on every core, in order,
+with worker `racket` processes fed one item at a time (work stealing) and a sequential path for one
+worker. Processes, not places: Racket CS places share one heap and a collection stops every place,
+so allocation-heavy work got SLOWER on places (the round-trip corpus: 36 s alone, 51 s on four
+places); separate heaps give the real speedup (13.7 s). What crosses the pipe is written data, so
+the design rule is: ship references, not data — the round-trip harness shards a core package by
+worker (each streams the archive and keeps every k-th resource; 100 MB of JSON never crosses),
+`run-dir` sends file paths, the codegen check sends target ids. `FHIR_WORKERS=1` keeps everything
+in-process.

@@ -11,6 +11,7 @@
 ;;; languages have their own: raco fhirpath | cql | fsh | vcl | fml.
 
 (require racket/list
+         (only-in fhir/parallel parallel-map)
          (only-in json jsexpr->string read-json)
          (only-in fhir/serialize/read-json read-fhir-json)
          fhir/codegen/gen
@@ -29,7 +30,8 @@
   (for ([t (in-list (targets-of arg))]) (generate-tower t)))
 
 (define (cmd-check arg)
-  (define drift (append-map check-tower (targets-of arg)))
+  ;; the towers regenerate in parallel, one place per target (fhir/parallel), each named by its id
+  (define drift (append* (parallel-map '(fhir/codegen/check check-tower/id) (map gen-target-id (targets-of arg)))))
   (cond
     [(null? drift) (printf "check: generated tree is up to date.\n")]
     [else

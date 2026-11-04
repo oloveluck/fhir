@@ -40,7 +40,9 @@ jobs:
       - name: Test the terminology package and the server seams it uses
         run: |
           raco test fhir-tx/terminology/index.rkt fhir-tx/terminology/service.rkt fhir-tx/terminology/operations.rkt fhir-tx/tx-cli.rkt
-          raco test fhir/registry.rkt fhir/sd/operations.rkt fhir/sd/logical.rkt fhir/serialize/jsexpr-util.rkt fhir/codegen/gen.rkt fhir-server/http/router.rkt fhir-server/capability/operations.rkt fhir-server/tests/operations-http-test.rkt
+          raco test fhir/parallel.rkt fhir/registry.rkt fhir/sd/operations.rkt fhir/sd/logical.rkt fhir/serialize/jsexpr-util.rkt fhir/codegen/gen.rkt fhir-server/http/router.rkt fhir-server/capability/operations.rkt fhir-server/tests/operations-http-test.rkt
+          raco fhir roundtrip-tck r5
+          raco fhir roundtrip-tck r4
       - name: The terminology conformance suite (floor-ratcheted)
         run: raco fhir-tx tck
       - name: The server and validation suites (the stores, generated servers, IG oracles, the validator differential)

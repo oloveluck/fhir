@@ -14,7 +14,11 @@
 (provide
  (contract-out
   ;; check-tower : gen-target -> (listof string)  — relpaths that drifted (empty = clean)
-  [check-tower (-> gen-target? (listof string?))]))
+  [check-tower (-> gen-target? (listof string?))]
+  ;; the same, by the target's id — what a worker place can be told (fhir/parallel)
+  [check-tower/id (-> symbol? (listof string?))]))
+
+(define (check-tower/id id) (check-tower (target-for id)))
 
 (define (check-tower t)
   (define-values (files _v _d _r) (tower-files t))

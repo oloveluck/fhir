@@ -238,6 +238,12 @@ This file is the architecture reference; keep the how-to in the skills.
   normalization applies only when BOTH operands carry a time, and minute shifts carry the day
   through the calendar (`fhirpath/temporal-ops.rkt` — both were real, test-caught bugs).
 
+- **Parallelism is worker processes, not places or threads** (`fhir/parallel`): `parallel-map`
+  over a named function, items dealt as workers finish, results in order; ship paths and shard
+  numbers, not data. Racket CS places share a heap (a GC stops them all) and made the round-trip
+  corpus slower; processes made it 2.4x faster on four cores. `FHIR_WORKERS=1` is the sequential
+  switch. Used by `raco fhir roundtrip-tck` and `raco fhir check`.
+
 ## Design style — HTDP + beautiful Racket
 This codebase is written in the **How to Design Programs** idiom; keep new code in the same style:
 - **Data definitions first.** Before the code, state the data as an itemized comment ("An ELM-Expr is one

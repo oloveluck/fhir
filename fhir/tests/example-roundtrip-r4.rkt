@@ -14,10 +14,10 @@
 (define r4-tgz (spec-package-path "hl7.fhir.r4.core.tgz"))
 
 (define (report)
-  (define-values (ep ef) (run-dir examples-dir))
+  (define-values (ep ef) (run-dir examples-dir #:tower 'fhir/r4/schemas))
   (printf "R4 examples : ~a/~a round-trip\n" ep (+ ep (length ef)))
   (for ([f (in-list ef)]) (printf "  FAIL ~a (~a)\n" (car f) (cdr f)))
-  (define-values (pp pf) (run-package r4-tgz))
+  (define-values (pp pf) (run-package r4-tgz #:tower 'fhir/r4/schemas))
   (printf "R4 core pkg : ~a/~a round-trip\n" pp (+ pp (length pf)))
   (for ([f (in-list (if (> (length pf) 20) (take pf 20) pf))]) (printf "  FAIL ~a (~a)\n" (car f) (cdr f)))
   (values ep ef pp pf))

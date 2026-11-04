@@ -421,6 +421,22 @@ accepted, and a source may redefine its own. Ids are not checked: the latest reg
 @defproc[(registered-source [kind string?] [url-or-id string?]) any/c]
 @defproc[(registered-kinds) (listof string?)]
 
+@subsection[#:style 'unnumbered]{@tt{fhir/parallel}}
+@defmodule[fhir/parallel]
+
+@defproc[(parallel-map [fn (list/c module-path? symbol?)] [items list?]
+                       [#:workers workers exact-positive-integer? (default-workers)]
+                       [#:setup setup (or/c module-path? #f) #f]) list?]{
+Maps the function @racket[fn] names (a module path and an export) over @racket[items] on every
+core and answers the results in order. The workers are @tt{racket} processes of their own (threads
+share one core, and places share one heap, whose collections stop every place), so the function is
+named, not passed: each worker instantiates @racket[setup] (a type tower, say) and then the
+function's module. Items and results are written and read as S-expressions, so they must be
+readable data; the sharing wins when what crosses is small next to the work — hand a worker a path
+or a shard number rather than the data. Items are dealt one at a time as workers finish. With one
+worker the function runs in-process.}
+@defproc[(default-workers) exact-positive-integer?]{One per core, or @tt{FHIR_WORKERS} from the environment (1 keeps everything in-process).}
+
 @subsection[#:style 'unnumbered]{@tt{fhir/diagnostic}}
 @defmodule[fhir/diagnostic]
 
