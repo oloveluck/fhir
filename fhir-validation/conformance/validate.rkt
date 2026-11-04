@@ -14,7 +14,7 @@
 (require racket/contract (only-in json jsexpr->string string->jsexpr)
          racket/string
          racket/list
-         (only-in fhir/sd/sd-index resolve-sd-raw)
+         (only-in fhir/sd/sd-index resolve-sd-raw current-sd-packages)
          (only-in fhir/sd/element-index
                   make-element-index element-index? index-elements index-root child-elements slices-of
                   index-by-id type-index opaque-type?)
