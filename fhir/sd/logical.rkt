@@ -46,94 +46,111 @@
       (registered-resource "StructureDefinition" u)            ; what a required module defined
       (resolve-sd-raw u)))
 
+;; A Reg is (reg url children resolve replace?): one StructureDefinition being registered — its url
+;; (the spec url of what it defines), `children` : path -> the elements directly under it, in order,
+;; how a canonical another element names resolves, and whether nested types already registered are
+;; redefined (a redefinition of the same logical type)
+(struct reg (url children resolve replace?))
+
 (define (register-structure-definition! sd #:resolve [resolve resolve-structure-definition/data])
   (define sym (structure-definition-type sd))
-  ;; the same type name defined by ANOTHER StructureDefinition (a tutorial's TLeft, one per step)
-  ;; replaces the earlier registration — only one this module made (kind 'logical): a tower type
-  ;; is never replaced, and a profile (derivation constraint) never redefines its base type
-  (define replace?
-    (and sym (type-registered? sym)
-         (not (equal? (jref sd 'derivation) "constraint"))
-         (let ([spec (type-spec-of sym)])
-           (and spec (eq? (fhir-spec-constraint spec) 'logical)
-                (string? (jref sd 'url)) (not (equal? (fhir-spec-url spec) (jref sd 'url)))))))
   (cond
     [(not sym) #f]
-    [(and (type-registered? sym) (not replace?)) sym]
+    [(and (type-registered? sym) (not (redefines? sd sym))) sym]
     [else
-     (define elements (let ([s (jref sd 'snapshot)] [d (jref sd 'differential)])
-                        (or (and s (jlist s 'element)) (and d (jlist d 'element)) '())))
+     (define elements (sd-elements sd))
      (define root-path (if (pair? elements) (jref (car elements) 'path) (symbol->string sym)))
-     ;; children : path -> the elements directly under it, in order
-     (define children
-       (for/fold ([h (hash)]) ([e (in-list elements)])
-         (define p (jref e 'path))
-         (define segs (string-split p "."))
-         (if (> (length segs) 1)
-             (hash-update h (string-join (drop-right segs 1) ".") (lambda (l) (append l (list e))) '())
-             h)))
-     (define url (jref sd 'url))
-     (define logical? (equal? (jref sd 'kind) "logical"))
-     (define (spec-url path) (format "~a#~a" (or url "") path))
-     ;; register-node! : type-sym path parent-sym -> void   the type for the elements under `path`
-     (define (register-node! tsym path parent)
-       (define fields
-         (append*
-          (for/list ([e (in-list (hash-ref children path '()))])
-            (define name (last (string-split (jref e 'path) ".")))
-            (define min (let ([m (jref e 'min 0)]) (if (exact-nonnegative-integer? m) m 0)))
-            (define max (max-of (let ([m (jref e 'max "1")]) (if (string? m) m "1"))))
-            (define types (jlist e 'type))
-            (cond
-              ;; a choice element: one field per type, keyed value<Type>
-              [(regexp-match? #rx"\\[x\\]$" name)
-               (define base (substring name 0 (- (string-length name) 3)))
-               (for/list ([t (in-list types)])
-                 (define code (type-leaf (jref t 'code)))
-                 (schema-field (string->symbol (string-append base (capitalize code))) min max
-                               (ftype-of tsym base t (jref e 'path)) (string->symbol base) (spec-url (jref e 'path)) #f))]
-              [else
-               (list (schema-field (string->symbol name) min max
-                                   (if (pair? types) (ftype-of tsym name (car types) (jref e 'path)) (vector 'unknown))
-                                   #f (spec-url (jref e 'path)) #f))]))))
-       (register-type! tsym (fhir-spec tsym (or url (symbol->string tsym)) 'logical)
-                       #:schema (type-schema tsym #f parent (or url (symbol->string tsym)) fields #f #f))
-       (for ([e (in-list (hash-ref children path '()))])
-         (register-element! (jref e 'path) (fhir-spec (string->symbol (jref e 'path)) (spec-url (jref e 'path)) 'element))))
-     ;; ftype-of : owner-sym element-name type-entry path -> Ftype
-     (define (ftype-of owner name t path)
-       (define code (jref t 'code))
-       (define profiles (jlist t 'profile))
-       (define target (and (pair? profiles) (string? (car profiles)) (car profiles)))
-       (cond
-         [(and (string? code) (regexp-match? #rx"^http://hl7.org/fhirpath/System\\." code))
-          (define sys (regexp-replace #rx"^.*System\\." code ""))
-          (define prim (case sys
-                         [("String") "string"] [("Integer") "integer"] [("Decimal") "decimal"]
-                         [("Boolean") "boolean"] [("Date") "date"] [("DateTime") "dateTime"] [("Time") "time"]
-                         [else #f]))
-          (if prim (vector 'prim prim) (vector 'unknown))]
-         [(and (member code '("BackboneElement" "Element")) (pair? (hash-ref children path '())))
-          (define nested (string->symbol (string-append (symbol->string owner) (capitalize name))))
-          (when (or replace? (not (type-registered? nested))) (register-node! nested path 'Element))
-          (vector 'type nested)]
-         [(and (string? code) (primitive-name? (string->symbol code))) (vector 'prim code)]
-         [(and (string? code) (member code '("Resource" "DomainResource"))) (vector 'resource)]
-         [(and target (not (type-registered? (string->symbol (type-leaf target)))))
-          (define other (resolve target))
-          (define osym (and other (register-structure-definition! other #:resolve resolve)))
-          (if osym (vector 'type osym) (vector 'unknown))]
-         [target (vector 'type (string->symbol (type-leaf target)))]
-         [(and (string? code) (type-registered? (string->symbol (type-leaf code)))) (vector 'type (string->symbol (type-leaf code)))]
-         [(and (string? code) (regexp-match? #rx"^https?://" code))
-          (define other (resolve code))
-          (define osym (and other (register-structure-definition! other #:resolve resolve)))
-          (if osym (vector 'type osym) (vector 'unknown))]
-         [else (vector 'unknown)]))
+     (define r (reg (jref sd 'url) (children-index elements) resolve (and (type-registered? sym) #t)))
      ;; a logical model serializes without resourceType (its JSON may still carry one, which
      ;; from-json reads as the type); a specialization keeps its base
-     (register-node! sym root-path (if logical? 'Element (string->symbol (type-leaf (or (jref sd 'baseDefinition) "Element")))))
+     (register-node! r sym root-path
+                     (if (equal? (jref sd 'kind) "logical")
+                         'Element
+                         (string->symbol (type-leaf (or (jref sd 'baseDefinition) "Element")))))
      sym]))
+
+;; redefines? : sd type-sym -> boolean   the same type name defined by ANOTHER StructureDefinition
+;; (a tutorial's TLeft, one per step) replaces the earlier registration — only one this module made
+;; (kind 'logical): a tower type is never replaced, and a profile (derivation constraint) never
+;; redefines its base type
+(define (redefines? sd sym)
+  (define spec (type-spec-of sym))
+  (and spec (eq? (fhir-spec-constraint spec) 'logical)
+       (not (equal? (jref sd 'derivation) "constraint"))
+       (string? (jref sd 'url)) (not (equal? (fhir-spec-url spec) (jref sd 'url)))))
+
+;; sd-elements : sd -> elements   the snapshot's, else the differential's
+(define (sd-elements sd)
+  (let ([s (jref sd 'snapshot)] [d (jref sd 'differential)])
+    (or (and s (jlist s 'element)) (and d (jlist d 'element)) '())))
+
+;; children-index : elements -> (hash path -> elements directly under it, in order)
+(define (children-index elements)
+  (for/fold ([h (hash)]) ([e (in-list elements)])
+    (define segs (string-split (jref e 'path) "."))
+    (if (> (length segs) 1)
+        (hash-update h (string-join (drop-right segs 1) ".") (lambda (l) (append l (list e))) '())
+        h)))
+
+(define (spec-url r path) (format "~a#~a" (or (reg-url r) "") path))
+(define (children r path) (hash-ref (reg-children r) path '()))
+
+;; register-node! : reg type-sym path parent-sym -> void   the type for the elements under `path`
+(define (register-node! r tsym path parent)
+  (define fields (append* (for/list ([e (in-list (children r path))]) (element-fields r tsym e))))
+  (register-type! tsym (fhir-spec tsym (or (reg-url r) (symbol->string tsym)) 'logical)
+                  #:schema (type-schema tsym #f parent (or (reg-url r) (symbol->string tsym)) fields #f #f))
+  (for ([e (in-list (children r path))])
+    (register-element! (jref e 'path) (fhir-spec (string->symbol (jref e 'path)) (spec-url r (jref e 'path)) 'element))))
+
+;; element-fields : reg owner-sym element -> (listof schema-field)
+;; one field, or one per type of a choice element (`value[x]` -> valueString, valueQuantity …)
+(define (element-fields r owner e)
+  (define path (jref e 'path))
+  (define name (last (string-split path ".")))
+  (define min (let ([m (jref e 'min 0)]) (if (exact-nonnegative-integer? m) m 0)))
+  (define max (max-of (let ([m (jref e 'max "1")]) (if (string? m) m "1"))))
+  (define types (jlist e 'type))
+  (cond
+    [(regexp-match? #rx"\\[x\\]$" name)
+     (define base (substring name 0 (- (string-length name) 3)))
+     (for/list ([t (in-list types)])
+       (schema-field (string->symbol (string-append base (capitalize (type-leaf (jref t 'code))))) min max
+                     (element-ftype r owner base t path) (string->symbol base) (spec-url r path) #f))]
+    [else
+     (list (schema-field (string->symbol name) min max
+                         (if (pair? types) (element-ftype r owner name (car types) path) (vector 'unknown))
+                         #f (spec-url r path) #f))]))
+
+;; element-ftype : reg owner-sym element-name type-entry path -> Ftype   (the header's reading)
+(define (element-ftype r owner name t path)
+  (define code (jref t 'code))
+  (define profiles (jlist t 'profile))
+  (define target (and (pair? profiles) (string? (car profiles)) (car profiles)))
+  (define (registered-from url)                           ; another StructureDefinition, by canonical
+    (define other ((reg-resolve r) url))
+    (define osym (and other (register-structure-definition! other #:resolve (reg-resolve r))))
+    (if osym (vector 'type osym) (vector 'unknown)))
+  (cond
+    [(and (string? code) (regexp-match? #rx"^http://hl7.org/fhirpath/System\\." code))
+     (define prim (hash-ref system-primitives (regexp-replace #rx"^.*System\\." code "") #f))
+     (if prim (vector 'prim prim) (vector 'unknown))]
+    [(and (member code '("BackboneElement" "Element")) (pair? (children r path)))
+     (define nested (string->symbol (string-append (symbol->string owner) (capitalize name))))
+     (when (or (reg-replace? r) (not (type-registered? nested))) (register-node! r nested path 'Element))
+     (vector 'type nested)]
+    [(and (string? code) (primitive-name? (string->symbol code))) (vector 'prim code)]
+    [(and (string? code) (member code '("Resource" "DomainResource"))) (vector 'resource)]
+    [(and target (not (type-registered? (string->symbol (type-leaf target))))) (registered-from target)]
+    [target (vector 'type (string->symbol (type-leaf target)))]
+    [(and (string? code) (type-registered? (string->symbol (type-leaf code)))) (vector 'type (string->symbol (type-leaf code)))]
+    [(and (string? code) (regexp-match? #rx"^https?://" code)) (registered-from code)]
+    [else (vector 'unknown)]))
+
+;; FHIRPath's System types, as FHIR primitives
+(define system-primitives
+  (hash "String" "string" "Integer" "integer" "Decimal" "decimal" "Boolean" "boolean"
+        "Date" "date" "DateTime" "dateTime" "Time" "time"))
 
 (define (type-leaf s) (last (string-split s "/")))
 (define (capitalize s) (if (zero? (string-length s)) s (string-append (string-upcase (substring s 0 1)) (substring s 1))))
