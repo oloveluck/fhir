@@ -3,32 +3,18 @@
 ;;; load.rkt — put files into a store: FHIR Bundles (transaction/batch/collection), single resources,
 ;;; and CQL libraries.
 ;;;
-;;; A `.cql` file becomes a Library resource the way a measure repository holds one: id and name the
-;;; CQL library's name, version from its header, `type` logic-library, the source as base64
-;;; text/cql content, url <base>/Library/<name>. (Measure evaluation finds a Measure's library by url,
-;;; or by the canonical's last segment = the library name, so a published Measure runs against
-;;; locally loaded CQL.)
+;;; A `.cql` file becomes a Library resource (cql/library's cql->library: id and name the CQL
+;;; library's name, version from its header, the source as text/cql content, url <base>/Library/<name>),
+;;; so a published Measure runs against locally loaded CQL.
 
-(require racket/contract racket/file racket/list racket/string json net/base64
+(require racket/contract racket/file racket/list racket/string json
+         (only-in cql/library cql->library)
          "fhir-sqlite.rkt" "fhir-engine.rkt" (only-in "bundle.rkt" load-bundle!))
 
-(provide (contract-out
+(provide cql->library                                   ; cql/library's, re-exported for the CLI
+         (contract-out
           [load-files!   (->* (fhir-store? path-string?) (#:search-params hash? #:library-base string? #:tower (or/c module-path? #f))
-                              (listof (cons/c string? exact-nonnegative-integer?)))]
-          [cql->library  (->* (string?) (#:library-base string?) hash?)]))
-
-;; cql->library : cql-source -> Library jsexpr
-(define (cql->library src #:library-base [base "http://localhost/fhir"])
-  (define m (regexp-match #px"(?m:^\\s*library\\s+(\"[^\"]+\"|\\S+)(?:\\s+version\\s+'([^']+)')?)" src))
-  (unless m (raise-user-error 'load "a CQL library needs a `library Name` header"))
-  (define name (string-trim (cadr m) "\""))
-  (define lib (hasheq 'resourceType "Library" 'id (regexp-replace* #px"[^A-Za-z0-9.-]" name "-") 'name name
-                      'status "active" 'url (string-append base "/Library/" name)
-                      'type (hasheq 'coding (list (hasheq 'system "http://terminology.hl7.org/CodeSystem/library-type"
-                                                          'code "logic-library")))
-                      'content (list (hasheq 'contentType "text/cql"
-                                             'data (bytes->string/utf-8 (base64-encode (string->bytes/utf-8 src) #""))))))
-  (if (caddr m) (hash-set lib 'version (caddr m)) lib))
+                              (listof (cons/c string? exact-nonnegative-integer?)))]))
 
 ;; load-files! : store path -> (listof (cons file-name count))   a file, or every .json/.cql under a dir
 (define (load-files! store src #:search-params [sps default-search-params] #:library-base [base "http://localhost/fhir"]

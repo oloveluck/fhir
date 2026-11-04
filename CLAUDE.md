@@ -20,7 +20,7 @@ never `../model/node.rkt`. Dependency order (base first):
 | `fhir-tx` | `oloveluck/fhir` → `fhir-tx/` | `terminology/service.rkt` ($expand, $validate-code, $lookup, $translate over packages or resources; the tx-service handle for %terminologies), `terminology/operations.rkt` (the same as fhir/operation values), the tx-ecosystem suite, `tx-cli.rkt` (`raco fhir-tx`) | fhir, fhir-spec, fhirpath, vcl |
 | `fhir-validation` | `oloveluck/fhir` → `fhir-validation/` | `conformance/validate.rkt`, the validation corpora and tests, `validate-cli.rkt` (`raco fhir-validate`) | fhir, fhir-spec, fhirpath, fhir-tx |
 | `cql` | `oloveluck/cql` | `#lang cql` (CQL → ELM + interpreter), `raco cql` | fhir, fhirpath |
-| `fml` | `oloveluck/fml` | `#lang fml` (FHIR Mapping Language), `raco fml` | fhir, fhir-tx (`translate`), fhirpath, cql (only `cql/error.rkt`, to be removed) |
+| `fml` | `oloveluck/fml` | `#lang fml` (FHIR Mapping Language), `raco fml` | fhir, fhir-tx (`translate`), fhirpath |
 | `fsh` | `oloveluck/fsh` | `#lang fsh` (bidirectional), projects + packaging, `check.rkt`; `raco fsh`, `raco fsh check` | fhir, fhirpath, fhir-validation |
 | `fhir-server` | `oloveluck/fhir` → `fhir-server/` | `capability/ http/ store/` (SQLite), IG-generated servers, `$evaluate-measure`, `server-cli.rkt` (`raco fhir-server`), server tests | fhir, fhir-spec, fhirpath, fhir-tx, fhir-validation, cql, db-lib |
 | `sql-on-fhir` | `oloveluck/sql-on-fhir` | `#lang sql-on-fhir`: ViewDefinition model and operation definitions GENERATED from the IG package (`target.rkt`, `model/`), the view engine, `$sql-run`/`$sql-export` as operations; `raco sql-on-fhir` | fhir, fhirpath (fhir-spec to regenerate) |
@@ -75,7 +75,7 @@ OperationOutcome with the standard `operationoutcome-issue-line`/`-col`/`-source
   of that token appended; if the error moves past it, the input ran out ("the entity ends after
   `=`"), otherwise the token itself is unexpected.
 - Carriers: FSH and FHIRPath raise `exn:fail:diagnostic` (a subtype of `exn:fail`, with
-  `prop:exn:srclocs`); CQL and FML put it in `cql-error-diagnostic`; VCL attaches it to its
+  `prop:exn:srclocs`); CQL puts it in `cql-error-diagnostic`, FML in `fml-error-diagnostic`; VCL attaches it to its
   `invalid-encoding` payload (`attached-diagnostic`). CQL definitions remember where they start
   (`attach-loc!`), so translation errors point at the enclosing `define` and name it.
 - CLIs (`raco fsh|cql|vcl|fml|fhirpath`, `raco fhir-validate`) take `--format text|json|outcome`.
@@ -180,7 +180,10 @@ modules is an error naming both). Every resolver looks there between the data so
 — `sd/operations` `resolve-structure-definition` (`#:profile`), the profiles a resource claims in
 `meta.profile` (fhir-validation), `sd/logical` (FML's `uses`), the terminology resolver (fhir-tx),
 `resolve-structure-map` (fml) — so requiring a module is enough for what it defines to be found;
-`current-data-source` is for DATA. CQL libraries and `.fhir6` instances are not registered yet.
+`current-data-source` is for DATA. A `#lang cql` module registers its Library (`cql/library`:
+name, version, the source as text/cql content, url `<base>/Library/<name>`), and measure
+evaluation's library and include lookups see registered libraries after the data source's.
+`.fhir6` instances are data, not conformance resources, and are not registered.
 **An inline capability operation is an operation value too** (`declared-operation`, capability/
 operations.rkt): `(operation $screen … #:handler h)` in `#lang fhir/capability` defines `$screen` as a
 fhir/operation value — the same handler with an in-process request, a typed result returned as JSON,
