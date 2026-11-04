@@ -25,7 +25,8 @@ package and repository.
 @section{Install}
 
 @verbatim{
-raco pkg install --link --auto fhir/fhir fhir/fhir-spec       # from source, in the fhir repository
+raco pkg install --link --auto fhir/fhir fhir/fhir-spec
+    # from source, in the fhir repository
 }
 
 @tt{fhir} depends on nothing but @tt{base}. @tt{fhir-spec} is data: codegen, snapshot generation,
@@ -81,7 +82,8 @@ in-Racket form.
 @racketblock[
 (require fhir/r5/schemas fhir/serialize/from-json fhir/serialize/to-json fhir/serialize/read-json
          fhir/model/node fhir/model/leaf fhir/result/result)
-(define p (ok-value (from-json (call-with-input-file "patient.json" read-fhir-json) #:lenient? #t)))
+(define p (ok-value (from-json (call-with-input-file "patient.json" read-fhir-json)
+                               #:lenient? #t)))
 (fhir-type p)                                  (code:comment "'Patient")
 (node-str p 'gender)                           (code:comment "\"male\"")
 (pv (fhir-ref (car (listify (fhir-ref p 'name))) 'family))   (code:comment "\"Chalmers\"")
@@ -97,15 +99,19 @@ through several. Loading a package's @tt{operations} module registers what it im
 
 @racketblock[
 (require fhir/operation fhir/data-source
-         (only-in fhir/conformance/operations ensure-valid)     (code:comment "fhir-validation")
-         (only-in fhir/terminology/operations $expand)          (code:comment "fhir-validation")
+         (code:comment "fhir-validation")
+         (only-in fhir/conformance/operations ensure-valid)
+         (code:comment "fhir-validation")
+         (only-in fhir/terminology/operations $expand)
          (only-in fml/operations))                              (code:comment "fml")
 (apply-operation "StructureMap/$transform" qr #:srcMap fml-text)
 (define transform (operation "StructureMap/$transform"))
 (~> qr (transform #:srcMap fml-text) (ensure-valid))
-(apply-operation "ValueSet/$validate-code" #:url "http://hl7.org/fhir/ValueSet/administrative-gender"
+(apply-operation "ValueSet/$validate-code"
+                 #:url "http://hl7.org/fhir/ValueSet/administrative-gender"
                  #:system "http://hl7.org/fhir/administrative-gender" #:code "female")
-(apply-operation/outcome "$validate" patient #:profile url)   (code:comment "a failure as its OperationOutcome")
+(code:comment "a failure as its OperationOutcome")
+(apply-operation/outcome "$validate" patient #:profile url)
 ]
 
 Context comes from two parameters: @racket[current-data-source], where an operation finds resources
@@ -116,7 +122,8 @@ dependencies, then core).
 @racketblock[
 (parameterize ([current-data-source (resources->data-source clinic)]
                [current-sd-packages (list "hl7.fhir.us.core-6.1.0.tgz" "hl7.fhir.r4.core.tgz")])
-  (ensure-valid observation #:profile "http://example.org/StructureDefinition/screening-blood-pressure"))
+  (ensure-valid observation
+                #:profile "http://example.org/StructureDefinition/screening-blood-pressure"))
 ]
 
 @bold{Packages.} @racket[read-package] reads a FHIR NPM package's manifest, resources and examples;
@@ -124,7 +131,7 @@ dependencies, then core).
 @racket[current-package-directories].
 
 @bold{Diagnostics.} Every language reports problems as @racket[diagnostic] values, positioned; the
-CLIs render them as text with a caret, JSON, or an OperationOutcome (@tt{--format}).
+CLIs render them as text with a caret, JSON, or an OperationOutcome (@litchar{--format}).
 
 @bold{Command line.}
 
@@ -136,7 +143,7 @@ raco fhir roundtrip-tck [r4|r5]     parse and serialize the whole core corpus
 raco fhir snapshot <sd.json>
 }
 
-@tt{-h} on the tool or any command prints usage and exits 0; a usage error or missing file is one
+@litchar{-h} on the tool or any command prints usage and exits 0; a usage error or missing file is one
 line on stderr, exit 2; drift or a failed parse exits 1.
 
 @section{Reference}
@@ -384,7 +391,7 @@ one with real search.}
 
 Every language reports errors as one value, rendered three ways: text with the source line and a
 caret, JSON, or a FHIR OperationOutcome with the standard line, column and source extensions. The
-CLIs take @tt{--format text|json|outcome}.
+CLIs take @litchar{--format text|json|outcome}.
 
 @defstruct*[loc ([source any/c] [line exact-integer?] [column exact-integer?] [position exact-integer?] [span exact-integer?]) #:prefab]{1-based line and column.}
 @defstruct*[diagnostic ([lang symbol?] [phase symbol?] [severity (or/c 'error 'warning)] [message string?] [loc (or/c loc? #f)]) #:prefab]{
@@ -403,7 +410,7 @@ last token a probe tells whether the input ran out ("the entity ends after @tt{=
 @defproc[(diagnostic->jsexpr [d diagnostic?]) hash?]
 @defproc[(diagnostics->operation-outcome [ds (listof diagnostic?)]) hash?])]{The three renderings; with @racket[text], the source line and a caret.}
 @defproc[(emit-diagnostics [ds (listof diagnostic?)] [#:format format (or/c 'text 'json 'outcome) 'text] [#:text-of text-of (-> any/c (or/c string? #f)) (lambda (s) #f)]) void?]{Text to stderr; JSON and outcome to stdout.}
-@defproc[(format-flag [args (listof string?)]) (values (or/c 'text 'json 'outcome) (listof string?))]{Takes @tt{--format} out of a command line.}
+@defproc[(format-flag [args (listof string?)]) (values (or/c 'text 'json 'outcome) (listof string?))]{Takes @litchar{--format} out of a command line.}
 @deftogether[(
 @defproc[(attach-diagnostic! [v any/c] [d diagnostic?]) any]
 @defproc[(attached-diagnostic [v any/c]) (or/c diagnostic? #f)]

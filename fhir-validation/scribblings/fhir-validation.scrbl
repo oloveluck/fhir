@@ -20,7 +20,8 @@ collection; depends on @tt{fhir}, @tt{fhir-spec}, @tt{fhirpath} and @tt{vcl}.
 @section{Install}
 
 @verbatim{
-raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-validation   # from source
+raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-validation
+    # from source
 }
 
 @section{Using it}
@@ -33,12 +34,16 @@ dependencies, then core; @racket[#f] means the R5 core).
 
 @racketblock[
 (require fhir/operation fhir/data-source fhir/sd/sd-index fhir/conformance/operations)
-(apply-operation "$validate" patient)                                  (code:comment "against its base type")
+(code:comment "against its base type")
+(apply-operation "$validate" patient)
 (parameterize ([current-sd-packages (list "hl7.fhir.us.core-6.1.0.tgz" "hl7.fhir.r4.core.tgz")])
-  (apply-operation "$validate" patient #:profile "http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient"))
-(parameterize ([current-data-source (resources->data-source (project-artifacts ig))]   (code:comment "an FSH project")
+  (apply-operation "$validate" patient
+                   #:profile "http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient"))
+(code:comment "an FSH project")
+(parameterize ([current-data-source (resources->data-source (project-artifacts ig))]
                [current-sd-packages (project-sd-packages ig)])
-  (ensure-valid observation #:profile url))                            (code:comment "the resource, or exn:fail:operation")
+  (code:comment "the resource, or exn:fail:operation")
+  (ensure-valid observation #:profile url))
 ]
 
 @racket[ensure-valid] is the pipeline form: @racket[(~> qr (transform #:srcMap fml) (ensure-valid #:profile url))]
@@ -53,7 +58,8 @@ StructureDefinitions, and returns @racket[issue] structs (severity, code, path, 
 @racketblock[
 (require fhir/conformance/validate fhir/terminology/service fhir/r4/schemas)
 (parameterize ([current-sd-packages (list ig-tgz core-tgz)])
-  (validate-issues resource #:profiles (list sd) #:terminology (make-terminology/packages (list ig-tgz core-tgz))))
+  (validate-issues resource #:profiles (list sd)
+                   #:terminology (make-terminology/packages (list ig-tgz core-tgz))))
 ]
 
 @bold{Terminology.} The service answers @tt{$expand}, @tt{$validate-code}, @tt{$lookup} and
@@ -63,8 +69,10 @@ resources, lazily indexed. As operations:
 @racketblock[
 (require fhir/terminology/operations)
 ($expand #:url "http://hl7.org/fhir/ValueSet/administrative-gender")
-($expand #:valueSet vs #:filter "fem")                                (code:comment "a ValueSet you hold")
-($validate-code #:url "http://hl7.org/fhir/ValueSet/administrative-gender" #:code "female" #:system "http://hl7.org/fhir/administrative-gender")
+(code:comment "a ValueSet you hold")
+($expand #:valueSet vs #:filter "fem")
+($validate-code #:url "http://hl7.org/fhir/ValueSet/administrative-gender"
+                #:system "http://hl7.org/fhir/administrative-gender" #:code "female")
 ($lookup #:system "http://loinc.org" #:code "85354-9")
 ]
 
