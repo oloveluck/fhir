@@ -28,21 +28,14 @@ package and repository.
 raco pkg install --link --auto fhir/fhir fhir/fhir-spec       # from source, in the fhir repository
 }
 
-@tt{fhir} depends on nothing but @tt{base}. @tt{fhir-spec} is data: codegen, snapshot generation and
-the conformance suites read it, through @racket[spec-package-path].
+@tt{fhir} depends on nothing but @tt{base}. @tt{fhir-spec} is data: codegen, snapshot generation,
+the validator's profile index and the conformance suites read it through @racket[spec-package-path].
 
-@section{@hash-lang[] @tt{fhir/r6}}
-@defmodulelang[fhir/r6]
+@section{Writing resources: @hash-lang[] @tt{fhir/r6}}
 
 Each top-level form @racket[(Type (field value ...) ...)] builds a typed node of an R6 resource or
 datatype. A list field takes several values, a complex field a nested form of its type, a choice
 element its concrete name (@tt{deceasedBoolean}), a primitive a string, number or boolean literal.
-Checked as the module compiles: unknown or duplicate fields, cardinality, a missing required field,
-the head of a nested form, the primitive's lexeme, and the codes of required bindings
-(@racket[(gender "florp")] lists the valid codes). A non-literal value is checked when it runs.
-
-The module provides @racket[resources] (the nodes), @racket[(->nodes)] and @racket[(->json)]; running
-the file prints each resource as JSON.
 
 @racketmod[fhir/r6
 (Patient
@@ -50,23 +43,111 @@ the file prints each resource as JSON.
  (name (HumanName (use "official") (family "Chalmers") (given "Peter" "James")))
  (contact (PatientContact (name (HumanName (family "du Marché"))) (gender "female"))))]
 
+Checked as the module compiles: unknown or duplicate fields, cardinality, a missing required field,
+the head of a nested form, a primitive's lexeme (@racket[(birthDate "1974-13-40")]), and the codes of
+required bindings (@racket[(gender "florp")] lists the valid codes). A non-literal value is checked
+when it runs.
+
+@tt{racket patient.fhir6} prints each resource as JSON. @racket[(require "forms.fhir6")] gives
+@racket[resources] (the typed nodes), @racket[(->nodes)] and @racket[(->json)] (jsexprs):
+
+@racketblock[
+(require (only-in "forms.fhir6" [->json forms]))
+(for/list ([form (in-list (forms))]) (~> form intake->reading (ensure-valid #:profile url)))
+]
+
 R4 and R5 are schema-only towers: @racket[(require fhir/r4/schemas)] or @racket[fhir/r5/schemas]
 registers their types for @racket[from-json], FHIRPath and the validator, with no forms.
 @racket[fhir/r4/operations], @racket[fhir/r5/operations] and @racket[fhir/r6/operations] carry each
 version's OperationDefinitions as data (@tt{<code>-definition}).
 
-@subsection[#:style 'unnumbered]{@hash-lang[] @tt{fhir/sd}}
+@subsection[#:style 'unnumbered]{Profiles as forms: @hash-lang[] @tt{fhir/sd}}
 @defmodulelang[fhir/sd]
 
-Profiles as forms: @racket[(profile Name #:base Base (field min max) ...)] defines @racket[Name] as a
-form like its base with the narrowed cardinalities, checked at compile time (a profile may only
-narrow; @tt{max} is a number or @tt{*}).
+@racket[(profile Name #:base Base (field min max) ...)] defines @racket[Name] as a form like its base
+with the narrowed cardinalities, checked at compile time (a profile may only narrow; @tt{max} is a
+number or @tt{*}). Full profiles are written in FSH (the @tt{fsh} package); this is the small
+in-Racket form.
 
 @racketmod[fhir/sd
 (profile USCorePatient #:base Patient (name 1 *) (gender 1 1))
 (profile VIPPatient #:base USCorePatient (name 1 1))]
 
-@section{Results}
+@section{Using it from Racket}
+
+@bold{JSON in and out.} Load a tower, then @racket[from-json] gives a typed node and
+@racket[node->jsexpr] gives it back.
+
+@racketblock[
+(require fhir/r5/schemas fhir/serialize/from-json fhir/serialize/to-json fhir/serialize/read-json
+         fhir/model/node fhir/model/leaf fhir/result/result)
+(define p (ok-value (from-json (call-with-input-file "patient.json" read-fhir-json) #:lenient? #t)))
+(fhir-type p)                                  (code:comment "'Patient")
+(node-str p 'gender)                           (code:comment "\"male\"")
+(pv (fhir-ref (car (listify (fhir-ref p 'name))) 'family))   (code:comment "\"Chalmers\"")
+(node->json-string p)                          (code:comment "decimals as written")
+]
+
+Strict @racket[from-json] returns an @racket[err] for an unknown element; lenient parsing skips it.
+@racket[read-fhir-json] keeps each number's lexeme, so @racket["1.50"] survives a round trip.
+
+@bold{Operations as procedures.} An operation is applied by reference to its OperationDefinition,
+with its parameters as keywords; the subject is the first argument; @racket[~>] threads a value
+through several. Loading a package's @tt{operations} module registers what it implements.
+
+@racketblock[
+(require fhir/operation fhir/data-source
+         (only-in fhir/conformance/operations ensure-valid)     (code:comment "fhir-validation")
+         (only-in fhir/terminology/operations $expand)          (code:comment "fhir-validation")
+         (only-in fml/operations))                              (code:comment "fml")
+(apply-operation "StructureMap/$transform" qr #:srcMap fml-text)
+(define transform (operation "StructureMap/$transform"))
+(~> qr (transform #:srcMap fml-text) (ensure-valid))
+(apply-operation "ValueSet/$validate-code" #:url "http://hl7.org/fhir/ValueSet/administrative-gender"
+                 #:system "http://hl7.org/fhir/administrative-gender" #:code "female")
+(apply-operation/outcome "$validate" patient #:profile url)   (code:comment "a failure as its OperationOutcome")
+]
+
+Context comes from two parameters: @racket[current-data-source], where an operation finds resources
+(the ValueSet @tt{$expand} is asked for, the profile @tt{$validate} is given), and
+@racket[current-sd-packages], the FHIR packages profiles and value sets resolve from (an IG, its
+dependencies, then core).
+
+@racketblock[
+(parameterize ([current-data-source (resources->data-source clinic)]
+               [current-sd-packages (list "hl7.fhir.us.core-6.1.0.tgz" "hl7.fhir.r4.core.tgz")])
+  (ensure-valid observation #:profile "http://example.org/StructureDefinition/screening-blood-pressure"))
+]
+
+@bold{Packages.} @racket[read-package] reads a FHIR NPM package's manifest, resources and examples;
+@racket[spec-package-path] finds one of the vendored HL7 packages, or one in
+@racket[current-package-directories].
+
+@bold{Diagnostics.} Every language reports problems as @racket[diagnostic] values, positioned; the
+CLIs render them as text with a caret, JSON, or an OperationOutcome (@tt{--format}).
+
+@bold{Command line.}
+
+@verbatim{
+raco fhir regen [r6|r4|r5|all]      regenerate the type towers from fhir-spec
+raco fhir check [r6|r4|r5|all]      the committed towers match a fresh regeneration
+raco fhir roundtrip <file.json> [Type]
+raco fhir roundtrip-tck [r4|r5]     parse and serialize the whole core corpus
+raco fhir snapshot <sd.json>
+}
+
+@tt{-h} on the tool or any command prints usage and exits 0; a usage error or missing file is one
+line on stderr, exit 2; drift or a failed parse exits 1.
+
+@section{Reference}
+
+@subsection[#:style 'unnumbered]{@hash-lang[] @tt{fhir/r6}}
+@defmodulelang[fhir/r6]
+
+Provides @racket[resources], @racket[(->nodes)] and @racket[(->json)], as above; the form macros are
+the R6 types from @racket[fhir/r6/types].
+
+@subsection[#:style 'unnumbered]{@tt{fhir/result/result}}
 @defmodule[fhir/result/result]
 
 Validation returns data, not exceptions. Every error carries the spec url of the rule.
@@ -85,12 +166,12 @@ Functor, monad, sequence; with @racket[accumulate?] every error is collected int
 @defproc[(ok-or-raise [r result?]) any/c]{The value, or an error.}
 @defproc[(validation-error-message [e validation-error?]) string?]
 
-@section{The node model}
+@subsection[#:style 'unnumbered]{@tt{fhir/model/node}}
 @defmodule[fhir/model/node]
 
 @defstruct*[fhir ([type symbol?] [fields hash?])]{
 The one in-memory value: a type and the fields present (a single value, or a list for a repeating
-field). Primitives inside it are the structs of @secref["primitives"].}
+field). Primitives inside it are the structs of @tt{fhir/primitives/primitives}.}
 @defproc[(fhir-ref [node fhir?] [field symbol?] [default any/c #f]) any/c]
 @defproc[(fhir-has? [node fhir?] [field symbol?]) boolean?]
 @defproc[(fhir-field-names [node fhir?]) (listof symbol?)]
@@ -127,7 +208,7 @@ is what @racket[from-json], the form macros, FHIRPath's type system and the vali
 @defproc[(element-spec-of [path string?]) (or/c fhir-spec? #f)]
 @defproc[(registered-element-paths) (listof string?)])]{Elements by path.}
 
-@section[#:tag "primitives"]{Primitives}
+@subsection[#:style 'unnumbered]{@tt{fhir/primitives/primitives}}
 @defmodule[fhir/primitives/primitives]
 
 The 23 FHIR primitive types, each a struct with @racket[id], @racket[extension] and @racket[value],
@@ -146,7 +227,7 @@ and a precision).
 @tt{fhir/primitives/literals} provides @racket[(lit date "1974-12-25")]: a primitive literal
 validated at compile time.
 
-@section{JSON}
+@subsection[#:style 'unnumbered]{@tt{fhir/serialize/from-json}}
 @defmodule[fhir/serialize/from-json]
 
 @defproc[(from-json [js any/c] [#:type type (or/c symbol? #f) #f] [#:lenient? lenient? boolean? #f]) result?]{
@@ -173,7 +254,7 @@ A JSON reader that keeps each number's lexeme in a @racket[jnum], so decimals ro
 @defproc[(jnum-value [n jnum?]) real?]
 @defproc[(strip-jnum [v any/c]) any/c]{A plain jsexpr.}
 
-@section{Packages}
+@subsection[#:style 'unnumbered]{@tt{fhir/package}}
 @defmodule[fhir/package]
 
 @defproc[(read-package [tgz path-string?] [#:exact-decimals? exact-decimals? boolean? #f] [#:select select (-> string? any/c) (lambda (f) #t)])
@@ -191,7 +272,7 @@ then the @tt{fhir-spec} collection. Missing is an error unless @racket[optional?
 @defparam[current-package-directories dirs (listof path-string?)]{Directories of packages searched before @tt{fhir-spec}, for fetched IGs.}
 @defproc[(spec-package-available?) boolean?]{Is @tt{fhir-spec} installed.}
 
-@section{StructureDefinitions}
+@subsection[#:style 'unnumbered]{@tt{fhir/sd/sd-index}}
 @defmodule[fhir/sd/sd-index]
 
 @defparam[current-sd-packages packages (or/c #f (listof path-string?))]{
@@ -231,7 +312,7 @@ With no resolvable base, the differential.}
 
 @defthing[$snapshot procedure?]{@tt{StructureDefinition/$snapshot} as an operation: @racket[($snapshot sd)] or @racket[(apply-operation "$snapshot" #:url canonical)].}
 
-@section{Operations as procedures}
+@subsection[#:style 'unnumbered]{@tt{fhir/operation}}
 @defmodule[fhir/operation]
 
 A FHIR operation is an OperationDefinition plus an implementation, with nothing about HTTP: a
@@ -298,7 +379,7 @@ one with real search.}
 @defproc[(patient-reference-of [resource hash?]) (listof string?)]{The @tt{Patient/id} references in @tt{patient}, @tt{subject}, @tt{beneficiary} and @tt{individual}.}
 @defproc[(bundle-resources [bundle hash?]) (listof hash?)]{A Bundle's entries, nested Bundles flattened; any other resource as itself.}
 
-@section{Diagnostics}
+@subsection[#:style 'unnumbered]{@tt{fhir/diagnostic}}
 @defmodule[fhir/diagnostic]
 
 Every language reports errors as one value, rendered three ways: text with the source line and a
@@ -332,15 +413,3 @@ last token a probe tells whether the input ran out ("the entity ends after @tt{=
 @defproc[(tokens->last-position [tokens list?] [position-of (-> any/c (or/c exact-integer? #f))]) (or/c exact-integer? #f)]
 @defproc[(error-position [e exn?]) (or/c exact-integer? #f)])]
 
-@section{Command line}
-
-@verbatim{
-raco fhir regen [r6|r4|r5|all]      regenerate the type towers from fhir-spec
-raco fhir check [r6|r4|r5|all]      the committed towers match a fresh regeneration
-raco fhir roundtrip <file.json> [Type]
-raco fhir roundtrip-tck [r4|r5]     parse and serialize the whole core corpus
-raco fhir snapshot <sd.json>
-}
-
-@tt{-h} on the tool or any command prints usage and exits 0; a usage error or missing file is one
-line on stderr, exit 2; drift or a failed parse exits 1.

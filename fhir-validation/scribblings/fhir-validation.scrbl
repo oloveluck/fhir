@@ -23,7 +23,68 @@ collection; depends on @tt{fhir}, @tt{fhir-spec}, @tt{fhirpath} and @tt{vcl}.
 raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-validation   # from source
 }
 
-@section{The validator}
+@section{Using it}
+
+@bold{Validate a resource.} @tt{$validate} is an operation (@tt{fhir/operation}); loading
+@racket[fhir/conformance/operations] registers it. The resource is FHIR JSON; the answer is an
+OperationOutcome. Profiles come from @racket[current-data-source] (StructureDefinitions you hold,
+such as an FSH project's output) and @racket[current-sd-packages] (an IG's package, its
+dependencies, then core; @racket[#f] means the R5 core).
+
+@racketblock[
+(require fhir/operation fhir/data-source fhir/sd/sd-index fhir/conformance/operations)
+(apply-operation "$validate" patient)                                  (code:comment "against its base type")
+(parameterize ([current-sd-packages (list "hl7.fhir.us.core-6.1.0.tgz" "hl7.fhir.r4.core.tgz")])
+  (apply-operation "$validate" patient #:profile "http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient"))
+(parameterize ([current-data-source (resources->data-source (project-artifacts ig))]   (code:comment "an FSH project")
+               [current-sd-packages (project-sd-packages ig)])
+  (ensure-valid observation #:profile url))                            (code:comment "the resource, or exn:fail:operation")
+]
+
+@racket[ensure-valid] is the pipeline form: @racket[(~> qr (transform #:srcMap fml) (ensure-valid #:profile url))]
+stops with the outcome when a step produces an invalid resource. The outcome's issues carry the
+element path (@tt{expression}) and a message naming the rule and the profile; a missing required
+pattern says which pattern.
+
+@bold{The validator directly.} @racket[validate-issues] takes the raw JSON and the profile
+StructureDefinitions, and returns @racket[issue] structs (severity, code, path, message). A
+@racket[tx-service] enables required-binding checks; invariants are off unless asked.
+
+@racketblock[
+(require fhir/conformance/validate fhir/terminology/service fhir/r4/schemas)
+(parameterize ([current-sd-packages (list ig-tgz core-tgz)])
+  (validate-issues resource #:profiles (list sd) #:terminology (make-terminology/packages (list ig-tgz core-tgz))))
+]
+
+@bold{Terminology.} The service answers @tt{$expand}, @tt{$validate-code}, @tt{$lookup} and
+@tt{$translate} as FHIR JSON over the CodeSystems, ValueSets and ConceptMaps in packages or
+resources, lazily indexed. As operations:
+
+@racketblock[
+(require fhir/terminology/operations)
+($expand #:url "http://hl7.org/fhir/ValueSet/administrative-gender")
+($expand #:valueSet vs #:filter "fem")                                (code:comment "a ValueSet you hold")
+($validate-code #:url "http://hl7.org/fhir/ValueSet/administrative-gender" #:code "female" #:system "http://hl7.org/fhir/administrative-gender")
+($lookup #:system "http://loinc.org" #:code "85354-9")
+]
+
+An implicit VCL url (@tt{http://fhir.org/VCL?v1=…}) expands too. As a @racket[tx-service] handle,
+@racket[(make-r5-terminology)] (or over packages, resources, any resolver) is what FHIRPath's
+@tt{%terminologies} takes: @racket[(eval-fhirpath ast root #:externals (hash "terminologies" tx))].
+
+@bold{Command line.}
+
+@verbatim{
+raco fhir-validate patient.json [us-core-patient.json …] [--format outcome|text|json]
+raco fhir-validate --tx-tck                                  the terminology suite
+}
+
+The OperationOutcome on stdout by default; @tt{text} is one line per issue on stderr. Duplicate
+JSON keys and malformed JSON are reported with their position. Exit 1 on any error issue, 2 on usage.
+
+@section{Reference}
+
+@subsection[#:style 'unnumbered]{@tt{fhir/conformance/validate}}
 @defmodule[fhir/conformance/validate]
 
 @defproc[(validate-issues [resource hash?]
@@ -58,20 +119,17 @@ returns an OperationOutcome (one informational "All OK" issue when clean). The p
 from @racket[current-data-source], then @racket[current-sd-packages]; terminology comes from the same
 places.}
 @defproc[(ensure-valid [resource hash?] [#:profile profile (or/c string? #f) #f]) hash?]{
-The resource when it is valid, else @racket[exn:fail:operation] with the outcome. A pipeline step:
-@racket[(~> qr (transform #:srcMap fml) (ensure-valid #:profile url))].}
+The resource when it is valid, else @racket[exn:fail:operation] with the outcome.}
 
-@section{Terminology}
+@subsection[#:style 'unnumbered]{@tt{fhir/terminology/service}}
 @defmodule[fhir/terminology/service]
 
-A terminology server as a value: it indexes every CodeSystem, ValueSet and ConceptMap in the
-packages or resources it is given, lazily, and answers @tt{$expand}, @tt{$validate-code},
-@tt{$lookup} and @tt{$translate} as FHIR JSON. Expansion follows @tt{compose} (includes, excludes,
-filters over the code system's concepts and properties, nested value sets, version pins including
-@tt{1.x.x} patterns, implicit VCL urls) with the expansion parameters (offset, count, activeOnly,
-filter, displayLanguage, includeDesignations, property). Validation takes a code, a Coding or a
+A terminology server as a value. Expansion follows @tt{compose} (includes, excludes, filters over
+the code system's concepts and properties, nested value sets, version pins including @tt{1.x.x}
+patterns, implicit VCL urls) with the expansion parameters (offset, count, activeOnly, filter,
+displayLanguage, includeDesignations, property). Validation takes a code, a Coding or a
 CodeableConcept, checks displays against designations, and honours system and value set versions.
-What rests on a code system the service does not have (SNOMED, LOINC) is undecidable, and the
+What rests on a code system the service does not have (SNOMED, LOINC) is undecidable; the
 hl7.fhir.uv.tx-ecosystem suite is at 463/553 with those skipped.
 
 A @italic{resolver} is @tt{(url [version]) -> resource | #f}.
@@ -83,9 +141,9 @@ A @italic{resolver} is @tt{(url [version]) -> resource | #f}.
 @defproc[(make-terminology/packages [packages (listof path-string?)]) tx-service?]
 @defproc[(make-terminology/resources [resources (listof hash?)]) tx-service?]
 @defproc[(make-terminology/resolver [resolver procedure?]) tx-service?])]{
-A @racket[tx-service] (the @tt{%terminologies} handle FHIRPath takes) over a core package, the
-vendored R5 or R4 core, several packages searched in order (an IG, then its core), explicit
-resources, or any resolver. The matching tower must be loaded.}
+A @racket[tx-service] over a core package, the vendored R5 or R4 core, several packages searched in
+order (an IG, then its core), explicit resources, or any resolver. The matching tower must be
+loaded.}
 @deftogether[(
 @defproc[(packages->resolver [packages (listof path-string?)]) procedure?]
 @defproc[(resources->resolver [resources (listof hash?)]) procedure?])]
@@ -115,18 +173,6 @@ the test for a ValueSet that would need a code system the service lacks.}
 @defthing[$translate procedure?])]{
 The four as @tt{fhir/operation} values on the core OperationDefinitions, registered when the module
 loads. A ValueSet is the subject, @tt{#:valueSet}, or named by @tt{#:url}; the inputs are the
-definitions' parameters (@racket[($validate-code vs #:code "male" #:system url)],
-@racket[($lookup #:system url #:code "M")], @racket[($translate cm #:sourceCode "a" #:system url)]).
-Resources are looked up in the inputs, then @racket[current-data-source], then
-@racket[current-sd-packages].}
+definitions' parameters (@racket[($translate cm #:sourceCode "a" #:system url)]). Resources are
+looked up in the inputs, then @racket[current-data-source], then @racket[current-sd-packages].}
 @defproc[(current-terminology-resolver [extra (listof hash?) '()]) procedure?]{The resolver the operations use: the data source, then the packages, with @racket[extra] ahead.}
-
-@section{Command line}
-
-@verbatim{
-raco fhir-validate <resource.json> [profile.json…] [--format outcome|text|json]
-raco fhir-validate --tx-tck                                  the terminology suite
-}
-
-The OperationOutcome on stdout by default; @tt{text} is one line per issue on stderr. Duplicate
-JSON keys and malformed JSON are reported with their position. Exit 1 on any error issue, 2 on usage.
