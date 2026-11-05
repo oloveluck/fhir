@@ -4,29 +4,36 @@
 ;;; FML): the outline, the name under the cursor, completion of declared names and keywords, and the
 ;;; files beside a document. A language's support module builds on these with its own table.
 ;;;
-;;; A Declarations is (listof (list kind regexp)): the regexp's first (or second) group is the name,
-;;; an optional third group the id (`include X called A` -> name A, id X).
+;;; A Declarations is (listof (list kind regexp [pick])): the regexp's first (or second) group is the
+;;; name; a row's `pick` (match-groups -> (cons name id)) chooses otherwise (`include X called A` ->
+;;; name A, id X).
 
 (require racket/contract racket/string racket/list racket/file
          "support.rkt")
 
 (provide
  (contract-out
-  [declared-entities    (-> (listof (list/c string? regexp?)) string? path-string? (listof entity?))]
+  [declared-entities    (-> (listof (or/c (list/c string? regexp?) (list/c string? regexp? procedure?))) string? path-string? (listof entity?))]
   ;; the word under the cursor; with quoted? a "quoted name" is the text inside its quotes
   [name-at              (->* (string? pair?) (#:quoted? boolean?) (or/c string? #f))]
   ;; declared names and keywords starting with what is typed; inside quotes, names only
   [prefix-completions   (-> (listof entity?) (listof string?) (-> string? exact-integer?) string? pair? (listof hash?))]
   ;; files-beside : path extensions -> paths   the files with those extensions in the document's directory
-  [files-beside         (-> path-string? (listof string?) (listof path?))]))
+  [files-beside         (-> path-string? (listof string?) (listof path?))]
+  ;; declaration-hover : entity text lang -> markdown   the declaration's lines (to a blank line or the
+  ;; next declaration, at most 8), fenced as the language
+  [declaration-hover    (-> entity? string? string? string?)]))
 
 (define (declared-entities table text file)
   (define f (if (path? file) (path->string file) file))
   (for*/list ([(l i) (in-parallel (in-list (regexp-split #rx"\r?\n" text)) (in-naturals))]
               [d (in-list table)]
               [m (in-value (regexp-match (cadr d) l))] #:when m
-              [name (in-value (for/or ([g (in-list (take (cdr m) (min 2 (length (cdr m)))))]) g))] #:when name)
-    (entity (car d) name (and (>= (length m) 4) (cadddr m)) f i)))
+              [picked (in-value (if (= (length d) 3)
+                                    ((caddr d) (cdr m))
+                                    (cons (for/or ([g (in-list (take (cdr m) (min 2 (length (cdr m)))))]) g) #f)))]
+              #:when (car picked))
+    (entity (car d) (car picked) (cdr picked) f i)))
 
 (define (name-at text pos #:quoted? [quoted? #f])
   (define line (line-of text (car pos)))
@@ -63,13 +70,25 @@
             string<? #:key path->string)
       '()))
 
+(define (declaration-hover e text lang)
+  (define lines (drop (regexp-split #rx"\r?\n" text) (min (entity-line e) (length (regexp-split #rx"\r?\n" text)))))
+  (define header (let loop ([ls lines] [acc '()])
+                   (if (or (null? ls) (and (pair? acc) (or (string=? (string-trim (car ls)) "") (regexp-match? #px"^\\S" (car ls)))))
+                       (reverse acc)
+                       (loop (cdr ls) (cons (car ls) acc)))))
+  (string-append "```" lang "\n" (string-join (take header (min 8 (length header))) "\n") "\n```"))
+
 (module+ test
   (require rackunit racket/path)
   (define table (list (list "library" #px"^library\\s+(\\S+)")
                       (list "include" #px"^include\\s+(\\S+)(?:\\s+version\\s+'[^']*')?\\s+called\\s+(\\S+)")
                       (list "define"  #px"^define\\s+(?:\"([^\"]+)\"|(\\w+))")))
-  ;; the include regexp: group 1 the library, group 2 the alias — the entity is the alias, id the library
-  (define inc-table (list (list "include" #px"^include\\s+(?:(\\S+))(?:\\s+version\\s+'[^']*')?\\s+called\\s+(\\S+)")))
+  ;; a pick: `include X called A` is the alias A with id X
+  (define inc-table (list (list "include" #px"^include\\s+(\\S+)(?:\\s+version\\s+'[^']*')?\\s+called\\s+(\\S+)"
+                                (lambda (gs) (cons (cadr gs) (car gs))))))
+  (define inc (declared-entities inc-table "include Common version '1' called C\n" "/l.cql"))
+  (check-equal? (map entity-name inc) '("C"))
+  (check-equal? (entity-id (car inc)) "Common")
   (define text "library L version '1'\ninclude Common version '1' called C\ndefine \"A B\": 1\ndefine X: \"A B\"\n")
   (define es (declared-entities table text "/l.cql"))
   (check-equal? (map entity-name es) '("L" "Common" "A B" "X"))
@@ -80,6 +99,7 @@
                 '("define" "default"))
   (check-equal? (map (lambda (i) (hash-ref i 'label)) (prefix-completions es '("and") (lambda (k) 3) "define Y: \"A" (cons 0 12)))
                 '("A B"))
+  (check-equal? (declaration-hover (find-entity es "A B") text "cql") "```cql\ndefine \"A B\": 1\n```")
   (define dir (make-temporary-file "declared-~a" 'directory))
   (with-output-to-file (build-path dir "a.cql") (lambda () (display "library a\n")))
   (with-output-to-file (build-path dir "b.txt") (lambda () (display "x")))
