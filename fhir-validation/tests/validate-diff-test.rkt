@@ -23,7 +23,7 @@
 ;; validated against. Only StructureDefinitions are passed as profiles; the rest are context the
 ;; reference resolves and we fail open on.
 (define (our-error? js dups [profiles '()])
-  (for/or ([i (in-list (validate-issues js #:profiles profiles #:duplicates dups))])
+  (for/or ([i (in-list (validate-issues js #:profiles profiles #:duplicates dups #:invariants? #t))])
     (member (issue-severity i) '("error" "fatal"))))
 
 (define (load-profiles names)

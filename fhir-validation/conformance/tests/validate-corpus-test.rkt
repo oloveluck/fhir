@@ -28,7 +28,15 @@
                  (define js (with-handlers ([exn:fail? (lambda (_) #f)]) (bytes->jsexpr b)))
                  (when (and (hash? js) (hash-ref js 'resourceType #f))
                    (set! count (add1 count))
-                   (define es (filter (lambda (i) (equal? (issue-severity i) "error")) (validate-issues js)))
+                   ;; invariants ON: the only error-level invariant a resource of this sample breaks is
+                   ;; one the published package itself breaks — CodeSystem/fhir-types claims the
+                   ;; Shareable profile, whose scs-1 wants hierarchyMeaning for nested concepts, and
+                   ;; has none (the reference validator says the same); that is no over-report
+                   (define es (filter (lambda (i) (and (equal? (issue-severity i) "error")
+                                                       (not (and (equal? (issue-code i) "invariant")
+                                                                 (regexp-match? #rx"^scs-1:" (issue-msg i))
+                                                                 (equal? (path->string name) "package/CodeSystem-fhir-types.json")))))
+                                      (validate-issues js #:invariants? #t)))
                    (when (pair? es)
                      (set! bad (add1 bad))
                      (when (< (length samples) 8)

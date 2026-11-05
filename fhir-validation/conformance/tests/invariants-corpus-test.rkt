@@ -42,5 +42,11 @@
   (printf "  ~a  ~a (~a)  e.g. ~a\n" (length exs) (car c) (caddr (car exs))
           (string-join (for/list ([x (in-list (take exs (min 3 (length exs))))]) (format "~a at ~a" (car x) (cadr x))) "; ")))
 (check-true (> (length all) 2000) "the whole core package")
-;; RATCHETED: the resources with no error-level violation
-(check-true (>= clean 1398) "fewer invariant-clean resources than the floor")
+;; RATCHETED: the resources with no error-level violation. The 11 that have one are the
+;; package's own: ten logical models (Participant, Publishable, FiveWs, …) with a baseDefinition
+;; and no `derivation` (sdf-27), and CodeSystem/fhir-types, which claims the Shareable profile and
+;; has nested concepts without hierarchyMeaning (scs-1) — the reference validator reports both.
+(check-true (>= clean 2957) "fewer invariant-clean resources than the floor")
+(check-equal? (sort (for/list ([c (in-list classes)] #:when (equal? (caddr (car (cdr c))) "error")) (car c)) string<?)
+              '("scs-1" "sdf-27")
+              "an error-level invariant the published package does not break: a false positive")

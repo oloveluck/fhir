@@ -13,7 +13,7 @@
 (define core (spec-package-path "hl7.fhir.r4.core.tgz"))
 
 (define (check-ig! label tgz #:clean floor)
-  (define r (check-ig-validation tgz core))
+  (define r (check-ig-validation tgz core #:invariants? #t))   ; base and profile invariants on
   (printf "  ~a: ~a clean, ~a with errors, ~a skipped (no profile from this IG / type outside R4)\n"
           label (ig-validation-report-clean r) (ig-validation-report-dirty r) (ig-validation-report-skipped r))
   (for ([i (in-list (ig-validation-report-issues r))]) (eprintf "     ~a\n" i))
