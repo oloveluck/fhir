@@ -11,13 +11,15 @@
 (define dir (make-temporary-directory))
 (define (write! name text) (define p (build-path dir name)) (display-to-file text p #:exists 'replace) p)
 (define (installed? mod) (with-handlers ([exn:fail? (lambda (_) #f)]) (dynamic-require mod #f) #t))
+;; the module each adapter needs first
+(define probes (hash "fsh" 'fsh/project "cql" 'cql/compile "fml" 'fml/check "vcl" 'vcl/compile "fhirpath" 'fhirpath/parser/parse))
 ;; check-language : id file-name bad-text good-text expected-line -> void
 (define (check-language id name bad good line)
   (define l (language-by-id id))
   (define p (write! name bad))
   (define ds (diagnose l bad p))
   (cond
-    [(installed? (string->symbol (string-append id (if (equal? id "fhirpath") "/parser/parse" "/compile"))))
+    [(installed? (hash-ref probes id))
      (check-true (pair? ds) (format "~a: a problem is reported" id))
      (check-equal? (diagnostic-severity (car ds)) 'error)
      (check-equal? (loc-source (diagnostic-loc (car ds))) (path->string p) (format "~a: the diagnostic names the file" id))
