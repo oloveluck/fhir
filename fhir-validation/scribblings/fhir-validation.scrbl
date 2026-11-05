@@ -4,55 +4,70 @@
 
 @title{fhir-validation: validating FHIR resources}
 
-A validator for FHIR resources against their base type and profiles. It works over FHIR NPM
-packages: a profile resolves through @racket[current-sd-packages], so an IG's resources validate in
-the context of its dependencies and core; required bindings go through the @tt{fhir-tx} terminology
-service when one is given. The validator is fail-open: it never reports what it cannot decide. It is held to published
-IGs as oracles (US Core, IPS and mCODE examples all clean against the profiles they claim, with no
-false positive) and to the HL7 validator test cases.
-
-Part of the @hyperlink["https://github.com/oloveluck/fhir"]{fhir} family, in the @tt{fhir}
-collection; depends on @tt{fhir}, @tt{fhir-spec}, @tt{fhirpath} and @tt{fhir-tx}.
+A validator for FHIR resources against their base type and profiles, over FHIR NPM packages: a
+profile resolves through @racket[current-sd-packages], so an IG's resources validate in the context
+of its dependencies and core, and required bindings go through the fhir-tx terminology service when
+one is given. It is fail-open: it never reports what it cannot decide. Held to published IGs as
+oracles (US Core, IPS and mCODE examples all clean against the profiles they claim, no false
+positive) and to the HL7 validator test cases. Part of the
+@hyperlink["https://github.com/oloveluck/fhir"]{fhir} family.
 
 @table-of-contents[]
 
-@section{Install}
+@section{Quick start}
+
+@bold{1. Install.} The packages are not on the Racket package server yet; clone the repositories
+side by side and install from source:
 
 @verbatim{
-raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-validation
-    # from source
+raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-tx fhir/fhir-validation
 }
+
+@bold{2. Validate a resource}, against its base type, or against profiles given as files:
+
+@verbatim{
+$ raco fhir-validate patient.json --format text
+patient.json: error invalid at Patient.birthDate: '1974-13-40' is not a valid date
+$ raco fhir-validate observation.json us-core-blood-pressure.json
+{"resourceType": "OperationOutcome", "issue": [{"severity": "error", "code": "required",
+  "expression": ["Observation.component"], "diagnostics": "minimum required = 2, but found 1"}]}
+}
+
+The OperationOutcome is on stdout by default; @litchar{--format text} is one line per issue on
+stderr. Exit 1 on any error issue, 2 on usage. Duplicate JSON keys and malformed JSON are reported
+with their position.
 
 @section{Using it}
 
-@bold{Validate a resource.} @tt{$validate} is an operation (@tt{fhir/operation}); loading
-@racket[fhir/conformance/operations] registers it. The resource is FHIR JSON; the answer is an
-OperationOutcome. Profiles come from @racket[current-data-source] (StructureDefinitions you hold,
-such as an FSH project's output) and @racket[current-sd-packages] (an IG's package, its
-dependencies, then core; @racket[#f] means the R5 core).
+@subsection{As an operation}
+
+@tt{$validate} is an operation (@tt{fhir/operation}); loading @racket[fhir/conformance/operations]
+registers it. The resource is FHIR JSON; the answer is an OperationOutcome. Profiles come from
+@racket[current-data-source] (StructureDefinitions you hold, such as an FSH project's output) and
+@racket[current-sd-packages] (an IG's package, its dependencies, then core; unset means the R5
+core).
 
 @racketblock[
 (require fhir/operation fhir/data-source fhir/sd/sd-index fhir/conformance/operations)
-(code:comment "against its base type")
-(apply-operation "$validate" patient)
+(apply-operation "$validate" patient)                                (code:comment "against its base type")
 (parameterize ([current-sd-packages (list "hl7.fhir.us.core-6.1.0.tgz" "hl7.fhir.r4.core.tgz")])
   (apply-operation "$validate" patient
                    #:profile "http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient"))
-(code:comment "an FSH project")
+(code:comment "an FSH project's profiles")
 (parameterize ([current-data-source (resources->data-source (project-artifacts ig))]
                [current-sd-packages (project-sd-packages ig)])
-  (code:comment "the resource, or exn:fail:operation")
-  (ensure-valid observation #:profile url))
+  (ensure-valid observation #:profile url))                         (code:comment "the resource, or exn:fail:operation")
 ]
 
-@racket[ensure-valid] is the pipeline form: @racket[(~> qr (transform #:srcMap fml) (ensure-valid #:profile url))]
-stops with the outcome when a step produces an invalid resource. The outcome's issues carry the
-element path (@tt{expression}) and a message naming the rule and the profile; a missing required
-pattern says which pattern.
+@racket[ensure-valid] is the pipeline form: @racket[(~> qr (transform #:srcMap fml) (ensure-valid
+#:profile url))] stops with the outcome when a step produces an invalid resource. Each issue carries
+the element path (@tt{expression}) and a message naming the rule and the profile.
 
-@bold{The validator directly.} @racket[validate-issues] takes the raw JSON and the profile
-StructureDefinitions, and returns @racket[issue] structs (severity, code, path, message). A
-@racket[tx-service] enables required-binding checks; invariants are off unless asked.
+@subsection{The validator directly}
+
+@racket[validate-issues] takes the raw JSON and the profile StructureDefinitions and returns
+@racket[issue] structs (severity, code, path, message). A @racket[tx-service] from fhir-tx enables
+required-binding checks against value sets defined by filters; invariants are off unless asked.
 
 @racketblock[
 (require fhir/conformance/validate fhir/terminology/service fhir/r4/schemas)
@@ -61,21 +76,9 @@ StructureDefinitions, and returns @racket[issue] structs (severity, code, path, 
                    #:terminology (make-terminology/packages (list ig-tgz core-tgz))))
 ]
 
-@bold{Terminology.} Required bindings are checked through a @racket[tx-service] from the
-@tt{fhir-tx} package: @racket[(make-terminology/packages (list ig-tgz core-tgz))] over an IG and its
-core, or any resolver. @tt{$validate} builds one over the data source and the packages; the command
-line passes none, so only bindings whose value set enumerates its codes are checked there. The
-service, its operations and its limits are documented with
-@hyperlink["../fhir-tx/index.html"]{fhir-tx}.
-
-@bold{Command line.}
-
-@verbatim{
-raco fhir-validate patient.json [us-core-patient.json …] [--format outcome|text|json]
-}
-
-The OperationOutcome on stdout by default; @tt{text} is one line per issue on stderr. Duplicate
-JSON keys and malformed JSON are reported with their position. Exit 1 on any error issue, 2 on usage.
+@tt{$validate} builds a terminology service over the data source and the packages; the command line
+passes none, so there only bindings whose value set enumerates its codes are checked. The service
+and its limits are documented with @hyperlink["../fhir-tx/index.html"]{fhir-tx}.
 
 @section{Limits}
 

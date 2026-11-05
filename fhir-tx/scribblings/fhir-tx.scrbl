@@ -3,53 +3,76 @@
 
 @title{fhir-tx: a FHIR terminology service}
 
-A terminology server as a value: @tt{$expand}, @tt{$validate-code} (ValueSet and CodeSystem),
-@tt{$lookup}, @tt{$subsumes}, @tt{$find-matches}, @tt{$translate} and @tt{$closure} over the
-CodeSystems, ValueSets and ConceptMaps in FHIR NPM packages or in resources you hold, indexed
-lazily, and the TerminologyCapabilities that describes them. The same service is a @tt{fhir/operation} value,
-the @tt{%terminologies} handle FHIRPath takes, what the validator checks bindings with, what
-fhir-server serves, and what expands VCL's implicit value set urls. The official
-hl7.fhir.uv.tx-ecosystem suite stands at 473/553, with what rests on external code systems skipped.
-
-Part of the @hyperlink["https://github.com/oloveluck/fhir"]{fhir} family, in the @tt{fhir}
-collection; depends on @tt{fhir}, @tt{fhir-spec}, @tt{fhirpath} (the handle) and @tt{vcl}.
+A terminology server as a value: @tt{$expand}, @tt{$validate-code}, @tt{$lookup}, @tt{$subsumes},
+@tt{$find-matches}, @tt{$translate} and @tt{$closure} over the CodeSystems, ValueSets and ConceptMaps
+in FHIR NPM packages or in resources you hold. The same service is a set of @tt{fhir/operation}
+values, the @tt{%terminologies} handle FHIRPath takes, what the validator checks bindings with, what
+fhir-server serves over HTTP, and what expands VCL's implicit value set urls. The official
+hl7.fhir.uv.tx-ecosystem suite stands at 473 of 553, with what rests on external code systems
+skipped. Part of the @hyperlink["https://github.com/oloveluck/fhir"]{fhir} family.
 
 @table-of-contents[]
 
-@section{Install}
+@section{Quick start}
+
+@bold{1. Install.} The packages are not on the Racket package server yet; clone the repositories
+side by side and install from source:
 
 @verbatim{
-raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-tx   # from source
+raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-tx
 }
+
+@bold{2. Ask it something.} Over the R5 core by default, or any package with @litchar{--package}:
+
+@verbatim{
+$ raco fhir-tx expand http://hl7.org/fhir/ValueSet/administrative-gender
+{"resourceType": "ValueSet", ..., "expansion": {"contains": [{"system": "http://hl7.org/fhir/administrative-gender", "code": "male", "display": "Male"}, ...]}}
+$ raco fhir-tx validate-code http://hl7.org/fhir/ValueSet/administrative-gender http://hl7.org/fhir/administrative-gender female
+{"resourceType": "Parameters", "parameter": [{"name": "result", "valueBoolean": true}, ...]}
+$ raco fhir-tx expand http://hl7.org/fhir/us/core/ValueSet/us-core-condition-code --package hl7.fhir.us.core-6.1.0.tgz --filter diab
+}
+
+@bold{3. Serve it.} @tt{raco fhir-tx serve --package hl7.fhir.us.core-6.1.0.tgz --port 8080} puts
+every operation over HTTP; @tt{GET /metadata} is the CapabilityStatement, @tt{GET
+/metadata?mode=terminology} the TerminologyCapabilities.
 
 @section{Using it}
 
-@bold{The operations.} The service answers @tt{ValueSet/$expand}, @tt{ValueSet/$validate-code},
-@tt{CodeSystem/$validate-code}, @tt{CodeSystem/$lookup}, @tt{CodeSystem/$subsumes},
-@tt{CodeSystem/$find-matches}, @tt{ConceptMap/$translate} and @tt{ConceptMap/$closure} as FHIR
-JSON over the CodeSystems, ValueSets and ConceptMaps in packages or resources, lazily indexed. As
-operations:
+@subsection{Command line}
+
+@tabular[#:style 'boxed #:sep @hspace[2]
+(list (list @tt{raco fhir-tx expand <ValueSet url> [--filter t] [--count n] [--offset n]} "the expansion")
+      (list @tt{raco fhir-tx validate-code <ValueSet url> <system> <code> [--display t]} "is the code in the set")
+      (list @tt{raco fhir-tx lookup <system> <code>} "a concept's details")
+      (list @tt{raco fhir-tx translate <ConceptMap url> <code> [--system s]} "a code through a map")
+      (list @tt{raco fhir-tx subsumes <system> <codeA> <codeB>} "the subsumption relation")
+      (list @tt{raco fhir-tx serve [--port n]} "every operation over HTTP")
+      (list @tt{raco fhir-tx tck [-v]} "the tx-ecosystem suite, floor-ratcheted"))]
+
+@litchar{--package} names a .tgz or a file in @tt{fhir-spec}, repeatable, searched in order; with
+none, the R5 core. The answer is the operation's FHIR JSON. Exit codes: 0, 1 when the operation
+fails or the suite regresses, 2 on usage.
+
+@subsection{As operations}
 
 @racketblock[
 (require fhir/terminology/operations)
 ($expand #:url "http://hl7.org/fhir/ValueSet/administrative-gender")
-(code:comment "a ValueSet you hold")
-($expand #:valueSet vs #:filter "fem")
+($expand #:valueSet vs #:filter "fem")                       (code:comment "a ValueSet you hold")
 ($validate-code #:url "http://hl7.org/fhir/ValueSet/administrative-gender"
                 #:system "http://hl7.org/fhir/administrative-gender" #:code "female")
 ($lookup #:system "http://loinc.org" #:code "85354-9")
-($cs-validate-code #:url "http://hl7.org/fhir/administrative-gender" #:code "male")
 ($subsumes #:system "http://snomed.info/sct" #:codeA "73211009" #:codeB "44054006")
-($closure #:name "diabetes" #:concept (list (hasheq 'system "http://snomed.info/sct" 'code "44054006")))
 ]
 
-An implicit VCL url (@tt{http://fhir.org/VCL?v1=…}) expands too. As a @racket[tx-service] handle,
-@racket[(make-r5-terminology)] (or over packages, resources, any resolver) is what FHIRPath's
-@tt{%terminologies} takes, as a one-item collection:
-@racket[(eval-fhirpath ast root #:externals (hash "terminologies" (list tx)))].
+The packages searched are @racket[current-sd-packages]; resources in @racket[current-data-source]
+come first. An implicit VCL url (@tt{http://fhir.org/VCL?v1=…}) expands too.
 
-@bold{From Racket.} A @italic{resolver} is @tt{(url [version]) -> resource | #f}; the JSON-level
-functions take one and answer FHIR JSON with no tower loaded.
+@subsection{From Racket}
+
+A @italic{resolver} is @tt{(url [version]) -> resource | #f}; the JSON-level functions take one and
+answer FHIR JSON with no tower loaded. @racket[make-terminology/resolver] wraps one as the
+@racket[tx-service] handle the validator and FHIRPath's @tt{%terminologies} take.
 
 @racketblock[
 (require fhir/terminology/service)
@@ -57,63 +80,29 @@ functions take one and answer FHIR JSON with no tower loaded.
 (expand/json r "http://hl7.org/fhir/us/core/ValueSet/us-core-condition-code" #f (hash "filter" "diab"))
 (validate-code/json r "http://hl7.org/fhir/ValueSet/administrative-gender" "female"
                     "http://hl7.org/fhir/administrative-gender")
-(lookup/json r "http://hl7.org/fhir/administrative-gender" "female")
-(define tx (make-terminology/resolver r))        (code:comment "the handle: for validate-issues, for %terminologies")
+(define tx (make-terminology/resolver r))
+(eval-fhirpath ast root #:externals (hash "terminologies" (list tx)))   (code:comment "fhirpath")
 ]
-
-@bold{As a server.} @tt{raco fhir-tx serve} puts every operation over HTTP with fhir-server's
-operations app: @tt{GET /metadata} is the CapabilityStatement derived from the operations,
-@tt{GET /metadata?mode=terminology} the TerminologyCapabilities listing the code systems the
-packages hold, and a batch Bundle posted to @tt{/} is answered entry by entry. From Racket the same
-is @racket[(serve-operations terminology-operations #:terminology-capabilities (current-terminology-capabilities))]
-with @racket[current-sd-packages] set to the packages.
-
-@bold{Command line.}
-
-@verbatim{
-raco fhir-tx serve --package hl7.fhir.us.core-6.1.0.tgz --port 8080
-curl 'localhost:8080/ValueSet/$expand?url=http://hl7.org/fhir/ValueSet/administrative-gender'
-raco fhir-tx expand http://hl7.org/fhir/ValueSet/administrative-gender
-raco fhir-tx expand <ValueSet url> --package hl7.fhir.us.core-6.1.0.tgz --filter diab
-raco fhir-tx validate-code <ValueSet url> <system> <code> [--display <text>]
-raco fhir-tx lookup http://hl7.org/fhir/administrative-gender female
-raco fhir-tx translate <ConceptMap url> <code> [--system <system>]
-raco fhir-tx subsumes <system> <codeA> <codeB>
-raco fhir-tx tck [-v]                 the tx-ecosystem suite (floor-ratcheted)
-}
-
-@litchar{--package} names a .tgz or a file in @tt{fhir-spec}, repeatable, searched in order; with none,
-the R5 core. @litchar{--filter}, @litchar{--count} and @litchar{--offset} are the expansion
-parameters; @litchar{--display} checks a display. The answer is the operation's FHIR JSON. Exit codes:
-0, 1 when the operation fails or the suite regresses, 2 on usage.
 
 @section{How terminology is handled}
 
-Terminology lives in four places, by when it is needed:
+Codes are checked at three times by three mechanisms:
 
 @itemlist[
-@item{@bold{At compile time, in the towers.} Code generation expands every required binding on a
-@tt{code} element whose ValueSet enumerates its codes or includes a whole CodeSystem from the same
-package, and writes the sets into @tt{fhir/r6/terminology} (202 value sets; 241 for R5, 211 for
-R4), registered in @tt{fhir/model/binding}. The @tt{fhir/r6} form macros reject a literal code
-outside its set when the module compiles. Filters, imports and excludes are not expanded: those
-value sets fail open.}
-@item{@bold{At validation time.} The validator checks required bindings through a
-@racket[tx-service] when it is given one, else against the same offline sets. Only @tt{$validate}
-builds a service (over the data source and the packages). @tt{raco fhir-validate}, the generated
-server's write validation and @tt{raco fsh check} pass none, so for them a binding to a value set
-defined by filters is not checked.}
-@item{@bold{At run time, the service} in @racket[fhir/terminology/service]: @tt{$expand},
-@tt{$validate-code} (ValueSet and CodeSystem), @tt{$lookup} and @tt{$translate} over the
-CodeSystems, ValueSets and ConceptMaps in packages or resources, indexed lazily per package. The
-operations in @racket[fhir/terminology/operations] put it behind @tt{fhir/operation}; FHIRPath's
-@tt{expand()}, @tt{validateVS()} and @tt{translate()} call it through the @racket[tx-service]
-handle; fhir-server serves the operations an IG declares; VCL's implicit urls compile on the way
-in.}
-@item{@bold{In the languages, by expansion.} CQL's @tt{in "ValueSet"} and retrieves by value set
-take ValueSet resources with an @tt{expansion} (else enumerated concepts) and do not call the
-service. FML has no @tt{translate} transform. FSH records a binding's strength and url and
-validates no codes.}]
+@item{@bold{When a resource form compiles.} Code generation expands every required binding whose
+ValueSet enumerates its codes or includes a whole CodeSystem from the same package (202 value sets
+in R6), and the @tt{fhir/r6} forms reject a literal code outside its set. Filters, imports and
+excludes fail open.}
+@item{@bold{When a resource is validated.} The validator checks required bindings through a
+@racket[tx-service] when given one, else against the same offline sets. Only @tt{$validate} builds
+a service; @tt{raco fhir-validate}, the generated servers and @tt{raco fsh check} pass none.}
+@item{@bold{At run time}, this service: over packages or resources, indexed lazily per package, as
+operations, as FHIRPath's @tt{expand()}, @tt{validateVS()} and @tt{translate()}, over HTTP, and
+for VCL's implicit urls.}]
+
+CQL takes value set expansions as data and does not call the service; FSH records a binding's
+strength and url and validates no codes; FML's @tt{translate} asks it for ConceptMaps the map does
+not embed.
 
 @section{Limits}
 

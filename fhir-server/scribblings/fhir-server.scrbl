@@ -7,67 +7,72 @@
 
 @title{fhir-server: FHIR servers generated from specs}
 
-Three layers. @hash-lang[] @tt{fhir/capability} declares what an app supports and derives its
-CapabilityStatement and OperationDefinitions, so @tt{/metadata} cannot drift from the code. A small
-HTTP server maps the FHIR REST grammar onto that app, with an embedded SQLite store behind it
-(versioned CRUD, type-driven search from the IG's SearchParameters, transactions, audit and
-provenance). And @racket[make-ig-server] generates a whole server from an Implementation Guide
-package: its CapabilityStatement gives the types, interactions, search parameters, includes and
-operations; its profiles validate every write; what the IG asks for and the server does not do is
-reported as a gap. US Core has none; six more IGs are held to their own examples in the
-fhir-examples repository.
-
-Part of the @hyperlink["https://github.com/oloveluck/fhir"]{fhir} family, in the @tt{fhir}
-collection; depends on @tt{fhir}, @tt{fhir-spec}, @tt{fhirpath}, @tt{fhir-tx}, @tt{fhir-validation},
-@tt{cql} and @tt{db-lib}.
+A FHIR server from a specification. @racket[make-ig-server] generates a whole server from an
+Implementation Guide package: its CapabilityStatement gives the types, interactions, search
+parameters, includes and operations; its profiles validate every write; what the IG asks for and
+the server does not do is reported as a gap (US Core has none). Under it, @hash-lang[]
+@tt{fhir/capability} declares an app of your own and derives its CapabilityStatement, a small HTTP
+server maps the FHIR REST grammar onto it, and an embedded SQLite store keeps the data (versioned
+CRUD, type-driven search, transactions, audit and provenance). Part of the
+@hyperlink["https://github.com/oloveluck/fhir"]{fhir} family.
 
 @table-of-contents[]
 
-@section{Install}
+@section{Quick start}
+
+@bold{1. Install.} The packages are not on the Racket package server yet; clone the repositories
+side by side and install from source:
 
 @verbatim{
-raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-validation cql fhir/fhir-server
-    # from source
+raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-tx fhir/fhir-validation cql fhir/fhir-server
 }
+
+@bold{2. Serve an Implementation Guide.} A package in @tt{fhir-spec}, a @tt{.tgz}, or a path; the
+IG's examples are loaded first, through validation.
+
+@verbatim|{
+$ raco fhir-server serve-ig hl7.fhir.us.core --port 8080
+$ curl localhost:8080/metadata
+$ curl 'localhost:8080/Patient?name=Chalmers&_include=Patient:general-practitioner'
+$ curl -X POST localhost:8080/Observation -d @bad.json        # 422 with an OperationOutcome
+}|
+
+@bold{3. See what the IG asks for that is not served:} @tt{raco fhir-server serve-ig hl7.fhir.us.core --gaps}.
+
+A package written by @tt{raco fsh --pack} serves the same way: @tt{raco fhir-server serve-ig
+my-ig-0.1.0.tgz --capability my-server}, with its dependencies resolved from @tt{fhir-spec}.
 
 @section{Using it}
 
-@bold{A server from an Implementation Guide.} The package gives everything: types, interactions,
-search parameters, includes, profiles (every write validated), operations. The IG's examples are
-loaded first.
+@subsection{Command line}
 
-@verbatim{
-raco fhir-server serve-ig hl7.fhir.us.core --port 8080
-    a package in fhir-spec, a .tgz, or a path
-raco fhir-server serve-ig my-ig-0.1.0.tgz --capability my-server --load data/ --db store.db
-raco fhir-server serve-ig hl7.fhir.us.core --gaps
-    what the IG asks for that is not served
-curl localhost:8080/metadata
-curl 'localhost:8080/Patient?name=Chalmers&_include=Patient:general-practitioner'
-}
+@tabular[#:style 'boxed #:sep @hspace[2]
+(list (list @tt{raco fhir-server serve-ig <package> [--port n]} "a server generated from the IG; its examples loaded")
+      (list @tt{--capability <id|url>} "which server CapabilityStatement, when the IG ships several")
+      (list @tt{--load <dir|file>} @elem{Bundles, resources or @tt{.cql} files (as Library resources)})
+      (list @tt{--db store.db} "keep the store between runs (SQLite)")
+      (list @tt{--gaps} "print what the IG asks for that is not served, and stop")
+      (list @elem{@tt{--bearer <token>}, @tt{--tz-offset ±hh:mm}, @tt{--no-examples}, @tt{--no-validate}} "a static token; the evaluation timezone; skip the examples or the write validation")
+      (list @tt{raco fhir-server serve app.rkt [port]} @elem{a @hash-lang[] @tt{fhir/capability} app})
+      (list @tt{raco fhir-server load store.db data/} "prepopulate a store")
+      (list @tt{raco fhir-server evaluate-measure store.db <Measure> --period-start d --period-end d [--subject Patient/x]} "a MeasureReport from the store"))]
 
-@litchar{--capability <id|url>} picks the server CapabilityStatement when the IG ships several;
-@litchar{--load} takes Bundles, resources or @tt{.cql} files (as Library resources); @litchar{--db} keeps the
-store between runs (SQLite); @litchar{--bearer <token>} requires a static token; @litchar{--tz-offset ±hh:mm}
-sets the evaluation timezone; @litchar{--no-examples}, @litchar{--no-validate}. A package written by
-@tt{raco fsh --pack} serves the same way, with its dependencies resolved from @tt{fhir-spec}.
-
-From Racket, the same server is a value:
+@subsection{A server from an IG, in Racket}
 
 @racketblock[
 (require fhir/store/fhir-sqlite fhir/store/ig-server fhir/http/server)
 (define store (open-fhir-store "us-core.db"))
-(define srv (make-ig-server store (ig-package-path "hl7.fhir.us.core")
-                            #:capability "us-core-server"))
+(define srv (make-ig-server store (ig-package-path "hl7.fhir.us.core") #:capability "us-core-server"))
 (load-ig-examples! srv)
-(code:comment "(listof gap): what the IG asks for that is not served")
-(ig-server-gaps srv)
+(ig-server-gaps srv)                                   (code:comment "(listof gap)")
 (define stop (serve-app (ig-server-app srv) #:port 8080))
 ]
 
-@bold{A server you declare: @hash-lang[] @tt{fhir/capability}.} Three forms among plain Racket
-definitions; the lang derives the CapabilityStatement and the OperationDefinitions, so
-@tt{/metadata} cannot drift from the code.
+@subsection{A server you declare}
+
+@hash-lang[] @tt{fhir/capability}: three forms among plain Racket definitions. The lang derives the
+CapabilityStatement and the OperationDefinitions, so @tt{/metadata} cannot drift from the code.
+Interactions and parameter types are checked against FHIR's code sets when the module compiles.
 
 @verbatim|{#lang fhir/capability
 (server #:mode "server" #:status "active" #:url "http://localhost/fhir")
@@ -75,9 +80,6 @@ definitions; the lang derives the CapabilityStatement and the OperationDefinitio
 (resource Patient
   #:interactions (read create update delete search-type)
   #:search-params ([gender token "Patient.gender"] [family string "Patient.name.family"]))
-
-(resource Observation #:interactions (read create search-type)
-  #:search-params ([status token "Observation.status"]))
 
 (operation $ping #:system #:in ([message string 0 1]) #:out ([result string 1 1])
   #:handler ping-handler)
@@ -87,24 +89,22 @@ definitions; the lang derives the CapabilityStatement and the OperationDefinitio
   (Parameters (parameter (ParametersParameter (name "result") (valueString msg)))))}|
 
 @itemlist[
-@item{@racket[(server #:mode "server" #:status s #:url u #:fhir-version v #:date d #:format f)], once; every keyword optional.}
-@item{@racket[(resource Type #:interactions (read create search-type) #:search-params ([name type "FHIRPath"] ...) #:repository r #:profile url)].
-Interactions and parameter types are checked against FHIR's code sets as the module compiles. Without
-@tt{#:repository} the resource gets an in-memory one implementing exactly the declared interactions,
-with search by each parameter's FHIRPath; @racket[make-repository] builds one from closures.}
-@item{@racket[(operation $code #:system | #:on Type | #:level (system type instance) #:in ([name type min max] ...) #:out (...) #:handler h)]:
-the handler is @racket[(lambda (inputs request) node)], @racket[inputs] a hash from parameter name to
-its values. @racket[(operation "ValueSet/$expand")] or @racket[(operation $validate)] exposes an
-existing @tt{fhir/operation} value under its own OperationDefinition.}]
+@item{@racket[(server #:mode "server" #:status s #:url u #:fhir-version v ...)], once; every keyword optional.}
+@item{@racket[(resource Type #:interactions (...) #:search-params ([name type "FHIRPath"] ...) #:repository r #:profile url)].
+Without @tt{#:repository} the resource gets an in-memory one implementing exactly the declared
+interactions, with search by each parameter's FHIRPath.}
+@item{@racket[(operation $code #:on Type #:in ([name type min max] ...) #:out (...) #:handler h)], or
+@racket[#:system] in place of @racket[#:on Type]:
+the handler is @racket[(lambda (inputs request) node)]. @racket[(operation "ValueSet/$expand")]
+exposes an existing @tt{fhir/operation} value under its own definition.}]
 
-@tt{racket server-app.rkt} prints @tt{/metadata}; @tt{raco fhir-server serve server-app.rkt 8080}
-serves it. The module provides @racket[app], @racket[capability-statement] and
-@racket[operation-definitions]; @racket[(dispatch app (search-request 'Patient '((gender . "male"))))]
-runs a request in process. Served resources are R6 typed nodes.
+@tt{racket app.rkt} prints @tt{/metadata}; @tt{raco fhir-server serve app.rkt 8080} serves it. The
+module provides @racket[app], @racket[capability-statement] and @racket[operation-definitions];
+@racket[(dispatch app (search-request 'Patient '((gender . "male"))))] runs a request in process.
 
-@bold{Operations over HTTP.} Any @tt{fhir/operation} values, with a CapabilityStatement derived from
-them; a TerminologyCapabilities, when given, answers @tt{GET /metadata?mode=terminology}, and a
-batch Bundle posted to @tt{/} is answered entry by entry.
+@subsection{Operations over HTTP}
+
+Any @tt{fhir/operation} values, with a CapabilityStatement derived from them:
 
 @racketblock[
 (require fhir/capability/operations fhir/conformance/operations fhir/terminology/operations)
@@ -112,8 +112,10 @@ batch Bundle posted to @tt{/} is answered entry by entry.
                                #:terminology-capabilities (current-terminology-capabilities)))
 ]
 
-@bold{A store.} The SQLite store behind the generated servers is usable on its own: versioned CRUD
-with history, type-driven search from an IG's SearchParameters, transaction Bundles.
+@subsection{The store}
+
+The SQLite store behind the generated servers is usable on its own: versioned CRUD with history,
+search driven by an IG's SearchParameters, transaction Bundles.
 
 @racketblock[
 (require fhir/store/fhir-sqlite fhir/store/fhir-engine fhir/store/bundle fhir/store/serve
@@ -123,15 +125,8 @@ with history, type-driven search from an IG's SearchParameters, transaction Bund
 (fhir-create! store patient #:search-params catalog)
 (fhir-search store "Patient" '(("gender" . "male")) #:search-params catalog)
 (process-bundle! store transaction-bundle #:search-params catalog)
-(serve-app (make-store-app store #:package core-tgz #:types '(Patient Observation) #:audit? #t)
-           #:port 8080)
+(serve-app (make-store-app store #:package core-tgz #:types '(Patient Observation) #:audit? #t) #:port 8080)
 ]
-
-@verbatim{
-raco fhir-server load store.db data/                 Bundles, resources, .cql files
-raco fhir-server evaluate-measure store.db <Measure id|url> --period-start 2021-01-01 \
-    --period-end 2021-12-31 [--subject Patient/x]
-}
 
 @section{Limits}
 
