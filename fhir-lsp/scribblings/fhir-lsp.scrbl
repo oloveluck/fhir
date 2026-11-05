@@ -63,8 +63,12 @@ any problem is an error.
       (list "vcl" "the expression parsed and compiled to a compose")
       (list "fhirpath" "the expression parsed"))]
 
-For FSH, two more, read from the text rather than a parse (so they work while a document does not
-parse yet): @bold{hover} on a rule's element path shows the base type's definition of that element
+What the server knows about a language comes from that language's own package: each provides a
+@tt{<id>/support} module, a @tt{fhir/lang/support} value with its diagnostics, project files,
+outline, hover, definition, completion and tools, tested with the language. The server holds only
+the protocol and the open documents, builds a document's project (the support's files, open ones as
+the editor holds them) and hands it to the support. For FSH, two more, read from the text rather
+than a parse (so they work while a document does not parse yet): @bold{hover} on a rule's element path shows the base type's definition of that element
 (path, cardinality, types, short and definition from the core snapshot; the base is the document's
 @tt{Parent} or @tt{InstanceOf}, followed through the project's own profiles and aliases); hover on
 a name shows the declaration it refers to. @bold{Go to definition} on a name (a Parent, an
@@ -130,39 +134,21 @@ The open documents by uri, the documents each one's last diagnostics went to, an
 @defthing[initial-state state?]
 @defthing[server-capabilities hash?]{What @tt{initialize} answers: full text synchronisation with the text on save, hover, definition, completion, document symbols.}
 
-@subsection[#:style 'unnumbered]{@tt{fhir/lsp/fsh-complete}}
-@defmodule[fhir/lsp/fsh-complete]
-
-@defproc[(completion-context [text string?] [pos pair?]) (values symbol? string?)]{What the cursor is in (@racket['keyword], @racket['parent], @racket['valueset], @racket['ruleset], @racket['invariant], @racket['path], @racket['flag] or @racket['none]) and the word being typed.}
-@defproc[(complete [text string?] [pos pair?] [es (listof entity?)] [aliases hash?]) (listof hash?)]{The completion items for that context.}
-
-@subsection[#:style 'unnumbered]{@tt{fhir/lsp/fsh-symbols}}
-@defmodule[fhir/lsp/fsh-symbols]
-
-@defstruct*[entity ([kind string?] [name string?] [id (or/c string? #f)] [file string?] [line exact-nonnegative-integer?])]{A declaration in a project file (0-based line).}
-@defproc[(entities-of [text string?] [file path-string?]) (listof entity?)]
-@defproc[(find-entity [es (listof entity?)] [name string?]) (or/c entity? #f)]{By name, id, or a canonical's last segment.}
-@defproc[(word-at [text string?] [pos pair?]) (or/c string? #f)]{The name under a (line . character) position.}
-@defproc[(rule-path-at [text string?] [pos pair?]) (or/c string? #f)]{The element path of the rule on that line, when the position is on it.}
-@defproc[(parent-of [text string?] [es (listof entity?)] [aliases hash?]) (or/c string? #f)]{The document's base type, through the project's profiles.}
-@defproc[(element-hover [base-type string?] [fsh-path string?]) (or/c string? #f)]{Markdown for the element, from the base's snapshot.}
-@defproc[(entity-hover [e entity?] [text string?]) (or/c string? #f)]{The declaration's header lines.}
-@defproc[(aliases-of [text string?]) (hash/c string? string?)]
-@defproc[(project-root [file path-string?]) path?]{Where the file's @tt{sushi-config.yaml} is, else its directory.}
-@defproc[(project-fsh-files [dir path?]) (listof path?)]
-
 @subsection[#:style 'unnumbered]{@tt{fhir/lsp/languages}}
 @defmodule[fhir/lsp/languages]
 
-@defstruct*[language ([id string?] [extensions (listof string?)] [diagnose procedure?])]{
-A language the server knows: its LSP language id (also its package), its file extensions, and
-@racket[(diagnose text path)], the problems in a document as @tt{fhir/diagnostic} values.}
+@defstruct*[language ([id string?] [extensions (listof string?)])]{
+A language the server knows: its @tt{languageId} (also its collection) and the file extensions it
+owns. The catalogue is the foundation's (@tt{fhir/lang/support}).}
 @defthing[languages (listof language?)]{The catalogue: fsh, cql, fml, vcl, fhirpath.}
 @defproc[(language-of [path path-string?]) (or/c language? #f)]{By file extension.}
 @defproc[(language-by-id [id string?]) (or/c language? #f)]
+@defproc[(support-of [l language?]) (or/c lang-support? #f)]{The language's support, loaded from its
+package's @tt{<id>/support} module on first use; @racket[#f] when the package is not installed.}
 @defproc[(diagnose [l language?] [text string?] [path path-string?]) (listof diagnostic?)]{
-The language's adapter, which never raises: a language whose package is not installed, or an
-adapter failure, is one diagnostic saying so.}
+Every problem in the document, through its support; a language that is not installed answers one
+diagnostic saying so, and a support that fails answers one diagnostic with its message — never an
+exception.}
 
 @subsection[#:style 'unnumbered]{@tt{fhir/lsp/diagnostics}}
 @defmodule[fhir/lsp/diagnostics]

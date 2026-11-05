@@ -109,11 +109,12 @@ with the same methods.}]
 @defmodule[fhir/mcp/tools]
 
 @defstruct*[tool ([name string?] [description string?] [input-schema hash?] [run procedure?])]{
+(The struct is @tt{fhir/lang/support}'s, re-exported.)
 A tool: @racket[(run arguments)] answers @racket[(values text error?)].}
 @defproc[(operation->tool [o operation?] [all (listof operation?)]) tool?]{A registered FHIR operation as a tool: its OperationDefinition's @tt{in} parameters are the schema, those with min 1 required.}
 @defproc[(operation-tools) (listof tool?)]{Every registered operation.}
-@defproc[(language-tools) (listof tool?)]{The seven language tools.}
-@defproc[(definition-tools) (listof tool?)]{@tt{fhir_element}, @tt{fhir_find}, @tt{fsh_decompile}, @tt{data_resources}.}
+@defproc[(language-tools) (listof tool?)]{@tt{diagnose_file}, then every installed language's own tools (from its @tt{<id>/support} module): @tt{fsh_check}, @tt{fsh_compile}, @tt{fsh_decompile}, @tt{cql_elm}, @tt{cql_evaluate}, @tt{vcl_valueset}, @tt{fhirpath_evaluate}.}
+@defproc[(definition-tools) (listof tool?)]{@tt{fhir_element}, @tt{fhir_find}, @tt{data_resources}.}
 @defproc[(all-tools) (listof tool?)]
 @defproc[(call-tool [t tool?] [arguments hash?]) (values string? boolean?)]{Runs a tool; never raises.}
 @defproc[(load-operations!) (listof symbol?)]{Loads each operation module whose package is installed, so its operations register; the modules loaded.}

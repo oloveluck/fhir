@@ -16,7 +16,8 @@
 ;;; ignored (the protocol allows both).
 
 (require racket/contract racket/match racket/list racket/string racket/file
-         "jsonrpc.rkt" "diagnostics.rkt" "languages.rkt" "fsh-symbols.rkt" "fsh-complete.rkt" "lang-symbols.rkt")
+         fhir/lang/support
+         "jsonrpc.rkt" "diagnostics.rkt" "languages.rkt")
 
 (provide
  (struct-out state)
@@ -36,6 +37,9 @@
 
 ;; ---- the handlers, a table -------------------------------------------------------------------
 ;; A RequestHandler is (params state -> (values result state notifications))
+;; hover, completion, definition and symbols go to the document's language support with the
+;; document's PROJECT: its entities across the project's files (open documents as the editor holds
+;; them, the rest from disk) and a way to read any of those texts.
 (define request-handlers
   (hash "initialize"
         (lambda (params st)
@@ -44,36 +48,26 @@
                   st '()))
         "shutdown"
         (lambda (params st) (values (json-null) (struct-copy state st [down? #t]) '()))
-        ;; FSH only (parser-free, see fsh-symbols.rkt): a rule's element path -> the base type's
-        ;; definition of it; a name -> the declaration it refers to, in this project
         "textDocument/hover"
         (lambda (params st)
-          (define-values (uri text pos) (document-position params st))
-          (define lang (document-language uri))
-          (values (or (and text lang
-                           (let ([h (if (equal? lang "fsh") (fsh-hover st uri text pos) (declaration-hover lang uri text pos))])
+          (define-values (uri text pos s) (document-position params st))
+          (values (or (and text s
+                           (let ([h ((lang-support-hover s) (project-of st uri s) text pos)])
                              (and h (hasheq 'contents (hasheq 'kind "markdown" 'value h)))))
                       (json-null))
                   st '()))
-        ;; completion: the FSH keywords, the base type's elements at the path being typed, the
-        ;; project's names after Parent / InstanceOf / from / insert / obeys
         "textDocument/completion"
         (lambda (params st)
-          (define-values (uri text pos) (document-position params st))
-          (define lang (document-language uri))
-          (values (cond [(and text (equal? lang "fsh"))
-                         (let-values ([(es aliases) (project-entities st uri)]) (complete text pos es aliases))]
-                        [(and text lang) (language-completions lang text pos)]
-                        [else '()])
-                  st '()))
+          (define-values (uri text pos s) (document-position params st))
+          (values (if (and text s) ((lang-support-complete s) (project-of st uri s) text pos) '()) st '()))
         ;; the document's declarations, as an outline
         "textDocument/documentSymbol"
         (lambda (params st)
           (define uri (hash-ref (hash-ref params 'textDocument (hasheq)) 'uri #f))
           (define text (and uri (hash-ref (state-documents st) uri #f)))
-          (define lang (document-language uri))
-          (values (if (and text lang)
-                      (for/list ([e (in-list (language-entities lang text (or (uri->path uri) (string-append "untitled." lang))))])
+          (define s (and uri (document-support uri)))
+          (values (if (and text s)
+                      (for/list ([e (in-list ((lang-support-entities s) text (document-path uri s)))])
                         (define range (hasheq 'start (hasheq 'line (entity-line e) 'character 0) 'end (hasheq 'line (entity-line e) 'character 0)))
                         (hasheq 'name (entity-name e) 'detail (entity-kind e) 'kind (symbol-kind (entity-kind e))
                                 'range range 'selectionRange range))
@@ -81,10 +75,9 @@
                   st '()))
         "textDocument/definition"
         (lambda (params st)
-          (define-values (uri text pos) (document-position params st))
-          (define lang (document-language uri))
-          (values (or (and text lang
-                           (let ([e (if (equal? lang "fsh") (fsh-definition st uri text pos) (declaration-at lang uri text pos))])
+          (define-values (uri text pos s) (document-position params st))
+          (values (or (and text s
+                           (let ([e ((lang-support-definition s) (project-of st uri s) text pos)])
                              (and e (hasheq 'uri (path->uri (entity-file e))
                                             'range (hasheq 'start (hasheq 'line (entity-line e) 'character 0)
                                                            'end (hasheq 'line (entity-line e) 'character 0))))))
@@ -97,54 +90,37 @@
   (case kind [("Profile" "Extension" "Logical" "Resource") 5] [("ValueSet" "CodeSystem" "valueset" "codesystem" "code" "concept") 10]
              [("Instance") 19] [("Alias" "include" "using" "uses" "imports") 14] [("RuleSet" "Mapping" "Invariant" "define" "group" "conceptmap") 12]
              [("library" "map") 2] [("parameter" "context") 13] [else 5]))
-;; document-language : uri -> language-id|#f   the one whose extension the document carries
-(define (document-language uri) (let ([l (and uri (language-of uri))]) (and l (language-id l))))
-;; declaration-at : language uri text position -> entity|#f   the declaration the name under the cursor
-;; refers to, in this document (a CQL define or value set, an FML group)
-(define (declaration-at lang uri text pos)
-  (define n (name-at lang text pos))
-  (define path (uri->path uri))
-  (and n (or (find-entity (language-entities lang text (or path (string-append "untitled." lang))) n)
-             (linked-file lang text n (and path (let-values ([(dir _f _d) (split-path path)]) (and (path? dir) dir)))))))
-(define (declaration-hover lang uri text pos)
-  (define e (declaration-at lang uri text pos))
-  (and e (entity-hover e text)))
-;; document-position : params state -> (values uri text|#f position)
+;; document-support : uri -> support|#f   the support of the language the document's extension names
+(define (document-support uri) (let ([l (language-of uri)]) (and l (support-of l))))
+;; document-path : uri support -> path-string   the file, or a name an untitled document goes by
+(define (document-path uri s) (or (uri->path uri) (string-append "untitled." (lang-support-id s))))
+;; document-position : params state -> (values uri text|#f position support|#f)
 (define (document-position params st)
   (define uri (hash-ref (hash-ref params 'textDocument (hasheq)) 'uri #f))
   (define p (hash-ref params 'position (hasheq)))
-  (values uri (and uri (hash-ref (state-documents st) uri #f)) (cons (hash-ref p 'line 0) (hash-ref p 'character 0))))
-(define (fsh-document? uri params)
-  (and uri (let ([l (language-of uri)]) (and l (equal? (language-id l) "fsh")))))
+  (values uri (and uri (hash-ref (state-documents st) uri #f)) (cons (hash-ref p 'line 0) (hash-ref p 'character 0))
+          (and uri (document-support uri))))
 
-;; project-entities : state uri -> (values entities aliases)   every declaration in the document's
-;; project: open documents as the editor holds them, the other files from disk
-(define (project-entities st uri)
+;; project-of : state uri support -> project   the document's project: the support's project files
+;; and the document itself, each read from the open documents first, then from disk
+(define (project-of st uri s)
   (define path (uri->path uri))
-  (define files (if path (project-fsh-files (project-root path)) '()))
-  (define texts
-    (for/list ([f (in-list files)])
-      (define u (path->uri f))
-      (cons f (or (hash-ref (state-documents st) u #f) (with-handlers ([exn:fail? (lambda (_) "")]) (file->string f))))))
-  (define texts* (if (and path (not (assoc path texts))) (cons (cons path (hash-ref (state-documents st) uri "")) texts) texts))
-  (values (append-map (lambda (ft) (entities-of (cdr ft) (car ft))) texts*)
-          (for/fold ([h (hash)]) ([ft (in-list texts*)]) (for/fold ([h h]) ([(k v) (in-hash (aliases-of (cdr ft)))]) (hash-set h k v)))))
-
-(define (fsh-hover st uri text pos)
-  (define-values (es aliases) (project-entities st uri))
-  (define rule-path (rule-path-at text pos))
-  (cond
-    [rule-path (let ([base (parent-of text es aliases)]) (and base (element-hover base rule-path)))]
-    [else (define w (word-at text pos))
-          (define e (and w (find-entity es (hash-ref aliases w w))))
-          (and e (entity-hover e (text-of st e)))]))
-(define (fsh-definition st uri text pos)
-  (define-values (es aliases) (project-entities st uri))
-  (define w (word-at text pos))
-  (and w (find-entity es (hash-ref aliases w w))))
-(define (text-of st e)
-  (or (hash-ref (state-documents st) (path->uri (entity-file e)) #f)
-      (with-handlers ([exn:fail? (lambda (_) "")]) (file->string (entity-file e)))))
+  (define (text-of f)
+    (or (hash-ref (state-documents st) (path->uri f) #f)
+        (and (equal? (path-string f) (and path (path-string path))) (hash-ref (state-documents st) uri #f))
+        (with-handlers ([exn:fail? (lambda (_) "")]) (file->string f))))
+  (define files (if path
+                    (let ([ps ((lang-support-project-files s) path)])
+                      (if (member (path-string path) (map path-string ps)) ps (cons path ps)))
+                    '()))
+  (define texts (if path
+                    (for/list ([f (in-list files)]) (cons f (text-of f)))
+                    (list (cons (document-path uri s) (hash-ref (state-documents st) uri "")))))
+  (project (or path (document-path uri s))
+           (append-map (lambda (ft) ((lang-support-entities s) (cdr ft) (car ft))) texts)
+           (lambda (f) (or (for/first ([ft (in-list texts)] #:when (equal? (path-string (car ft)) (path-string f))) (cdr ft))
+                           (text-of f)))))
+(define (path-string p) (if (path? p) (path->string p) p))
 
 ;; A NotificationHandler is (params state -> (values state notifications))
 (define notification-handlers
@@ -277,44 +253,61 @@
                                       s1))
   (check-equal? (hash-ref (state-documents s4) "file:///tmp/notes.txt") "hi")
   (check-equal? n4 (list (publish-diagnostics "file:///tmp/notes.txt" '())))
-  ;; a fhirpath document: a syntax error is published at its position (the fhirpath package, when installed)
-  (when (language-by-id "fhirpath")
-    (define-values (r5 s5 n5) (dispatch (notification "textDocument/didOpen"
-                                                      (hasheq 'textDocument (hasheq 'uri "file:///tmp/x.fhirpath" 'languageId "fhirpath" 'text "name.given(")))
-                                        s4))
-    (check-equal? (length n5) 1)
-    (define ds (hash-ref (hash-ref (car n5) 'params) 'diagnostics))
-    (when (with-handlers ([exn:fail? (lambda (_) #f)]) (dynamic-require 'fhirpath/parser/parse 'parse-fhirpath))
-      (check-equal? (length ds) 1)
-      (check-equal? (hash-ref (car ds) 'severity) 1)))
-  ;; hover and definition on an FSH document (open, so nothing is read from disk)
-  (define fsh-text (string-append "Alias: $obs = http://hl7.org/fhir/StructureDefinition/Observation\n\nProfile: BP\nParent: $obs\nId: bp\n"
-                                  "* component.code 1..1\n\nInstance: a\nInstanceOf: bp\n* status = #final\n"))
-  (define fsh-uri "file:///tmp/nowhere/bp.fsh")
-  (define-values (r9 s9 n9) (dispatch (notification "textDocument/didOpen" (hasheq 'textDocument (hasheq 'uri fsh-uri 'languageId "fsh" 'text fsh-text))) s1))
-  (when (with-handlers ([exn:fail? (lambda (_) #f)]) (dynamic-require 'fhir/r5/schemas #f) #t)
-    (define-values (rh sh nh) (dispatch (request 10 "textDocument/hover" (hasheq 'textDocument (hasheq 'uri fsh-uri) 'position (hasheq 'line 5 'character 4))) s9))
-    (check-regexp-match #rx"Observation.component.code" (hash-ref (hash-ref (hash-ref rh 'result) 'contents) 'value)))
-  (define-values (rd sd nd) (dispatch (request 11 "textDocument/definition" (hasheq 'textDocument (hasheq 'uri fsh-uri) 'position (hasheq 'line 8 'character 13))) s9))
-  (check-equal? (hash-ref (hash-ref rd 'result) 'uri) fsh-uri)
-  (check-equal? (hash-ref (hash-ref (hash-ref (hash-ref rd 'result) 'range) 'start) 'line) 2)
-  (define-values (rn sn nn) (dispatch (request 12 "textDocument/definition" (hasheq 'textDocument (hasheq 'uri fsh-uri) 'position (hasheq 'line 9 'character 3))) s9))
+  ;; a stand-in support for vcl: diagnostics published, the outline, hover, definition and completion
+  ;; all go through the support with the document's project (the open text, not the disk)
+  (define seen '())
+  (define fake
+    (lang-support "vcl"
+                  (lambda (t p) (list (positionless 'vcl 'compile "bad" p)))
+                  (lambda (p) '())
+                  (lambda (t f) (list (entity "expr" (string-trim t) #f (if (path? f) (path->string f) f) 0)))
+                  (lambda (pr t pos) (set! seen (project-entities pr)) "hovered")
+                  (lambda (pr t pos) (car (project-entities pr)))
+                  (lambda (pr t pos) (list (hasheq 'label "done" 'kind 1)))
+                  '()))
+  (parameterize ([current-language-supports (hash "vcl" fake)])
+    (define uri "file:///tmp/nowhere/v.vcl")
+    (define-values (ro so no) (dispatch (notification "textDocument/didOpen" (hasheq 'textDocument (hasheq 'uri uri 'languageId "vcl" 'text "(http://x)a"))) s1))
+    (check-equal? (length no) 1)
+    (check-equal? (hash-ref (car (hash-ref (hash-ref (car no) 'params) 'diagnostics)) 'severity) 1)
+    (define-values (rs ss ns) (dispatch (request 5 "textDocument/documentSymbol" (hasheq 'textDocument (hasheq 'uri uri))) so))
+    (check-equal? (map (lambda (x) (hash-ref x 'name)) (hash-ref rs 'result)) '("(http://x)a"))
+    (define-values (rh sh nh) (dispatch (request 6 "textDocument/hover" (hasheq 'textDocument (hasheq 'uri uri) 'position (hasheq 'line 0 'character 1))) so))
+    (check-equal? (hash-ref (hash-ref (hash-ref rh 'result) 'contents) 'value) "hovered")
+    (check-equal? (map entity-name seen) '("(http://x)a"))
+    (define-values (rd sd nd) (dispatch (request 7 "textDocument/definition" (hasheq 'textDocument (hasheq 'uri uri) 'position (hasheq 'line 0 'character 1))) so))
+    (check-equal? (hash-ref (hash-ref rd 'result) 'uri) uri)
+    (define-values (rc sc nc) (dispatch (request 8 "textDocument/completion" (hasheq 'textDocument (hasheq 'uri uri) 'position (hasheq 'line 0 'character 1))) so))
+    (check-equal? (map (lambda (c) (hash-ref c 'label)) (hash-ref rc 'result)) '("done")))
+  ;; a document of an installed language without a support stand-in: hover answers null, never an error
+  (define-values (rn sn nn) (dispatch (request 9 "textDocument/hover" (hasheq 'textDocument (hasheq 'uri "file:///tmp/notes.txt") 'position (hasheq 'line 0 'character 0))) s4))
   (check-equal? (hash-ref rn 'result) 'null)
-  ;; completion and the outline on the same document
-  (define-values (rc sc nc) (dispatch (request 13 "textDocument/completion" (hasheq 'textDocument (hasheq 'uri fsh-uri) 'position (hasheq 'line 3 'character 10))) s9))
-  (check-true (and (member "BP" (map (lambda (c) (hash-ref c 'label)) (hash-ref rc 'result))) #t))
-  (define-values (ro so no) (dispatch (request 14 "textDocument/documentSymbol" (hasheq 'textDocument (hasheq 'uri fsh-uri))) s9))
-  (check-equal? (map (lambda (x) (hash-ref x 'name)) (hash-ref ro 'result)) '("$obs" "BP" "a"))
-  (check-equal? (hash-ref (hash-ref (hash-ref (cadr (hash-ref ro 'result)) 'range) 'start) 'line) 2)
-  ;; a CQL document: outline, and definition of a quoted name within it
-  (define cql-uri "file:///tmp/nowhere/l.cql")
-  (define-values (rq sq nq) (dispatch (notification "textDocument/didOpen" (hasheq 'textDocument (hasheq 'uri cql-uri 'languageId "cql" 'text "library L\ndefine \"A\": 1\ndefine \"B\": \"A\" + 1\n"))) s1))
-  (define-values (rs1 ss1 ns1) (dispatch (request 15 "textDocument/documentSymbol" (hasheq 'textDocument (hasheq 'uri cql-uri))) sq))
-  (check-equal? (map (lambda (x) (hash-ref x 'name)) (hash-ref rs1 'result)) '("L" "A" "B"))
-  (define-values (rd2 sd2 nd2) (dispatch (request 16 "textDocument/definition" (hasheq 'textDocument (hasheq 'uri cql-uri) 'position (hasheq 'line 2 'character 13))) sq))
-  (check-equal? (hash-ref (hash-ref (hash-ref (hash-ref rd2 'result) 'range) 'start) 'line) 1)
-  (define-values (rc2 sc2 nc2) (dispatch (request 17 "textDocument/completion" (hasheq 'textDocument (hasheq 'uri cql-uri) 'position (hasheq 'line 2 'character 14))) sq))
-  (check-equal? (map (lambda (c) (hash-ref c 'label)) (hash-ref rc2 'result)) '("A"))
+  ;; the real FSH support, when the fsh package is installed: hover on an element path, definition and
+  ;; completion across an open document, the outline
+  (when (language-support "fsh")
+    (define fsh-text (string-append "Alias: $obs = http://hl7.org/fhir/StructureDefinition/Observation\n\nProfile: BP\nParent: $obs\nId: bp\n"
+                                    "* component.code 1..1\n\nInstance: a\nInstanceOf: bp\n* status = #final\n"))
+    (define fsh-uri "file:///tmp/nowhere/bp.fsh")
+    (define-values (r9 s9 n9) (dispatch (notification "textDocument/didOpen" (hasheq 'textDocument (hasheq 'uri fsh-uri 'languageId "fsh" 'text fsh-text))) s1))
+    (define-values (rh sh nh) (dispatch (request 10 "textDocument/hover" (hasheq 'textDocument (hasheq 'uri fsh-uri) 'position (hasheq 'line 5 'character 4))) s9))
+    (check-regexp-match #rx"Observation.component.code" (hash-ref (hash-ref (hash-ref rh 'result) 'contents) 'value))
+    (define-values (rd sd nd) (dispatch (request 11 "textDocument/definition" (hasheq 'textDocument (hasheq 'uri fsh-uri) 'position (hasheq 'line 8 'character 13))) s9))
+    (check-equal? (hash-ref (hash-ref rd 'result) 'uri) fsh-uri)
+    (check-equal? (hash-ref (hash-ref (hash-ref (hash-ref rd 'result) 'range) 'start) 'line) 2)
+    (define-values (rc sc nc) (dispatch (request 13 "textDocument/completion" (hasheq 'textDocument (hasheq 'uri fsh-uri) 'position (hasheq 'line 3 'character 10))) s9))
+    (check-true (and (member "BP" (map (lambda (c) (hash-ref c 'label)) (hash-ref rc 'result))) #t))
+    (define-values (ro so no) (dispatch (request 14 "textDocument/documentSymbol" (hasheq 'textDocument (hasheq 'uri fsh-uri))) s9))
+    (check-equal? (map (lambda (x) (hash-ref x 'name)) (hash-ref ro 'result)) '("$obs" "BP" "a")))
+  ;; the real CQL support, when installed: outline, definition of a quoted name, completion inside quotes
+  (when (language-support "cql")
+    (define cql-uri "file:///tmp/nowhere/l.cql")
+    (define-values (rq sq nq) (dispatch (notification "textDocument/didOpen" (hasheq 'textDocument (hasheq 'uri cql-uri 'languageId "cql" 'text "library L\ndefine \"A\": 1\ndefine \"B\": \"A\" + 1\n"))) s1))
+    (define-values (rs1 ss1 ns1) (dispatch (request 15 "textDocument/documentSymbol" (hasheq 'textDocument (hasheq 'uri cql-uri))) sq))
+    (check-equal? (map (lambda (x) (hash-ref x 'name)) (hash-ref rs1 'result)) '("L" "A" "B"))
+    (define-values (rd2 sd2 nd2) (dispatch (request 16 "textDocument/definition" (hasheq 'textDocument (hasheq 'uri cql-uri) 'position (hasheq 'line 2 'character 13))) sq))
+    (check-equal? (hash-ref (hash-ref (hash-ref (hash-ref rd2 'result) 'range) 'start) 'line) 1)
+    (define-values (rc2 sc2 nc2) (dispatch (request 17 "textDocument/completion" (hasheq 'textDocument (hasheq 'uri cql-uri) 'position (hasheq 'line 2 'character 14))) sq))
+    (check-equal? (map (lambda (c) (hash-ref c 'label)) (hash-ref rc2 'result)) '("A")))
   ;; closing clears, including documents reported on through this one
   (define s6 (struct-copy state s4 [published (hash "file:///tmp/notes.txt" '("file:///tmp/notes.txt" "file:///tmp/other.fsh"))]))
   (define-values (r7 s7 n7) (dispatch (notification "textDocument/didClose" (hasheq 'textDocument (hasheq 'uri "file:///tmp/notes.txt"))) s6))

@@ -39,11 +39,13 @@
  (struct-out lang-support) (struct-out entity) (struct-out project) (struct-out tool)
  (contract-out
   ;; the family's languages: id -> file extensions
-  [language-extensions (hash/c string? (listof string?))]
+  [extensions-by-language (hash/c string? (listof string?))]
   [language-ids        (listof string?)]
   [language-id-of      (-> path-string? (or/c string? #f))]
   ;; a language's support value, loaded from `<id>/support` on first use; #f when not installed
   [language-support    (-> string? (or/c lang-support? #f))]
+  ;; supports given by hand (id -> support), consulted first: a test's stand-in, an embedder's own
+  [current-language-supports (parameter/c (hash/c string? lang-support?))]
   [installed-supports  (-> (listof lang-support?))]
   ;; diagnose through a support, never raising: a failure is one diagnostic at the document
   [diagnose-safely     (-> string? (or/c lang-support? #f) string? path-string? (listof diagnostic?))]
@@ -67,24 +69,26 @@
 (struct tool (name description input-schema run) #:transparent)
 
 ;; ---- the catalogue ----------------------------------------------------------------------------
-(define language-extensions
+(define extensions-by-language
   (hash "fsh" '("fsh") "cql" '("cql") "fml" '("fml" "map") "vcl" '("vcl") "fhirpath" '("fhirpath")))
 (define language-ids '("fsh" "cql" "fml" "vcl" "fhirpath"))
 
 (define (language-id-of p)
   (define ext (let ([e (path-get-extension p)]) (and e (string-downcase (bytes->string/utf-8 (subbytes e 1))))))
-  (and ext (for/first ([id (in-list language-ids)] #:when (member ext (hash-ref language-extensions id))) id)))
+  (and ext (for/first ([id (in-list language-ids)] #:when (member ext (hash-ref extensions-by-language id))) id)))
 
 ;; the supports, loaded once; a package that is not installed stays #f
 (define loaded (make-hash))
+(define current-language-supports (make-parameter (hash)))
 (define (language-support id)
-  (hash-ref! loaded id
+  (or (hash-ref (current-language-supports) id #f)
+      (hash-ref! loaded id
              (lambda ()
                (and (member id language-ids)
                     (with-handlers ([exn:fail:filesystem:missing-module? (lambda (_) #f)]
                                     [exn:fail:syntax:missing-module? (lambda (_) #f)])
                       (define v (dynamic-require (string->symbol (string-append id "/support")) 'support))
-                      (and (lang-support? v) v))))))
+                      (and (lang-support? v) v)))))))
 (define (installed-supports) (filter values (map language-support language-ids)))
 
 ;; ---- shared helpers ---------------------------------------------------------------------------
@@ -152,6 +156,8 @@
   (check-equal? (language-id-of "A.CQL") "cql")
   (check-false (language-id-of "notes.txt"))
   (check-false (language-support "cobol"))
+  (define fake (lang-support "vcl" (lambda (t p) '()) (lambda (p) '()) (lambda (t f) '()) (lambda (pr t pos) #f) (lambda (pr t pos) #f) (lambda (pr t pos) '()) '()))
+  (parameterize ([current-language-supports (hash "vcl" fake)]) (check-eq? (language-support "vcl") fake))
   ;; an absent language, and an adapter that raises, are diagnostics, never exceptions
   (define ds (diagnose-safely "cobol" #f "x" "/tmp/x.cob"))
   (check-equal? (length ds) 1)

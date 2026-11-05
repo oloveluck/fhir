@@ -1,25 +1,23 @@
 #lang racket/base
 
-;;; languages-test.rkt — each adapter on a small document of its language: a problem is a positioned
+;;; languages-test.rkt — each language's support on a small document: a problem is a positioned
 ;;; diagnostic naming the file; a clean document has none. A language whose package is not installed
 ;;; reports exactly that (one diagnostic), so this test runs anywhere.
 
 (require rackunit racket/file racket/list
          fhir/lsp/languages
+         (only-in fhir/lang/support language-support)
          (only-in fhir/diagnostic diagnostic-loc diagnostic-message diagnostic-severity loc-line loc-source))
 
 (define dir (make-temporary-directory))
 (define (write! name text) (define p (build-path dir name)) (display-to-file text p #:exists 'replace) p)
-(define (installed? mod) (with-handlers ([exn:fail? (lambda (_) #f)]) (dynamic-require mod #f) #t))
-;; the module each adapter needs first
-(define probes (hash "fsh" 'fsh/project "cql" 'cql/compile "fml" 'fml/check "vcl" 'vcl/compile "fhirpath" 'fhirpath/parser/parse))
 ;; check-language : id file-name bad-text good-text expected-line -> void
 (define (check-language id name bad good line)
   (define l (language-by-id id))
   (define p (write! name bad))
   (define ds (diagnose l bad p))
   (cond
-    [(installed? (hash-ref probes id))
+    [(language-support id)
      (check-true (pair? ds) (format "~a: a problem is reported" id))
      (check-equal? (diagnostic-severity (car ds)) 'error)
      (check-equal? (loc-source (diagnostic-loc (car ds))) (path->string p) (format "~a: the diagnostic names the file" id))
