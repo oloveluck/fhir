@@ -63,14 +63,26 @@ any problem is an error.
       (list "vcl" "the expression parsed and compiled to a compose")
       (list "fhirpath" "the expression parsed"))]
 
+For FSH, two more, read from the text rather than a parse (so they work while a document does not
+parse yet): @bold{hover} on a rule's element path shows the base type's definition of that element
+(path, cardinality, types, short and definition from the core snapshot; the base is the document's
+@tt{Parent} or @tt{InstanceOf}, followed through the project's own profiles and aliases); hover on
+a name shows the declaration it refers to. @bold{Go to definition} on a name (a Parent, an
+InstanceOf, a value set in a binding, an alias, a RuleSet in an insert, an invariant, an instance in
+a Reference) opens the declaration in this project, found by name, id or canonical, across the
+project's files as the editor holds them.
+
 Protocol: @tt{initialize}, @tt{initialized}, @tt{shutdown}, @tt{exit}, @tt{textDocument/didOpen},
-@tt{didChange} (full text), @tt{didSave}, @tt{didClose}, and @tt{textDocument/publishDiagnostics}
-back. Any other request is answered with method-not-found; other notifications are ignored.
+@tt{didChange} (full text), @tt{didSave}, @tt{didClose}, @tt{textDocument/hover},
+@tt{textDocument/definition}, and @tt{textDocument/publishDiagnostics} back. Any other request is
+answered with method-not-found; other notifications are ignored.
 
 @section{Limits}
 
 @itemlist[
-@item{Diagnostics only: no hover, completion, go-to-definition or formatting yet.}
+@item{Hover and go-to-definition are for FSH only and read the text, not a parse: a name is the
+word under the cursor, an element is looked up in the base type's core snapshot (not the profile's
+own constraints). No completion or formatting.}
 @item{An FSH document is recompiled with its project on every change, synchronously; on a large
 project (mCODE: hundreds of entities) that takes seconds, and the editor waits for the publication.}
 @item{Positions are the compilers' positions: a CQL translation error without one, or a problem in
@@ -92,7 +104,22 @@ One message: the response (a request's), the next state, and the notifications t
 The open documents by uri, the documents each one's last diagnostics went to, and whether
 @tt{shutdown} was received.}
 @defthing[initial-state state?]
-@defthing[server-capabilities hash?]{What @tt{initialize} answers: full text synchronisation, with the text on save.}
+@defthing[server-capabilities hash?]{What @tt{initialize} answers: full text synchronisation with the text on save, hover, definition.}
+
+@subsection[#:style 'unnumbered]{@tt{fhir/lsp/fsh-symbols}}
+@defmodule[fhir/lsp/fsh-symbols]
+
+@defstruct*[entity ([kind string?] [name string?] [id (or/c string? #f)] [file string?] [line exact-nonnegative-integer?])]{A declaration in a project file (0-based line).}
+@defproc[(entities-of [text string?] [file path-string?]) (listof entity?)]
+@defproc[(find-entity [es (listof entity?)] [name string?]) (or/c entity? #f)]{By name, id, or a canonical's last segment.}
+@defproc[(word-at [text string?] [pos pair?]) (or/c string? #f)]{The name under a (line . character) position.}
+@defproc[(rule-path-at [text string?] [pos pair?]) (or/c string? #f)]{The element path of the rule on that line, when the position is on it.}
+@defproc[(parent-of [text string?] [es (listof entity?)] [aliases hash?]) (or/c string? #f)]{The document's base type, through the project's profiles.}
+@defproc[(element-hover [base-type string?] [fsh-path string?]) (or/c string? #f)]{Markdown for the element, from the base's snapshot.}
+@defproc[(entity-hover [e entity?] [text string?]) (or/c string? #f)]{The declaration's header lines.}
+@defproc[(aliases-of [text string?]) (hash/c string? string?)]
+@defproc[(project-root [file path-string?]) path?]{Where the file's @tt{sushi-config.yaml} is, else its directory.}
+@defproc[(project-fsh-files [dir path?]) (listof path?)]
 
 @subsection[#:style 'unnumbered]{@tt{fhir/lsp/languages}}
 @defmodule[fhir/lsp/languages]

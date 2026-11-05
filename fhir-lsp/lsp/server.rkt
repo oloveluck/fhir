@@ -15,8 +15,8 @@
 ;;; text), didSave, didClose. Everything else: a request gets method-not-found, a notification is
 ;;; ignored (the protocol allows both).
 
-(require racket/contract racket/match racket/list racket/string
-         "jsonrpc.rkt" "diagnostics.rkt" "languages.rkt")
+(require racket/contract racket/match racket/list racket/string racket/file
+         "jsonrpc.rkt" "diagnostics.rkt" "languages.rkt" "fsh-symbols.rkt")
 
 (provide
  (struct-out state)
@@ -30,7 +30,8 @@
 (define initial-state (state (hash) (hash) #f))
 
 (define server-capabilities
-  (hasheq 'textDocumentSync (hasheq 'openClose #t 'change 1 'save (hasheq 'includeText #t))))   ; 1 = full text
+  (hasheq 'textDocumentSync (hasheq 'openClose #t 'change 1 'save (hasheq 'includeText #t))   ; 1 = full text
+          'hoverProvider #t 'definitionProvider #t))
 
 ;; ---- the handlers, a table -------------------------------------------------------------------
 ;; A RequestHandler is (params state -> (values result state notifications))
@@ -41,7 +42,63 @@
                           'serverInfo (hasheq 'name "fhir-lsp" 'version "0.1"))
                   st '()))
         "shutdown"
-        (lambda (params st) (values (json-null) (struct-copy state st [down? #t]) '()))))
+        (lambda (params st) (values (json-null) (struct-copy state st [down? #t]) '()))
+        ;; FSH only (parser-free, see fsh-symbols.rkt): a rule's element path -> the base type's
+        ;; definition of it; a name -> the declaration it refers to, in this project
+        "textDocument/hover"
+        (lambda (params st)
+          (define-values (uri text pos) (document-position params st))
+          (values (or (and text (fsh-document? uri params)
+                           (let ([h (fsh-hover st uri text pos)]) (and h (hasheq 'contents (hasheq 'kind "markdown" 'value h)))))
+                      (json-null))
+                  st '()))
+        "textDocument/definition"
+        (lambda (params st)
+          (define-values (uri text pos) (document-position params st))
+          (values (or (and text (fsh-document? uri params)
+                           (let ([e (fsh-definition st uri text pos)])
+                             (and e (hasheq 'uri (path->uri (entity-file e))
+                                            'range (hasheq 'start (hasheq 'line (entity-line e) 'character 0)
+                                                           'end (hasheq 'line (entity-line e) 'character 0))))))
+                      (json-null))
+                  st '()))))
+
+;; document-position : params state -> (values uri text|#f position)
+(define (document-position params st)
+  (define uri (hash-ref (hash-ref params 'textDocument (hasheq)) 'uri #f))
+  (define p (hash-ref params 'position (hasheq)))
+  (values uri (and uri (hash-ref (state-documents st) uri #f)) (cons (hash-ref p 'line 0) (hash-ref p 'character 0))))
+(define (fsh-document? uri params)
+  (and uri (let ([l (language-of uri)]) (and l (equal? (language-id l) "fsh")))))
+
+;; project-entities : state uri -> (values entities aliases)   every declaration in the document's
+;; project: open documents as the editor holds them, the other files from disk
+(define (project-entities st uri)
+  (define path (uri->path uri))
+  (define files (if path (project-fsh-files (project-root path)) '()))
+  (define texts
+    (for/list ([f (in-list files)])
+      (define u (path->uri f))
+      (cons f (or (hash-ref (state-documents st) u #f) (with-handlers ([exn:fail? (lambda (_) "")]) (file->string f))))))
+  (define texts* (if (and path (not (assoc path texts))) (cons (cons path (hash-ref (state-documents st) uri "")) texts) texts))
+  (values (append-map (lambda (ft) (entities-of (cdr ft) (car ft))) texts*)
+          (for/fold ([h (hash)]) ([ft (in-list texts*)]) (for/fold ([h h]) ([(k v) (in-hash (aliases-of (cdr ft)))]) (hash-set h k v)))))
+
+(define (fsh-hover st uri text pos)
+  (define-values (es aliases) (project-entities st uri))
+  (define rule-path (rule-path-at text pos))
+  (cond
+    [rule-path (let ([base (parent-of text es aliases)]) (and base (element-hover base rule-path)))]
+    [else (define w (word-at text pos))
+          (define e (and w (find-entity es (hash-ref aliases w w))))
+          (and e (entity-hover e (text-of st e)))]))
+(define (fsh-definition st uri text pos)
+  (define-values (es aliases) (project-entities st uri))
+  (define w (word-at text pos))
+  (and w (find-entity es (hash-ref aliases w w))))
+(define (text-of st e)
+  (or (hash-ref (state-documents st) (path->uri (entity-file e)) #f)
+      (with-handlers ([exn:fail? (lambda (_) "")]) (file->string (entity-file e)))))
 
 ;; A NotificationHandler is (params state -> (values state notifications))
 (define notification-handlers
@@ -132,7 +189,7 @@
   (check-equal? (hash-ref (hash-ref r1 'result) 'capabilities) server-capabilities)
   (check-equal? n1 '())
   ;; an unknown request is an error; an unknown notification is nothing
-  (define-values (r2 s2 n2) (dispatch (request 2 "textDocument/hover" (hasheq)) s1))
+  (define-values (r2 s2 n2) (dispatch (request 2 "textDocument/completion" (hasheq)) s1))
   (check-equal? (hash-ref (hash-ref r2 'error) 'code) method-not-found)
   (define-values (r3 s3 n3) (dispatch (notification "workspace/didChangeConfiguration" (hasheq)) s1))
   (check-false r3) (check-equal? n3 '())
@@ -152,6 +209,19 @@
     (when (with-handlers ([exn:fail? (lambda (_) #f)]) (dynamic-require 'fhirpath/parser/parse 'parse-fhirpath))
       (check-equal? (length ds) 1)
       (check-equal? (hash-ref (car ds) 'severity) 1)))
+  ;; hover and definition on an FSH document (open, so nothing is read from disk)
+  (define fsh-text (string-append "Alias: $obs = http://hl7.org/fhir/StructureDefinition/Observation\n\nProfile: BP\nParent: $obs\nId: bp\n"
+                                  "* component.code 1..1\n\nInstance: a\nInstanceOf: bp\n* status = #final\n"))
+  (define fsh-uri "file:///tmp/nowhere/bp.fsh")
+  (define-values (r9 s9 n9) (dispatch (notification "textDocument/didOpen" (hasheq 'textDocument (hasheq 'uri fsh-uri 'languageId "fsh" 'text fsh-text))) s1))
+  (when (with-handlers ([exn:fail? (lambda (_) #f)]) (dynamic-require 'fhir/r5/schemas #f) #t)
+    (define-values (rh sh nh) (dispatch (request 10 "textDocument/hover" (hasheq 'textDocument (hasheq 'uri fsh-uri) 'position (hasheq 'line 5 'character 4))) s9))
+    (check-regexp-match #rx"Observation.component.code" (hash-ref (hash-ref (hash-ref rh 'result) 'contents) 'value)))
+  (define-values (rd sd nd) (dispatch (request 11 "textDocument/definition" (hasheq 'textDocument (hasheq 'uri fsh-uri) 'position (hasheq 'line 8 'character 13))) s9))
+  (check-equal? (hash-ref (hash-ref rd 'result) 'uri) fsh-uri)
+  (check-equal? (hash-ref (hash-ref (hash-ref (hash-ref rd 'result) 'range) 'start) 'line) 2)
+  (define-values (rn sn nn) (dispatch (request 12 "textDocument/definition" (hasheq 'textDocument (hasheq 'uri fsh-uri) 'position (hasheq 'line 9 'character 3))) s9))
+  (check-equal? (hash-ref rn 'result) 'null)
   ;; closing clears, including documents reported on through this one
   (define s6 (struct-copy state s4 [published (hash "file:///tmp/notes.txt" '("file:///tmp/notes.txt" "file:///tmp/other.fsh"))]))
   (define-values (r7 s7 n7) (dispatch (notification "textDocument/didClose" (hasheq 'textDocument (hasheq 'uri "file:///tmp/notes.txt"))) s6))
