@@ -16,7 +16,7 @@
 ;;; ignored (the protocol allows both).
 
 (require racket/contract racket/match racket/list racket/string racket/file
-         "jsonrpc.rkt" "diagnostics.rkt" "languages.rkt" "fsh-symbols.rkt" "fsh-complete.rkt")
+         "jsonrpc.rkt" "diagnostics.rkt" "languages.rkt" "fsh-symbols.rkt" "fsh-complete.rkt" "lang-symbols.rkt")
 
 (provide
  (struct-out state)
@@ -49,8 +49,10 @@
         "textDocument/hover"
         (lambda (params st)
           (define-values (uri text pos) (document-position params st))
-          (values (or (and text (fsh-document? uri params)
-                           (let ([h (fsh-hover st uri text pos)]) (and h (hasheq 'contents (hasheq 'kind "markdown" 'value h)))))
+          (define lang (document-language uri))
+          (values (or (and text lang
+                           (let ([h (if (equal? lang "fsh") (fsh-hover st uri text pos) (declaration-hover lang uri text pos))])
+                             (and h (hasheq 'contents (hasheq 'kind "markdown" 'value h)))))
                       (json-null))
                   st '()))
         ;; completion: the FSH keywords, the base type's elements at the path being typed, the
@@ -67,8 +69,9 @@
         (lambda (params st)
           (define uri (hash-ref (hash-ref params 'textDocument (hasheq)) 'uri #f))
           (define text (and uri (hash-ref (state-documents st) uri #f)))
-          (values (if (and text (fsh-document? uri params))
-                      (for/list ([e (in-list (entities-of text (or (uri->path uri) "untitled.fsh")))])
+          (define lang (document-language uri))
+          (values (if (and text lang)
+                      (for/list ([e (in-list (language-entities lang text (or (uri->path uri) (string-append "untitled." lang))))])
                         (define range (hasheq 'start (hasheq 'line (entity-line e) 'character 0) 'end (hasheq 'line (entity-line e) 'character 0)))
                         (hasheq 'name (entity-name e) 'detail (entity-kind e) 'kind (symbol-kind (entity-kind e))
                                 'range range 'selectionRange range))
@@ -77,18 +80,31 @@
         "textDocument/definition"
         (lambda (params st)
           (define-values (uri text pos) (document-position params st))
-          (values (or (and text (fsh-document? uri params)
-                           (let ([e (fsh-definition st uri text pos)])
+          (define lang (document-language uri))
+          (values (or (and text lang
+                           (let ([e (if (equal? lang "fsh") (fsh-definition st uri text pos) (declaration-at lang uri text pos))])
                              (and e (hasheq 'uri (path->uri (entity-file e))
                                             'range (hasheq 'start (hasheq 'line (entity-line e) 'character 0)
                                                            'end (hasheq 'line (entity-line e) 'character 0))))))
                       (json-null))
                   st '()))))
 
-;; symbol-kind : entity kind -> SymbolKind   Class for structures, Enum for terminology, Object for instances
+;; symbol-kind : entity kind -> SymbolKind   Class for structures, Enum for terminology, Object for
+;; instances, Function for CQL defines and FML groups, Module for libraries and maps
 (define (symbol-kind kind)
-  (case kind [("Profile" "Extension" "Logical" "Resource") 5] [("ValueSet" "CodeSystem") 10] [("Instance") 19]
-             [("Alias") 14] [("RuleSet" "Mapping" "Invariant") 12] [else 5]))
+  (case kind [("Profile" "Extension" "Logical" "Resource") 5] [("ValueSet" "CodeSystem" "valueset" "codesystem" "code" "concept") 10]
+             [("Instance") 19] [("Alias" "include" "using" "uses" "imports") 14] [("RuleSet" "Mapping" "Invariant" "define" "group" "conceptmap") 12]
+             [("library" "map") 2] [("parameter" "context") 13] [else 5]))
+;; document-language : uri -> language-id|#f   the one whose extension the document carries
+(define (document-language uri) (let ([l (and uri (language-of uri))]) (and l (language-id l))))
+;; declaration-at : language uri text position -> entity|#f   the declaration the name under the cursor
+;; refers to, in this document (a CQL define or value set, an FML group)
+(define (declaration-at lang uri text pos)
+  (define n (name-at lang text pos))
+  (and n (find-entity (language-entities lang text (or (uri->path uri) (string-append "untitled." lang))) n)))
+(define (declaration-hover lang uri text pos)
+  (define e (declaration-at lang uri text pos))
+  (and e (entity-hover e text)))
 ;; document-position : params state -> (values uri text|#f position)
 (define (document-position params st)
   (define uri (hash-ref (hash-ref params 'textDocument (hasheq)) 'uri #f))
@@ -286,6 +302,13 @@
   (define-values (ro so no) (dispatch (request 14 "textDocument/documentSymbol" (hasheq 'textDocument (hasheq 'uri fsh-uri))) s9))
   (check-equal? (map (lambda (x) (hash-ref x 'name)) (hash-ref ro 'result)) '("$obs" "BP" "a"))
   (check-equal? (hash-ref (hash-ref (hash-ref (cadr (hash-ref ro 'result)) 'range) 'start) 'line) 2)
+  ;; a CQL document: outline, and definition of a quoted name within it
+  (define cql-uri "file:///tmp/nowhere/l.cql")
+  (define-values (rq sq nq) (dispatch (notification "textDocument/didOpen" (hasheq 'textDocument (hasheq 'uri cql-uri 'languageId "cql" 'text "library L\ndefine \"A\": 1\ndefine \"B\": \"A\" + 1\n"))) s1))
+  (define-values (rs1 ss1 ns1) (dispatch (request 15 "textDocument/documentSymbol" (hasheq 'textDocument (hasheq 'uri cql-uri))) sq))
+  (check-equal? (map (lambda (x) (hash-ref x 'name)) (hash-ref rs1 'result)) '("L" "A" "B"))
+  (define-values (rd2 sd2 nd2) (dispatch (request 16 "textDocument/definition" (hasheq 'textDocument (hasheq 'uri cql-uri) 'position (hasheq 'line 2 'character 13))) sq))
+  (check-equal? (hash-ref (hash-ref (hash-ref (hash-ref rd2 'result) 'range) 'start) 'line) 1)
   ;; closing clears, including documents reported on through this one
   (define s6 (struct-copy state s4 [published (hash "file:///tmp/notes.txt" '("file:///tmp/notes.txt" "file:///tmp/other.fsh"))]))
   (define-values (r7 s7 n7) (dispatch (notification "textDocument/didClose" (hasheq 'textDocument (hasheq 'uri "file:///tmp/notes.txt"))) s6))

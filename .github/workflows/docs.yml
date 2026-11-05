@@ -48,7 +48,7 @@ jobs:
           raco fhir roundtrip-tck r4
       - name: The language server (the transport, the dispatch, each language's adapter)
         run: |
-          raco test fhir-lsp/lsp/jsonrpc.rkt fhir-lsp/lsp/diagnostics.rkt fhir-lsp/lsp/languages.rkt fhir-lsp/lsp/fsh-symbols.rkt fhir-lsp/lsp/fsh-complete.rkt fhir-lsp/lsp/server.rkt fhir-lsp/tests/languages-test.rkt
+          raco test fhir-lsp/lsp/jsonrpc.rkt fhir-lsp/lsp/diagnostics.rkt fhir-lsp/lsp/languages.rkt fhir-lsp/lsp/fsh-symbols.rkt fhir-lsp/lsp/fsh-complete.rkt fhir-lsp/lsp/lang-symbols.rkt fhir-lsp/lsp/server.rkt fhir-lsp/tests/languages-test.rkt
           raco fhir-lsp languages
       - name: The MCP server (the tools over the operations and languages, the dispatch)
         run: |

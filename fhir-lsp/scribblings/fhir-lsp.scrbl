@@ -79,6 +79,11 @@ invariants; after @tt{* } and a dotted prefix, the base type's elements at that 
 cardinality, types and short description; after a path, the flags and rule keywords.
 @bold{Document symbols}: the document's declarations as an outline.
 
+For CQL and FML the same three work from the declarations the text shows, without a parse: the
+outline lists a library's includes, value sets, code systems, parameters, context and defines (a map's
+uses, imports, concept maps and groups); hover on a name shows its declaration, and go to definition
+jumps to it within the document (a quoted CQL name is the text inside its quotes).
+
 Diagnostics are computed off the protocol loop: an open, change or save updates the stored text at
 once (so hover and completion see it) and the diagnosing runs in a worker thread; when another edit
 arrives before it finishes, the older result is dropped, so a large project's compile never blocks
@@ -93,9 +98,10 @@ other notifications are ignored.
 @section{Limits}
 
 @itemlist[
-@item{Hover, definition, completion and symbols are for FSH only and read the text, not a parse: a
-name is the word under the cursor, an element is looked up in the base type's core snapshot (not the
-profile's or a dependency's constraints). No formatting, rename or references.}
+@item{Hover, definition, completion and symbols read the text, not a parse: a name is the word under
+the cursor, an FSH element is looked up in the base type's core snapshot (not the profile's or a
+dependency's constraints). Completion and project-wide definition are for FSH; CQL and FML
+definitions resolve within one document. No formatting, rename or references.}
 @item{An FSH document is recompiled with its project on every change; on a large project (mCODE:
 hundreds of entities) that takes seconds, during which the previous diagnostics stand.}
 @item{Positions are the compilers' positions: a CQL translation error without one, or a problem in
