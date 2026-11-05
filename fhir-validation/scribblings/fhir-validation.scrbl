@@ -67,7 +67,7 @@ the element path (@tt{expression}) and a message naming the rule and the profile
 
 @racket[validate-issues] takes the raw JSON and the profile StructureDefinitions and returns
 @racket[issue] structs (severity, code, path, message). A @racket[tx-service] from fhir-tx enables
-required-binding checks against value sets defined by filters; invariants are off unless asked.
+required-binding checks against value sets defined by filters; FHIRPath invariants run by default.
 
 @racketblock[
 (require fhir/conformance/validate fhir/terminology/service fhir/r4/schemas)
@@ -103,7 +103,7 @@ FHIRPath validation or canonical resolution into contained resources.}]
 @defproc[(validate-issues [resource hash?]
                           [#:profiles profiles (listof hash?) '()]
                           [#:terminology terminology any/c #f]
-                          [#:invariants? invariants? boolean? #f]
+                          [#:invariants? invariants? boolean? #t]
                           [#:duplicates duplicates (listof string?) '()]) (listof issue?)]{
 Validates raw FHIR JSON against its base type, the profiles in @tt{meta.profile}, and the
 StructureDefinitions given (those whose type matches), their snapshots generated on demand. The
@@ -111,16 +111,19 @@ checks: cardinality; unknown elements (lenient on choice variants); the choice v
 type; primitive lexemes (decimals on their lexeme, the id grammar, canonicals); @tt{fixed[x]} and
 @tt{pattern[x]}; required bindings, through a @racket[tx-service] when one is given and the value
 set expands offline; value and pattern discriminator slicing, with an entry matched to exactly one
-slice held to the slice's own children; and, when @racket[invariants?], FHIRPath constraints.
-Invariants are off by default because some base invariants evaluate differently from the Java
-reference and would over-report. @racket[duplicates] are the paths of duplicate JSON keys from
+slice held to the slice's own children; and, unless @racket[invariants?] is false, FHIRPath
+constraints — each at its element with @tt{%resource} and @tt{%context} bound, a violation only on
+a singleton false, the universal base keys (ele-1, dom-*) and constraints on slices left unchecked
+(slice membership is not decided here). Over the whole R5 core package, invariants report nothing the
+package does not itself break (ten logical models without @tt{derivation}, sdf-27; the fhir-types
+code system against the Shareable profile, scs-1). @racket[duplicates] are the paths of duplicate JSON keys from
 @racket[read-fhir-json/duplicates], each an error. Anything undecidable (an unresolvable type,
 profile or value set, an unparseable expression) is not reported.}
 @defstruct*[issue ([severity string?] [code string?] [path (or/c string? #f)] [msg string?])]
 @defproc[(validate-json [resource hash?]
                         [#:profiles profiles (listof hash?) '()]
                         [#:terminology terminology any/c #f]
-                        [#:invariants? invariants? boolean? #f]
+                        [#:invariants? invariants? boolean? #t]
                         [#:duplicates duplicates (listof string?) '()]) any/c]{The same as an OperationOutcome node.}
 
 @subsection[#:style 'unnumbered]{@tt{fhir/conformance/operations}}

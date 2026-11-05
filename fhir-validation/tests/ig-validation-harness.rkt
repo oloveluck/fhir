@@ -36,7 +36,7 @@
 (define (canonical-url u) (car (string-split u "|")))
 
 ;; check-ig-validation : ig.tgz core.tgz -> report
-(define (check-ig-validation ig-tgz core-tgz #:invariants? [inv? #f])
+(define (check-ig-validation ig-tgz core-tgz #:invariants? [inv? #t])
   (define resources (package-resources ig-tgz))
   (define ig-profiles
     (for/hash ([r (in-list resources)]

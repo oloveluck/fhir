@@ -361,11 +361,19 @@ variants), primitive format (reuses `primitives/` ctors), fixed[x]=/pattern[x]�
 slice `min` (multi-discriminator and `$this` supported; the pinned value is fixed[x]/pattern[x] on
 the slice's `<slice-id>.<disc-path>` element; any non-value/pattern discriminator or unresolvable
 pin → fail-open — this was a silent stub until the quality loop made it real and test-pinned); plus
-FHIRPath invariants (`#:invariants?`, **off by default**). The cardinal rule is **fail-open — never
-report on anything undecidable** (unresolvable type/profile/VS, unparseable expression). Invariants are
-off by default because our FHIRPath, though TCK-complete, mis-evaluates some base invariants (`ele-1`,
-`sdf-8`, `csd-1`) vs the Java reference and would over-report; the universal base keys are denylisted
-even when on. Result is an `OperationOutcome` (via `from-json`). CLI: `raco fhir-validate
+FHIRPath invariants (`#:invariants?`, **on by default** since 2026-11-05). The cardinal rule is
+**fail-open — never report on anything undecidable** (unresolvable type/profile/VS, unparseable
+expression). Each constraint runs at its element with `%resource`/`%rootResource` = the resource and
+`%context` = the focus (without that binding `%resource.type` fell to the focus and sdf-8/sdf-8a
+"failed" on 593 of the core package's own StructureDefinitions), a violation is a singleton false
+only, the universal base keys (`ele-1`, `ext-1`, `dom-*`) are denylisted, and a constraint defined on
+a SLICE is left unchecked (its members are not decided here; US Core's us-core-16 "NPI must be 10
+digits" would otherwise hold every identifier). `conformance/tests/invariants-corpus-test.rkt` runs the
+whole R5 core package with invariants on and buckets the violations by key: 2957/2968 resources carry
+no error-level one, and the 11 are the package's own — ten logical models with a baseDefinition and
+no `derivation` (sdf-27), CodeSystem/fhir-types against the Shareable profile it claims (scs-1);
+cnl-0 (a machine-usable name) and csd-2 are warnings the package breaks 1,286 times. The gates below
+run with invariants on: the validator differential's recall went 17 -> 18/26 at fp 0. Result is an `OperationOutcome` (via `from-json`). CLI: `raco fhir-validate
 <resource.json> [profile.json…]` (exit 1 on error), `raco fhir snapshot <sd.json>`. Tests:
 `conformance/tests/validate-test.rkt` (authored case per check, asserted by `{code, path}`),
 `validate-corpus-test.rkt` (the **never-over-report gate**: 0 errors over 200 valid R5 resources), and

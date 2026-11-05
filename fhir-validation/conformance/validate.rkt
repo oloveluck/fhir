@@ -56,12 +56,12 @@
 ;; Invariants are OFF by default: our FHIRPath engine (TCK-complete, but not identical to the Java
 ;; reference on every real constraint) mis-evaluates some base invariants (ele-1, sdf-8, csd-1) and
 ;; would over-report. Structural + binding checks are proven fail-open-clean on valid R5 resources.
-(define (validate-json json #:profiles [profiles '()] #:terminology [tx #f] #:invariants? [inv? #f] #:duplicates [dups '()])
+(define (validate-json json #:profiles [profiles '()] #:terminology [tx #f] #:invariants? [inv? #t] #:duplicates [dups '()])
   (issues->outcome (validate-issues json #:profiles profiles #:terminology tx #:invariants? inv? #:duplicates dups)))
 
 ;; `duplicates` are dotted paths of collapsed duplicate JSON keys (from read-fhir-json/duplicates) —
 ;; a fact the reader observed, so reporting them is never a false positive. Each is one error issue.
-(define (validate-issues json #:profiles [profiles '()] #:terminology [tx #f] #:invariants? [inv? #f] #:duplicates [dups '()])
+(define (validate-issues json #:profiles [profiles '()] #:terminology [tx #f] #:invariants? [inv? #t] #:duplicates [dups '()])
   ;; keep the jnum-bearing tree: decimals must be validated on their exact lexeme (a stripped number
   ;; loses the precision the FHIR decimal regex is about). Per-check helpers strip where needed.
   (define dup-issues
@@ -429,6 +429,11 @@
         (define cs (hash-ref e 'constraint '()))
         (cond
           [(null? cs) '()]
+          ;; a constraint on a SLICE (id `Organization.identifier:NPI`) binds that slice's members
+          ;; only; evaluated at the element's path it would hold every repetition to it (US Core's
+          ;; us-core-16 "NPI must be 10 digits" on every Organization identifier). Slice membership
+          ;; is not decided here, so slice constraints are left unchecked — fail-open.
+          [(regexp-match? #rx":" (hash-ref e 'id "")) '()]
           [else
            (define rel (rel-path (hash-ref e 'path)))
            (define foci (focus-items rel node))
