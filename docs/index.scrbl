@@ -30,7 +30,7 @@ install from source (Racket 8.10 or later):
 
 @verbatim{
 git clone https://github.com/oloveluck/fhir      # also: fhirpath vcl cql fml fsh sql-on-fhir fhir-examples
-raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-tx fhir/fhir-validation cql fml fsh fhir/fhir-server fhir/fhir-lsp sql-on-fhir fhir-examples
+raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-tx fhir/fhir-validation cql fml fsh fhir/fhir-server fhir/fhir-lsp fhir/fhir-mcp sql-on-fhir fhir-examples
 }
 
 Then one of these, each a few lines:
@@ -49,7 +49,9 @@ whole server from the package, every write validated (@hyperlink["fhir-server/in
 language files (@hyperlink["https://oloveluck.github.io/fhir-examples/"]{fhir-examples}).}
 @item{@bold{In your editor}: @tt{raco fhir-lsp} is a language server for all five languages; the
 @hyperlink["fhir-lsp/index.html"]{fhir-lsp} page has the three-line setup for VS Code, Neovim and
-Emacs.}]
+Emacs.}
+@item{@bold{For an agent}: @tt{raco fhir-mcp} offers every FHIR operation and the languages' checks as
+MCP tools (@hyperlink["fhir-mcp/index.html"]{fhir-mcp}).}]
 
 @section{The other packages}
 
@@ -67,6 +69,8 @@ diagnostics. @tt{raco fhir}.}
 @tt{fhir/capability}, the HTTP server and SQLite store. @tt{raco fhir-server}.}
 @item{@hyperlink["fhir-lsp/index.html"]{fhir-lsp}: a language server for the five languages, so an
 editor shows each problem as you type. @tt{raco fhir-lsp}.}
+@item{@hyperlink["fhir-mcp/index.html"]{fhir-mcp}: a Model Context Protocol server, so an agent can
+validate, expand, transform, compile and check through the same tools. @tt{raco fhir-mcp}.}
 @item{@hyperlink["https://oloveluck.github.io/fhir-examples/"]{fhir-examples}: worked examples and
 @tt{raco spec-bench}, a benchmark for writing profiles from prose.}]
 
