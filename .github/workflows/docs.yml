@@ -58,7 +58,7 @@ jobs:
         run: raco fhir-tx tck
       - name: The server and validation suites (the stores, generated servers, IG oracles, the validator differential)
         run: |
-          raco test fhir-validation/conformance/tests/validate-test.rkt fhir-validation/conformance/tests/validate-corpus-test.rkt fhir-validation/conformance/tests/snapshot-test.rkt fhir-validation/conformance/tests/snapshot-conformance-test.rkt fhir-validation/tests/validate-diff-test.rkt fhir-validation/tests/ig-validation-r4-test.rkt fhir-validation/tests/ig-fhirpath-r4-test.rkt
+          raco test fhir-validation/conformance/tests/validate-test.rkt fhir-validation/conformance/tests/validate-corpus-test.rkt fhir-validation/conformance/tests/invariants-corpus-test.rkt fhir-validation/conformance/tests/snapshot-test.rkt fhir-validation/conformance/tests/snapshot-conformance-test.rkt fhir-validation/tests/validate-diff-test.rkt fhir-validation/tests/ig-validation-r4-test.rkt fhir-validation/tests/ig-fhirpath-r4-test.rkt
           raco test fhir-server/store/ig-plan.rkt fhir-server/store/ig-capability.rkt fhir-server/store/search-index.rkt fhir-server/tests/capability-lang-test.rkt fhir-server/tests/http-test.rkt fhir-server/tests/fhir-store-test.rkt fhir-server/tests/store-http-test.rkt fhir-server/tests/audit-bundle-test.rkt fhir-server/tests/ig-search-r4-test.rkt fhir-server/tests/ig-server-r4-test.rkt fhir-server/tests/fsh-ig-server-r4-test.rkt fhir-server/tests/measure-server-r4-test.rkt
       - name: Build the documentation
         run: |
