@@ -16,7 +16,7 @@
 ;;; ignored (the protocol allows both).
 
 (require racket/contract racket/match racket/list racket/string racket/file
-         "jsonrpc.rkt" "diagnostics.rkt" "languages.rkt" "fsh-symbols.rkt")
+         "jsonrpc.rkt" "diagnostics.rkt" "languages.rkt" "fsh-symbols.rkt" "fsh-complete.rkt")
 
 (provide
  (struct-out state)
@@ -31,7 +31,8 @@
 
 (define server-capabilities
   (hasheq 'textDocumentSync (hasheq 'openClose #t 'change 1 'save (hasheq 'includeText #t))   ; 1 = full text
-          'hoverProvider #t 'definitionProvider #t))
+          'hoverProvider #t 'definitionProvider #t 'documentSymbolProvider #t
+          'completionProvider (hasheq 'triggerCharacters '(" " "." ":"))))
 
 ;; ---- the handlers, a table -------------------------------------------------------------------
 ;; A RequestHandler is (params state -> (values result state notifications))
@@ -52,6 +53,27 @@
                            (let ([h (fsh-hover st uri text pos)]) (and h (hasheq 'contents (hasheq 'kind "markdown" 'value h)))))
                       (json-null))
                   st '()))
+        ;; completion: the FSH keywords, the base type's elements at the path being typed, the
+        ;; project's names after Parent / InstanceOf / from / insert / obeys
+        "textDocument/completion"
+        (lambda (params st)
+          (define-values (uri text pos) (document-position params st))
+          (values (if (and text (fsh-document? uri params))
+                      (let-values ([(es aliases) (project-entities st uri)]) (complete text pos es aliases))
+                      '())
+                  st '()))
+        ;; the document's declarations, as an outline
+        "textDocument/documentSymbol"
+        (lambda (params st)
+          (define uri (hash-ref (hash-ref params 'textDocument (hasheq)) 'uri #f))
+          (define text (and uri (hash-ref (state-documents st) uri #f)))
+          (values (if (and text (fsh-document? uri params))
+                      (for/list ([e (in-list (entities-of text (or (uri->path uri) "untitled.fsh")))])
+                        (define range (hasheq 'start (hasheq 'line (entity-line e) 'character 0) 'end (hasheq 'line (entity-line e) 'character 0)))
+                        (hasheq 'name (entity-name e) 'detail (entity-kind e) 'kind (symbol-kind (entity-kind e))
+                                'range range 'selectionRange range))
+                      '())
+                  st '()))
         "textDocument/definition"
         (lambda (params st)
           (define-values (uri text pos) (document-position params st))
@@ -63,6 +85,10 @@
                       (json-null))
                   st '()))))
 
+;; symbol-kind : entity kind -> SymbolKind   Class for structures, Enum for terminology, Object for instances
+(define (symbol-kind kind)
+  (case kind [("Profile" "Extension" "Logical" "Resource") 5] [("ValueSet" "CodeSystem") 10] [("Instance") 19]
+             [("Alias") 14] [("RuleSet" "Mapping" "Invariant") 12] [else 5]))
 ;; document-position : params state -> (values uri text|#f position)
 (define (document-position params st)
   (define uri (hash-ref (hash-ref params 'textDocument (hasheq)) 'uri #f))
@@ -172,15 +198,47 @@
          (values #f st '()))]
     [else (values #f st '())]))
 
-;; serve : [in out] -> void   read, dispatch, write, until `exit` or the stream ends
+;; serve : [in out] -> void   read, dispatch, write, until `exit` or the stream ends.
+;; Diagnostics are computed off the loop: a document notification is dispatched at once for its
+;; state change (the stored text, so hover and completion see it), and the diagnosing runs in a
+;; worker thread; only the newest run for a document publishes (an edit during a long project
+;; compile makes the older result stale), and writes to `out` are serialised.
+(define diagnosing-methods '("textDocument/didOpen" "textDocument/didChange" "textDocument/didSave"))
 (define (serve [in (current-input-port)] [out (current-output-port)])
+  (define out-lock (make-semaphore 1))
+  (define (send! m) (call-with-semaphore out-lock (lambda () (write-message m out))))
+  (define generation (make-hash))                    ; uri -> the number of the newest edit
   (let loop ([st initial-state])
     (define m (read-message in))
     (unless (eof-object? m)
-      (define-values (resp st* notes) (dispatch m st))
-      (for ([n (in-list notes)]) (write-message n out))
-      (when resp (write-message resp out))
-      (unless (equal? (message-method m) "exit") (loop st*)))))
+      (cond
+        [(and (notification? m) (member (message-method m) diagnosing-methods))
+         (define-values (st* uri) (record-document m st))
+         (when uri
+           (define n (add1 (hash-ref generation uri 0)))
+           (hash-set! generation uri n)
+           (define language-id (hash-ref (hash-ref (message-params m) 'textDocument (hasheq)) 'languageId #f))
+           (thread (lambda ()
+                     (define-values (_st notes) (publish st* uri language-id))
+                     (when (= n (hash-ref generation uri 0)) (for-each send! notes)))))
+         (loop st*)]
+        [else
+         (define-values (resp st* notes) (dispatch m st))
+         (for-each send! notes)
+         (when resp (send! resp))
+         (unless (equal? (message-method m) "exit") (loop st*))]))))
+;; record-document : message state -> (values state uri|#f)   the document as the message leaves it
+(define (record-document m st)
+  (define params (or (message-params m) (hasheq)))
+  (define uri (hash-ref (hash-ref params 'textDocument (hasheq)) 'uri #f))
+  (define text
+    (case (message-method m)
+      [("textDocument/didOpen") (hash-ref (hash-ref params 'textDocument (hasheq)) 'text #f)]
+      [("textDocument/didChange") (let ([cs (hash-ref params 'contentChanges '())]) (and (pair? cs) (hash-ref (last cs) 'text #f)))]
+      [else (or (hash-ref params 'text #f) (and uri (hash-ref (state-documents st) uri #f)))]))
+  (if (and uri text)
+      (values (struct-copy state st [documents (hash-set (state-documents st) uri text)]) uri)
+      (values st #f)))
 
 (module+ test
   (require rackunit)
@@ -189,7 +247,7 @@
   (check-equal? (hash-ref (hash-ref r1 'result) 'capabilities) server-capabilities)
   (check-equal? n1 '())
   ;; an unknown request is an error; an unknown notification is nothing
-  (define-values (r2 s2 n2) (dispatch (request 2 "textDocument/completion" (hasheq)) s1))
+  (define-values (r2 s2 n2) (dispatch (request 2 "textDocument/rename" (hasheq)) s1))
   (check-equal? (hash-ref (hash-ref r2 'error) 'code) method-not-found)
   (define-values (r3 s3 n3) (dispatch (notification "workspace/didChangeConfiguration" (hasheq)) s1))
   (check-false r3) (check-equal? n3 '())
@@ -222,6 +280,12 @@
   (check-equal? (hash-ref (hash-ref (hash-ref (hash-ref rd 'result) 'range) 'start) 'line) 2)
   (define-values (rn sn nn) (dispatch (request 12 "textDocument/definition" (hasheq 'textDocument (hasheq 'uri fsh-uri) 'position (hasheq 'line 9 'character 3))) s9))
   (check-equal? (hash-ref rn 'result) 'null)
+  ;; completion and the outline on the same document
+  (define-values (rc sc nc) (dispatch (request 13 "textDocument/completion" (hasheq 'textDocument (hasheq 'uri fsh-uri) 'position (hasheq 'line 3 'character 10))) s9))
+  (check-true (and (member "BP" (map (lambda (c) (hash-ref c 'label)) (hash-ref rc 'result))) #t))
+  (define-values (ro so no) (dispatch (request 14 "textDocument/documentSymbol" (hasheq 'textDocument (hasheq 'uri fsh-uri))) s9))
+  (check-equal? (map (lambda (x) (hash-ref x 'name)) (hash-ref ro 'result)) '("$obs" "BP" "a"))
+  (check-equal? (hash-ref (hash-ref (hash-ref (cadr (hash-ref ro 'result)) 'range) 'start) 'line) 2)
   ;; closing clears, including documents reported on through this one
   (define s6 (struct-copy state s4 [published (hash "file:///tmp/notes.txt" '("file:///tmp/notes.txt" "file:///tmp/other.fsh"))]))
   (define-values (r7 s7 n7) (dispatch (notification "textDocument/didClose" (hasheq 'textDocument (hasheq 'uri "file:///tmp/notes.txt"))) s6))
@@ -238,6 +302,16 @@
                     (define m (read-message p)) (if (eof-object? m) (reverse acc) (loop p (cons m acc)))))
   (check-equal? (map message-id replies) '(1 2))
   (check-equal? (hash-ref (cadr replies) 'result) 'null)
+  ;; over the wire, a didOpen publishes (asynchronously) before exit is processed
+  (define in2 (open-input-bytes (bytes-append (message->bytes (notification "textDocument/didOpen" (hasheq 'textDocument (hasheq 'uri "file:///tmp/n.txt" 'languageId "plaintext" 'text "x"))))
+                                              (message->bytes (request 7 "shutdown"))
+                                              (message->bytes (notification "exit")))))
+  (define out2 (open-output-bytes))
+  (serve in2 out2)
+  (sync (system-idle-evt))
+  (define sent (let loop ([p (open-input-bytes (get-output-bytes out2))] [acc '()])
+                 (define m (read-message p)) (if (eof-object? m) (reverse acc) (loop p (cons m acc)))))
+  (check-true (and (member "textDocument/publishDiagnostics" (filter-map message-method sent)) #t))
   ;; a message that is not JSON gets a parse error
   (define-values (r8 s8 n8) (dispatch (hasheq 'jsonrpc "2.0" 'invalid #"x") s1))
   (check-equal? (hash-ref (hash-ref r8 'error) 'code) parse-error))

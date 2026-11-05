@@ -72,19 +72,32 @@ InstanceOf, a value set in a binding, an alias, a RuleSet in an insert, an invar
 a Reference) opens the declaration in this project, found by name, id or canonical, across the
 project's files as the editor holds them.
 
+@bold{Completion} (FSH): at the start of a line the entity and metadata keywords; after
+@tt{Parent:} or @tt{InstanceOf:} the FHIR types and the project's profiles, extensions and models;
+after @tt{from} its value sets and aliases, after @tt{insert} its rule sets, after @tt{obeys} its
+invariants; after @tt{* } and a dotted prefix, the base type's elements at that path with their
+cardinality, types and short description; after a path, the flags and rule keywords.
+@bold{Document symbols}: the document's declarations as an outline.
+
+Diagnostics are computed off the protocol loop: an open, change or save updates the stored text at
+once (so hover and completion see it) and the diagnosing runs in a worker thread; when another edit
+arrives before it finishes, the older result is dropped, so a large project's compile never blocks
+the editor or publishes stale findings.
+
 Protocol: @tt{initialize}, @tt{initialized}, @tt{shutdown}, @tt{exit}, @tt{textDocument/didOpen},
 @tt{didChange} (full text), @tt{didSave}, @tt{didClose}, @tt{textDocument/hover},
-@tt{textDocument/definition}, and @tt{textDocument/publishDiagnostics} back. Any other request is
-answered with method-not-found; other notifications are ignored.
+@tt{textDocument/definition}, @tt{textDocument/completion}, @tt{textDocument/documentSymbol}, and
+@tt{textDocument/publishDiagnostics} back. Any other request is answered with method-not-found;
+other notifications are ignored.
 
 @section{Limits}
 
 @itemlist[
-@item{Hover and go-to-definition are for FSH only and read the text, not a parse: a name is the
-word under the cursor, an element is looked up in the base type's core snapshot (not the profile's
-own constraints). No completion or formatting.}
-@item{An FSH document is recompiled with its project on every change, synchronously; on a large
-project (mCODE: hundreds of entities) that takes seconds, and the editor waits for the publication.}
+@item{Hover, definition, completion and symbols are for FSH only and read the text, not a parse: a
+name is the word under the cursor, an element is looked up in the base type's core snapshot (not the
+profile's or a dependency's constraints). No formatting, rename or references.}
+@item{An FSH document is recompiled with its project on every change; on a large project (mCODE:
+hundreds of entities) that takes seconds, during which the previous diagnostics stand.}
 @item{Positions are the compilers' positions: a CQL translation error without one, or a problem in
 a file the project reports on without a line, lands on the first character.}
 @item{Documents are read as whole texts (full synchronisation); incremental changes are not
@@ -104,7 +117,13 @@ One message: the response (a request's), the next state, and the notifications t
 The open documents by uri, the documents each one's last diagnostics went to, and whether
 @tt{shutdown} was received.}
 @defthing[initial-state state?]
-@defthing[server-capabilities hash?]{What @tt{initialize} answers: full text synchronisation with the text on save, hover, definition.}
+@defthing[server-capabilities hash?]{What @tt{initialize} answers: full text synchronisation with the text on save, hover, definition, completion, document symbols.}
+
+@subsection[#:style 'unnumbered]{@tt{fhir/lsp/fsh-complete}}
+@defmodule[fhir/lsp/fsh-complete]
+
+@defproc[(completion-context [text string?] [pos pair?]) (values symbol? string?)]{What the cursor is in (@racket['keyword], @racket['parent], @racket['valueset], @racket['ruleset], @racket['invariant], @racket['path], @racket['flag] or @racket['none]) and the word being typed.}
+@defproc[(complete [text string?] [pos pair?] [es (listof entity?)] [aliases hash?]) (listof hash?)]{The completion items for that context.}
 
 @subsection[#:style 'unnumbered]{@tt{fhir/lsp/fsh-symbols}}
 @defmodule[fhir/lsp/fsh-symbols]

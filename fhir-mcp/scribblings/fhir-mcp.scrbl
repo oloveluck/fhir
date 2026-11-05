@@ -9,8 +9,11 @@ OperationDefinition's parameters: @tt{fhir_validate}, @tt{fhir_expand}, @tt{fhir
 @tt{fhir_lookup}, @tt{fhir_translate}, @tt{fhir_snapshot}, @tt{fhir_transform},
 @tt{fhir_evaluate-measure}, @tt{fhir_sql-run} and the rest. The languages add their own:
 @tt{diagnose_file} (any file of the five languages, as the family's positioned diagnostics),
-@tt{fsh_check} (a project: compile and validate every example), @tt{fsh_compile}, @tt{cql_elm},
-@tt{cql_evaluate}, @tt{vcl_valueset}, @tt{fhirpath_evaluate}. An agent writing FSH, CQL or maps gets
+@tt{fsh_check} (a project: compile and validate every example), @tt{fsh_compile}, @tt{fsh_decompile},
+@tt{cql_elm}, @tt{cql_evaluate}, @tt{vcl_valueset}, @tt{fhirpath_evaluate}; and the packages in
+context answer @tt{fhir_element} (what an element is) and @tt{fhir_find} (which profile, value set
+or extension is called what), so an agent writing a profile can look things up the way an author
+reads the specification. An agent writing FSH, CQL or maps gets
 the same checks a person gets at the command line, and FHIR data in and out as JSON. Part of the
 @hyperlink["https://github.com/oloveluck/fhir"]{fhir} family.
 
@@ -67,7 +70,11 @@ with an error, a missing argument).
       (list @tt{cql_elm} @tt{cql} "the ELM JSON")
       (list @tt{cql_evaluate} @elem{@tt{cql}, @tt{resources}, @tt{parameters}} "every definition's value over one patient's resources")
       (list @tt{vcl_valueset} @tt{vcl} "a ValueSet resource")
-      (list @tt{fhirpath_evaluate} @elem{@tt{expression}, @tt{resource}} "the result collection as JSON"))]
+      (list @tt{fhirpath_evaluate} @elem{@tt{expression}, @tt{resource}} "the result collection as JSON")
+      (list @tt{fhir_element} @elem{@tt{type}, @tt{path}} "an element's definition from a type or profile in the packages: cardinality, types, binding, short, definition (valueQuantity finds value[x]); without a path, the type's top-level elements")
+      (list @tt{fhir_find} @elem{@tt{query}, @tt{resourceType}, @tt{limit}} "profiles, extensions, value sets, code systems, operations and search parameters in the packages whose id, name or url contains the query")
+      (list @tt{fsh_decompile} @tt{resource} "FHIR JSON to FSH (a StructureDefinition, ValueSet or CodeSystem idiomatically; anything else an Instance)")
+      (list @tt{data_resources} @elem{@tt{type}, @tt{id}} "the ids of a type in the data source, or one resource"))]
 
 Which operations appear depends on the packages installed: fhir (@tt{$snapshot}), fhir-validation
 (@tt{$validate}), fhir-tx (the terminology operations), fml (@tt{$transform}), cql
@@ -93,6 +100,7 @@ A tool: @racket[(run arguments)] answers @racket[(values text error?)].}
 @defproc[(operation->tool [o operation?] [all (listof operation?)]) tool?]{A registered FHIR operation as a tool: its OperationDefinition's @tt{in} parameters are the schema, those with min 1 required.}
 @defproc[(operation-tools) (listof tool?)]{Every registered operation.}
 @defproc[(language-tools) (listof tool?)]{The seven language tools.}
+@defproc[(definition-tools) (listof tool?)]{@tt{fhir_element}, @tt{fhir_find}, @tt{fsh_decompile}, @tt{data_resources}.}
 @defproc[(all-tools) (listof tool?)]
 @defproc[(call-tool [t tool?] [arguments hash?]) (values string? boolean?)]{Runs a tool; never raises.}
 @defproc[(load-operations!) (listof symbol?)]{Loads each operation module whose package is installed, so its operations register; the modules loaded.}
