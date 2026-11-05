@@ -6,7 +6,7 @@ requirement to a validated FHIR artifact with positioned feedback (language-orie
 JSON only, no XML). Worked examples, and the spec-driven benchmark, live in the `fhir-examples` repo.
 
 ## Package map (the family)
-Eleven Racket packages in seven git repos, plus `fhir-examples` (examples and the benchmark). The foundation keeps
+Twelve Racket packages in seven git repos, plus `fhir-examples` (examples and the benchmark). The foundation keeps
 the `fhir` collection; each language is its own collection (`#lang cql`, `(require cql/compile)`).
 Rule that makes directories movable: **cross-directory imports use collection paths** (`fhir/model/node`),
 never `../model/node.rkt`. Dependency order (base first):
@@ -23,6 +23,7 @@ never `../model/node.rkt`. Dependency order (base first):
 | `fml` | `oloveluck/fml` | `#lang fml` (FHIR Mapping Language), `raco fml` | fhir, fhir-tx (`translate`), fhirpath |
 | `fsh` | `oloveluck/fsh` | `#lang fsh` (bidirectional), projects + packaging, `check.rkt`; `raco fsh`, `raco fsh check` | fhir, fhirpath, fhir-validation |
 | `fhir-server` | `oloveluck/fhir` → `fhir-server/` | `capability/ http/ store/` (SQLite), IG-generated servers, `$evaluate-measure`, `server-cli.rkt` (`raco fhir-server`), server tests | fhir, fhir-spec, fhirpath, fhir-tx, fhir-validation, cql, db-lib |
+| `fhir-lsp` | `oloveluck/fhir` → `fhir-lsp/` | the Language Server Protocol server for the five languages: `lsp/jsonrpc.rkt` (framing), `lsp/diagnostics.rkt` (fhir/diagnostic -> LSP), `lsp/languages.rkt` (the catalogue; each language's adapter dynamic-required), `lsp/server.rkt` (state, dispatch, loop), `lsp-cli.rkt` (`raco fhir-lsp`, `check`) | fhir (+ the languages at run time) |
 | `sql-on-fhir` | `oloveluck/sql-on-fhir` | `#lang sql-on-fhir`: ViewDefinition model and operation definitions GENERATED from the IG package (`target.rkt`, `model/`), the view engine, `$sql-run`/`$sql-export` as operations; `raco sql-on-fhir` | fhir, fhirpath (fhir-spec to regenerate) |
 | `fhir-examples` | `oloveluck/fhir-examples` | `examples/` (operations applied as procedures), `bench.rkt` (prose → FSH tasks from a published IG, scored), recorded runs; `raco spec-bench` | fhir, fhir-spec, fhir-validation, fsh, fml |
 

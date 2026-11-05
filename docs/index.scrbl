@@ -30,7 +30,7 @@ install from source (Racket 8.10 or later):
 
 @verbatim{
 git clone https://github.com/oloveluck/fhir      # also: fhirpath vcl cql fml fsh sql-on-fhir fhir-examples
-raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-tx fhir/fhir-validation cql fml fsh fhir/fhir-server sql-on-fhir fhir-examples
+raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-tx fhir/fhir-validation cql fml fsh fhir/fhir-server fhir/fhir-lsp sql-on-fhir fhir-examples
 }
 
 Then one of these, each a few lines:
@@ -46,7 +46,10 @@ whole server from the package, every write validated (@hyperlink["fhir-server/in
 @item{@bold{Run a measure}: a @tt{.cql} library over a directory of patient resources
 (@hyperlink["https://oloveluck.github.io/cql/"]{cql}).}
 @item{@bold{See them together}: @tt{fhir-examples/screening}, one program composed of seven
-language files (@hyperlink["https://oloveluck.github.io/fhir-examples/"]{fhir-examples}).}]
+language files (@hyperlink["https://oloveluck.github.io/fhir-examples/"]{fhir-examples}).}
+@item{@bold{In your editor}: @tt{raco fhir-lsp} is a language server for all five languages; the
+@hyperlink["fhir-lsp/index.html"]{fhir-lsp} page has the three-line setup for VS Code, Neovim and
+Emacs.}]
 
 @section{The other packages}
 
@@ -62,6 +65,8 @@ diagnostics. @tt{raco fhir}.}
 @item{@hyperlink["fhir-validation/index.html"]{fhir-validation}: the validator. @tt{raco fhir-validate}.}
 @item{@hyperlink["fhir-server/index.html"]{fhir-server}: servers generated from IGs, @hash-lang[]
 @tt{fhir/capability}, the HTTP server and SQLite store. @tt{raco fhir-server}.}
+@item{@hyperlink["fhir-lsp/index.html"]{fhir-lsp}: a language server for the five languages, so an
+editor shows each problem as you type. @tt{raco fhir-lsp}.}
 @item{@hyperlink["https://oloveluck.github.io/fhir-examples/"]{fhir-examples}: worked examples and
 @tt{raco spec-bench}, a benchmark for writing profiles from prose.}]
 

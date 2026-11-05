@@ -33,9 +33,11 @@ jobs:
             "./fhir-tx" \
             "./fhir-validation" \
             "./fhir-server" \
+            "./fhir-lsp" \
             "https://github.com/oloveluck/fhirpath.git" \
             "https://github.com/oloveluck/vcl.git" \
             "https://github.com/oloveluck/cql.git" \
+            "https://github.com/oloveluck/fml.git" \
             "https://github.com/oloveluck/fsh.git"
       - name: Test the terminology package and the server seams it uses
         run: |
@@ -43,6 +45,10 @@ jobs:
           raco test fhir/parallel.rkt fhir/registry.rkt fhir/sd/operations.rkt fhir/sd/logical.rkt fhir/serialize/jsexpr-util.rkt fhir/codegen/gen.rkt fhir-server/http/router.rkt fhir-server/capability/operations.rkt fhir-server/tests/operations-http-test.rkt
           raco fhir roundtrip-tck r5
           raco fhir roundtrip-tck r4
+      - name: The language server (the transport, the dispatch, each language's adapter)
+        run: |
+          raco test fhir-lsp/lsp/jsonrpc.rkt fhir-lsp/lsp/diagnostics.rkt fhir-lsp/lsp/languages.rkt fhir-lsp/lsp/server.rkt fhir-lsp/tests/languages-test.rkt
+          raco fhir-lsp languages
       - name: The terminology conformance suite (floor-ratcheted)
         run: raco fhir-tx tck
       - name: The server and validation suites (the stores, generated servers, IG oracles, the validator differential)
@@ -56,6 +62,7 @@ jobs:
           raco scribble +m --html --dest site/fhir-tx --dest-name index.html --redirect-main https://docs.racket-lang.org/ fhir-tx/scribblings/fhir-tx.scrbl
           raco scribble +m --html --dest site/fhir-validation --dest-name index.html --redirect-main https://docs.racket-lang.org/ fhir-validation/scribblings/fhir-validation.scrbl
           raco scribble +m --html --dest site/fhir-server --dest-name index.html --redirect-main https://docs.racket-lang.org/ fhir-server/scribblings/fhir-server.scrbl
+          raco scribble +m --html --dest site/fhir-lsp --dest-name index.html --redirect-main https://docs.racket-lang.org/ fhir-lsp/scribblings/fhir-lsp.scrbl
       # Publish: the built site goes to the gh-pages branch, which GitHub serves as the Pages site
       # (enabled automatically for a public repository; otherwise choose "Deploy from a branch:
       # gh-pages" once under Settings > Pages).

@@ -22,6 +22,7 @@ validator and terminology service, and servers generated from Implementation Gui
 | `fhir-tx/` | the terminology service: `$expand`, `$validate-code`, `$lookup`, `$translate` over FHIR packages; `raco fhir-tx` |
 | `fhir-validation/` | the validator (cardinality, types, slicing, bindings, invariants); `raco fhir-validate` |
 | `fhir-server/` | FHIR REST servers, generated from an IG or declared in `#lang fhir/capability`, over a SQLite store; `raco fhir-server` |
+| `fhir-lsp/` | a Language Server Protocol server for the five languages (diagnostics as you type); `raco fhir-lsp` |
 
 ```sh
 raco fhir-validate resource.json [profile.json…]        # an OperationOutcome on stdout
@@ -35,7 +36,7 @@ From source, with [fhirpath](https://github.com/oloveluck/fhirpath), [vcl](https
 and [cql](https://github.com/oloveluck/cql) checked out alongside (the validator and server use them):
 
 ```sh
-raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-tx fhir/fhir-validation cql fhir/fhir-server
+raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-tx fhir/fhir-validation cql fml fsh fhir/fhir-server fhir/fhir-lsp
 ```
 
-Reference: [oloveluck.github.io/fhir](https://oloveluck.github.io/fhir/) (fhir, fhir-tx, fhir-validation, fhir-server). Architecture notes: `CLAUDE.md`.
+Reference: [oloveluck.github.io/fhir](https://oloveluck.github.io/fhir/) (fhir, fhir-tx, fhir-validation, fhir-server, fhir-lsp). Architecture notes: `CLAUDE.md`.
