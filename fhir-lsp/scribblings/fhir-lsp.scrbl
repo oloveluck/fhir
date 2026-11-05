@@ -82,7 +82,9 @@ cardinality, types and short description; after a path, the flags and rule keywo
 For CQL and FML the same three work from the declarations the text shows, without a parse: the
 outline lists a library's includes, value sets, code systems, parameters, context and defines (a map's
 uses, imports, concept maps and groups); hover on a name shows its declaration, and go to definition
-jumps to it within the document (a quoted CQL name is the text inside its quotes); completion offers
+jumps to it within the document (a quoted CQL name is the text inside its quotes) or to the file
+beside it that an @tt{include} names (@tt{X-v.cql}, @tt{X.cql}, or the one whose @tt{library} line
+declares X) or an FML @tt{imports} names (the map whose @tt{map "url"} line declares it); completion offers
 the document's declared names and the language's keywords that start with what is typed (inside
 quotes, names only).
 
@@ -103,7 +105,8 @@ other notifications are ignored.
 @item{Hover, definition, completion and symbols read the text, not a parse: a name is the word under
 the cursor, an FSH element is looked up in the base type's core snapshot (not the profile's or a
 dependency's constraints). Element-path completion and project-wide definition are for FSH;
-CQL and FML names complete and resolve within one document. No formatting, rename or references.}
+CQL and FML names complete and resolve within one document, and includes and imports reach the
+files beside it. No formatting, rename or references.}
 @item{An FSH document is recompiled with its project on every change; on a large project (mCODE:
 hundreds of entities) that takes seconds, during which the previous diagnostics stand.}
 @item{Positions are the compilers' positions: a CQL translation error without one, or a problem in

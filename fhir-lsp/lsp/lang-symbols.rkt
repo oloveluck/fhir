@@ -8,7 +8,7 @@
 ;;;   fml  map (its name), uses (its alias), imports, conceptmap, group
 ;;; An Entity is fsh-symbols' (entity kind name id file line); id is #f here.
 
-(require racket/contract racket/string racket/list racket/match
+(require racket/contract racket/string racket/list racket/match racket/file racket/path
          (only-in "fsh-symbols.rkt" entity entity? entity-name entity-kind entities-of word-at))
 
 (provide
@@ -16,6 +16,10 @@
   [declarations     (hash/c string? (listof (list/c string? regexp?)))]
   [language-entities (-> string? string? path-string? (listof entity?))]
   [name-at          (-> string? string? pair? (or/c string? #f))]
+  ;; the file a name under the cursor refers to beside the document: a CQL `include X version 'v'
+  ;; called A` (X or A) is X-v.cql or X.cql, or the .cql whose `library` line names X; an FML
+  ;; `imports "url"` is the .map/.fml whose `map "url"` line declares it. An entity at its line 0, or #f
+  [linked-file      (-> string? string? string? (or/c path-string? #f) (or/c entity? #f))]
   ;; the completion items for a CQL or FML document at a position: its declarations and the
   ;; language's keywords, those starting with the word being typed
   [language-completions (-> string? string? pair? (listof hash?))]))
@@ -66,6 +70,31 @@
              (and (<= (car m) col (cdr m)) (substring line (add1 (car m)) (sub1 (cdr m))))))
       (word-at text pos)))
 
+;; linked-file : language text name dir -> entity|#f
+(define (linked-file lang text name dir)
+  (define lines (regexp-split #rx"\r?\n" text))
+  (define (files rx) (if (and dir (directory-exists? dir))
+                         (filter (lambda (f) (regexp-match? rx (path->string f))) (directory-list dir #:build? #t))
+                         '()))
+  (define (declares? f rx) (regexp-match? rx (file->string f)))
+  (define (at f) (entity (if (equal? lang "cql") "library" "map") name #f (path->string f) 0))
+  (case lang
+    [("cql")
+     (define inc (for/or ([l (in-list lines)])
+                   (define m (regexp-match #px"^include\\s+(\\S+)(?:\\s+version\\s+'([^']*)')?(?:\\s+called\\s+(\\S+))?" l))
+                   (and m (or (equal? (cadr m) name) (equal? (cadddr m) name)) m)))
+     (and inc dir
+          (let* ([lib (cadr inc)] [ver (caddr inc)]
+                 [named (filter values (list (and ver (build-path dir (format "~a-~a.cql" lib ver))) (build-path dir (format "~a.cql" lib))))])
+            (or (for/or ([c (in-list named)]) (and (file-exists? c) (at c)))
+                (for/or ([f (in-list (files #rx"[.]cql$"))])
+                  (and (declares? f (pregexp (string-append "^library\\s+" (regexp-quote lib) "(\\s|$)"))) (at f))))))]
+    [("fml")
+     (and (for/or ([l (in-list lines)]) (regexp-match? (pregexp (string-append "^imports\\s+\"" (regexp-quote name) "\"")) l))
+          (for/or ([f (in-list (files #rx"[.](map|fml)$"))])
+            (and (declares? f (pregexp (string-append "^map\\s+\"" (regexp-quote name) "\""))) (at f))))]
+    [else #f]))
+
 (define keywords
   (hash "cql" '("library" "using" "include" "called" "version" "public" "private" "valueset" "codesystem" "code"
                 "concept" "parameter" "default" "context" "define" "function" "fluent" "returns" "from" "where"
@@ -110,7 +139,7 @@
         [else (values "" #f)]))
 
 (module+ test
-  (require rackunit (only-in "fsh-symbols.rkt" entity-line find-entity))
+  (require rackunit (only-in "fsh-symbols.rkt" entity-line entity-file find-entity))
   (define cql "library L version '1'\nusing FHIR version '4.0.1'\ninclude FHIRHelpers version '4.0.1' called FHIRHelpers\nvalueset \"VS\": 'http://x'\nparameter \"P\" Integer\ncontext Patient\ndefine \"A B\": 1\ndefine function f(x Integer): x\ndefine C: \"A B\"\n")
   (define es (language-entities "cql" cql "/tmp/l.cql"))
   (check-equal? (map entity-name es) '("L" "FHIR" "FHIRHelpers" "VS" "P" "Patient" "A B" "f" "C"))
@@ -129,5 +158,15 @@
                 '("A B"))
   (check-equal? (map (lambda (i) (hash-ref i 'label)) (language-completions "fml" fml (cons 4 20))) '("helper"))
   (check-true (and (member "where" (map (lambda (i) (hash-ref i 'label)) (language-completions "cql" cql (cons 9 0)))) #t))
+  ;; the file an include or import names, beside the document
+  (define dir (make-temporary-file "lsp-~a" 'directory))
+  (with-output-to-file (build-path dir "Common.cql") (lambda () (display "library Common version '1'\n")))
+  (with-output-to-file (build-path dir "other.map") (lambda () (display "map \"http://x/StructureMap/other\" = \"Other\"\n")))
+  (check-false (linked-file "cql" cql "FHIRHelpers" dir))                                       ; no such file
+  (check-equal? (entity-file (linked-file "cql" "include Common version '1' called C\n" "C" dir)) (path->string (build-path dir "Common.cql")))
+  (check-equal? (entity-file (linked-file "cql" "include Common\n" "Common" dir)) (path->string (build-path dir "Common.cql")))
+  (check-equal? (entity-file (linked-file "fml" fml "http://x/StructureMap/other" dir)) (path->string (build-path dir "other.map")))
+  (check-false (linked-file "fml" fml "http://x/StructureMap/none" dir))
+  (delete-directory/files dir)
   (check-equal? (language-entities "vcl" "(http://loinc.org)a" "/tmp/v.vcl") '())
   (check-equal? (length (language-entities "fsh" "Profile: P\nParent: Patient\n" "/tmp/p.fsh")) 1))
