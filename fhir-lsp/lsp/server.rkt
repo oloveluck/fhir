@@ -60,9 +60,11 @@
         "textDocument/completion"
         (lambda (params st)
           (define-values (uri text pos) (document-position params st))
-          (values (if (and text (fsh-document? uri params))
-                      (let-values ([(es aliases) (project-entities st uri)]) (complete text pos es aliases))
-                      '())
+          (define lang (document-language uri))
+          (values (cond [(and text (equal? lang "fsh"))
+                         (let-values ([(es aliases) (project-entities st uri)]) (complete text pos es aliases))]
+                        [(and text lang) (language-completions lang text pos)]
+                        [else '()])
                   st '()))
         ;; the document's declarations, as an outline
         "textDocument/documentSymbol"
@@ -309,6 +311,8 @@
   (check-equal? (map (lambda (x) (hash-ref x 'name)) (hash-ref rs1 'result)) '("L" "A" "B"))
   (define-values (rd2 sd2 nd2) (dispatch (request 16 "textDocument/definition" (hasheq 'textDocument (hasheq 'uri cql-uri) 'position (hasheq 'line 2 'character 13))) sq))
   (check-equal? (hash-ref (hash-ref (hash-ref (hash-ref rd2 'result) 'range) 'start) 'line) 1)
+  (define-values (rc2 sc2 nc2) (dispatch (request 17 "textDocument/completion" (hasheq 'textDocument (hasheq 'uri cql-uri) 'position (hasheq 'line 2 'character 14))) sq))
+  (check-equal? (map (lambda (c) (hash-ref c 'label)) (hash-ref rc2 'result)) '("A"))
   ;; closing clears, including documents reported on through this one
   (define s6 (struct-copy state s4 [published (hash "file:///tmp/notes.txt" '("file:///tmp/notes.txt" "file:///tmp/other.fsh"))]))
   (define-values (r7 s7 n7) (dispatch (notification "textDocument/didClose" (hasheq 'textDocument (hasheq 'uri "file:///tmp/notes.txt"))) s6))
