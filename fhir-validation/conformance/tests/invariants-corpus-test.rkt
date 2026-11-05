@@ -22,23 +22,25 @@
 (define (key-of i) (car (string-split (issue-msg i) ":")))
 
 (define by-key (make-hash))                          ; key -> (listof (file path severity))
-(define clean 0)
+(define clean 0)                                     ; resources with no ERROR-level violation
 (for ([e (in-list all)])
   (define js (cdr e))
   (define inv (filter (lambda (i) (equal? (issue-code i) "invariant"))
                       (with-handlers ([exn:fail? (lambda (x) (eprintf "  ~a: ~a\n" (car e) (exn-message x)) '())])
                         (validate-issues js #:invariants? #t))))
-  (if (null? inv) (set! clean (add1 clean)) (void))
+  ;; a warning-severity constraint (cnl-0's machine-usable name, csd-2's hierarchyMeaning) may be
+  ;; broken by a valid resource — the core package breaks 1,286 of them — and is reported as a warning
+  (unless (ormap (lambda (i) (equal? (issue-severity i) "error")) inv) (set! clean (add1 clean)))
   (for ([i (in-list inv)])
     (hash-update! by-key (key-of i) (lambda (l) (cons (list (car e) (issue-path i) (issue-severity i)) l)) '())))
 
 (define classes (sort (hash->list by-key) > #:key (lambda (c) (length (cdr c)))))
-(printf "invariants-corpus: ~a valid R5 resources, ~a with no violated invariant; ~a keys reported\n"
+(printf "invariants-corpus: ~a valid R5 resources, ~a with no error-level violation; ~a keys reported\n"
         (length all) clean (length classes))
 (for ([c (in-list classes)])
   (define exs (reverse (cdr c)))
   (printf "  ~a  ~a (~a)  e.g. ~a\n" (length exs) (car c) (caddr (car exs))
           (string-join (for/list ([x (in-list (take exs (min 3 (length exs))))]) (format "~a at ~a" (car x) (cadr x))) "; ")))
 (check-true (> (length all) 2000) "the whole core package")
-;; RATCHETED: the resources with no violated invariant (floor from the first run)
-(check-true (>= clean 0) "fewer invariant-clean resources than the floor")
+;; RATCHETED: the resources with no error-level violation
+(check-true (>= clean 1398) "fewer invariant-clean resources than the floor")

@@ -432,7 +432,7 @@
           [else
            (define rel (rel-path (hash-ref e 'path)))
            (define foci (focus-items rel node))
-           (append-map (lambda (c) (append-map (lambda (f) (check-constraint c f (hash-ref e 'path))) foci)) cs)]))
+           (append-map (lambda (c) (append-map (lambda (f) (check-constraint c f (hash-ref e 'path) node)) foci)) cs)]))
       (index-elements idx))]))
 
 ;; the universal base invariants (Element/DomainResource/Extension) — structural, ubiquitous, and
@@ -440,14 +440,19 @@
 ;; them here to stay strictly fail-open (only profile/datatype-specific invariants run).
 (define universal-invariants '("ele-1" "ext-1" "dom-1" "dom-2" "dom-3" "dom-4" "dom-5" "dom-6"))
 
-(define (check-constraint c focus path)
+;; the constraint's FHIRPath runs on the focus with %resource/%rootResource = the resource and
+;; %context = the focus (sdf-8 compares an element path with %resource.type; without the binding the
+;; variable fell to the focus and 593 of the core package's own StructureDefinitions "failed")
+(define (check-constraint c focus path root)
   (define expr (hash-ref c 'expression #f))
   (cond
     [(not expr) '()]
     [(member (hash-ref c 'key #f) universal-invariants) '()]
     [else
      (define result (with-handlers ([exn:fail? (lambda (_) 'skip)])
-                      (map item->system (eval-fhirpath (parse-fhirpath expr) (list focus)))))
+                      (map item->system (eval-fhirpath (parse-fhirpath expr) (list focus)
+                                                       #:externals (hash "resource" (list root) "rootResource" (list root)
+                                                                         "context" (list focus))))))
      ;; violated ONLY on a singleton #f; empty/true/unevaluable -> holds (fail-open)
      (if (equal? result (list #f))
          (list (issue (if (equal? (hash-ref c 'severity #f) "warning") "warning" "error")
