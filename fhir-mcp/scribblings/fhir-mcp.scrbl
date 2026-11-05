@@ -81,10 +81,23 @@ Which operations appear depends on the packages installed: fhir (@tt{$snapshot})
 (@tt{$evaluate-measure}), sql-on-fhir (@tt{$sql-run}, @tt{$sql-export}). Two operations sharing a
 code are told apart by resource type (@tt{fhir_Patient_everything}).
 
+@section{Resources and prompts}
+
+Besides tools the server answers @tt{resources/list}, @tt{resources/templates/list} and
+@tt{resources/read}: @tt{fhir://guide/authoring}, @tt{fhir://guide/cli} and @tt{fhir://guide/serving}
+are the family's how-to guides as markdown (the repository's skills, served when the package is
+installed from the repository), @tt{fhir://packages} the FHIR packages in context, and
+@tt{fhir://definition/{kind}/{ref}} any StructureDefinition, ValueSet, CodeSystem, StructureMap or
+ConceptMap in them by id, name or canonical url, as JSON. @tt{prompts/list} and @tt{prompts/get} give
+three starting points an agent fills with arguments: @tt{fsh-profile} (a base and requirements: write
+the profile, check it with the tools, prove it with a conforming and a violating instance),
+@tt{fsh-instance} (a profile and a scenario) and @tt{fix-project} (a project directory: fix every
+diagnostic at its line). Each carries the authoring guide when it is at hand.
+
 @section{Limits}
 
 @itemlist[
-@item{Tools only: no resources, prompts or sampling; one request at a time; stdio only.}
+@item{No sampling or subscriptions; one request at a time; stdio only.}
 @item{A language tool runs in the server's process with the context given at start; an FSH project
 is checked from disk.}
 @item{The protocol version answered is 2024-11-05; clients that insist on a newer one still work

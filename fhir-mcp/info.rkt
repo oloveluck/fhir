@@ -11,7 +11,7 @@
 
 (define collection "fhir")
 (define version "0.1")
-(define pkg-desc "A Model Context Protocol server over the FHIR family: every registered FHIR operation as a tool (its OperationDefinition the schema), plus check/compile/evaluate tools for FSH, CQL, FML, VCL and FHIRPath; raco fhir-mcp")
+(define pkg-desc "A Model Context Protocol server over the FHIR family: every registered FHIR operation as a tool (its OperationDefinition the schema), plus check/compile/evaluate tools for FSH, CQL, FML, VCL and FHIRPath, the definitions in the packages as resources, prompts for writing FSH; raco fhir-mcp")
 (define pkg-authors '(oloveluck))
 (define license 'MIT)
 (define deps '("base" "fhir" "fhir-lsp"))

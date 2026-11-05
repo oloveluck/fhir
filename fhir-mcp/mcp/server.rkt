@@ -3,14 +3,15 @@
 ;;; server.rkt — the Model Context Protocol server: dispatch and the stdio loop.
 ;;;
 ;;; MCP (https://modelcontextprotocol.io) is JSON-RPC 2.0; over stdio each message is one line of
-;;; JSON. The methods served: initialize, notifications/initialized, ping, tools/list, tools/call.
+;;; JSON. The methods served: initialize, notifications/initialized, ping, tools/list, tools/call,
+;;; resources/list, resources/templates/list, resources/read, prompts/list, prompts/get (resources.rkt).
 ;;; A State is (state tools initialized?); dispatch is pure and the loop does the I/O, as the
 ;;; language server's. A tool call's result is {content [{type "text", text}], isError}.
 
 (require racket/contract racket/string racket/list json
          (only-in fhir/lsp/jsonrpc request? notification? message-method message-id message-params
                   response error-response method-not-found invalid-params parse-error)
-         "tools.rkt")
+         "tools.rkt" "resources.rkt")
 
 (provide
  (struct-out state)
@@ -29,11 +30,28 @@
   (hash "initialize"
         (lambda (params st)
           (values (hasheq 'protocolVersion protocol-version
-                          'capabilities (hasheq 'tools (hasheq 'listChanged #f))
+                          'capabilities (hasheq 'tools (hasheq 'listChanged #f)
+                                                'resources (hasheq 'listChanged #f 'subscribe #f)
+                                                'prompts (hasheq 'listChanged #f))
                           'serverInfo (hasheq 'name "fhir-mcp" 'version "0.1")
-                          'instructions "Tools over the FHIR Racket family: every FHIR operation the installed packages implement (validate, expand, lookup, translate, snapshot, transform, evaluate-measure, sql-run, …) with its OperationDefinition as the schema, and the languages: check an FSH project or a file, compile FSH, translate and evaluate CQL, compile VCL, evaluate FHIRPath. Resources are FHIR JSON.")
+                          'instructions "Tools over the FHIR Racket family: every FHIR operation the installed packages implement (validate, expand, lookup, translate, snapshot, transform, evaluate-measure, sql-run, …) with its OperationDefinition as the schema, and the languages: check an FSH project or a file, compile FSH, translate and evaluate CQL, compile VCL, evaluate FHIRPath. Resources: the family's guides (fhir://guide/authoring), the packages in context, and any definition in them (fhir://definition/ValueSet/<id>). Prompts: fsh-profile, fsh-instance, fix-project.")
                   st))
         "ping" (lambda (params st) (values (hasheq) st))
+        "resources/list" (lambda (params st) (values (hasheq 'resources (resources)) st))
+        "resources/templates/list" (lambda (params st) (values (hasheq 'resourceTemplates (resource-templates)) st))
+        "resources/read"
+        (lambda (params st)
+          (define uri (hash-ref params 'uri #f))
+          (define c (and (string? uri) (read-resource uri)))
+          (unless c (raise (exn:fail:tool (format "no resource ~a" uri) (current-continuation-marks))))
+          (values (hasheq 'contents (list c)) st))
+        "prompts/list" (lambda (params st) (values (hasheq 'prompts (prompts)) st))
+        "prompts/get"
+        (lambda (params st)
+          (define name (hash-ref params 'name #f))
+          (define p (and (string? name) (get-prompt name (let ([a (hash-ref params 'arguments #f)]) (if (hash? a) a (hasheq))))))
+          (unless p (raise (exn:fail:tool (format "no prompt ~a" name) (current-continuation-marks))))
+          (values p st))
         "tools/list"
         (lambda (params st) (values (hasheq 'tools (map tool->jsexpr (state-tools st))) st))
         "tools/call"
@@ -98,8 +116,15 @@
   (check-false (hash-ref (hash-ref r4 'result) 'isError))
   (define-values (r5 s5) (dispatch (request 4 "tools/call" (hasheq 'name "nope")) s3))
   (check-equal? (hash-ref (hash-ref r5 'error) 'code) invalid-params)
-  (define-values (r6 s6) (dispatch (request 5 "resources/list") s3))
+  (define-values (r6 s6) (dispatch (request 5 "nothing/here") s3))
   (check-equal? (hash-ref (hash-ref r6 'error) 'code) method-not-found)
+  ;; resources and prompts
+  (define-values (rr sr) (dispatch (request 6 "resources/list") s3))
+  (check-true (list? (hash-ref (hash-ref rr 'result) 'resources)))
+  (define-values (rp sp) (dispatch (request 7 "prompts/get" (hasheq 'name "fix-project" 'arguments (hasheq 'project "/p"))) s3))
+  (check-true (regexp-match? #rx"/p" (hash-ref (hash-ref (car (hash-ref (hash-ref rp 'result) 'messages)) 'content) 'text)))
+  (define-values (rx sx) (dispatch (request 8 "resources/read" (hasheq 'uri "fhir://nothing")) s3))
+  (check-equal? (hash-ref (hash-ref rx 'error) 'code) invalid-params)
   ;; over the wire: one line per message
   (define in (open-input-string (string-append (jsexpr->string (request 1 "ping")) "\n\n" (jsexpr->string (request 2 "tools/list")) "\n")))
   (define out (open-output-string))

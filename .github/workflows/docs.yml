@@ -52,7 +52,7 @@ jobs:
           raco fhir-lsp languages
       - name: The MCP server (the tools over the operations and languages, the dispatch)
         run: |
-          raco test fhir-mcp/mcp/tools.rkt fhir-mcp/mcp/server.rkt fhir-mcp/tests/tools-test.rkt
+          raco test fhir-mcp/mcp/tools.rkt fhir-mcp/mcp/resources.rkt fhir-mcp/mcp/server.rkt fhir-mcp/tests/tools-test.rkt
           raco fhir-mcp tools | head -c 400
       - name: The terminology conformance suite (floor-ratcheted)
         run: raco fhir-tx tck
