@@ -2,12 +2,11 @@
 
 ;;; mcp-cli.rkt — `raco fhir-mcp`: the Model Context Protocol server over a FHIR workspace.
 ;;;
-;;;   raco fhir-mcp [serve] [--workspace <dir>] [--package <tgz|name>]… [--data <dir|file|url>] [--legacy-tools]
+;;;   raco fhir-mcp [serve] [--workspace <dir>] [--package <tgz|name>]… [--data <dir|file|url>]
 ;;;                                      serve on stdin/stdout (one JSON line per message): the nine
 ;;;                                      workspace tools over <dir> (default: the current directory),
 ;;;                                      configured by its workspace.yaml; --package and --data add to and
-;;;                                      override it; --legacy-tools also serves the per-language and
-;;;                                      per-operation tools
+;;;                                      override it
 ;;;   raco fhir-mcp tools [same flags]   the tools offered, with their schemas (JSON)
 ;;;   raco fhir-mcp call <tool> ['<json arguments>'] [same flags]   run one tool, print its text (exit 1 on error)
 
@@ -16,23 +15,22 @@
          "mcp/server.rkt" "mcp/tools.rkt" "mcp/workspace.rkt" "mcp/verbs.rkt"
          (only-in "mcp/resources.rkt" current-result-resources))
 
-(define flags "[--workspace <dir>] [--package <tgz|name>]… [--data <dir|file|url>] [--legacy-tools]")
+(define flags "[--workspace <dir>] [--package <tgz|name>]… [--data <dir|file|url>]")
 (define usages
   `(("serve" ,(format "raco fhir-mcp [serve] ~a   the server over stdin/stdout" flags))
     ("tools" ,(format "raco fhir-mcp tools ~a   the tools and their schemas" flags))
     ("call"  ,(format "raco fhir-mcp call <tool> ['<json>'] ~a   run one tool" flags))))
 
-;; A Flags is (flags workspace packages data legacy? rest)
-(struct opts (workspace packages data legacy? rest))
+;; An Opts is (opts workspace packages data rest)
+(struct opts (workspace packages data rest))
 (define (read-flags args)
-  (let loop ([as args] [o (opts #f '() #f #f '())])
+  (let loop ([as args] [o (opts #f '() #f '())])
     (match-args as o loop)))
 (define (match-args as o loop)
   (cond [(null? as) (struct-copy opts o [packages (reverse (opts-packages o))] [rest (reverse (opts-rest o))])]
         [(and (equal? (car as) "--workspace") (pair? (cdr as))) (loop (cddr as) (struct-copy opts o [workspace (cadr as)]))]
         [(and (equal? (car as) "--package") (pair? (cdr as))) (loop (cddr as) (struct-copy opts o [packages (cons (cadr as) (opts-packages o))]))]
         [(and (equal? (car as) "--data") (pair? (cdr as))) (loop (cddr as) (struct-copy opts o [data (cadr as)]))]
-        [(equal? (car as) "--legacy-tools") (loop (cdr as) (struct-copy opts o [legacy? #t]))]
         [else (loop (cdr as) (struct-copy opts o [rest (cons (car as) (opts-rest o))]))]))
 
 ;; with-workspace : opts (hub tools -> any) -> any   the hub opened, its context and results in place
@@ -40,15 +38,20 @@
   (define dir (or (opts-workspace o) (current-directory)))
   (unless (directory-exists? dir) (eprintf "fhir-mcp: no such directory: ~a\n" dir) (exit 2))
   (define h (open-hub dir #:data (opts-data o) #:packages (opts-packages o)))
-  (define tools (append (workspace-tools h) (if (opts-legacy? o) (all-tools) '())))
+  (define tools (workspace-tools h))
   (parameterize ([current-result-resources (cons (lambda () (hub-result-uris h)) (lambda (u) (hub-read-result h u)))])
     (with-hub h (lambda () (k h tools)))))
 
+;; only-flags : command opts -> opts   a word that is not a flag is a usage error
+(define (only-flags cmd o)
+  (unless (null? (opts-rest o)) (usage-error "fhir-mcp" usages cmd (format "unexpected ~a" (car (opts-rest o)))))
+  o)
+
 (define (serve-command args)
-  (with-workspace (read-flags args) (lambda (h tools) (serve tools))))
+  (with-workspace (only-flags "serve" (read-flags args)) (lambda (h tools) (serve tools))))
 
 (define (tools-command args)
-  (with-workspace (read-flags args) (lambda (h tools) (write-json (hasheq 'tools (map tool->jsexpr tools))) (newline))))
+  (with-workspace (only-flags "tools" (read-flags args)) (lambda (h tools) (write-json (hasheq 'tools (map tool->jsexpr tools))) (newline))))
 
 (define (call-command args)
   (define o (read-flags args))

@@ -27,7 +27,7 @@
          (only-in fhir/rest-data-source rest->data-source rest-write! rest-url?)
          (only-in fhir/sd/sd-index current-sd-packages resolve-canonical-raw sd-index-available?)
          (only-in fhir/operation operation operation-definition operation-code operation-url operation-levels
-                  operation-resource-types registered-operations apply-operation exn:fail:operation? exn:fail:operation-outcome)
+                  operation-resource-types apply-operation exn:fail:operation? exn:fail:operation-outcome)
          "tools.rkt")
 
 (provide
@@ -406,9 +406,8 @@
       r1))
 
 (define (describe-element type path ref)
-  (define t (findf (lambda (x) (equal? (tool-name x) "fhir_element")) (definition-tools)))
-  (define-values (text err?) (call-tool t (if path (hasheq 'type type 'path path) (hasheq 'type type))))
-  (if err? (search-definitions ref) (string->jsexpr text)))
+  (define r (element-info type path))
+  (if (string? r) (search-definitions ref) r))
 
 (define (search-definitions q)
   (define rx (regexp (regexp-quote (string-downcase q))))
@@ -460,12 +459,7 @@
   (with-hub h
     (lambda ()
       (define o (with-handlers ([exn:fail? (lambda (e) (error 'apply (format "no operation ~a: ~a" ref (exn-message e))))]) (operation ref)))
-      (define t (operation->tool o (registered-operations)))
-      (define-values (text err?) (call-tool t (if resource (hash-set inputs 'resource resource) inputs)))
-      (define j (with-handlers ([exn:fail? (lambda (_) text)]) (string->jsexpr text)))
-      (if err? (raise (exn:fail:operation-json text (current-continuation-marks) j)) j))))
-(struct exn:fail:operation-json exn:fail (json))
-(provide (struct-out exn:fail:operation-json))
+      (apply-json o inputs resource))))
 
 ;; ---- stage and commit -----------------------------------------------------------------------------
 (define instance? (lambda (r) (not (member (hash-ref r 'resourceType #f) (append conformance-kinds '("Library" "OperationDefinition" "SearchParameter" "CapabilityStatement" "ImplementationGuide" "ViewDefinition"))))))

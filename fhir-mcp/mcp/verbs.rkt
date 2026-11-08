@@ -12,7 +12,7 @@
 ;;; with error? true. Nothing raises.
 
 (require racket/contract racket/list racket/string json
-         (only-in fhir/lang/support tool)
+         (only-in "tools.rkt" tool)
          (only-in fhir/diagnostic exn:fail:diagnostic? exn:fail:diagnostic-diagnostic diagnostic->jsexpr diagnostic-message)
          (only-in fhir/operation exn:fail:operation? exn:fail:operation-outcome)
          "workspace.rkt")
@@ -25,7 +25,6 @@
                                                                                      'problem (diagnostic->jsexpr (exn:fail:diagnostic-diagnostic e))))
                                                             #t))]
                   [exn:fail:operation? (lambda (e) (values (jsexpr->string (exn:fail:operation-outcome e)) #t))]
-                  [exn:fail:operation-json? (lambda (e) (values (exn-message e) #t))]
                   [exn:fail? (lambda (e) (values (jsexpr->string (hasheq 'error (strip-who (exn-message e)))) #t))])
     (values (jsexpr->string (thunk)) #f)))
 (define (strip-who m) (regexp-replace #px"^[a-z-]+: " m ""))

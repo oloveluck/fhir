@@ -42,7 +42,7 @@ tools=(
   "fhir-tx|fhir/tx-cli|$towers fhir/capability/operations fhir/terminology/operations fhir/http/server"
   "fhir-server|fhir/server-cli|$towers fhir/r6/schemas $store"
   "fhir-lsp|fhir/lsp-cli|$towers $languages fml/project"
-  "fhir-mcp|fhir/mcp-cli|$towers $languages $workspaces fml/project $operations"
+  "fhir-mcp|fhir/mcp-cli|$towers $workspaces fml/project $operations"
 )
 
 # installed? : module-path -> status   the module's source file exists in an installed collection

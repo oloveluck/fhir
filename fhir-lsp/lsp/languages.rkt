@@ -39,7 +39,7 @@
   (check-equal? (language-id (language-by-id "vcl")) "vcl")
   ;; a stand-in support that raises becomes one diagnostic, never an exception
   (define boom (lang-support "vcl" (lambda (t p) (error "no")) (lambda (p) '()) (lambda (t f) '())
-                             (lambda (pr t pos) #f) (lambda (pr t pos) #f) (lambda (pr t pos) '()) '()))
+                             (lambda (pr t pos) #f) (lambda (pr t pos) #f) (lambda (pr t pos) '())))
   (parameterize ([current-language-supports (hash "vcl" boom)])
     (define ds (diagnose (language-by-id "vcl") "x" "/tmp/x.vcl"))
     (check-equal? (length ds) 1)

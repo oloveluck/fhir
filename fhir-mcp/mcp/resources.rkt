@@ -15,9 +15,9 @@
 ;;;   result://rN                    a run's whole result, when a workspace server installs the
 ;;;                                  reader (current-result-resources)
 ;;; A Prompt is {name description arguments}; prompts/get answers the messages an agent starts with:
-;;;   fsh-profile   write a profile in FSH for a base type and the requirements, checked with the tools
+;;;   fsh-profile   write a profile in FSH for a base type and the requirements, checked in the workspace
 ;;;   fsh-instance  write an example instance of a profile and validate it
-;;;   fix-project   run fsh_check on a project and fix every diagnostic at its line
+;;;   fix-workspace run check and fix every problem at its line
 
 (require racket/contract racket/string racket/list racket/file racket/runtime-path json
          (only-in fhir/sd/sd-index resolve-canonical-raw sd-index-available? sd-context))
@@ -110,7 +110,7 @@
 
 (define prompt-table
   (list
-   (list "fsh-profile" "Write a FHIR Shorthand profile for a base type and a list of requirements, and check it with the tools"
+   (list "fsh-profile" "Write a FHIR Shorthand profile for a base type and a list of requirements, checked in the workspace"
          (list (arg "base" "the FHIR resource or profile to constrain (Observation, us-core-patient)" #t)
                (arg "requirements" "what the profile must require, fix, bind or forbid, in prose" #t)
                (arg "name" "the profile's name" #f))
@@ -118,26 +118,25 @@
            (string-append
             "Write a FHIR Shorthand (FSH) Profile" (let ([n (hash-ref a 'name #f)]) (if n (format " named ~a" n) ""))
             " with Parent: " (hash-ref a 'base "") " that meets these requirements:\n\n" (hash-ref a 'requirements "")
-            "\n\nWork like this: look up the elements you constrain with the fhir_element tool (path, cardinality, types, binding)"
-            " and value sets or code systems with fhir_find; write the .fsh file; run fsh_compile on the text and fsh_check on"
-            " the project, and fix every diagnostic at the line it names until none remain. Then write one Instance that"
-            " conforms and one that violates a requirement, and show that fsh_check accepts the first and rejects the second.")))
+            "\n\nWork like this: read learn://fsh; describe the elements you constrain (describe(\"" (hash-ref a 'base "") ".<path>\"))"
+            " and find value sets and code systems with describe(<a fragment of their name>); write the .fsh file with write,"
+            " and fix every problem at the line it names until none remain. Then add one Instance that conforms and one that"
+            " violates a requirement, and show with run (or explain on the instance) that the first validates and the second does not.")))
    (list "fsh-instance" "Write an example instance of a profile in FSH and validate it against the profile"
          (list (arg "profile" "the profile's name or canonical url" #t)
                (arg "scenario" "what the example should describe (a patient, a measurement, …)" #t))
          (lambda (a)
            (string-append
             "Write an FSH Instance of " (hash-ref a 'profile "") " for this scenario:\n\n" (hash-ref a 'scenario "")
-            "\n\nUse fhir_element on the profile to see which elements it requires, fixes or binds; set every required element"
-            " and respect its bindings (fhir_find for the value sets); run fsh_check (or fhir_validate on the compiled JSON)"
-            " and fix each issue at the rule it names.")))
-   (list "fix-project" "Run the checker on an FSH project and fix every diagnostic"
-         (list (arg "project" "the project directory (its sushi-config.yaml and .fsh files)" #t))
+            "\n\nRead learn://fsh. describe the profile to see which elements it requires, fixes or binds; set every required"
+            " element and respect its bindings; write the file and fix each problem at the rule it names.")))
+   (list "fix-workspace" "Check the workspace and fix every problem"
+         (list)
          (lambda (a)
            (string-append
-            "Run the fsh_check tool on the project at " (hash-ref a 'project "") ". For each diagnostic, open the file"
-            " at the line and column it names, understand which rule produced it, and fix the FSH (not the check)."
-            " Re-run fsh_check until it reports nothing. Summarise what each fix was and why the rule was wrong.")))))
+            "Run check on the workspace. For each problem, open the file at the line and column it names, understand"
+            " which rule or definition produced it (learn://<language> has the language), and fix the source, not the check."
+            " Re-run check until it reports nothing. Summarise what each fix was and why the source was wrong.")))))
 
 (define (prompts)
   (for/list ([p (in-list prompt-table)])
@@ -166,7 +165,7 @@
   (define vs (read-resource "fhir://definition/ValueSet/administrative-gender"))
   (check-true (and vs (regexp-match? #rx"administrative-gender" (hash-ref vs 'text)) #t))
   (check-false (read-resource "fhir://definition/Patient/x"))          ; not a definition kind
-  (check-equal? (map (lambda (p) (hash-ref p 'name)) (prompts)) '("fsh-profile" "fsh-instance" "fix-project"))
+  (check-equal? (map (lambda (p) (hash-ref p 'name)) (prompts)) '("fsh-profile" "fsh-instance" "fix-workspace"))
   (define pr (get-prompt "fsh-profile" (hasheq 'base "Observation" 'requirements "code bound to LOINC" 'name "BP")))
   (check-true (regexp-match? #rx"named BP.*Parent: Observation" (hash-ref (hash-ref (car (hash-ref pr 'messages)) 'content) 'text)))
   (check-false (get-prompt "nope" (hasheq)))

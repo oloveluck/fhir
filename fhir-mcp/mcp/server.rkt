@@ -134,7 +134,7 @@
   ;; resources and prompts
   (define-values (rr sr) (dispatch (request 6 "resources/list") s3))
   (check-true (list? (hash-ref (hash-ref rr 'result) 'resources)))
-  (define-values (rp sp) (dispatch (request 7 "prompts/get" (hasheq 'name "fix-project" 'arguments (hasheq 'project "/p"))) s3))
+  (define-values (rp sp) (dispatch (request 7 "prompts/get" (hasheq 'name "fsh-instance" 'arguments (hasheq 'profile "/p"))) s3))
   (check-true (regexp-match? #rx"/p" (hash-ref (hash-ref (car (hash-ref (hash-ref rp 'result) 'messages)) 'content) 'text)))
   (define-values (rx sx) (dispatch (request 8 "resources/read" (hasheq 'uri "fhir://nothing")) s3))
   (check-equal? (hash-ref (hash-ref rx 'error) 'code) invalid-params)

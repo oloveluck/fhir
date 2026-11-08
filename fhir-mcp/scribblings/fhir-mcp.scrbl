@@ -70,8 +70,8 @@ token never goes in a file. @tt{raco fhir-mcp call <tool> '<json>'} runs one too
       (list @tt{stage} @elem{@tt{resources} | @tt{result} | @tt{path}} "a write prepared: each resource validated and compared with the data's copy (create, update and its changed paths, unchanged)")
       (list @tt{commit} @tt{stage} "a stage written: to a data directory (a file per resource), or a FHIR server when allowed; a stage with errors is refused"))]
 
-Tool definitions are short, and the large OperationDefinition schemas are read only when an agent
-asks for one with @tt{describe("$code")}.
+Tool definitions are short (about 6 KB for the nine), and an operation's inputs are read only when an
+agent asks for them with @tt{describe("$code")}.
 
 @section{Resources}
 
@@ -81,15 +81,9 @@ asks for one with @tt{describe("$code")}.
 language's official reference: the FHIR Shorthand specification, cql.hl7.org, FHIRPath N1, the VCL
 page of the IG guidance, the FHIR Mapping Language, sql-on-fhir.org and FHIR search. A test compiles
 every worked example. @tt{result://rN} is a run's whole result. @tt{fhir://guide/...},
-@tt{fhir://packages} and @tt{fhir://definition/{kind}/{ref}} are as before, and so are the prompts.
-
-@section{The per-language tools}
-
-@litchar{--legacy-tools} also serves the earlier tools: one per registered operation
-(@tt{fhir_<code>}, with its OperationDefinition as the schema), one per language action
-(@tt{diagnose_file}, @tt{fsh_check}, @tt{fsh_compile}, @tt{fsh_decompile}, @tt{cql_elm},
-@tt{cql_evaluate}, @tt{vcl_valueset}, @tt{fhirpath_evaluate}), and @tt{fhir_element}, @tt{fhir_find}
-and @tt{data_resources}.
+@tt{fhir://packages} and @tt{fhir://definition/{kind}/{ref}} serve the guides, the packages in
+context and their definitions. The prompts @tt{fsh-profile}, @tt{fsh-instance} and @tt{fix-workspace}
+start an agent on common work.
 
 @section{Limits}
 
@@ -106,7 +100,7 @@ including elements the new resource leaves out.}]
 
 @section{Reference}
 
-@subsection[#:style 'unnumbered]{@tt{fhir/mcp/workspace} and @tt{fhir/mcp/verbs}}
+@subsection[#:style 'unnumbered]{@tt{fhir/mcp/workspace}}
 @defmodule[fhir/mcp/workspace]
 @defproc[(open-hub [dir path-string?] [#:data data (or/c string? #f) #f] [#:packages packages (listof string?) '()]) hub?]{
 The workspace in @racket[dir]: @tt{workspace.yaml} read, the packages and the core package of its FHIR
@@ -116,6 +110,8 @@ The verbs' procedures (@racket[hub-write!], @racket[hub-check], @racket[hub-run]
 @racket[hub-explain], @racket[hub-describe], @racket[hub-apply], @racket[hub-stage!],
 @racket[hub-commit!]) answer JSON or raise. Each language is reached through its @tt{<id>/workspace}
 module, under the contract in @tt{fhir/lang/workspace}.
+
+@subsection[#:style 'unnumbered]{@tt{fhir/mcp/verbs}}
 @defmodule[fhir/mcp/verbs]
 @defproc[(workspace-tools [h hub?]) list?]{The nine tools over a hub.}
 
@@ -123,16 +119,13 @@ module, under the contract in @tt{fhir/lang/workspace}.
 @defmodule[fhir/mcp/tools]
 
 @defstruct*[tool ([name string?] [description string?] [input-schema hash?] [run procedure?])]{
-(The struct is @tt{fhir/lang/support}'s, re-exported.)
 A tool: @racket[(run arguments)] answers @racket[(values text error?)].}
-@defproc[(operation->tool [o operation?] [all (listof operation?)]) tool?]{A registered FHIR operation as a tool: its OperationDefinition's @tt{in} parameters are the schema, those with min 1 required.}
-@defproc[(operation-tools) (listof tool?)]{Every registered operation.}
-@defproc[(language-tools) (listof tool?)]{@tt{diagnose_file}, then every installed language's own tools (from its @tt{<id>/support} module): @tt{fsh_check}, @tt{fsh_compile}, @tt{fsh_decompile}, @tt{cql_elm}, @tt{cql_evaluate}, @tt{vcl_valueset}, @tt{fhirpath_evaluate}.}
-@defproc[(definition-tools) (listof tool?)]{@tt{fhir_element}, @tt{fhir_find}, @tt{data_resources}.}
-@defproc[(all-tools) (listof tool?)]
 @defproc[(call-tool [t tool?] [arguments hash?]) (values string? boolean?)]{Runs a tool; never raises.}
-@defproc[(load-operations!) (listof symbol?)]{Loads each operation module whose package is installed, so its operations register; the modules loaded.}
 @defproc[(tool->jsexpr [t tool?]) hash?]{The protocol's tool description.}
+@defproc[(load-operations!) (listof symbol?)]{Loads each operation module whose package is installed, so its operations register; the modules loaded.}
+@defproc[(apply-json [o operation?] [inputs hash?] [resource (or/c hash? #f)]) hash?]{An operation applied to inputs by name; the resource fills its subject input, or is what it applies to.}
+@defproc[(element-info [type string?] [path (or/c string? #f)]) (or/c list? string?)]{An element's definition from a type or profile in the packages (@tt{valueQuantity} finds @tt{value[x]}); without a path, the type's top-level elements; a string says why there is none.}
+@defproc[(find-definitions [fragment string?] [resource-type (or/c string? #f)] [limit exact-positive-integer?]) list?]{Definitions in the packages whose id, name or url contains the fragment.}
 
 @subsection[#:style 'unnumbered]{@tt{fhir/mcp/server}}
 @defmodule[fhir/mcp/server]

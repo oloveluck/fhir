@@ -6,8 +6,7 @@
 ;; ViewDefinitions) and FHIR JSON; nine tools write, check, run, query, explain, describe, apply,
 ;; stage and commit them against FHIR data (a directory, a file, or a FHIR server). Each language is
 ;; reached through its `<id>/workspace` module (fhir/lang/workspace); `learn://<language>` resources
-;; carry cheat sheets and links to the official references. `--legacy-tools` adds the per-operation and
-;; per-language tools. Contributes to the `fhir` collection (modules fhir/mcp/…).
+;; carry cheat sheets and links to the official references. Contributes to the `fhir` collection (modules fhir/mcp/…).
 
 (define collection "fhir")
 (define version "0.1")

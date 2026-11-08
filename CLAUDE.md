@@ -24,7 +24,7 @@ never `../model/node.rkt`. Dependency order (base first):
 | `fsh` | `oloveluck/fsh` | `#lang fsh` (bidirectional), projects + packaging, `check.rkt`; `raco fsh`, `raco fsh check` | fhir, fhirpath, fhir-validation |
 | `fhir-server` | `oloveluck/fhir` → `fhir-server/` | `capability/ http/ store/` (SQLite), IG-generated servers, `$evaluate-measure`, `server-cli.rkt` (`raco fhir-server`), server tests | fhir, fhir-spec, fhirpath, fhir-tx, fhir-validation, cql, db-lib |
 | `fhir-lsp` | `oloveluck/fhir` → `fhir-lsp/` | the Language Server Protocol server for the five languages: `lsp/jsonrpc.rkt` (framing), `lsp/diagnostics.rkt` (fhir/diagnostic -> LSP), `lsp/languages.rkt` (the catalogue over `fhir/lang/support`), `lsp/server.rkt` (state, dispatch, loop; hover/definition/completion/symbols handed to the document's language support with its project), `lsp-cli.rkt` (`raco fhir-lsp`, `check`) | fhir (+ the languages' `support` modules at run time) |
-| `fhir-mcp` | `oloveluck/fhir` → `fhir-mcp/` | the Model Context Protocol server over a WORKSPACE (below): `mcp/workspace.rkt` (the hub: config, packages, data source, artifacts registered, results, stages), `mcp/verbs.rkt` (the nine tools), `learn/*.md` (`learn://` guides with the official references; their examples compile in the test), `mcp/tools.rkt` (the per-operation and per-language tools, now behind `--legacy-tools`), `mcp/resources.rkt` (guides, packages, definitions, learn, results; prompts), `mcp/server.rkt` (dispatch, one JSON line per message), `mcp-cli.rkt` (`raco fhir-mcp [--workspace d]`, `tools`, `call`) | fhir, fhir-lsp (+ the operations and languages at run time) |
+| `fhir-mcp` | `oloveluck/fhir` → `fhir-mcp/` | the Model Context Protocol server over a WORKSPACE (below): `mcp/workspace.rkt` (the hub: config, packages, data source, artifacts registered, results, stages), `mcp/verbs.rkt` (the nine tools), `learn/*.md` (`learn://` guides with the official references; their examples compile in the test), `mcp/tools.rkt` (the Tool struct; operations loaded and applied to JSON; elements and definitions in the packages), `mcp/resources.rkt` (guides, packages, definitions, learn, results; prompts), `mcp/server.rkt` (dispatch, one JSON line per message), `mcp-cli.rkt` (`raco fhir-mcp [--workspace d]`, `tools`, `call`) | fhir, fhir-lsp (+ the operations and languages at run time) |
 | `sql-on-fhir` | `oloveluck/sql-on-fhir` | `#lang sql-on-fhir`: ViewDefinition model and operation definitions GENERATED from the IG package (`target.rkt`, `model/`), the view engine, `$sql-run`/`$sql-export` as operations; `raco sql-on-fhir` | fhir, fhirpath (fhir-spec to regenerate) |
 | `fhir-examples` | `oloveluck/fhir-examples` | `examples/` (operations applied as procedures), `bench.rkt` (prose → FSH tasks from a published IG, scored), recorded runs; `raco spec-bench` | fhir, fhir-spec, fhir-validation, fsh, fml |
 
@@ -37,12 +37,12 @@ FHIR NPM packages (sd-index, codegen and the tx harness keep specialised streami
 OMOP and the DuckDB analytics were removed on 2026-11-02 (git history has them). SQL on FHIR returned
 as its own repo, `sql-on-fhir` (below).
 
-**Editor and agent support is a contract in the foundation** (`fhir/lang/support`, `fhir/lang/declared`):
-a LangSupport (diagnose, project-files, entities, hover, definition, complete, tools) that each language
+**Editor support is a contract in the foundation** (`fhir/lang/support`, `fhir/lang/declared`):
+a LangSupport (diagnose, project-files, entities, hover, definition, complete) that each language
 provides from its own `<id>/support` module (`fsh/support`, `cql/support`, `fml/support`, `vcl/support`,
-`fhirpath/support`), tested with the language. The hubs — fhir-lsp and fhir-mcp — load a support by its
-collection name (`language-support`), keep running when a language is absent (one "not installed"
-diagnostic; no tools), and know no language internals: a change to a language and its editor support
+`fhirpath/support`), tested with the language. fhir-lsp loads a support by its collection name
+(`language-support`), keeps running when a language is absent (one "not installed" diagnostic), and
+knows no language internals; what an agent runs is the language's `<id>/workspace` (below): a change to a language and its editor support
 live and test in one repo. `current-language-supports` lets a test or an embedder supply a support by
 hand; `lang/declared.rkt` serves a language whose declarations a line regexp finds (CQL, FML).
 
@@ -63,7 +63,7 @@ operation), stage (validated, diffed against the data) and commit (a data direct
 server only when allowed; a stage with errors is refused). `fhir/rest-data-source` is a FHIR server
 as a data source (paged searchsets, `patient` then `subject` learned per type, `rest-write!`); a
 server that cannot answer a ValueSet or Library search is treated as holding none. Tool definitions:
-~6 KB for the nine verbs, against ~53 KB for the 25 per-operation/per-language tools.
+~6 KB for the nine verbs (the 25 per-operation and per-language tools they replaced were ~53 KB).
 
 Seams (each a one-module move):
 - `kernel/operation-entry.rkt` (fhir) holds the struct generated `operations.rkt` files need, so the

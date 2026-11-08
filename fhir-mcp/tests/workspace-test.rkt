@@ -8,7 +8,7 @@
 (require rackunit racket/list racket/string racket/file json
          fhir/mcp/workspace fhir/mcp/verbs
          (only-in fhir/mcp/resources read-resource learn-topics learn-text)
-         (only-in fhir/lang/support tool-name tool-run)
+         (only-in fhir/mcp/tools tool-name tool-run)
          (only-in fhir/lang/workspace workspace-support))
 
 (define dir (make-temporary-directory "mcp-ws-~a"))

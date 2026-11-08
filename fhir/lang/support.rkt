@@ -7,7 +7,7 @@
 ;;; name and stay running when a language is not installed. The languages are known here as DATA —
 ;;; their ids and file extensions — so a document of an absent language still gets an answer.
 ;;;
-;;; A LangSupport is (lang-support id diagnose project-files entities hover definition complete tools):
+;;; A LangSupport is (lang-support id diagnose project-files entities hover definition complete):
 ;;;   id            : the LSP languageId, also the collection ("fsh", "cql", "fml", "vcl", "fhirpath")
 ;;;   diagnose      : text path -> (listof diagnostic)   every problem in the document, positioned
 ;;;   project-files : path -> (listof path)   the other files that belong with the document (an FSH
@@ -18,15 +18,13 @@
 ;;;   hover         : project text position -> markdown|#f
 ;;;   definition    : project text position -> entity|#f
 ;;;   complete      : project text position -> (listof CompletionItem jsexpr)
-;;;   tools         : (listof tool)   what an agent may call (check, compile, evaluate …)
+;;; (What an agent runs is a language's workspace support, fhir/lang/workspace.)
 ;;; An Entity is (entity kind name id file line): a declaration — kind as the language names it
 ;;; ("Profile", "define", "group"), name, id (an FSH `Id:`, a map's url; else #f), file (a string),
 ;;; line (0-based, as the protocol counts).
 ;;; A Project is (project path entities text-of): the document's path, every entity of the project
 ;;; (open documents as the editor holds them, the rest from disk), and text-of : path -> string, the
 ;;; text of any project file the same way.
-;;; A Tool is (tool name description input-schema run): name ^[a-zA-Z0-9_-]{1,64}$, a description for
-;;; the model, a JSON Schema for the arguments, run : arguments(hash) -> (values text error?).
 ;;; A Position is (cons line character), 0-based.
 ;;; A hub never lets an adapter's failure escape: diagnose-safely turns one into a diagnostic.
 
@@ -36,7 +34,7 @@
                   diagnostic-severity))
 
 (provide
- (struct-out lang-support) (struct-out entity) (struct-out project) (struct-out tool)
+ (struct-out lang-support) (struct-out entity) (struct-out project)
  (contract-out
   ;; the family's languages: id -> file extensions
   [extensions-by-language (hash/c string? (listof string?))]
@@ -56,17 +54,11 @@
   [with-source         (-> diagnostic? path-string? diagnostic?)]
   [blank-lang-line     (-> string? string?)]
   [line-of             (-> string? exact-nonnegative-integer? (or/c string? #f))]
-  [word-at             (-> string? pair? (or/c string? #f))]
-  [diagnostics-result  (-> (listof diagnostic?) (values string? boolean?))]
-  [text-schema         (-> symbol? string? hash?)]
-  [string-arg          (-> hash? symbol? (or/c string? #f))]
-  [missing             (-> symbol? (values string? boolean?))]
-  [call-tool           (-> tool? hash? (values string? boolean?))]))
+  [word-at             (-> string? pair? (or/c string? #f))]))
 
-(struct lang-support (id diagnose project-files entities hover definition complete tools) #:transparent)
+(struct lang-support (id diagnose project-files entities hover definition complete) #:transparent)
 (struct entity (kind name id file line) #:transparent)
 (struct project (path entities text-of) #:transparent)
-(struct tool (name description input-schema run) #:transparent)
 
 ;; ---- the catalogue ----------------------------------------------------------------------------
 (define extensions-by-language
@@ -135,20 +127,6 @@
            (or (findf (lambda (e) (equal? (entity-id e) last-seg)) es)
                (findf (lambda (e) (equal? (entity-name e) last-seg)) es)))))
 
-;; ---- tools ------------------------------------------------------------------------------------
-(define (diagnostics-result ds)
-  (values (jsexpr->string (hasheq 'diagnostics (map diagnostic->jsexpr ds)
-                                  'text (string-join (map diagnostic->string ds) "\n")))
-          (ormap (lambda (d) (eq? (diagnostic-severity d) 'error)) ds)))
-(define (text-schema k what)
-  (hasheq 'type "object" 'properties (hasheq k (hasheq 'type "string" 'description what)) 'required (list (symbol->string k))))
-(define (string-arg args k) (let ([v (hash-ref args k #f)]) (and (string? v) v)))
-(define (missing k) (values (format "the argument '~a' is required" k) #t))
-;; call-tool : tool arguments -> (values text error?)   never raises
-(define (call-tool t args)
-  (with-handlers ([exn:fail? (lambda (e) (values (exn-message e) #t))])
-    ((tool-run t) args)))
-
 (module+ test
   (require rackunit (only-in fhir/diagnostic diagnostic-message))
   (check-equal? (language-id-of "ig/input/fsh/bp.fsh") "fsh")
@@ -156,14 +134,14 @@
   (check-equal? (language-id-of "A.CQL") "cql")
   (check-false (language-id-of "notes.txt"))
   (check-false (language-support "cobol"))
-  (define fake (lang-support "vcl" (lambda (t p) '()) (lambda (p) '()) (lambda (t f) '()) (lambda (pr t pos) #f) (lambda (pr t pos) #f) (lambda (pr t pos) '()) '()))
+  (define fake (lang-support "vcl" (lambda (t p) '()) (lambda (p) '()) (lambda (t f) '()) (lambda (pr t pos) #f) (lambda (pr t pos) #f) (lambda (pr t pos) '())))
   (parameterize ([current-language-supports (hash "vcl" fake)]) (check-eq? (language-support "vcl") fake))
   ;; an absent language, and an adapter that raises, are diagnostics, never exceptions
   (define ds (diagnose-safely "cobol" #f "x" "/tmp/x.cob"))
   (check-equal? (length ds) 1)
   (check-regexp-match #rx"not installed" (diagnostic-message (car ds)))
   (define boom (lang-support "boom" (lambda (t p) (error "no")) (lambda (p) '()) (lambda (t f) '())
-                             (lambda (pr t pos) #f) (lambda (pr t pos) #f) (lambda (pr t pos) '()) '()))
+                             (lambda (pr t pos) #f) (lambda (pr t pos) #f) (lambda (pr t pos) '())))
   (define ds2 (diagnose-safely "boom" boom "x" "/tmp/x.boom"))
   (check-equal? (diagnostic-message (car ds2)) "no")
   (check-equal? (loc-source (diagnostic-loc (car ds2))) "/tmp/x.boom")
@@ -175,8 +153,4 @@
   (check-equal? (entity-name (find-entity es "bp")) "BP")
   (check-equal? (entity-name (find-entity es "http://example.org/StructureDefinition/bp|1.0")) "BP")
   (check-false (find-entity es "nope"))
-  ;; a tool that raises answers an error
-  (define t (tool "t" "boom" (hasheq) (lambda (a) (error "bad"))))
-  (define-values (txt err?) (call-tool t (hasheq)))
-  (check-true err?) (check-equal? txt "bad")
-  (check-equal? (string-arg (hasheq 'a "x" 'b 1) 'b) #f))
+  (void))
