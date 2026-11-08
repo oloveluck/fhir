@@ -11,7 +11,7 @@
 
 (define collection "fhir")
 (define version "0.3")
-(define pkg-desc "A FHIR terminology service for Racket: $expand, $validate-code, $lookup and $translate over FHIR packages, as procedures, as FHIR operations and as FHIRPath's %terminologies; `raco fhir-tx`")
+(define pkg-desc "A FHIR terminology service: $expand, $validate-code, $lookup and $translate over FHIR packages, as procedures, as FHIR operations and as FHIRPath's %terminologies; `raco fhir-tx`")
 (define pkg-authors '(oloveluck))
 (define license 'MIT)
 ;; fhir-spec: the vendored core packages make-r5-terminology / make-r4-terminology serve, and the

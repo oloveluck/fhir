@@ -1,6 +1,6 @@
 #lang scribble/manual
 
-@title{fhir: FHIR as a family of Racket languages}
+@title{fhir: FHIR's languages and tools}
 
 FHIR's specifications as @hash-lang[]s: a profile, a value set, a quality measure, a mapping or a
 query is a file in its own language, checked when it compiles, and a value a Racket program can use.

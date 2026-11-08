@@ -11,7 +11,7 @@
 
 (define collection "fhir")
 (define version "0.3")
-(define pkg-desc "FHIR validation for Racket: a fail-open profile validator (cardinality, types, slicing, bindings, invariants), `raco fhir-validate`")
+(define pkg-desc "FHIR validation: a fail-open profile validator (cardinality, types, slicing, bindings, invariants), `raco fhir-validate`")
 (define pkg-authors '(oloveluck))
 (define license 'MIT)
 (define deps '("base" "fhir" "fhir-spec" "fhirpath" "fhir-tx"))

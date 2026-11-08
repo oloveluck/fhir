@@ -1,6 +1,6 @@
 #lang info
 
-;; fhir — FHIR as a family of Racket #langs: the FOUNDATION package.
+;; fhir — FHIR's languages and tools: the FOUNDATION package.
 ;;
 ;; The Result type, the typed-node model and registry, the primitive type system, the compile-time
 ;; validating form macros, the JSON (de)serializer, StructureDefinition tooling (#lang fhir/sd +
@@ -14,7 +14,7 @@
 
 (define collection "fhir")
 (define version "0.3")
-(define pkg-desc "FHIR as a family of Racket #langs — the foundation: Result type, typed node model, primitives, compile-time form macros, JSON (de)serializer, #lang fhir/sd + snapshot generation, spec-driven codegen and the generated R4/R5/R6 towers (#lang fhir/r6; R4 and R5 are schema-only)")
+(define pkg-desc "FHIR's languages and tools — the foundation: Result type, typed node model, primitives, compile-time form macros, JSON (de)serializer, #lang fhir/sd + snapshot generation, spec-driven codegen and the generated R4/R5/R6 towers (#lang fhir/r6; R4 and R5 are schema-only)")
 (define pkg-authors '(oloveluck))
 (define license 'MIT)
 (define deps '("base"))
