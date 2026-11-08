@@ -19,7 +19,7 @@ never `../model/node.rkt`. Dependency order (base first):
 | `vcl` | `oloveluck/vcl` | `#lang vcl`, `raco vcl` | fhir |
 | `fhir-tx` | `oloveluck/fhir` → `fhir-tx/` | `terminology/service.rkt` ($expand, $validate-code, $lookup, $translate over packages or resources; the tx-service handle for %terminologies), `terminology/operations.rkt` (the same as fhir/operation values), the tx-ecosystem suite, `tx-cli.rkt` (`raco fhir-tx`) | fhir, fhir-spec, fhirpath, vcl |
 | `fhir-validation` | `oloveluck/fhir` → `fhir-validation/` | `conformance/validate.rkt`, the validation corpora and tests, `validate-cli.rkt` (`raco fhir-validate`) | fhir, fhir-spec, fhirpath, fhir-tx |
-| `cql` | `oloveluck/cql` | `#lang cql` (CQL → ELM + interpreter), `raco cql` | fhir, fhirpath |
+| `cql` | `oloveluck/cql` | `#lang cql` (CQL → ELM + interpreter) over any data model (a ModelInfo + a representation, both data; FHIR 4.0.1 shipped; models from logical StructureDefinitions), `raco cql` | fhir, fhirpath |
 | `fml` | `oloveluck/fml` | `#lang fml` (FHIR Mapping Language), `raco fml` | fhir, fhir-tx (`translate`), fhirpath |
 | `fsh` | `oloveluck/fsh` | `#lang fsh` (bidirectional), projects + packaging, `check.rkt`; `raco fsh`, `raco fsh check` | fhir, fhirpath, fhir-validation |
 | `fhir-server` | `oloveluck/fhir` → `fhir-server/` | `capability/ http/ store/` (SQLite), IG-generated servers, `$evaluate-measure`, `server-cli.rkt` (`raco fhir-server`), server tests | fhir, fhir-spec, fhirpath, fhir-tx, fhir-validation, cql, db-lib |
@@ -56,7 +56,8 @@ source); `sql-on-fhir` is the sixth (`*.view.json`). The hub registers every lan
 fhir/registry under `(workspace <lang>)` (`unregister-source!` forgets a changed file), so the
 languages compose by canonical exactly as `#lang` modules do: CQL resolves a VCL value set, FSH
 examples validate against FSH profiles, includes resolve across `.cql` files (FHIRHelpers 4.0.1 is
-bundled in `cql/libraries/`). Nine verbs, whatever the number of languages: write (problems in the
+bundled in `cql/libraries/`), and workspace.yaml's `models` makes a CQL data model from the
+workspace's FSH logical models (`using Clinic version '1.0'`; cql/CLAUDE.md "Any data model"). Nine verbs, whatever the number of languages: write (problems in the
 same call), check, run (-> `result://rN`), query (fhirpath/cql/vcl/search/view, no file), explain,
 describe (results paged and diffed, Type/id, canonicals, elements, operations), apply (any
 operation), stage (validated, diffed against the data) and commit (a data directory, or a FHIR

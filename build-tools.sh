@@ -26,13 +26,15 @@ towers="fhir/r4/schemas fhir/r5/schemas"
 languages="fsh/support cql/support fml/support vcl/support fhirpath/support"
 # what fhir-mcp's workspace loads by name: each language's workspace support
 workspaces="fsh/workspace cql/workspace fml/workspace vcl/workspace fhirpath/workspace sql-on-fhir/workspace"
+# what the CQL engine loads by name: the ModelInfo reader, for models given as ModelInfo documents
+cqlmodels="cql/model/modelinfo-xml"
 operations="fhir/sd/operations fhir/conformance/operations fhir/terminology/operations fml/operations cql/measure sql-on-fhir/operations"
 store="fhir/store/fhir-sqlite fhir/store/ig-server fhir/store/load fhir/store/fhir-engine fhir/store/measure fhir/http/server"
 
 # tool | the module its raco command runs | the modules it loads by name
 tools=(
   "fhirpath|fhirpath/cli|$towers"
-  "cql|cql/cli|"
+  "cql|cql/cli|$cqlmodels"
   "vcl|vcl/cli|"
   "fml|fml/cli|$towers fhir/conformance/validate"
   "fsh|fsh/cli|$towers fml/project $store"
@@ -42,7 +44,7 @@ tools=(
   "fhir-tx|fhir/tx-cli|$towers fhir/capability/operations fhir/terminology/operations fhir/http/server"
   "fhir-server|fhir/server-cli|$towers fhir/r6/schemas $store"
   "fhir-lsp|fhir/lsp-cli|$towers $languages fml/project"
-  "fhir-mcp|fhir/mcp-cli|$towers $workspaces fml/project $operations"
+  "fhir-mcp|fhir/mcp-cli|$towers $workspaces $cqlmodels fml/project $operations"
 )
 
 # installed? : module-path -> status   the module's source file exists in an installed collection

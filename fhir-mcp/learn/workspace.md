@@ -56,7 +56,10 @@ data: data/                        # a directory, a JSON file, or a FHIR server'
 parameters:                        # CQL parameters, as CQL expressions
   Measurement Period: Interval[@2025-01-01T00:00:00.000, @2025-12-31T23:59:59.999]
 allowRemoteWrites: false           # commit may write to the server only when true
+models:                            # data models made from the workspace's FSH logical models
+  Clinic: http://example.org/fhir patient=Member birthDate=born version=1.0
 ```
+`models` lets CQL query a model you design here: `using Clinic version '1.0'`. learn://cql explains it.
 A server that needs a token reads it from the environment variable `FHIR_AUTHORIZATION`, which holds
 the whole header value (`Bearer …`). It is never kept in a file.
 

@@ -6,8 +6,9 @@ patient. `explain` follows one patient's answer down through the defines it uses
 that read data. That shows how many resources of a type the patient has, and which ones the filter
 kept.
 
-Here the FHIR model is 4.0.1, so write `using FHIR version '4.0.1'`. `include FHIRHelpers version
-'4.0.1'` is always available. Other libraries resolve from the workspace's `.cql` files by name.
+The data model is whatever `using` names. FHIR 4.0.1 is installed (`using FHIR version '4.0.1'`,
+with `include FHIRHelpers version '4.0.1'` always available), and so is any model `workspace.yaml`
+makes from the workspace's own logical models (see "Your own data model" below). Other libraries resolve from the workspace's `.cql` files by name.
 Value sets resolve by canonical from the workspace (a `.vcl` file, an FSH ValueSet), then from the
 data, then from the packages. Parameters are CQL expressions, set in `workspace.yaml` or on the run.
 
@@ -55,7 +56,34 @@ define "Gap": AgeInYears() >= 18 and "No HbA1c"
 ```
 `query("cql", "AgeInYears() > 65")` evaluates one expression for every patient without a library.
 
+## Your own data model
+Design the classes in FSH as logical models, name the model in `workspace.yaml`, and query it:
+```
+models:
+  Clinic: http://example.org/clinic patient=Member birthDate=born version=1.0
+```
+`Clinic` is made from every logical model whose canonical starts with `http://example.org/clinic`.
+`patient=` names the class that is the Patient context, and any Reference to it relates a record to
+that patient. `birthDate=` is the element `AgeInYears()` reads, and `key=` is the element that keys a
+patient (default `id`). Their datatypes become CQL's own: a CodeableConcept is a Concept, a Coding
+is a Code, a Period is an `Interval<DateTime>`, and `string`, `code` and `uri` are String. So no
+FHIRHelpers is needed:
+```
+library ClinicGap version '1'
+using Clinic version '1.0'
+valueset "HbA1c": 'http://example.org/clinic/ValueSet/hba1c'
+context Patient
+define "HbA1c Visits": [Visit: "HbA1c"]
+define "Gap": AgeInYears() >= 18 and not exists "HbA1c Visits"
+```
+A retrieve's code path is a class's `code` element, else its first coded element. Data is the
+logical models' JSON: `resourceType`, `whenDateTime`, `{"reference": "Member/m1"}`. A model can also
+be a ModelInfo document in a directory named by `CQL_MODEL_PATH`, with its representation in a
+`<same name>.representation.rktd` beside it.
+
 ## Common problems
+- `no data model is installed`: the `using` names a model that is neither installed nor in
+  `workspace.yaml`'s `models`.
 - An unknown value set at run time: no ValueSet with that url is in the workspace, the data or the
   packages. Write a `.vcl` file for it, and use its canonical.
 - `Could not resolve ... FHIRHelpers`: add `include FHIRHelpers version '4.0.1' called FHIRHelpers`.

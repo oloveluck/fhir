@@ -10,7 +10,7 @@
 ;;; written in FSH, a map's output against its target's profile.
 ;;;
 ;;; A Workspace is (workspace root config): the directory and its configuration.
-;;; A WsConfig is (ws-config fhir-version canonical packages data parameters allow-remote-writes?)
+;;; A WsConfig is (ws-config fhir-version canonical packages data parameters allow-remote-writes? models)
 ;;;   fhir-version : string                 "4.0.1" (the default) or "5.0.0"; every language follows it
 ;;;   canonical    : string                 the base of the canonicals the workspace defines
 ;;;   packages     : (listof string)        FHIR packages (a .tgz path or a package name) in context
@@ -18,6 +18,10 @@
 ;;;                                         url of a FHIR server (read-only unless writes are allowed)
 ;;;   parameters   : (hash string -> string)  CQL parameter values, each a CQL expression
 ;;;   allow-remote-writes? : boolean        whether `commit` may write to a FHIR server
+;;;   models       : (hash name -> string)  data models made from the workspace's logical models, for
+;;;                                         CQL's `using <name>`: "<canonical> [patient=<Class>]
+;;;                                         [birthDate=<element>] [key=<element>] [version=<v>]" — the
+;;;                                         logical models whose canonical starts with <canonical>
 ;;; read from `workspace.yaml` (a small YAML subset: `key: value`, lists of `- item`, one level of
 ;;; `key: value` maps) when the directory has one.
 ;;;
@@ -77,7 +81,7 @@
   [workspace-core-package (-> workspace? (or/c path? #f))]))
 
 (struct workspace (root config) #:transparent)
-(struct ws-config (fhir-version canonical packages data parameters allow-remote-writes?) #:transparent)
+(struct ws-config (fhir-version canonical packages data parameters allow-remote-writes? models) #:transparent)
 (struct ws-support (id artifacts run explain) #:transparent)
 (struct run-result (kind columns rows summary) #:transparent)
 
@@ -102,7 +106,7 @@
                           (and (ws-support? v) v)))))))
 
 ;; ---- configuration --------------------------------------------------------------------------
-(define default-ws-config (ws-config "4.0.1" "http://example.org/workspace" '() #f (hash) #f))
+(define default-ws-config (ws-config "4.0.1" "http://example.org/workspace" '() #f (hash) #f (hash)))
 
 ;; A Yaml here is: string | (listof string) | (listof (cons string string))
 ;; parse-yaml-subset : text -> (values (listof (cons key Yaml)) warnings)
@@ -144,14 +148,15 @@
                     [else (string-trim b)])))
           (loop rest (cons (cons (cadr m) items) acc) warnings)])])))
 
-(define known-keys '("fhirVersion" "canonical" "packages" "data" "parameters" "allowRemoteWrites"))
+(define known-keys '("fhirVersion" "canonical" "packages" "data" "parameters" "allowRemoteWrites" "models"))
 
 (define (parse-workspace-config text)
   (define-values (kvs warnings) (parse-yaml-subset text))
   (define (get k) (let ([p (assoc k kvs)]) (and p (cdr p))))
   (define (str k d) (let ([v (get k)]) (if (and (string? v) (not (string=? v ""))) v d)))
   (define (strings k) (let ([v (get k)]) (cond [(string? v) (list v)] [(list? v) (filter string? v)] [else '()])))
-  (define params (let ([v (get "parameters")]) (if (list? v) (for/hash ([p (in-list v)] #:when (pair? p)) (values (car p) (cdr p))) (hash))))
+  (define (pairs k) (let ([v (get k)]) (if (list? v) (for/hash ([p (in-list v)] #:when (pair? p)) (values (car p) (cdr p))) (hash))))
+  (define params (pairs "parameters"))
   (define version (str "fhirVersion" (ws-config-fhir-version default-ws-config)))
   (define unknown (for/list ([kv (in-list kvs)] #:unless (member (car kv) known-keys))
                     (format "workspace.yaml: unknown key `~a` (known: ~a)" (car kv) (string-join known-keys ", "))))
@@ -163,7 +168,8 @@
                      (strings "packages")
                      (str "data" #f)
                      params
-                     (and (member (str "allowRemoteWrites" "false") '("true" "yes")) #t))
+                     (and (member (str "allowRemoteWrites" "false") '("true" "yes")) #t)
+                     (pairs "models"))
           (append warnings unknown version-warning)))
 
 (define (read-workspace-config f) (parse-workspace-config (file->string f)))
@@ -220,12 +226,14 @@
                     "packages:\n  - hl7.fhir.us.core-6.1.0\n  - \"local/x.tgz\"\n"
                     "data: https://hapi.fhir.org/baseR4\n"
                     "parameters:\n  \"Measurement Period\": Interval[@2025-01-01, @2025-12-31]\n"
-                    "allowRemoteWrites: true\nmystery: 1\n")))
+                    "allowRemoteWrites: true\nmystery: 1\n"
+                    "models:\n  Clinic: http://example.org/clinic patient=Member birthDate=born\n")))
   (check-equal? (ws-config-canonical c) "http://example.org/fhir")
   (check-equal? (ws-config-packages c) '("hl7.fhir.us.core-6.1.0" "local/x.tgz"))
   (check-equal? (ws-config-data c) "https://hapi.fhir.org/baseR4")
   (check-equal? (hash-ref (ws-config-parameters c) "Measurement Period") "Interval[@2025-01-01, @2025-12-31]")
   (check-true (ws-config-allow-remote-writes? c))
+  (check-equal? (ws-config-models c) (hash "Clinic" "http://example.org/clinic patient=Member birthDate=born"))
   (check-equal? (length ws) 1)
   (check-regexp-match #rx"unknown key `mystery`" (car ws))
   (define-values (d _w) (parse-workspace-config ""))

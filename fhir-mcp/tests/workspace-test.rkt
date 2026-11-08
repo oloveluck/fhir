@@ -160,3 +160,58 @@
       (check-equal? (hash-ref w 'problems) '() (format "the ~a example in learn/: ~a" (car ex) (jsexpr->string (hash-ref w 'problems)))))))
 
 (delete-directory/files dir)
+
+;; ---- a data model designed in the workspace: FSH logical models, queried with CQL -------------------
+;; Nothing outside the workspace knows this model: workspace.yaml names it, FSH defines its classes,
+;; the data is in its own JSON shape, and a CQL library runs over it with `using Clinic`.
+(define dir2 (make-temporary-directory "mcp-model-~a"))
+(define (put2! rel text) (make-parent-directory* (build-path dir2 rel)) (call-with-output-file (build-path dir2 rel) (lambda (o) (void (write-string text o))) #:exists 'truncate/replace))
+(put2! "workspace.yaml" (string-append "fhirVersion: 4.0.1\ncanonical: http://example.org/clinic\ndata: data\n"
+                                       "models:\n  Clinic: http://example.org/clinic patient=Member birthDate=born version=1.0\n"))
+(for ([r (list (hasheq 'resourceType "Member" 'id "m1" 'born "1960-05-01")
+               (hasheq 'resourceType "Member" 'id "m2" 'born "1990-01-01")
+               (hasheq 'resourceType "Visit" 'id "v1" 'member (hasheq 'reference "Member/m1")
+                       'reason (hasheq 'coding (list (hasheq 'system "http://loinc.org" 'code "4548-4"))) 'whenDateTime "2025-03-01")
+               (hasheq 'resourceType "Visit" 'id "v2" 'member (hasheq 'reference "Member/m2")
+                       'reason (hasheq 'coding (list (hasheq 'system "http://loinc.org" 'code "1234-5")))
+                       'whenPeriod (hasheq 'start "2025-04-01T09:00:00Z" 'end "2025-04-01T10:00:00Z")))])
+  (put2! (format "data/~a-~a.json" (hash-ref r 'resourceType) (hash-ref r 'id)) (jsexpr->string r)))
+(define h2 (open-hub dir2))
+(define tools2 (for/hash ([t (in-list (workspace-tools h2))]) (values (tool-name t) t)))
+(define (call2 name args) (define-values (text err?) ((tool-run (hash-ref tools2 name)) args)) (values (string->jsexpr text) err?))
+(define (ok2 name args) (define-values (j e) (call2 name args)) (check-false e (format "~a: ~a" name (jsexpr->string j))) j)
+(with-hub h2
+  (lambda ()
+    (define w (ok2 "write" (hasheq 'path "clinic.fsh"
+                                   'text (string-append "Logical: Member\nId: Member\nTitle: \"Member\"\nDescription: \"A member\"\n"
+                                                        "* id 1..1 string \"Key\" \"Key\"\n* born 0..1 date \"Born\" \"Born\"\n\n"
+                                                        "Logical: Visit\nId: Visit\nTitle: \"Visit\"\nDescription: \"A visit\"\n"
+                                                        "* reason 1..1 CodeableConcept \"Why\" \"Why\"\n"
+                                                        "* when[x] 0..1 dateTime or Period \"When\" \"When\"\n"
+                                                        "* member 1..1 Reference(Member) \"Who\" \"Who\"\n"))))
+    (check-equal? (hash-ref w 'problems) '())
+    (ok2 "write" (hasheq 'path "hba1c.vcl" 'text "(http://loinc.org)4548-4"))
+    (define lib (string-append "library ClinicGap version '1'\nusing Clinic version '1.0'\n"
+                               "valueset \"HbA1c\": 'http://example.org/clinic/ValueSet/hba1c'\ncontext Patient\n"
+                               "define \"HbA1c Visits\": [Visit: \"HbA1c\"]\n"
+                               "define \"Adult\": AgeInYearsAt(@2025-06-01) >= 18\n"
+                               "define \"Gap\": \"Adult\" and not exists \"HbA1c Visits\"\n"
+                               "define \"Spans\": [Visit] V where V.\"when\" is Interval<DateTime> return V.\"when\"\n"))
+    (check-equal? (hash-ref (ok2 "write" (hasheq 'path "gap.cql" 'text lib)) 'problems) '())
+    (define r (ok2 "run" (hasheq 'path "gap.cql")))
+    (check-equal? (hash-ref r 'total) 2)                                  ; the members: the model's Patient class
+    (define by (for/hash ([row (hash-ref r 'rows)]) (values (hash-ref row 'patient) row)))
+    (check-equal? (hash-ref (hash-ref by "m1") 'Gap) #f)
+    (check-equal? (hash-ref (hash-ref by "m2") 'Gap) #t)
+    (check-equal? (hash-ref (hash-ref by "m1") '|HbA1c Visits|) '("Visit/v1"))
+    (check-equal? (length (hash-ref (hash-ref by "m2") 'Spans)) 1)
+    ;; explain: the retrieve read the member's one Visit (by the model's relationship) and kept none
+    (define e (ok2 "explain" (hasheq 'ref (hash-ref r 'result) 'subject "Member/m2" 'entry "Gap")))
+    (check-equal? (hash-ref e 'value) #t)
+    (define rt (car (hash-ref (findf (lambda (u) (equal? (hash-ref u 'define) "HbA1c Visits")) (hash-ref e 'uses)) 'retrieves)))
+    (check-equal? (list (hash-ref rt 'type) (hash-ref rt 'of-type) (hash-ref rt 'found)) '("Visit" 1 ()))
+    ;; a library naming a model nobody installed says so at compile
+    (define bad (ok2 "write" (hasheq 'path "nomodel.cql" 'text "library N\nusing Nowhere version '1'\ncontext Patient\ndefine X: [Thing]\n")))
+    (check-true (pair? (hash-ref bad 'problems)))
+    (void)))
+(delete-directory/files dir2)

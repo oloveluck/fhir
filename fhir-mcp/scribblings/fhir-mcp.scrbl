@@ -37,7 +37,9 @@ packages:                          # FHIR packages in context: a .tgz path, or a
 data: data/                        # a directory, a JSON file (a Bundle), or a FHIR server's base url
 parameters:                        # CQL parameters, as CQL expressions
   Measurement Period: Interval[@2025-01-01T00:00:00.000, @2025-12-31T23:59:59.999]
-allowRemoteWrites: false           # commit may write to a FHIR server only when true}|
+allowRemoteWrites: false           # commit may write to a FHIR server only when true
+models:                            # CQL data models made from the workspace's FSH logical models
+  Clinic: http://example.org/fhir patient=Member birthDate=born version=1.0}|
 
 @litchar{--package} adds packages and @litchar{--data} overrides @tt{data}. A FHIR server that needs
 a token reads it from the environment variable @tt{FHIR_AUTHORIZATION}, the whole header value. A
@@ -90,7 +92,9 @@ start an agent on common work.
 @itemlist[
 @item{One workspace per server, one request at a time, stdio only. Results and stages live in the
 server's memory.}
-@item{CQL runs against the FHIR 4.0.1 model. An R5 workspace reports that at the library's @tt{using}.}
+@item{CQL's installed FHIR model is 4.0.1; a library that uses FHIR in an R5 workspace is told so at its
+@tt{using}. Any other model works: one designed in the workspace as FSH logical models and named in
+@tt{workspace.yaml}'s @tt{models}, or a ModelInfo document in a directory named by @tt{CQL_MODEL_PATH}.}
 @item{A directory or file of JSON has no search engine. @tt{query("search")} needs a FHIR server, and
 FHIRPath queries work everywhere.}
 @item{Expansion uses the code systems in the packages. SNOMED CT and LOINC are not shipped, so a
