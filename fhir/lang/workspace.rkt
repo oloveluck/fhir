@@ -36,6 +36,8 @@
 ;;;               why the run answered what it did for one subject (a patient, a resource, a row),
 ;;;               each step positioned in the source
 ;;;   (either may be #f: the language does not run, or does not explain)
+;;; The module may also provide `guide`, a string: the language's guide for agents (its repository's
+;;; guide.md — the language, how to run it, its official references), which a hub serves.
 ;;; Options is a hash: 'entry (a define, a group…|#f), 'over (a resource type, "Type/id"|#f),
 ;;; 'parameters (hash name -> CQL expression), 'limit.
 ;;; A RunResult is (run-result kind columns rows summary)
@@ -58,6 +60,9 @@
   ;; workspace-support : id -> ws-support|#f   loaded from `<id>/workspace`; #f when not installed
   [workspace-support (-> string? (or/c ws-support? #f))]
   [current-workspace-supports (parameter/c (hash/c string? ws-support?))]
+  ;; workspace-guide : id -> string|#f   the `guide` its `<id>/workspace` provides; #f when the
+  ;; language is not installed or provides none
+  [workspace-guide (-> string? (or/c string? #f))]
   [default-ws-config ws-config?]
   ;; read-workspace-config : path -> (values ws-config (listof string))   the config and its warnings
   [read-workspace-config (-> path-string? (values ws-config? (listof string?)))]
@@ -94,6 +99,15 @@
         [else (language-id-of p)]))
 
 (define loaded (make-hash))
+(define guides (make-hash))
+(define (workspace-guide id)
+  (hash-ref! guides id
+             (lambda ()
+               (and (member id workspace-languages)
+                    (with-handlers ([exn:fail:filesystem:missing-module? (lambda (_) #f)]
+                                    [exn:fail:syntax:missing-module? (lambda (_) #f)])
+                      (define g (dynamic-require (string->symbol (string-append id "/workspace")) 'guide (lambda () #f)))
+                      (and (string? g) g))))))
 (define current-workspace-supports (make-parameter (hash)))
 (define (workspace-support id)
   (or (hash-ref (current-workspace-supports) id #f)

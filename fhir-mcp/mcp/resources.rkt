@@ -9,9 +9,10 @@
 ;;;   fhir://packages                the FHIR packages in context (sd-index), as JSON
 ;;;   fhir://definition/<Kind>/<ref> a StructureDefinition / ValueSet / CodeSystem / StructureMap /
 ;;;                                  ConceptMap from those packages, by id, name or url (a template)
-;;;   learn://<topic>                how to write each language in a workspace, with links to its
-;;;                                  official reference (learn/<topic>.md): workspace, fsh, cql,
-;;;                                  fhirpath, vcl, fml, sql-on-fhir, search
+;;;   learn://<topic>                how to write each language, with links to its official reference:
+;;;                                  the language's own guide (its repository's guide.md, provided by
+;;;                                  `<id>/workspace` as `guide`), else learn/<topic>.md: workspace,
+;;;                                  fsh, cql, fhirpath, vcl, fml, sql-on-fhir, search
 ;;;   result://rN                    a run's whole result, when a workspace server installs the
 ;;;                                  reader (current-result-resources)
 ;;; A Prompt is {name description arguments}; prompts/get answers the messages an agent starts with:
@@ -20,7 +21,8 @@
 ;;;   fix-workspace run check and fix every problem at its line
 
 (require racket/contract racket/string racket/list racket/file racket/runtime-path json
-         (only-in fhir/sd/sd-index resolve-canonical-raw sd-index-available? sd-context))
+         (only-in fhir/sd/sd-index resolve-canonical-raw sd-index-available? sd-context)
+         (only-in fhir/lang/workspace workspace-guide))
 
 (provide
  learn-topics
@@ -57,9 +59,13 @@
     ("fml" . "FHIR Mapping Language: converting between structures; cheat sheet, links to the mapping language specification")
     ("sql-on-fhir" . "SQL on FHIR ViewDefinitions: tables from resources; cheat sheet, links to the specification")
     ("search" . "FHIR search syntax for query(\"search\"); link to the FHIR search specification")))
+;; learn-text : topic -> string|#f   a language's own guide (`<id>/workspace`'s `guide`, kept and
+;; tested in the language's repository), else learn/<topic>.md here (the workspace, search, and the
+;; languages that do not provide one yet)
 (define (learn-text topic)
   (and (assoc topic learn-topics)
-       (let ([f (build-path learn-dir (string-append topic ".md"))]) (and (file-exists? f) (file->string f)))))
+       (or (workspace-guide topic)
+           (let ([f (build-path learn-dir (string-append topic ".md"))]) (and (file-exists? f) (file->string f))))))
 (define current-result-resources (make-parameter #f))
 
 (define definition-kinds '("StructureDefinition" "ValueSet" "CodeSystem" "StructureMap" "ConceptMap"))

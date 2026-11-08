@@ -99,10 +99,12 @@ resource after the subject supplies inputs known only at run time. Available: `$
 
 ## `#lang cql` — Clinical Quality Language → ELM
 
-CQL compiles to **ELM** and the ELM is run (never CQL directly). A `.cql` file provides the CQL AST,
-the ELM AST, the ELM JSON, and each define's interpreted value; `main` prints ELM JSON.
-- `racket examples/demo.cql`
-- `raco cql <file.cql>` — print ELM JSON.
+CQL compiles to **ELM** and the ELM is run. **The cql repository's own skill (`cql/.claude/skills/cql`)
+is the guide**: the translate-run-narrow loop with `raco cql`, `#lang cql` modules, `cql/run`,
+measures (FHIR and cqm-models), the data models (FHIR, QI-Core, US Core, QDM, your own), and the
+language guide it points to (`cql/guide.md`). In brief:
+- `raco cql <file.cql>` — the ELM JSON, or every translation error at its line.
+- `raco cql <file.cql> --data patient/ [--valuesets vs/] [--parameter "name=<CQL>"] [--define name]`.
 
 ## `#lang vcl` — ValueSet Compose Language
 

@@ -24,7 +24,7 @@ never `../model/node.rkt`. Dependency order (base first):
 | `fsh` | `oloveluck/fsh` | `#lang fsh` (bidirectional), projects + packaging, `check.rkt`; `raco fsh`, `raco fsh check` | fhir, fhirpath, fhir-validation |
 | `fhir-server` | `oloveluck/fhir` → `fhir-server/` | `capability/ http/ store/` (SQLite), IG-generated servers, `$evaluate-measure`, `server-cli.rkt` (`raco fhir-server`), server tests | fhir, fhir-spec, fhirpath, fhir-tx, fhir-validation, cql, db-lib |
 | `fhir-lsp` | `oloveluck/fhir` → `fhir-lsp/` | the Language Server Protocol server for the five languages: `lsp/jsonrpc.rkt` (framing), `lsp/diagnostics.rkt` (fhir/diagnostic -> LSP), `lsp/languages.rkt` (the catalogue over `fhir/lang/support`), `lsp/server.rkt` (state, dispatch, loop; hover/definition/completion/symbols handed to the document's language support with its project), `lsp-cli.rkt` (`raco fhir-lsp`, `check`) | fhir (+ the languages' `support` modules at run time) |
-| `fhir-mcp` | `oloveluck/fhir` → `fhir-mcp/` | the Model Context Protocol server over a WORKSPACE (below): `mcp/workspace.rkt` (the hub: config, packages, data source, artifacts registered, results, stages), `mcp/verbs.rkt` (the nine tools), `learn/*.md` (`learn://` guides with the official references; their examples compile in the test), `mcp/tools.rkt` (the Tool struct; operations loaded and applied to JSON; elements and definitions in the packages), `mcp/resources.rkt` (guides, packages, definitions, learn, results; prompts), `mcp/server.rkt` (dispatch, one JSON line per message), `mcp-cli.rkt` (`raco fhir-mcp [--workspace d]`, `tools`, `call`) | fhir, fhir-lsp (+ the operations and languages at run time) |
+| `fhir-mcp` | `oloveluck/fhir` → `fhir-mcp/` | the Model Context Protocol server over a WORKSPACE (below): `mcp/workspace.rkt` (the hub: config, packages, data source, artifacts registered, results, stages), `mcp/verbs.rkt` (the nine tools), `learn/*.md` (`learn://` guides with the official references for the workspace, search and the languages that do not ship their own yet; a language's own guide comes from its repo, below; their examples compile in the test), `mcp/tools.rkt` (the Tool struct; operations loaded and applied to JSON; elements and definitions in the packages), `mcp/resources.rkt` (guides, packages, definitions, learn, results; prompts), `mcp/server.rkt` (dispatch, one JSON line per message), `mcp-cli.rkt` (`raco fhir-mcp [--workspace d]`, `tools`, `call`) | fhir, fhir-lsp (+ the operations and languages at run time) |
 | `sql-on-fhir` | `oloveluck/sql-on-fhir` | `#lang sql-on-fhir`: ViewDefinition model and operation definitions GENERATED from the IG package (`target.rkt`, `model/`), the view engine, `$sql-run`/`$sql-export` as operations; `raco sql-on-fhir` | fhir, fhirpath (fhir-spec to regenerate) |
 | `fhir-examples` | `oloveluck/fhir-examples` | `examples/` (operations applied as procedures), `bench.rkt` (prose → FSH tasks from a published IG, scored), recorded runs; `raco spec-bench` | fhir, fhir-spec, fhir-validation, fsh, fml |
 
@@ -82,7 +82,20 @@ Seams (each a one-module move):
   `target.rkt` generates `sql-on-fhir/model` from HL7's published package (`#lang sql-on-fhir/model`,
   delegating to the R6 tower; banners name that package's own check command).
 
-Each language repo carries its own `CLAUDE.md` with the architecture notes for that language.
+Each language repo carries its own `CLAUDE.md` with the architecture notes for that language, and
+(cql first; the others to follow) three documents for its users, one source each:
+- `guide.md` — the language for agents: what it is, the official references, a cheat sheet and a
+  worked example, how to run it (command line, module, workspace), common problems. Its
+  `<id>/workspace` module provides it as `guide`; `fhir/lang/workspace`'s `workspace-guide` loads
+  it and fhir-mcp serves it as `learn://<id>` (else the hub's own `learn/<id>.md`). The repo's
+  `tests/guide-test.rkt` translates every example and checks the claims the text makes.
+- `.claude/skills/<id>/SKILL.md` — the workflow WITHOUT MCP: the command-line loop, the module and
+  Racket API, measures/operations; it points to `guide.md` rather than repeating it. Every command
+  in it was run.
+- `scribblings/<id>.scrbl` — the human manual and API reference; `tests/docs-test.rkt` renders it
+  and fails on a broken reference to the package's own sections or bindings.
+The family-wide skills (`fhir-authoring`, `fhir-cli`, `fhir-serving`, here) keep the cross-language
+material and point to a language's own skill.
 
 ## Package setup
 From `~/Projects` with the repos side by side (dependency order):
