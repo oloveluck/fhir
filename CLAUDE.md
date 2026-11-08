@@ -24,7 +24,7 @@ never `../model/node.rkt`. Dependency order (base first):
 | `fsh` | `oloveluck/fsh` | `#lang fsh` (bidirectional), projects + packaging, `check.rkt`; `raco fsh`, `raco fsh check` | fhir, fhirpath, fhir-validation |
 | `fhir-server` | `oloveluck/fhir` → `fhir-server/` | `capability/ http/ store/` (SQLite), IG-generated servers, `$evaluate-measure`, `server-cli.rkt` (`raco fhir-server`), server tests | fhir, fhir-spec, fhirpath, fhir-tx, fhir-validation, cql, db-lib |
 | `fhir-lsp` | `oloveluck/fhir` → `fhir-lsp/` | the Language Server Protocol server for the five languages: `lsp/jsonrpc.rkt` (framing), `lsp/diagnostics.rkt` (fhir/diagnostic -> LSP), `lsp/languages.rkt` (the catalogue over `fhir/lang/support`), `lsp/server.rkt` (state, dispatch, loop; hover/definition/completion/symbols handed to the document's language support with its project), `lsp-cli.rkt` (`raco fhir-lsp`, `check`) | fhir (+ the languages' `support` modules at run time) |
-| `fhir-mcp` | `oloveluck/fhir` → `fhir-mcp/` | the Model Context Protocol server: `mcp/tools.rkt` (a Tool catalogue: every registered fhir/operation as a tool, its OperationDefinition the input schema; `diagnose_file`; each installed language's own tools; the definition tools), `mcp/resources.rkt` (guides, packages, definitions by uri; prompts), `mcp/server.rkt` (dispatch, one JSON line per message), `mcp-cli.rkt` (`raco fhir-mcp`, `tools`, `call`) | fhir, fhir-lsp (+ the operations and languages at run time) |
+| `fhir-mcp` | `oloveluck/fhir` → `fhir-mcp/` | the Model Context Protocol server over a WORKSPACE (below): `mcp/workspace.rkt` (the hub: config, packages, data source, artifacts registered, results, stages), `mcp/verbs.rkt` (the nine tools), `learn/*.md` (`learn://` guides with the official references; their examples compile in the test), `mcp/tools.rkt` (the per-operation and per-language tools, now behind `--legacy-tools`), `mcp/resources.rkt` (guides, packages, definitions, learn, results; prompts), `mcp/server.rkt` (dispatch, one JSON line per message), `mcp-cli.rkt` (`raco fhir-mcp [--workspace d]`, `tools`, `call`) | fhir, fhir-lsp (+ the operations and languages at run time) |
 | `sql-on-fhir` | `oloveluck/sql-on-fhir` | `#lang sql-on-fhir`: ViewDefinition model and operation definitions GENERATED from the IG package (`target.rkt`, `model/`), the view engine, `$sql-run`/`$sql-export` as operations; `raco sql-on-fhir` | fhir, fhirpath (fhir-spec to regenerate) |
 | `fhir-examples` | `oloveluck/fhir-examples` | `examples/` (operations applied as procedures), `bench.rkt` (prose → FSH tasks from a published IG, scored), recorded runs; `raco spec-bench` | fhir, fhir-spec, fhir-validation, fsh, fml |
 
@@ -45,6 +45,25 @@ collection name (`language-support`), keep running when a language is absent (on
 diagnostic; no tools), and know no language internals: a change to a language and its editor support
 live and test in one repo. `current-language-supports` lets a test or an embedder supply a support by
 hand; `lang/declared.rkt` serves a language whose declarations a line regexp finds (CQL, FML).
+
+**A workspace is the agent-facing contract** (`fhir/lang/workspace`, served by fhir-mcp): a directory
+of files in the languages and FHIR JSON, configured by `workspace.yaml` (fhirVersion, canonical,
+packages, data = a directory | a JSON file | a FHIR server's base url, CQL parameters as CQL
+expressions, allowRemoteWrites). Each language provides `<id>/workspace` (a WsSupport: `artifacts`
+— what its files define, as resources, with every problem; `run` — a file or ad-hoc text against the
+data -> a RunResult of kind/columns/rows/summary; `explain` — one subject's answer, positioned in the
+source); `sql-on-fhir` is the sixth (`*.view.json`). The hub registers every language's artifacts in
+fhir/registry under `(workspace <lang>)` (`unregister-source!` forgets a changed file), so the
+languages compose by canonical exactly as `#lang` modules do: CQL resolves a VCL value set, FSH
+examples validate against FSH profiles, includes resolve across `.cql` files (FHIRHelpers 4.0.1 is
+bundled in `cql/libraries/`). Nine verbs, whatever the number of languages: write (problems in the
+same call), check, run (-> `result://rN`), query (fhirpath/cql/vcl/search/view, no file), explain,
+describe (results paged and diffed, Type/id, canonicals, elements, operations), apply (any
+operation), stage (validated, diffed against the data) and commit (a data directory, or a FHIR
+server only when allowed; a stage with errors is refused). `fhir/rest-data-source` is a FHIR server
+as a data source (paged searchsets, `patient` then `subject` learned per type, `rest-write!`); a
+server that cannot answer a ValueSet or Library search is treated as holding none. Tool definitions:
+~6 KB for the nine verbs, against ~53 KB for the 25 per-operation/per-language tools.
 
 Seams (each a one-module move):
 - `kernel/operation-entry.rkt` (fhir) holds the struct generated `operations.rkt` files need, so the

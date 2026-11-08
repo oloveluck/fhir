@@ -22,6 +22,7 @@ that only rises. The languages' own suites are in their repositories: [fsh](http
 | IG server (US Core 9.0.0) | a server generated from the IG meets its CapabilityStatement | 0 unmet requirements |
 | FSH → package → server (mCODE 4.0.0) | mCODE compiled from its FSH, packed, served; its examples against its profiles | 283/283 validate; 0 unmet requirements |
 | Measure server (CQF Measures 5.0.0) | `$evaluate-measure` per patient over two eCQMs | 60/65 (the 5 are named in the test) |
+| MCP workspace (`fhir-mcp/tests/workspace-test.rkt`) | the nine tools end to end over a workspace of every language and a data directory; every worked example in `learn://` compiles | passes (`fhir/rest-data-source`'s FHIR-server data source has its own test against a stub server) |
 
 ## The misses, named
 

@@ -20,7 +20,7 @@ conformance results.
 | `fhir-server` | serve a FHIR server generated from an IG package |
 | `fhir` | round-trip FHIR JSON; generate a StructureDefinition's snapshot |
 | `fhir-lsp` | a language server for FSH, CQL, FML, VCL and FHIRPath |
-| `fhir-mcp` | a Model Context Protocol server: the operations and checks as tools for an agent |
+| `fhir-mcp` | a Model Context Protocol server: a FHIR workspace where an agent writes, checks, runs and explains FSH, CQL, FHIRPath, VCL, FML and SQL on FHIR views against FHIR data (a directory or a FHIR server) |
 
 ```sh
 fsh patient.fsh -o out/

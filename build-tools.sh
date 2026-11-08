@@ -24,6 +24,8 @@ trap 'rm -rf "$work"' EXIT
 
 towers="fhir/r4/schemas fhir/r5/schemas"
 languages="fsh/support cql/support fml/support vcl/support fhirpath/support"
+# what fhir-mcp's workspace loads by name: each language's workspace support
+workspaces="fsh/workspace cql/workspace fml/workspace vcl/workspace fhirpath/workspace sql-on-fhir/workspace"
 operations="fhir/sd/operations fhir/conformance/operations fhir/terminology/operations fml/operations cql/measure sql-on-fhir/operations"
 store="fhir/store/fhir-sqlite fhir/store/ig-server fhir/store/load fhir/store/fhir-engine fhir/store/measure fhir/http/server"
 
@@ -40,7 +42,7 @@ tools=(
   "fhir-tx|fhir/tx-cli|$towers fhir/capability/operations fhir/terminology/operations fhir/http/server"
   "fhir-server|fhir/server-cli|$towers fhir/r6/schemas $store"
   "fhir-lsp|fhir/lsp-cli|$towers $languages fml/project"
-  "fhir-mcp|fhir/mcp-cli|$towers $languages fml/project $operations"
+  "fhir-mcp|fhir/mcp-cli|$towers $languages $workspaces fml/project $operations"
 )
 
 # installed? : module-path -> status   the module's source file exists in an installed collection

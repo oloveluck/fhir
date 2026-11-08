@@ -25,6 +25,9 @@
           [registered-resources (-> string? (listof hash?))]
           ;; registered-source : kind url-or-id -> who registered it
           [registered-source (-> string? string? any/c)]
+          ;; unregister-source! : who -> void   forget everything one source registered (a workspace
+          ;; file that changed or went away)
+          [unregister-source! (-> any/c void?)]
           [registered-kinds (-> (listof string?))]))
 
 ;; kind -> (hash key -> (cons resource source)); a resource sits under its url and its id
@@ -53,6 +56,10 @@
 (define (registered-resources kind)
   (remove-duplicates (map car (hash-values (hash-ref by-kind kind (hash)))) eq?))
 (define (registered-kinds) (sort (hash-keys by-kind) string<?))
+(define (unregister-source! source)
+  (for ([table (in-hash-values by-kind)])
+    (for ([k (in-list (for/list ([(k e) (in-hash table)] #:when (equal? (cdr e) source)) k))])
+      (hash-remove! table k))))
 
 (module+ test
   (require rackunit)
@@ -73,4 +80,10 @@
   (register-resources! (list sd2) #:source 'a)
   (check-equal? (registered-resource "StructureDefinition" "http://x/sd") sd2)
   (check-exn #rx"http://x/sd is defined by both a and c" (lambda () (register-resources! (list sd) #:source 'c)))
-  (check-equal? (registered-kinds) '("Patient" "StructureDefinition" "ValueSet")))
+  (check-equal? (registered-kinds) '("Patient" "StructureDefinition" "ValueSet"))
+  ;; a source forgotten: its canonicals are free for another source to define
+  (unregister-source! 'a)
+  (check-false (registered-resource "StructureDefinition" "http://x/sd"))
+  (check-false (registered-resource "ValueSet" "http://x/vs"))
+  (register-resources! (list sd) #:source 'c)
+  (check-equal? (registered-source "StructureDefinition" "http://x/sd") 'c))

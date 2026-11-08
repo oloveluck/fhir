@@ -23,6 +23,19 @@
   [protocol-version string?]))
 
 (struct state (tools initialized?) #:transparent)
+
+;; what the model is told at initialize: how to work here
+(define current-server-instructions
+  (make-parameter
+   (string-append
+    "A FHIR workspace: write programs in the FHIR languages and FHIR JSON, and run them against FHIR data. "
+    "The files: .fsh (FHIR Shorthand: profiles, value sets, examples), .cql (patient logic), .fhirpath, .vcl (value sets), "
+    ".map/.fml (mappings), .view.json (SQL on FHIR views), .json (resources); what one file defines, the others see by canonical. "
+    "The loop: write (answers the file's problems at their lines) -> fix -> run (a summary and result://rN) -> explain one subject when an answer surprises you. "
+    "query asks once without a file; describe reads any reference (results paged, types and elements, operations, Type/id, canonicals); "
+    "apply runs a FHIR operation; stage then commit writes validated, diffed changes to the data. "
+    "Read learn://workspace first, and learn://<language> (fsh, cql, fhirpath, vcl, fml, sql-on-fhir, search) before writing a language: each has a cheat sheet and links to its official specification.")))
+(provide current-server-instructions)
 (define protocol-version "2024-11-05")
 
 ;; ---- the handlers, a table: method -> (params state -> (values result state)) ----------------
@@ -34,7 +47,7 @@
                                                 'resources (hasheq 'listChanged #f 'subscribe #f)
                                                 'prompts (hasheq 'listChanged #f))
                           'serverInfo (hasheq 'name "fhir-mcp" 'version "0.1")
-                          'instructions "Tools over the FHIR Racket family: every FHIR operation the installed packages implement (validate, expand, lookup, translate, snapshot, transform, evaluate-measure, sql-run, …) with its OperationDefinition as the schema, and the languages: check an FSH project or a file, compile FSH, translate and evaluate CQL, compile VCL, evaluate FHIRPath. Resources: the family's guides (fhir://guide/authoring), the packages in context, and any definition in them (fhir://definition/ValueSet/<id>). Prompts: fsh-profile, fsh-instance, fix-project.")
+                          'instructions (current-server-instructions))
                   st))
         "ping" (lambda (params st) (values (hasheq) st))
         "resources/list" (lambda (params st) (values (hasheq 'resources (resources)) st))

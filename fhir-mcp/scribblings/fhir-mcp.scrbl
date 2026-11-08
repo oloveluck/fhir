@@ -1,109 +1,123 @@
 #lang scribble/manual
-@(require (for-label racket/base racket/contract fhir/mcp/tools fhir/mcp/server))
+@(require (for-label racket/base racket/contract fhir/mcp/tools fhir/mcp/server fhir/mcp/workspace fhir/mcp/verbs))
 
-@title{fhir-mcp: the FHIR family as tools for an agent}
+@title{fhir-mcp: a FHIR workspace for an agent}
 
-A @hyperlink["https://modelcontextprotocol.io"]{Model Context Protocol} server over the family.
-Every FHIR operation the installed packages implement is a tool whose input schema is its
-OperationDefinition's parameters: @tt{fhir_validate}, @tt{fhir_expand}, @tt{fhir_validate-code},
-@tt{fhir_lookup}, @tt{fhir_translate}, @tt{fhir_snapshot}, @tt{fhir_transform},
-@tt{fhir_evaluate-measure}, @tt{fhir_sql-run} and the rest. The languages add their own:
-@tt{diagnose_file} (any file of the five languages, as the family's positioned diagnostics),
-@tt{fsh_check} (a project: compile and validate every example), @tt{fsh_compile}, @tt{fsh_decompile},
-@tt{cql_elm}, @tt{cql_evaluate}, @tt{vcl_valueset}, @tt{fhirpath_evaluate}; and the packages in
-context answer @tt{fhir_element} (what an element is) and @tt{fhir_find} (which profile, value set
-or extension is called what), so an agent writing a profile can look things up the way an author
-reads the specification. An agent writing FSH, CQL or maps gets
-the same checks a person gets at the command line, and FHIR data in and out as JSON. Part of the
-@hyperlink["https://github.com/oloveluck/fhir"]{fhir} family.
+A @hyperlink["https://modelcontextprotocol.io"]{Model Context Protocol} server. An agent works in a
+@italic{workspace}: a directory of programs in the FHIR languages and FHIR JSON. Nine tools write,
+check, run and explain them against FHIR data. Each tool works the same way for every language: the
+file's extension decides what it means. What one file defines, every other file sees by canonical.
+A CQL library uses a value set written in VCL, examples validate against profiles written in FSH,
+and a map's results are validated as they are produced. Every problem is reported at a file, line
+and column. Part of the @hyperlink["https://github.com/oloveluck/fhir"]{fhir} family.
 
 @table-of-contents[]
 
 @section{Quick start}
 
-@bold{1. Install} the server and whatever operations and languages you want it to offer (the
-packages are not on the Racket package server yet; clone the repositories side by side):
-
 @verbatim{
-raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-tx fhir/fhir-validation cql fml fsh fhir/fhir-lsp fhir/fhir-mcp
-raco fhir-mcp tools | head -c 600        # the tools and their schemas
+raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-tx fhir/fhir-validation cql fml fsh sql-on-fhir fhir/fhir-lsp fhir/fhir-mcp
+raco fhir-mcp --workspace my-workspace          # serve over stdio
 }
 
-@bold{2. Point an agent at it.} The command is @tt{raco fhir-mcp}, speaking the protocol on stdin
-and stdout, one JSON line per message. For Claude Desktop or Claude Code, an entry in the MCP
-configuration:
+For Claude Code or Claude Desktop, an entry in the MCP configuration:
 
 @verbatim|{{
   "mcpServers": {
-    "fhir": {
-      "command": "raco",
-      "args": ["fhir-mcp", "--package", "hl7.fhir.us.core-6.1.0.tgz", "--package", "hl7.fhir.r4.core.tgz"]
-    }
+    "fhir": { "command": "raco", "args": ["fhir-mcp", "--workspace", "/path/to/my-workspace"] }
   }
 }}|
 
-@litchar{--package} names the FHIR packages profiles and value sets resolve from (a @tt{.tgz} or a
-file in @tt{fhir-spec}, repeatable, in order); @litchar{--data <dir>} is a directory of resources
-the operations read as their data source (what @tt{$expand} finds a ValueSet in, what a measure runs
-over).
+A @tt{workspace.yaml} in the directory configures it. Every key is optional:
 
-@bold{3. Try a tool from the shell.} @tt{raco fhir-mcp call} runs one tool with JSON arguments and
-prints its text:
+@verbatim|{fhirVersion: 4.0.1                 # or 5.0.0; every language follows it (CQL's model is 4.0.1)
+canonical: http://example.org/fhir # the base of what the workspace defines
+packages:                          # FHIR packages in context: a .tgz path, or a name in fhir-spec / FHIR_PACKAGE_PATH
+  - hl7.fhir.us.core-6.1.0
+data: data/                        # a directory, a JSON file (a Bundle), or a FHIR server's base url
+parameters:                        # CQL parameters, as CQL expressions
+  Measurement Period: Interval[@2025-01-01T00:00:00.000, @2025-12-31T23:59:59.999]
+allowRemoteWrites: false           # commit may write to a FHIR server only when true}|
 
-@verbatim|{$ raco fhir-mcp call vcl_valueset '{"vcl": "(http://loinc.org)(85354-9;55284-4)"}'
-{"resourceType":"ValueSet","url":"http://fhir.org/VCL?v1=(http://loinc.org)(85354-9;55284-4)", ...}
-$ raco fhir-mcp call fhir_validate '{"resource": {"resourceType": "Patient", "gender": "florp"}}' --package hl7.fhir.r4.core.tgz
-{"resourceType":"OperationOutcome","issue":[{"severity":"error","code":"code-invalid", ...}]}
-$ raco fhir-mcp call fsh_check '{"directory": "ig/"}'}|
+@litchar{--package} adds packages and @litchar{--data} overrides @tt{data}. A FHIR server that needs
+a token reads it from the environment variable @tt{FHIR_AUTHORIZATION}, the whole header value. A
+token never goes in a file. @tt{raco fhir-mcp call <tool> '<json>'} runs one tool from the shell
+(exit 1 when it fails), and @tt{raco fhir-mcp tools} prints the schemas.
 
-The exit code is 1 when the tool reports an error (an OperationOutcome with errors, diagnostics
-with an error, a missing argument).
+@section{The files}
+
+@tabular[#:style 'boxed #:sep @hspace[2]
+(list (list @bold{file} @bold{language} @bold{run gives} @bold{explain gives})
+      (list @tt{*.fsh} "FHIR Shorthand: profiles, extensions, value sets, examples" "the resources the file defines; every example validated" "an entity's problems, each traced to its rule")
+      (list @tt{*.cql} "Clinical Quality Language" "every define's value for every patient, and counts" "one patient's define, down through the defines it uses to the retrieves: how many resources of the type the patient has, which were kept")
+      (list @tt{*.fhirpath} "one FHIRPath expression" "its value over each resource it reads" "the value of every part of it over one resource")
+      (list @tt{*.vcl} "one VCL expression: a ValueSet at <canonical>/ValueSet/<file>" "the expansion" "which part of the expression holds a code")
+      (list @elem{@tt{*.map}, @tt{*.fml}} "FHIR Mapping Language" "each source resource transformed, the result validated" "one transform's result and its problems, traced to rules")
+      (list @tt{*.view.json} "a SQL on FHIR ViewDefinition" "its rows" "the rows one resource produces, and whether each where holds")
+      (list @tt{*.json} "any FHIR resource" "a Measure: $evaluate-measure; anything else: $validate" "its validation issues"))]
 
 @section{The tools}
 
 @tabular[#:style 'boxed #:sep @hspace[2]
-(list (list @bold{tool} @bold{arguments} @bold{result})
-      (list @tt{fhir_<code>} "the operation's `in` parameters by name (a list for a repeating one); `resource` for an operation applied to a resource itself" "the operation's result as FHIR JSON; a failure is its OperationOutcome, isError")
-      (list @tt{diagnose_file} @tt{path} "the diagnostics (JSON and text), isError when any is an error")
-      (list @tt{fsh_check} @tt{directory} "the project compiled, every example validated: diagnostics positioned in the FSH")
-      (list @tt{fsh_compile} @tt{fsh} "the FHIR resources (R5, the default canonical)")
-      (list @tt{cql_elm} @tt{cql} "the ELM JSON")
-      (list @tt{cql_evaluate} @elem{@tt{cql}, @tt{resources}, @tt{parameters}} "every definition's value over one patient's resources")
-      (list @tt{vcl_valueset} @tt{vcl} "a ValueSet resource")
-      (list @tt{fhirpath_evaluate} @elem{@tt{expression}, @tt{resource}} "the result collection as JSON")
-      (list @tt{fhir_element} @elem{@tt{type}, @tt{path}} "an element's definition from a type or profile in the packages: cardinality, types, binding, short, definition (valueQuantity finds value[x]); without a path, the type's top-level elements")
-      (list @tt{fhir_find} @elem{@tt{query}, @tt{resourceType}, @tt{limit}} "profiles, extensions, value sets, code systems, operations and search parameters in the packages whose id, name or url contains the query")
-      (list @tt{fsh_decompile} @tt{resource} "FHIR JSON to FSH (a StructureDefinition, ValueSet or CodeSystem idiomatically; anything else an Instance)")
-      (list @tt{data_resources} @elem{@tt{type}, @tt{id}} "the ids of a type in the data source, or one resource"))]
+(list (list @bold{tool} @bold{arguments} @bold{does})
+      (list @tt{write} @elem{@tt{path}, @tt{text}} "saves a file (empty text deletes it) and answers its problems in the same call; never outside the workspace or into the data")
+      (list @tt{check} @tt{paths?} "every problem, and the configuration: FHIR version, packages, data")
+      (list @tt{run} @elem{@tt{path}, @tt{entry?}, @tt{over?}, @tt{parameters?}} "a file against the data: a summary, the first rows, and a handle result://rN")
+      (list @tt{query} @elem{@tt{language}, @tt{text}, …} "the same without a file: fhirpath, cql (an expression is evaluated per patient), vcl, search (Type?params, on a FHIR server), view")
+      (list @tt{explain} @elem{@tt{ref}, @tt{subject}, @tt{entry?}} "why one subject's answer is what it is (a result or a file)")
+      (list @tt{describe} @elem{@tt{ref}, @tt{offset?}, @tt{limit?}, @tt{against?}} "anything by reference: a result (paged, or compared with another), Type/id, a canonical, a type or element, an operation and its inputs, a fragment of a name")
+      (list @tt{apply} @elem{@tt{operation}, @tt{inputs?}, @tt{resource?}} "any registered FHIR operation, in the workspace's context")
+      (list @tt{stage} @elem{@tt{resources} | @tt{result} | @tt{path}} "a write prepared: each resource validated and compared with the data's copy (create, update and its changed paths, unchanged)")
+      (list @tt{commit} @tt{stage} "a stage written: to a data directory (a file per resource), or a FHIR server when allowed; a stage with errors is refused"))]
 
-Which operations appear depends on the packages installed: fhir (@tt{$snapshot}), fhir-validation
-(@tt{$validate}), fhir-tx (the terminology operations), fml (@tt{$transform}), cql
-(@tt{$evaluate-measure}), sql-on-fhir (@tt{$sql-run}, @tt{$sql-export}). Two operations sharing a
-code are told apart by resource type (@tt{fhir_Patient_everything}).
+Tool definitions are short, and the large OperationDefinition schemas are read only when an agent
+asks for one with @tt{describe("$code")}.
 
-@section{Resources and prompts}
+@section{Resources}
 
-Besides tools the server answers @tt{resources/list}, @tt{resources/templates/list} and
-@tt{resources/read}: @tt{fhir://guide/authoring}, @tt{fhir://guide/cli} and @tt{fhir://guide/serving}
-are the family's how-to guides as markdown (the repository's skills, served when the package is
-installed from the repository), @tt{fhir://packages} the FHIR packages in context, and
-@tt{fhir://definition/{kind}/{ref}} any StructureDefinition, ValueSet, CodeSystem, StructureMap or
-ConceptMap in them by id, name or canonical url, as JSON. @tt{prompts/list} and @tt{prompts/get} give
-three starting points an agent fills with arguments: @tt{fsh-profile} (a base and requirements: write
-the profile, check it with the tools, prove it with a conforming and a violating instance),
-@tt{fsh-instance} (a profile and a scenario) and @tt{fix-project} (a project directory: fix every
-diagnostic at its line). Each carries the authoring guide when it is at hand.
+@tt{learn://workspace} explains the workspace. @tt{learn://fsh}, @tt{learn://cql},
+@tt{learn://fhirpath}, @tt{learn://vcl}, @tt{learn://fml}, @tt{learn://sql-on-fhir} and
+@tt{learn://search} each give a cheat sheet, a worked example, common problems and links to the
+language's official reference: the FHIR Shorthand specification, cql.hl7.org, FHIRPath N1, the VCL
+page of the IG guidance, the FHIR Mapping Language, sql-on-fhir.org and FHIR search. A test compiles
+every worked example. @tt{result://rN} is a run's whole result. @tt{fhir://guide/...},
+@tt{fhir://packages} and @tt{fhir://definition/{kind}/{ref}} are as before, and so are the prompts.
+
+@section{The per-language tools}
+
+@litchar{--legacy-tools} also serves the earlier tools: one per registered operation
+(@tt{fhir_<code>}, with its OperationDefinition as the schema), one per language action
+(@tt{diagnose_file}, @tt{fsh_check}, @tt{fsh_compile}, @tt{fsh_decompile}, @tt{cql_elm},
+@tt{cql_evaluate}, @tt{vcl_valueset}, @tt{fhirpath_evaluate}), and @tt{fhir_element}, @tt{fhir_find}
+and @tt{data_resources}.
 
 @section{Limits}
 
 @itemlist[
-@item{No sampling or subscriptions; one request at a time; stdio only.}
-@item{A language tool runs in the server's process with the context given at start; an FSH project
-is checked from disk.}
-@item{The protocol version answered is 2024-11-05; clients that insist on a newer one still work
-with the same methods.}]
+@item{One workspace per server, one request at a time, stdio only. Results and stages live in the
+server's memory.}
+@item{CQL runs against the FHIR 4.0.1 model. An R5 workspace reports that at the library's @tt{using}.}
+@item{A directory or file of JSON has no search engine. @tt{query("search")} needs a FHIR server, and
+FHIRPath queries work everywhere.}
+@item{Expansion uses the code systems in the packages. SNOMED CT and LOINC are not shipped, so a
+filter over them does not expand, though enumerated codes still work.}
+@item{An update replaces the whole resource (PUT). The staged diff lists every path that changes,
+including elements the new resource leaves out.}]
 
 @section{Reference}
+
+@subsection[#:style 'unnumbered]{@tt{fhir/mcp/workspace} and @tt{fhir/mcp/verbs}}
+@defmodule[fhir/mcp/workspace]
+@defproc[(open-hub [dir path-string?] [#:data data (or/c string? #f) #f] [#:packages packages (listof string?) '()]) hub?]{
+The workspace in @racket[dir]: @tt{workspace.yaml} read, the packages and the core package of its FHIR
+version found, the data source opened, the operation modules loaded.}
+@defproc[(with-hub [h hub?] [thunk (-> any)]) any]{Runs @racket[thunk] with the hub's packages and data source in context.}
+The verbs' procedures (@racket[hub-write!], @racket[hub-check], @racket[hub-run], @racket[hub-query],
+@racket[hub-explain], @racket[hub-describe], @racket[hub-apply], @racket[hub-stage!],
+@racket[hub-commit!]) answer JSON or raise. Each language is reached through its @tt{<id>/workspace}
+module, under the contract in @tt{fhir/lang/workspace}.
+@defmodule[fhir/mcp/verbs]
+@defproc[(workspace-tools [h hub?]) list?]{The nine tools over a hub.}
 
 @subsection[#:style 'unnumbered]{@tt{fhir/mcp/tools}}
 @defmodule[fhir/mcp/tools]

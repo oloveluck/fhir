@@ -9,6 +9,11 @@
 ;;;   fhir://packages                the FHIR packages in context (sd-index), as JSON
 ;;;   fhir://definition/<Kind>/<ref> a StructureDefinition / ValueSet / CodeSystem / StructureMap /
 ;;;                                  ConceptMap from those packages, by id, name or url (a template)
+;;;   learn://<topic>                how to write each language in a workspace, with links to its
+;;;                                  official reference (learn/<topic>.md): workspace, fsh, cql,
+;;;                                  fhirpath, vcl, fml, sql-on-fhir, search
+;;;   result://rN                    a run's whole result, when a workspace server installs the
+;;;                                  reader (current-result-resources)
 ;;; A Prompt is {name description arguments}; prompts/get answers the messages an agent starts with:
 ;;;   fsh-profile   write a profile in FSH for a base type and the requirements, checked with the tools
 ;;;   fsh-instance  write an example instance of a profile and validate it
@@ -18,7 +23,12 @@
          (only-in fhir/sd/sd-index resolve-canonical-raw sd-index-available? sd-context))
 
 (provide
+ learn-topics
  (contract-out
+  ;; current-result-resources : (cons (-> (listof uri)) (uri -> jsexpr|#f)) | #f   the results a
+  ;; workspace server holds, listed and read as resources
+  [current-result-resources (parameter/c (or/c #f (cons/c procedure? procedure?)))]
+  [learn-text         (-> string? (or/c string? #f))]
   [resources          (-> (listof hash?))]
   [resource-templates (-> (listof hash?))]
   [read-resource      (-> string? (or/c hash? #f))]       ; a content entry, or #f for an unknown uri
@@ -36,6 +46,22 @@
   (and f (file-exists? f)
        (regexp-replace #px"^---\n.*?\n---\n" (file->string f) "")))
 
+;; ---- learn: the languages in a workspace, with their official references ------------------------
+(define-runtime-path learn-dir "../learn")
+(define learn-topics
+  '(("workspace" . "The workspace: files, the tools (write, check, run, query, explain, describe, apply, stage, commit), which language for which question, workspace.yaml")
+    ("fsh" . "FHIR Shorthand: profiles, extensions, value sets, examples; cheat sheet, worked example, links to the FSH specification")
+    ("cql" . "Clinical Quality Language: patient logic and cohorts; cheat sheet, worked example, links to the CQL specification and reference")
+    ("fhirpath" . "FHIRPath: navigating inside resources; cheat sheet, links to the FHIRPath specification")
+    ("vcl" . "ValueSet Compose Language: value sets in one line; cheat sheet, link to the VCL specification")
+    ("fml" . "FHIR Mapping Language: converting between structures; cheat sheet, links to the mapping language specification")
+    ("sql-on-fhir" . "SQL on FHIR ViewDefinitions: tables from resources; cheat sheet, links to the specification")
+    ("search" . "FHIR search syntax for query(\"search\"); link to the FHIR search specification")))
+(define (learn-text topic)
+  (and (assoc topic learn-topics)
+       (let ([f (build-path learn-dir (string-append topic ".md"))]) (and (file-exists? f) (file->string f)))))
+(define current-result-resources (make-parameter #f))
+
 (define definition-kinds '("StructureDefinition" "ValueSet" "CodeSystem" "StructureMap" "ConceptMap"))
 
 (define (resources)
@@ -48,7 +74,11 @@
                             [else "Serving FHIR: servers generated from IG packages, the store, operations over HTTP"])
              'mimeType "text/markdown"))
    (list (hasheq 'uri "fhir://packages" 'name "packages in context"
-                 'description "The FHIR NPM packages definitions resolve from, in priority order" 'mimeType "application/json"))))
+                 'description "The FHIR NPM packages definitions resolve from, in priority order" 'mimeType "application/json"))
+   (for/list ([t (in-list learn-topics)] #:when (learn-text (car t)))
+     (hasheq 'uri (string-append "learn://" (car t)) 'name (string-append "learn " (car t)) 'description (cdr t) 'mimeType "text/markdown"))
+   (let ([rr (current-result-resources)])
+     (if rr (for/list ([u (in-list ((car rr)))]) (hasheq 'uri u 'name u 'description "a run's whole result" 'mimeType "application/json")) '()))))
 
 (define (resource-templates)
   (list (hasheq 'uriTemplate "fhir://definition/{kind}/{ref}" 'name "a definition from the packages"
@@ -60,6 +90,10 @@
   (cond
     [(regexp-match #px"^fhir://guide/([a-z]+)$" uri)
      => (lambda (m) (let ([t (guide-text (cadr m))]) (and t (text "text/markdown" t))))]
+    [(regexp-match #px"^learn://([a-z-]+)$" uri)
+     => (lambda (m) (let ([t (learn-text (cadr m))]) (and t (text "text/markdown" t))))]
+    [(and (regexp-match? #rx"^result://" uri) (current-result-resources))
+     (let ([r ((cdr (current-result-resources)) uri)]) (and r (text "application/json" (jsexpr->string r))))]
     [(equal? uri "fhir://packages")
      (text "application/json" (jsexpr->string (map path->string (sd-context))))]
     [(regexp-match #px"^fhir://definition/([A-Za-z]+)/(.+)$" uri)

@@ -35,7 +35,9 @@
   [all-tools         (-> (listof tool?))]
   [tool->jsexpr      (-> tool? hash?)]
   [call-tool         (-> tool? hash? (values string? boolean?))]
-  [load-operations!  (-> (listof symbol?))]))
+  [load-operations!  (-> (listof symbol?))]
+  ;; find-definitions : fragment resourceType|#f limit -> summaries   over the packages in context
+  [find-definitions  (-> string? (or/c string? #f) exact-positive-integer? list?)]))
 
 (define (tool->jsexpr t)
   (hasheq 'name (tool-name t) 'description (tool-description t) 'inputSchema (tool-input-schema t)))
