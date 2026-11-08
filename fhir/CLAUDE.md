@@ -120,4 +120,5 @@ places); separate heaps give the real speedup (13.7 s). What crosses the pipe is
 the design rule is: ship references, not data — the round-trip harness shards a core package by
 worker (each streams the archive and keeps every k-th resource; 100 MB of JSON never crosses),
 `run-dir` sends file paths, the codegen check sends target ids. `FHIR_WORKERS=1` keeps everything
-in-process.
+in-process, and so does a program with no Racket executable to start workers on (a standalone build
+of the tools, `build-tools.sh`).

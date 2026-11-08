@@ -12,5 +12,7 @@ located from Racket with `(require fhir/spec-package)`:
 (spec-package-path "hl7.fhir.r5.core.tgz" #:optional? #t)  ; path or #f
 ```
 
-Install only when you need it: `raco pkg install fhir-spec`. Provenance and terms: `SOURCE-*.txt`
+Install only when you need it: `raco pkg install fhir-spec`. Packages are also looked for in the
+directories named by `FHIR_PACKAGE_PATH` (searched first), and in `share/fhir-packages` beside a
+standalone build of the command-line tools, which `build-tools.sh` fills from this package. Provenance and terms: `SOURCE-*.txt`
 (every package declares CC0-1.0; this packaging is MIT).

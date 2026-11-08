@@ -42,6 +42,13 @@ against the project's own profiles and positions each problem in the FSH.
 | `raco fhir-tx tck` | hl7.fhir.uv.tx-ecosystem | 473/553 |
 | `raco fhir roundtrip-tck r5\|r4` | HL7 examples + core packages | R5 2968+77, R4 4581+72 |
 
+## Standalone executables (`build-tools.sh`, repo root)
+`./build-tools.sh dist` builds every installed tool (`fsh cql fml vcl fhirpath sql-on-fhir fhir
+fhir-validate fhir-tx fhir-server fhir-lsp fhir-mcp`) into `dist/bin`, runnable without Racket; packages
+go to `dist/share/fhir-packages`, more are found through `FHIR_PACKAGE_PATH`. The commands are the
+`raco` ones without the prefix (`fsh check ig/`); `--tck`, `regen`/`check`/`fetch` and loading a `.rkt`
+file stay `raco`-only.
+
 ## Elsewhere
 
 The languages ship their own commands: `raco fsh <dir|file>`, `raco fsh check <dir>`,

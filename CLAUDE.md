@@ -74,6 +74,20 @@ This repo's root holds the family README/LICENSE and these notes; `fhir/`, `fhir
 `fhir-validation/` and `fhir-server/` are its five packages. Commands: `raco fhir` (foundation),
 `raco fhir-tx`, `raco fhir-validate`, `raco fhir-server`, and per language `raco fhirpath|cql|fsh|vcl|fml`.
 
+**Standalone tools** (`build-tools.sh`): the twelve command-line tools as executables that run without
+Racket — the READMEs lead with them, Racket and `#lang` come second. Each is `raco exe` of a one-line
+launcher that requires the tool's raco command module BY COLLECTION (a file path to `cli.rkt` would
+make `raco exe` see a module both as a library and as a path), with `++lib` for every module the tool
+loads by name at run time (the FHIR towers, the languages' `<id>/support`, the operation modules,
+optional features — the table in the script; a tool that adds a `dynamic-require` must add it there),
+then one `raco distribute` into `dist/{bin,lib}`, and fhir-spec's packages into
+`dist/share/fhir-packages`. Three things make the executables work: `fhir/spec-package` also searches
+`FHIR_PACKAGE_PATH` and `<exe>/../share/fhir-packages` (no collections in a standalone build);
+`fhir/parallel` runs sequentially when there is no Racket executable to start workers on; and no
+module may declare a runtime path to a directory it does not read at run time (`raco distribute`
+copies runtime paths — sql-on-fhir's `fetch` destination was one). Out of the executables by nature:
+the conformance runners, the generators, and anything that loads a user's `.rkt` file.
+
 ## Diagnostics: machine-readable feedback (`fhir/diagnostic`)
 Every language reports errors as one value, `(diagnostic lang phase severity message loc)` with
 1-based line/column, the character position and span, and the source file. It renders three ways:

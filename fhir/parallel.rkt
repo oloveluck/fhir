@@ -18,6 +18,8 @@
 ;;; A worker's error is re-raised in the caller, naming the item's index; a worker's stderr is
 ;;; relayed. With one worker the function runs here, sequentially — same results.
 ;;; FHIR_WORKERS=n in the environment sets the default worker count (1 keeps everything in-process).
+;;; A worker is a `racket` process, so a program with no Racket executable to start (a standalone
+;;; build of the command-line tools, build-tools.sh) runs the function here too.
 
 (require racket/contract racket/list racket/port racket/system (only-in racket/future processor-count)
          (only-in compiler/find-exe find-exe))
@@ -42,9 +44,16 @@
 ;; parallel-map : Fn (listof Item) [#:workers Nat] [#:setup module-path] -> (listof Result)
 (define (parallel-map fn items #:workers [workers (default-workers)] #:setup [setup #f])
   (define k (min workers (length items)))
-  (if (<= k 1)
+  (if (or (<= k 1) (not (racket-executable)))
       (map (load-fn fn setup) items)
       (parallel-map/processes fn items k setup)))
+
+;; racket-executable : -> (or/c path #f)   the Racket a worker runs on, or #f when there is none
+(define racket-executable
+  (let ([found 'unknown])
+    (lambda ()
+      (when (eq? found 'unknown) (set! found (with-handlers ([exn:fail? (lambda (_) #f)]) (find-exe))))
+      found)))
 
 ;; load-fn : Fn module-path|#f -> procedure   instantiate the setup, then fetch the function
 (define (load-fn fn setup)
@@ -58,7 +67,7 @@
 ;; start-worker : Fn module-path|#f -> Worker   a racket running worker-main, told the Fn and setup
 (define (start-worker fn setup)
   (define-values (p out in err)
-    (subprocess #f #f #f (find-exe) "-l" "racket/base" "-l" "fhir/parallel" "-e" "(worker-main)"))
+    (subprocess #f #f #f (racket-executable) "-l" "racket/base" "-l" "fhir/parallel" "-e" "(worker-main)"))
   (thread (lambda () (copy-port err (current-error-port)) (close-input-port err)))
   (send! in (list fn setup))
   (worker p out in))
