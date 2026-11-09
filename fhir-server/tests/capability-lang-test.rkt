@@ -143,11 +143,13 @@
   (check-regexp-match #rx"the body is a Observation, POSTed to /Patient" (hash-ref (car (hash-ref o5 'issue)) 'diagnostics))
   ;; $validate on the resource as sent: in Parameters, and as the bare body
   (define (errors-of out) (filter (lambda (i) (equal? (hash-ref i 'severity #f) "error")) (hash-ref out 'issue '())))
-  (define-values (_s3 v1) (handle app "POST" "/Patient/$validate" '()
+  (define-values (s3 v1) (handle app "POST" "/Patient/$validate" '()
                                   (string-append "{\"resourceType\":\"Parameters\",\"parameter\":[{\"name\":\"resource\",\"resource\":" bad "}]}")))
   (check-equal? (length (errors-of v1)) 2)
-  (define-values (_s4 v2) (handle app "POST" "/Patient/$validate" '() bad))
+  (define-values (s4 v2) (handle app "POST" "/Patient/$validate" '() bad))
   (check-equal? (length (errors-of v2)) 2)
+  ;; $validate answers what it found with 200 either way (its result IS an OperationOutcome)
+  (check-equal? (list s3 s4) '(200 200))
   (delete-directory/files dir))
 
 ;; ---- an operation's inputs are typed by its declaration, the same over GET and POST
@@ -176,4 +178,14 @@
   (define-values (s3 o3) (handle app "GET" "/$t" '((w . "heavy") (n . "41") (flag . "true") (when . "2024-03-01")) ""))
   (check-equal? s3 400)
   (check-regexp-match #rx"parameter 'w' must be a decimal, got \"heavy\"" (hash-ref (car (hash-ref o3 'issue)) 'diagnostics))
+  ;; an input the declaration does not name is refused, not dropped
+  (define-values (s5 o5) (handle app "GET" "/$t" '((w . "80.5") (n . "41") (flag . "true") (when . "2024-03-01") (wehn . "x")) ""))
+  (check-equal? s5 400)
+  (check-regexp-match #rx"'wehn' is not an input of [$]t [(]did you mean `when`[?][)]" (hash-ref (car (hash-ref o5 'issue)) 'diagnostics))
+  ;; the derived OperationDefinition is readable: a client sees what $t takes
+  (define-values (s6 od) (handle app "GET" "/OperationDefinition/t" '() ""))
+  (check-equal? s6 200)
+  (check-equal? (map (lambda (p) (hash-ref p 'name)) (filter (lambda (p) (equal? (hash-ref p 'use) "in")) (hash-ref od 'parameter))) '("w" "n" "flag" "when"))
+  (define-values (s7 _od) (handle app "GET" "/OperationDefinition/nope" '() ""))
+  (check-equal? s7 404)
   (delete-directory/files dir))

@@ -12,6 +12,7 @@
 (require racket/contract
          racket/match
          racket/list
+         (only-in fhir/suggest did-you-mean)
          (only-in fhir/model/node fhir? fhir-type fhir-ref fhir-field-names)
          (only-in fhir/serialize/from-json from-json)
          (only-in fhir/serialize/to-json node->jsexpr)
@@ -71,6 +72,8 @@
   ;; OperationOutcome constructors (exposed for handlers)
   [operation-outcome (-> string? string? string? fhir?)]
   [operation-outcome-not-supported (-> string? fhir?)]
+  [operation-result? (-> any/c boolean?)]
+  [make-searchset (-> any/c fhir?)]
   [operation-outcome-invalid (-> string? fhir?)]
   [operation-outcome-exception (-> string? fhir?)]
   [parameters->hash (-> (or/c fhir? #f) hash?)]))
@@ -283,7 +286,16 @@
      (cond
        [bad bad]
        [(string? in) (operation-outcome-invalid in)]
-       [else (guarded (lambda () ((operation-handler-proc h) in req)))])]))
+       [else
+        (define r (guarded (lambda () ((operation-handler-proc h) in req))))
+        (when (and (fhir? r) (eq? (fhir-type r) 'OperationOutcome) (operation-handler-op-def h)
+                   (returns-outcome? (operation-handler-op-def h))
+                   (not (member (outcome-code r) '("exception" "not-found"))))
+          (hash-set! results r #t))
+        r])]))
+(define (outcome-code n)
+  (define issues (let ([v (fhir-ref n 'issue #f)]) (if (list? v) v (if v (list v) '()))))
+  (and (pair? issues) (let ([c (fhir-ref (car issues) 'code #f)]) (and c (leaf->string c)))))
 
 ;; typed-inputs : OperationDefinition inputs -> inputs | problem-string   each primitive input as its
 ;; declared type says, the same whether it came in a GET query (text) or a POSTed Parameters
@@ -350,13 +362,41 @@
 
 ;; validate the input hash against the OperationDefinition contract; #f = ok, else an OperationOutcome
 (define (validate-inputs op-def in)
+  (define ins (for/list ([p (in-list (navigate (list op-def) 'parameter))]
+                         #:when (equal? (leaf->string (single (navigate (list p) 'use))) "in"))
+                p))
+  (define names (map (lambda (p) (leaf->string (single (navigate (list p) 'name)))) ins))
+  ;; an input the definition does not name is refused, as an unknown keyword is in-process (a
+  ;; misspelt `weigth` would otherwise be dropped and the operation answer without it); `_format`
+  ;; and the other `_` parameters are HTTP's
+  (define unknown (for/list ([k (in-list (sort (hash-keys in) string<?))]
+                             #:unless (member k names)
+                             #:unless (regexp-match? #rx"^_" k))
+                    (format "parameter '~a' is not an input of $~a~a" k
+                            (leaf->string (single (navigate (list op-def) 'code)))
+                            (let ([near (did-you-mean k names)])
+                              (cond [(not (string=? near "")) near]
+                                    [(null? names) " (it takes none)"]
+                                    [(<= (length names) 8) (format " (it takes ~a)" (apply string-append (add-between names ", ")))]
+                                    [else ""])))))
   (define problems
-    (for*/list ([p (in-list (navigate (list op-def) 'parameter))]
-                #:when (equal? (leaf->string (single (navigate (list p) 'use))) "in")
-                [problem (in-value (validate-one p in))]
-                #:when problem)
-      problem))
+    (append unknown
+            (for*/list ([p (in-list ins)]
+                        [problem (in-value (validate-one p in))]
+                        #:when problem)
+              problem)))
   (and (pair? problems) (operation-outcome-invalid (string-join* problems))))
+
+;; operation-result? : node -> boolean   an OperationOutcome an operation answers AS ITS RESULT (its
+;; definition's `return` is an OperationOutcome: $validate) — the HTTP layer answers it 200 whatever
+;; its issues say, where an OperationOutcome a handler returns otherwise is the request's failure
+(define results (make-weak-hasheq))
+(define (operation-result? n) (hash-ref results n #f))
+(define (returns-outcome? od)
+  (for/or ([p (in-list (navigate (list od) 'parameter))])
+    (and (equal? (leaf->string (single (navigate (list p) 'use))) "out")
+         (equal? (leaf->string (single (navigate (list p) 'name))) "return")
+         (let ([t (single (navigate (list p) 'type))]) (and t (equal? (leaf->string t) "OperationOutcome"))))))
 
 ;; returns a problem string, or #f if the parameter is satisfied
 (define (validate-one p in)

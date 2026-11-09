@@ -16,7 +16,7 @@
 ;;;                 surgery.
 
 (require (only-in fhir/spec-package spec-package-path))
-(require racket/contract racket/string racket/list
+(require racket/contract racket/string racket/list racket/file racket/fasl
          json
          (only-in fhir/package read-package)
          "fhir-engine.rkt"
@@ -37,10 +37,53 @@
 
 ;; ---- package reading ---------------------------------------------------------
 (define (search-params-from-package tgz #:types [types #f])
+  (define all (cached-catalog tgz read-catalog))
+  (if types
+      (for/hash ([(k v) (in-hash all)] #:when (memq k types)) (values k v))
+      all))
+
+;; read-catalog : tgz -> catalog   every SearchParameter of the package, per base type
+(define (read-catalog tgz)
   (define catalog (make-hash))    ; type-sym -> reversed (listof search-param)
   (define-values (_m sps _e) (read-package tgz #:select (lambda (f) (string-prefix? f "SearchParameter-"))))
-  (for ([sp (in-list sps)]) (add-search-parameter! catalog (cdr sp) types))
+  (for ([sp (in-list sps)]) (add-search-parameter! catalog (cdr sp) #f))
   (for/hash ([(k v) (in-hash catalog)]) (values k (reverse v))))
+
+;; ---- the catalogue kept between processes -------------------------------------
+;; Reading a core package's ~1,700 SearchParameters (parse + narrow each FHIRPath) takes seconds,
+;; and every `raco fhir-mcp call`, `raco fhir-server serve` and capability app pays it again. The
+;; result depends only on the package file, so it is written once to the user's cache directory
+;; (`FHIR_CACHE_DIR`, else Racket's cache-dir), keyed by the file's path, size and modification
+;; time and this reader's version; a cache that cannot be read or written is simply not used.
+(define catalog-format 1)
+(define (cache-root)
+  (define d (getenv "FHIR_CACHE_DIR"))
+  (if (and d (not (string=? d ""))) (string->path d) (build-path (find-system-path 'cache-dir) "fhir-racket")))
+(define (cache-file tgz)
+  (define p (path->string (simplify-path (path->complete-path tgz))))
+  (define key (format "~a|~a|~a|~a" catalog-format p (file-size p) (file-or-directory-modify-seconds p)))
+  (build-path (cache-root) "search-params" (format "~a.fasl" (sha1-bytes->hex (sha1-bytes (string->bytes/utf-8 key))))))
+(define (sha1-bytes->hex bs) (apply string-append (for/list ([b (in-bytes bs)]) (string-append (if (< b 16) "0" "") (number->string b 16)))))
+
+;; cached-catalog : tgz (tgz -> catalog) -> catalog
+(define (cached-catalog tgz compute)
+  (define f (with-handlers ([exn:fail? (lambda (_) #f)]) (cache-file tgz)))
+  (or (and f (with-handlers ([exn:fail? (lambda (_) #f)])
+               (and (file-exists? f) (datum->catalog (call-with-input-file f fasl->s-exp)))))
+      (let ([c (compute tgz)])
+        (when f
+          (with-handlers ([exn:fail? void])
+            (make-directory* (path-only* f))
+            (define tmp (make-temporary-file "sp-~a.tmp" #f (path-only* f)))
+            (call-with-output-file tmp #:exists 'truncate (lambda (o) (s-exp->fasl (catalog->datum c) o)))
+            (rename-file-or-directory tmp f #t)))
+        c)))
+(define (path-only* f) (let-values ([(dir _n _d) (split-path f)]) dir))
+(define (catalog->datum c)
+  (for/list ([(k v) (in-hash c)]) (cons k (for/list ([sp (in-list v)]) (list (search-param-name sp) (search-param-kind sp) (search-param-path sp))))))
+(define (datum->catalog d)
+  (and (list? d)
+       (for/hash ([e (in-list d)]) (values (car e) (for/list ([x (in-list (cdr e))]) (apply search-param x))))))
 
 ;; one SearchParameter resource -> catalog entries (one per applicable base type)
 (define (add-search-parameter! catalog sp types)
@@ -121,7 +164,14 @@
 (module+ test
   (require rackunit racket/runtime-path)
   (define r5 (spec-package-path "hl7.fhir.r5.core.tgz"))
+  ;; the catalogue is kept between processes, in a cache directory of our own here
+  (define cache (make-temporary-directory "sp-cache-~a"))
+  (void (putenv "FHIR_CACHE_DIR" (path->string cache)))
   (define cat (search-params-from-package r5 #:types '(Patient Observation)))
+  (check-equal? (length (directory-list (build-path cache "search-params"))) 1)
+  (check-equal? (search-params-from-package r5 #:types '(Patient Observation)) cat)   ; read back, equal
+  (check-equal? (read-catalog r5) (search-params-from-package r5))
+  (delete-directory/files cache)
   (define (names ty) (map search-param-name (hash-ref cat ty '())))
   ;; the core package's own SearchParameters drive the catalog
   (check-true (and (member "gender" (names 'Patient)) #t))

@@ -47,6 +47,7 @@
   [make-operation (->* (hash? procedure?) (#:subject (or/c string? #f)) operation?)]
   [register-operation! (-> operation? void?)]
   [registered-operations (-> (listof operation?))]
+  [add-operation-loader! (-> (-> any) void?)]
   [operation? (-> any/c boolean?)]
   [operation-definition (-> operation? hash?)]
   [operation-subject (-> operation? (or/c string? #f))]
@@ -167,10 +168,22 @@
 (define (register-operation! o)
   (unless (operation-url o) (raise-arguments-error 'register-operation! "an operation needs a canonical url" "operation" o))
   (hash-set! registry (operation-url o) o))
-(define (registered-operations) (sort (hash-values registry) string<? #:key operation-url))
+(define (registered-operations) (run-operation-loaders!) (sort (hash-values registry) string<? #:key operation-url))
+
+;; add-operation-loader! : (-> any) -> void   a thunk that registers operations (requires the
+;; modules that implement them), run once, the first time an operation is looked up — so a host that
+;; offers many operations (fhir-mcp) loads their modules only when a call needs one
+(define pending-loaders '())
+(define (add-operation-loader! thunk) (set! pending-loaders (cons thunk pending-loaders)))
+(define (run-operation-loaders!)
+  (unless (null? pending-loaders)
+    (define ls (reverse pending-loaders))
+    (set! pending-loaders '())
+    (for ([l (in-list ls)]) (l))))
 
 ;; operation : reference -> operation   (see the header for the reference forms)
 (define (operation ref)
+  (unless (op? ref) (run-operation-loaders!))
   (define (by-code type code)
     (define hits (for/list ([o (in-hash-values registry)]
                             #:when (and (equal? (operation-code o) code)

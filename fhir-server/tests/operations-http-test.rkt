@@ -41,7 +41,8 @@
   (check-equal? st 200)
   (check-equal? (length (hash-ref (hash-ref vs 'expansion) 'contains)) 1))
 (let-values ([(st oo) (get a "/ValueSet/$expand" (list (cons 'url gender) (cons 'cuont "1")))])
-  (check-regexp-match #rx"no input parameter 'cuont'" (hash-ref (car (hash-ref oo 'issue)) 'diagnostics)))
+  (check-equal? st 400)
+  (check-regexp-match #rx"'cuont' is not an input of [$]expand [(]did you mean `count`[?][)]" (hash-ref (car (hash-ref oo 'issue)) 'diagnostics)))
 
 ;; ---- exposed from a #lang fhir/capability app -------------------------------------------------
 (define app (dynamic-require (collection-file-path "ops-app.rkt" "fhir" "tests") 'app))

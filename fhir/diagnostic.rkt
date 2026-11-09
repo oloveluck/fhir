@@ -86,7 +86,10 @@
 
 (struct loc (source line column position span) #:prefab)
 (struct diagnostic (lang phase severity message loc) #:prefab)
-(struct exn:fail:diagnostic exn:fail (diagnostic)
+;; An exn:fail:user: a diagnostic is the user's mistake, already positioned and explained, so it prints
+;; as its message alone — no stack trace under `raco make`, `racket file`, or a script that loads a
+;; `#lang` module (Racket's error display omits the context for exn:fail:user)
+(struct exn:fail:diagnostic exn:fail:user (diagnostic)
   #:property prop:exn:srclocs
   (lambda (e)
     (define l (diagnostic-loc (exn:fail:diagnostic-diagnostic e)))

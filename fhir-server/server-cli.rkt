@@ -126,10 +126,40 @@
   (write-json report) (newline))
 
 
+;; cmd-sql : store-path sql -> void   one reading statement over a store, as CSV: each stored type is a
+;; view of (id, versionId, lastUpdated, resource), with `resources` (every type) and `history` (every
+;; version); `resource` is the JSON text, so `resource ->> '$.gender'` reads a value. Read-only: the
+;; store a capability app or `load` wrote, looked at without sqlite3 or a workspace.
+(define (cmd-sql db sql)
+  (define connect (dynamic-require 'db 'sqlite3-connect))
+  (define query (dynamic-require 'db 'query))
+  (define query-exec (dynamic-require 'db 'query-exec))
+  (define query-list (dynamic-require 'db 'query-list))
+  (define rows-result-headers (dynamic-require 'db 'rows-result-headers))
+  (define rows-result-rows (dynamic-require 'db 'rows-result-rows))
+  (define sql-null? (dynamic-require 'db 'sql-null?))
+  (unless (regexp-match? #px"^\\s*(?i:select|with)\\b" sql)
+    (eprintf "fhir-server: sql: one SELECT (or WITH … SELECT) statement\n") (exit 2))
+  (define c (connect #:database db #:mode 'read-only))
+  (define (q n) (string-append "\"" (regexp-replace* #rx"\"" n "\"\"") "\""))
+  (for ([t (in-list (query-list c "SELECT DISTINCT resource_type FROM main.fhir_resources ORDER BY 1"))])
+    (query-exec c (format "CREATE TEMP VIEW ~a AS SELECT id, version_id AS versionId, last_updated AS lastUpdated, json(resource) AS resource FROM main.fhir_resources WHERE resource_type = '~a'"
+                          (q t) (regexp-replace* #rx"'" t "''"))))
+  (query-exec c "CREATE TEMP VIEW resources AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, json(resource) AS resource FROM main.fhir_resources")
+  (query-exec c "CREATE TEMP VIEW history AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, json(resource) AS resource FROM main.fhir_history")
+  (define r (with-handlers ([exn:fail? (lambda (e) (eprintf "fhir-server: sql: ~a\n" (exn-message e)) (exit 1))]) (query c sql)))
+  (define (cell v)
+    (define t (cond [(sql-null? v) ""] [(bytes? v) (bytes->string/utf-8 v #\?)] [else (format "~a" v)]))
+    (if (regexp-match? #rx"[\",\n]" t) (string-append "\"" (regexp-replace* #rx"\"" t "\"\"") "\"") t))
+  (displayln (string-join (for/list ([h (in-list (rows-result-headers r))]) (cell (cdr (assq 'name h)))) ","))
+  (for ([row (in-list (rows-result-rows r))])
+    (displayln (string-join (for/list ([v (in-vector row)]) (cell v)) ","))))
+
 (define usages
   '(("serve-ig"         "raco fhir-server serve-ig <ig> [--db store.db] [--port 8080] [--bearer token] [--capability id] [--load file|dir]… [--tz-offset ±hh:mm] [--no-examples] [--no-validate] [--gaps]")
     ("serve"            "raco fhir-server serve <app.rkt> [port] [--store fhir.db]   (--store: resources declared without a repository kept in that SQLite store)")
     ("load"             "raco fhir-server load <store.db> <file|dir>   (Bundles, resources, .cql libraries)")
+    ("sql"              "raco fhir-server sql <store.db> \"SELECT …\"   (read-only; a view per type: id, versionId, lastUpdated, resource; resources, history; CSV out)")
     ("evaluate-measure" "raco fhir-server evaluate-measure <store.db> <Measure id|url> --period-start D --period-end D [--subject Patient/x] [--tz-offset ±hh:mm]")))
 
 (module+ main
@@ -146,5 +176,8 @@
                   (unless (or (file-exists? (arg as 1)) (directory-exists? (arg as 1)))
                     (usage-error "fhir-server" usages "load" (format "no such file or directory: ~a" (arg as 1))))
                   (cmd-load (arg as 0) (arg as 1)))
+         "sql" (lambda (as) (need as 1 "sql")
+                 (unless (file-exists? (arg as 0)) (usage-error "fhir-server" usages "sql" (format "no such store: ~a" (arg as 0))))
+                 (cmd-sql (arg as 0) (arg as 1)))
          "evaluate-measure" (lambda (as) (need as 1 "evaluate-measure") (cmd-evaluate-measure as)))
    (vector->list (current-command-line-arguments))))

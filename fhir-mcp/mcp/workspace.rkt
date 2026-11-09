@@ -31,7 +31,8 @@
          (only-in db sqlite3-connect query-value query-list disconnect)
          (only-in fhir/sd/sd-index current-sd-packages resolve-canonical-raw sd-index-available?)
          (only-in fhir/operation operation operation-definition operation-code operation-url operation-levels
-                  operation-resource-types apply-operation exn:fail:operation? exn:fail:operation-outcome)
+                  operation-resource-types apply-operation exn:fail:operation? exn:fail:operation-outcome
+                  add-operation-loader!)
          "tools.rkt")
 
 (provide
@@ -69,7 +70,9 @@
 (define (open-hub dir #:data [data-override #f] #:packages [extra '()])
   (define h (hub #f '() '() empty-data-source "none" data-override extra (make-hash) '() (make-hash) (make-hash) 0))
   (configure! h dir)
-  (load-operations!)
+  ;; the operation modules load the first time an operation is looked up: a call that needs none
+  ;; (SQL, search, a result) does not pay for them
+  (add-operation-loader! load-operations!)
   h)
 
 ;; configure! : hub dir -> void   read workspace.yaml, find the packages, open the data source
@@ -644,6 +647,7 @@
         [(and (regexp-match? #rx"^result://" ref) (equal? (hash-ref args 'as #f) "csv") (not against))
          (result-csv h ref offset (let ([l (hash-ref args 'limit #f)]) (if (exact-positive-integer? l) l 1000)))]
         [(regexp-match? #rx"^result://" ref) (describe-result h ref offset limit against)]
+        [(equal? ref "stages") (describe-stages h)]
         [(regexp-match #px"^(?:([A-Za-z]+)/)?[$]([A-Za-z-]+)$" ref) (describe-operation ref)]
         [(regexp-match? #rx"/OperationDefinition/" ref) (describe-operation ref)]
         [(regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)/_history$" ref)
@@ -917,6 +921,36 @@
       (format "~a: ~a" (let ([e (hash-ref i 'expression (hash-ref i 'location '()))]) (if (pair? e) (car e) "")) (hash-ref i 'diagnostics (hash-ref i 'code ""))))))
 
 (define (hub-stage! h args)
+  (if (string? (hash-ref args 'drop #f)) (drop-stage! h (hash-ref args 'drop)) (stage! h args)))
+
+;; drop-stage! : hub id -> jsexpr   a stage discarded (one not committed)
+(define (drop-stage! h id)
+  (unless (stage-of h id)
+    (error 'stage (format "no stage ~a to drop~a" id (let ([ids (pending-stage-ids h)]) (if (null? ids) "" (format " (stages: ~a)" (string-join ids ", ")))))))
+  (hash-remove! (hub-stages h) id)
+  (forget-state! h "stages" id)
+  (hasheq 'dropped id 'stages (pending-stage-ids h)))
+
+;; pending-stage-ids : hub -> (listof id)   the stages not committed (in memory or saved)
+(define (pending-stage-ids h)
+  (define saved (filter (lambda (n) (regexp-match? #rx"^stage-" n)) (saved-names h "stages")))
+  (sort (remove-duplicates (append saved (hash-keys (hub-stages h))))
+        < #:key (lambda (n) (or (string->number (regexp-replace #rx"^[^0-9]*" n "")) 0))))
+
+;; describe-stages : hub -> jsexpr   each stage not committed: its changes, errors and source
+(define (describe-stages h)
+  (hasheq 'stages
+          (for/list ([id (in-list (pending-stage-ids h))] #:when (stage-of h id))
+            (define st (stage-of h id))
+            (define cs (staged-changes st))
+            (hasheq 'stage id
+                    'changes (length cs)
+                    'errors (for/sum ([c (in-list cs)]) (length (change-errors c)))
+                    'resources (for/list ([c (in-list cs)])
+                                 (format "~a ~a/~a" (change-action c) (hash-ref (change-resource c) 'resourceType "?") (hash-ref (change-resource c) 'id "(new id)")))
+                    'source (let ([src (staged-source st)]) (or (hash-ref src 'path #f) (hash-ref src 'kind "resources")))))))
+
+(define (stage! h args)
   (refresh! h)
   (with-hub h
     (lambda ()
@@ -942,7 +976,7 @@
               'changes (for/list ([c (in-list changes)])
                          (hasheq 'resource (format "~a/~a" (hash-ref (change-resource c) 'resourceType) (hash-ref (change-resource c) 'id "(new id)"))
                                  'action (symbol->string (change-action c))
-                                 'changed (take (change-paths c) (min 30 (length (change-paths c))))
+                                 'changed (if (eq? (change-action c) 'create) "created" (take (change-paths c) (min 30 (length (change-paths c)))))
                                  'errors (change-errors c)))
               'errors errors
               'next (if (zero? errors) (format "commit(\"~a\") writes the ~a change(s)" id (count (lambda (c) (not (eq? (change-action c) 'unchanged))) changes))

@@ -98,6 +98,17 @@ its own language by `raco make`. Worked examples: `fhir-examples/examples/intake
   (define patient (ensure-valid (transform qr) #:profile (canonical-of "IntakePatient")))
   (values patient (render (hash-ref (evaluate (list patient)) "Is 65 Or Older"))))
 ```
+Each step reads its own FHIR version, which matters when they meet: FSH compiles for the nearest
+`sushi-config.yaml`'s `fhirVersion` (else 5.0.0); FML builds R5 types (an R4 source is read leniently,
+and a value it cannot read is warned about, `fml warning: … not read`); `$validate`/`ensure-valid`
+validate in the core package of `current-sd-packages` (R5 unless you set it, and the error names it:
+`invalid Patient against … (FHIR R5 (5.0.0))`); CQL's model is FHIR 4.0.1. For an R4 pipeline, give
+FSH a `sushi-config.yaml` with `fhirVersion: 4.0.1`, require the R4 tower (`fhir/r4/schemas`: its
+required bindings back the code checks) and validate with
+`(parameterize ([current-sd-packages (list (spec-package-path "hl7.fhir.r4.core.tgz"))]) …)`
+(`fhir/sd/sd-index`, `fhir/spec-package`): `invalid Patient (FHIR R4 (4.0.1)): … Patient.gender code
+not in required value set …`.
+
 `ensure-valid` returns the resource, or raises `exn:fail:operation` (`(require fhir/operation)` for
 the predicate and `exn:fail:operation-outcome`) naming the profiles it was held to and listing every
 error, one per line, with the OperationOutcome in `exn:fail:operation-outcome`. `(apply-operation "$validate" r

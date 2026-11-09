@@ -929,6 +929,37 @@ what the agent did.
   sorts by `(effective as dateTime)` as the recipe does; the fhir skill's session asks the
   latest-value question (a search answers "any"); an FML recipe splits one text into several elements.
 
+## New users, round 4 (2026-11-09)
+The third rerun of the four agents: every task solved first time, no source read; what remained:
+- **Speed of the shell route** (`raco fhir-mcp call`, 4.8–6.6 s a call): the search-parameter
+  catalogue (1,714 core SearchParameters parsed and narrowed: ~4.5 s per process) is kept between
+  processes in the user's cache directory (fhir-server `store/ig-params.rkt` `cached-catalog`;
+  `FHIR_CACHE_DIR`, else Racket's cache-dir; keyed by the package's path, size, mtime and the reader's
+  version; unusable cache = not used), and the operation modules load the first time an operation is
+  looked up (`fhir/operation`'s `add-operation-loader!`). A SQL query or check: ~1 s; describe of a
+  type ~2.4 s; a stage (FSH compile + validation) ~4.6 s.
+- **The shell's answers**: a call exits 1 when its answer counts errors (`"errors": n` — a stage that
+  cannot commit), 2 for usage; `describe("stages")` lists the stages not committed, `stage(drop:)`
+  discards one; a create's `changed` is `"created"`; `… | head` ends quietly (EPIPE).
+- **Ad-hoc CQL** (`query("cql", …)`) includes every workspace library over FHIR 4.0.1 by its name
+  (`Diabetes."Latest Value"`); its translation error is about the query (line 1 of its text, not the
+  wrapper's `define "Query"`) and suggests a workspace library's define (cql/workspace `query-error`).
+- **What a lenient read dropped is said** (`fhir/serialize/lenient`: `lenient-drops` compares the JSON
+  given with the node read back): FML's `transform`, `raco fml --transform` and a workspace run name
+  each value the map never saw (`item[0].answer[0].valueDate ("01/05/1950") not read`); `#:strict?`.
+- **Messages**: `exn:fail:diagnostic` is an `exn:fail:user`, so a `#lang` build error is its line
+  alone, no stack trace; `ensure-valid` names the FHIR version it validated in (`(FHIR R5 (5.0.0))`).
+- **Capability servers**: an undeclared interaction on a served type is 405; an operation whose
+  definition returns an OperationOutcome answers it 200 (`$validate` was 200 bare, 400 in Parameters —
+  `operation-result?`); an input the declaration does not name is a 400 with the nearest name (it was
+  dropped); `GET /OperationDefinition[/<code>]` serves the app's definitions; `Location` is absolute
+  (from the Host header); `raco fhir-server sql <db> "SELECT …"` reads a store read-only as CSV.
+- CQL's `Combine` joins a model's primitives by their System value (`Combine(name.given, ' ')` gave
+  `"Ann" "Marie"` with the quotes); docs: a complete blood-pressure rule (one invariant per
+  requirement, tested in `fhir-mcp/tests/bp-rule-test.rkt`), object cells and booleans in SQL, the
+  latest-value recipe's number/unit and a patient's name, FHIR versions per step of a Racket
+  pipeline, checking FSH examples under `raco test`.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

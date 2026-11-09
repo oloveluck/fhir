@@ -72,7 +72,7 @@
                  '("ref" "subject"))
          (lambda (args) (answer (lambda () (hub-explain h (need args 'ref) (need args 'subject) args)))))
    (tool "describe"
-         "Read anything by reference: result://rN (paged with offset and limit; as CSV with as: \"csv\"; compared with another result by `against`), Type/id (data, then what the workspace defines), a canonical url, a type or element (Observation, Observation.component.code), an operation ($expand, ValueSet/$validate-code) and its inputs, or a fragment of a definition's name or url."
+         "Read anything by reference: result://rN (paged with offset and limit; as CSV with as: \"csv\"; compared with another result by `against`), \"stages\" (the stages not committed), Type/id (data, then what the workspace defines), a canonical url, a type or element (Observation, Observation.component.code), an operation ($expand, ValueSet/$validate-code) and its inputs, or a fragment of a definition's name or url."
          (schema (hasheq 'ref (s "what to describe")
                          'offset (hasheq 'type "integer" 'description "results: the first row")
                          'limit (hasheq 'type "integer" 'description "results: at most this many rows (default 20)")
@@ -90,11 +90,12 @@
                                                       (let ([i (hash-ref args 'inputs (hasheq))]) (if (hash? i) i (hasheq)))
                                                       (let ([r (hash-ref args 'resource #f)]) (and (hash? r) r)))))))
    (tool "stage"
-         "Prepare a write to the data: resources given as JSON or as FSH Instances (`fsh`), the resources of a run (result://rN, an FML transform), an FSH file's example instances, or a JSON file. Each is validated and compared with the data's copy (create, update with the changed paths, unchanged). Nothing is written until commit."
+         "Prepare a write to the data: resources given as JSON or as FSH Instances (`fsh`), the resources of a run (result://rN, an FML transform), an FSH file's example instances, or a JSON file. Each is validated and compared with the data's copy (create, update with what changed as `path: old → new`, unchanged); a resource with an id the data holds is an update. Nothing is written until commit. `drop` discards a stage."
          (schema (hasheq 'resources (hasheq 'type "array" 'items (hasheq 'type "object") 'description "FHIR resources (or Bundles)")
                          'fsh (s "FSH Instances, as text: the compact way to write resources")
                          'result (s "a result whose rows hold resources")
-                         'path (s "an FSH file (its instances) or a JSON file"))
+                         'path (s "an FSH file (its instances) or a JSON file")
+                         'drop (s "a stage id to discard instead (describe(\"stages\") lists the stages not committed)"))
                  '())
          (lambda (args) (answer (lambda () (hub-stage! h args)))))
    (tool "commit"

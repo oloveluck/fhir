@@ -67,8 +67,10 @@ InstanceOf: Observation
 A ViewDefinition (`*.view.json`) turns resources into a table, one row per resource (or per
 repetition, with `forEach`). `query("sql", "SELECT …")` then asks SQLite over those tables: each view
 by its file name or `name`, and each earlier result by its handle (`r1`, `r2`, …), so a CQL run's
-answer per patient joins with a view's columns. One reading statement; a column holding a list is
-its JSON text (`json_each` reads it); a name with a space is quoted (`r3."Poor Control"`).
+answer per patient joins with a view's columns. One reading statement; a column holding a list or
+an object (a CQL Quantity, a Coding) is its JSON text — `json_each` walks a list, `->>` reads a value
+(`r3."Latest Value" ->> '$.value'`); a boolean is 1/0 in SQL (a CQL result's own CSV says
+true/false); a name with a space is quoted (`r3."Poor Control"`); null is NULL.
 
 ```
 SELECT p.gender, count(*) AS n, round(avg(b.systolic), 1) AS mean_systolic
@@ -130,22 +132,34 @@ is a duplicate id. Data goes in through `stage(fsh: "…")`, the text in the cal
 `raco fhir-mcp call stage fsh=@../batch.fsh` reads a file kept outside the workspace), then `commit`.
 
 A rule for SOME resources of a type — blood pressures among all Observations — is an invariant that
-applies only to them, written with `implies`:
+applies only to them, written with `implies`; one invariant per requirement, so a refusal says which
+one a reading broke:
 
 ```fsh
 Profile: BloodPressureRule
 Parent: Observation
 Id: bp-rule
-* obeys bp-components
+* obeys bp-subject and bp-systolic and bp-diastolic
 
-Invariant: bp-components
-Description: "A blood pressure (LOINC 85354-9) has systolic and diastolic components in mm[Hg]"
+Invariant: bp-subject
+Description: "A blood pressure (LOINC 85354-9) has a subject"
 Severity: #error
-Expression: "code.coding.where(system = 'http://loinc.org' and code = '85354-9').exists() implies (component.where(code.coding.code = '8480-6').value.ofType(Quantity).where(code = 'mm[Hg]').exists() and component.where(code.coding.code = '8462-4').value.ofType(Quantity).where(code = 'mm[Hg]').exists())"
+Expression: "code.coding.where(system = 'http://loinc.org' and code = '85354-9').exists() implies subject.exists()"
+
+Invariant: bp-systolic
+Description: "A blood pressure (LOINC 85354-9) has a systolic component (LOINC 8480-6) in mm[Hg]"
+Severity: #error
+Expression: "code.coding.where(system = 'http://loinc.org' and code = '85354-9').exists() implies component.where(code.coding.where(system = 'http://loinc.org' and code = '8480-6').exists()).value.ofType(Quantity).where(system = 'http://unitsofmeasure.org' and code = 'mm[Hg]').exists()"
+
+Invariant: bp-diastolic
+Description: "A blood pressure (LOINC 85354-9) has a diastolic component (LOINC 8462-4) in mm[Hg]"
+Severity: #error
+Expression: "code.coding.where(system = 'http://loinc.org' and code = '85354-9').exists() implies component.where(code.coding.where(system = 'http://loinc.org' and code = '8462-4').exists()).value.ofType(Quantity).where(system = 'http://unitsofmeasure.org' and code = 'mm[Hg]').exists()"
 ```
 
 Named for `Observation` in `profiles`, it holds every blood pressure to the rule and lets every other
-Observation through.
+Observation through. A refusal quotes the rule's `Description` (`bp-systolic: A blood pressure …`),
+not the value it found: write the description as the fix the author needs.
 
 ## The trail
 Every commit writes, into the data itself, a Provenance — the versions it wrote

@@ -4,7 +4,7 @@
 ;;; (as two `raco fhir-mcp call`s are), a stage made by the first committed by the second, a result
 ;;; described, joined in SQL and staged from; numbers continue; results and stages count apart.
 
-(require rackunit racket/file json
+(require rackunit racket/file json racket/system
          fhir/mcp/workspace fhir/mcp/verbs fhir/mcp/init
          (only-in fhir/mcp/tools tool-name tool-run))
 
@@ -36,4 +36,25 @@
 (define-values (t err?) ((tool-run (hash-ref (tools-of a) "commit")) (hasheq 'stage "stage-9")))
 (check-true err?)
 (check-regexp-match #rx"no stage stage-9 [(]stages: stage-2[)]" t)
+;; the stages not committed are listed and can be dropped; a create reads "created"
+(define c (open-hub dir))
+(with-hub c
+  (lambda ()
+    (define st (call c "describe" (hasheq 'ref "stages")))
+    (check-equal? (map (lambda (s) (hash-ref s 'stage)) (hash-ref st 'stages)) '("stage-2"))
+    (check-equal? (hash-ref (car (hash-ref st 'stages)) 'resources) '("create Patient/bob"))
+    (check-equal? (hash-ref (car (hash-ref (call c "stage" (hasheq 'fsh "Instance: cy\nInstanceOf: Patient\n")) 'changes)) 'changed) "created")
+    (check-equal? (hash-ref (call c "stage" (hasheq 'drop "stage-2")) 'stages) '("stage-3"))
+    (check-equal? (map (lambda (s) (hash-ref s 'stage)) (hash-ref (call c "describe" (hasheq 'ref "stages")) 'stages)) '("stage-3"))))
+;; the shell: a call whose answer counts errors exits 1
+(define (shell . words)
+  (define out (open-output-string))
+  (define code (parameterize ([current-output-port out] [current-error-port out])
+                 (apply system*/exit-code (find-executable-path "raco") "fhir-mcp" "call" (append words (list "--workspace" (path->string dir))))))
+  (values code (get-output-string out)))
+(let-values ([(code out) (shell "stage" "resources:=[{\"resourceType\": \"Patient\", \"gender\": \"femme\"}]")])
+  (check-equal? code 1 out)
+  (check-regexp-match #rx"\"errors\":[1-9]" out))
+(let-values ([(code out) (shell "query" "language=sql" "text=SELECT count(*) AS n FROM Patient")])
+  (check-equal? code 0 out))
 (delete-directory/files dir)

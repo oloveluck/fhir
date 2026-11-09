@@ -63,8 +63,9 @@
             (define-values (status bytes ctype) (handle/raw app method path (parse-query query) body))
             (write-raw-response out status bytes ctype
                                 #:location (and (= status 201) (regexp-match? #rx"json" ctype)
-                                                (created-location status (with-handlers ([exn:fail? (lambda (_) #f)])
-                                                                           (bytes->jsexpr bytes)))))])])))
+                                                (absolute (base-of headers)
+                                                          (created-location status (with-handlers ([exn:fail? (lambda (_) #f)])
+                                                                                     (bytes->jsexpr bytes))))))])])))
   (flush-output out)
   (close-output-port out)
   (close-input-port in))
@@ -103,6 +104,14 @@
                       (string->bytes/utf-8 (if js (jsexpr->string js) ""))
                       "application/fhir+json; charset=utf-8"
                       #:location (created-location status js)))
+
+;; base-of : headers -> string|#f   the server's base url as the client reached it (its Host header);
+;; absolute : base location -> location   FHIR's Location is [base]/Type/id/_history/vid
+(define (base-of headers)
+  (define h (assoc "host" headers))
+  (and h (not (string=? (cdr h) "")) (format "http://~a" (cdr h))))
+(define (absolute base location)
+  (and location (if base (string-append base "/" location) location)))
 
 ;; created-location : status jsexpr -> string | #f   a create's Location: Type/id/_history/version
 (define (created-location status js)

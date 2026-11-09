@@ -36,6 +36,9 @@ raco fhir-mcp call commit stage=stage-1 reason="intake" --workspace ws
 raco fhir-mcp call query language=sql text=@summary.sql --workspace ws
 raco fhir-mcp call describe ref=result://r1 as=csv --workspace ws
 ```
+A call prints the tool's answer (JSON, or text) and exits 0; 1 when the tool failed or its answer
+counts errors (`"errors": 2`: a stage that cannot be committed, a check with errors); 2 for a usage
+error. `describe ref=stages` lists the stages not committed; `stage drop=stage-3` discards one.
 
 Keep data files like `patients.fsh` outside the workspace directory: the workspace's own `.fsh`
 files are its project (profiles, value sets, a few examples), compiled and checked together, so a

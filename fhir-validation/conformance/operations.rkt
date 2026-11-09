@@ -16,6 +16,7 @@
          (only-in fhir/r5/operations validate-definition)
          fhir/operation fhir/data-source
          (only-in fhir/sd/operations resolve-structure-definition)
+         (only-in fhir/sd/sd-index current-sd-packages)
          (only-in fhir/registry registered-resources)
          (only-in fhir/serialize/read-json strip-jnum)
          (only-in fhir/conformance/validate validate-issues issue-severity issue-code issue-path issue-msg)
@@ -72,7 +73,20 @@
                       [else '()]))
   (define claimed (let* ([m (hash-ref r 'meta #f)] [p (and (hash? m) (hash-ref m 'profile '()))]) (if (list? p) p '())))
   (define all (remove-duplicates (append asked claimed)))
-  (if (null? all) "" (format " against ~a" (string-join all ", "))))
+  (string-append (if (null? all) "" (format " against ~a" (string-join all ", ")))
+                 (let ([v (validated-in)]) (if v (format " (FHIR ~a)" v) ""))))
+
+;; validated-in : -> string|#f   the FHIR version of the core package validation reads: the last core
+;; package of current-sd-packages, else R5 (sd-index's default)
+(define (validated-in)
+  (define pkgs (or (current-sd-packages) '()))
+  (define core (for/last ([p (in-list pkgs)]
+                          #:when (regexp-match? #rx"hl7[.]fhir[.]r[456][.]core" (if (path? p) (path->string p) p)))
+                 (if (path? p) (path->string p) p)))
+  (cond [(not core) (and (null? pkgs) "R5 (5.0.0)")]
+        [(regexp-match? #rx"r4[.]core" core) "R4 (4.0.1)"]
+        [(regexp-match? #rx"r5[.]core" core) "R5 (5.0.0)"]
+        [else "R6"]))
 
 (register-operation! $validate)
 
@@ -83,7 +97,7 @@
   (check-false (outcome-errors? ($validate ok)))
   (check-true (outcome-errors? ($validate bad)))
   (check-equal? (ensure-valid ok) ok)
-  (check-exn #rx"invalid Patient:\n  Patient.nmae" (lambda () (ensure-valid bad)))
+  (check-exn #rx"invalid Patient [(]FHIR R5 [(]5.0.0[)][)]:\n  Patient.nmae" (lambda () (ensure-valid bad)))
   (check-exn #rx"nmae.*\n  .*birthDate" (lambda () (ensure-valid (hash-set bad 'birthDate "1965-13-45"))))
   (check-equal? (~> ok (ensure-valid) ($validate) (outcome-errors?)) #f)
   ;; a profile from the data source, by reference
@@ -97,5 +111,5 @@
     (check-false (outcome-errors? (apply-operation "Resource/$validate" (hash-set ok 'name (list (hasheq 'family "X")))
                                                    #:profile "http://example.org/StructureDefinition/named")))
     ;; the error names the profile it broke
-    (check-exn #rx"^invalid Patient against http://example.org/StructureDefinition/named:\n  Patient.name"
+    (check-exn #rx"^invalid Patient against http://example.org/StructureDefinition/named [(]FHIR R5 [(]5.0.0[)][)]:\n  Patient.name"
                (lambda () (ensure-valid ok #:profile "http://example.org/StructureDefinition/named")))))

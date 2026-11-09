@@ -54,7 +54,7 @@
   ;; not found + unknown type
   (let-values ([(s b) (req "GET" "/Patient/999")]) (check-equal? s 404))
   (let-values ([(s b) (req "GET" "/Nope")]) (check-equal? s 404))
-  (let-values ([(s b) (req "DELETE" "/Observation/1")]) (check-equal? s 404)) ; delete undeclared on Observation
+  (let-values ([(s b) (req "DELETE" "/Observation/1")]) (check-equal? s 405)) ; delete undeclared on a served type: Method Not Allowed
 
   ;; a system-level operation
   (let-values ([(s b) (req "POST" "/$ping"

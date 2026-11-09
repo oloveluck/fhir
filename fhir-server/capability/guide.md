@@ -26,6 +26,10 @@ history and search indexes). In a workspace the file is `<name>.capability.rkt`:
   #:handler bmi-handler)                    ; (lambda (in req) …) -> a resource, usually Parameters
 ```
 - Interactions: `read vread update patch delete history-instance history-type create search-type`.
+  One the app does not declare answers 405 on a type it serves (404 for a type it does not).
+- The language is FHIR **R6** (6.0.0-ballot): the CapabilityStatement says so, resources are typed
+  by R6, and data written by an R4 workspace is read leniently. `(server #:date "2026-11-09")` sets
+  the statement's date (else a fixed one, so the statement is the same every time it is derived).
 - A search parameter is `[name type]` (the definition FHIR gives that name for the type: `birthdate`,
   `gender`, `patient`, `subject`, `code`, `date`, … — a name FHIR does not define, or a wrong type, is
   an error when the app loads, naming the nearest) or `[name type "FHIRPath"]` (your own). Types:
@@ -41,8 +45,10 @@ history and search indexes). In a workspace the file is `<name>.capability.rkt`:
 - A handler receives `in`, a hash from each input's name to its list of values, typed by the
   declaration and the same over GET (`?weight=80.5`) and POST (a Parameters body): `integer` an exact
   integer, `decimal` a Racket real, `boolean` `#t`/`#f`, `string`/`code`/`uri`/`date`/`dateTime` the
-  text as sent, a resource a typed node. A value that is not of its type is answered 400 before the
-  handler runs. The handler returns a resource built with the R6 forms
+  text as sent, a resource a typed node. A value that is not of its type, or an input the declaration
+  does not name (`weigth`: "did you mean `weight`?"), is answered 400 before the handler runs. Each
+  operation's derived OperationDefinition is served at `GET /OperationDefinition/<code>` (and all of
+  them at `GET /OperationDefinition`), so a client can read what `$bmi` takes. The handler returns a resource built with the R6 forms
   (`(Parameters (parameter (ParametersParameter (name "x") (valueString "…"))))`). A repeating field
   takes all its values in ONE form — two outputs are
   `(Parameters (parameter (ParametersParameter (name "egfr") (valueDecimal "57.5")) (ParametersParameter (name "stage") (valueString "G3a"))))`,
@@ -51,7 +57,9 @@ history and search indexes). In a workspace the file is `<name>.capability.rkt`:
   `(OperationOutcome (issue (OperationOutcomeIssue (severity "error") (code "invalid") (diagnostics "…"))))`;
   `processing` answers 422, `not-found` 404. An exception becomes a 500 OperationOutcome.
 - `$validate` takes the resource in a Parameters (`resource`) or as the bare POST body, and reads it
-  as sent: a misspelt element or a bad date is reported, as `raco fhir-validate` reports it.
+  as sent: a misspelt element or a bad date is reported, as `raco fhir-validate` reports it. It
+  answers 200 either way, its findings in the OperationOutcome (its result IS an OperationOutcome).
+- A create answers 201 with an absolute `Location` (`http://host:port/Patient/<id>/_history/1`).
 - Existing operations by reference: `"Resource/$validate"`, `"ValueSet/$expand"`,
   `"CodeSystem/$lookup"`, `"ValueSet/$validate-code"`, `"ConceptMap/$translate"`,
   `"StructureMap/$transform"` (FML maps: transformations), `"Measure/$evaluate-measure"` (CQL),
@@ -97,7 +105,11 @@ In a workspace, as `clinic.capability.rkt`:
 - `explain(ref: "clinic.capability.rkt", subject: "Patient")` shows what it declares for a type.
 
 On the command line: `racket clinic.capability.rkt` prints the CapabilityStatement;
-`raco fhir-server serve clinic.capability.rkt 8080 --store fhir.db` serves it.
+`raco fhir-server serve clinic.capability.rkt 8080 --store fhir.db` serves it (it prints
+`FHIR server on http://localhost:8080` when it is listening; a script waits for `GET /metadata`).
+`raco fhir-server sql fhir.db "SELECT id, resource ->> '$.gender' AS gender FROM Patient"` reads the
+store as CSV, read-only: a view per stored type (`id, versionId, lastUpdated, resource`), `resources`
+(every type) and `history` (every version).
 
 ## The languages inside a server
 A handler is Racket, and every language of the workspace is a library in it:

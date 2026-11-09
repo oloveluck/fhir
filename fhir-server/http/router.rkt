@@ -19,13 +19,15 @@
          (only-in json read-json jsexpr->string)
          (only-in fhir/serialize/jsexpr-util drop-false)
          (only-in fhir/model/node fhir? fhir-type fhir-ref)
+         (only-in racket/list append-map)
          (only-in fhir/model/registry type-registered?)
          (only-in fhir/serialize/from-json from-json)
          (only-in fhir/serialize/to-json node->jsexpr)
          (only-in fhir/result/result ok? ok-value)
          (only-in fhirpath/value item->system)
          (only-in fhir/capability/runtime
-                  app? app-capability-statement app-transaction app-metadata dispatch
+                  app? app-capability-statement app-transaction app-metadata app-repositories app-operation-definitions dispatch
+                  operation-result? make-searchset operation-outcome
                   read-request vread-request create-request update-request delete-request
                   search-request invoke-request history-request patch-request operation-outcome-invalid operation-outcome-not-supported
                   current-request-json))
@@ -46,14 +48,24 @@
 (define (handle app method path query body)
   (define segs (path-segments path))
   (define-values (kind node) (route app method segs query body))
-  (values (status-for kind node) (and node (node->jsexpr node))))
+  (values (status-of app segs kind node) (and node (node->jsexpr node))))
+
+;; status-of : app segments kind node -> status   an interaction the app does not offer on a type it
+;; serves is 405 Method Not Allowed (the type exists here); an unknown type or route stays 404
+(define (status-of app segs kind node)
+  (define s (status-for kind node))
+  (if (and (= s 404) (equal? (issue-code node) "not-supported") (pair? segs)
+           (not (ormap op-seg? segs))
+           (hash-has-key? (app-repositories app) (string->symbol (car segs))))
+      405
+      s))
 
 (define fhir-json-type "application/fhir+json; charset=utf-8")
 
 (define (handle/raw app method path query body)
   (define segs (path-segments path))
   (define-values (kind node) (route app method segs query body))
-  (define status (status-for kind node))
+  (define status (status-of app segs kind node))
   (cond
     [(and (eq? kind 'invoke) (fhir? node) (eq? (fhir-type node) 'Binary))
      (define js (node->jsexpr node))
@@ -82,6 +94,16 @@
     [(_ (list (? op-seg? op))) (invoke app method 'system #f #f (op-code op) query body)]
     [(_ (list (? known-type? t) (? op-seg? op))) (invoke app method 'type (sym t) #f (op-code op) query body)]
     [(_ (list (? known-type? t) id (? op-seg? op))) (invoke app method 'instance (sym t) id (op-code op) query body)]
+    ;; the app's own OperationDefinitions (the derived ones, by id or code; the referenced ones by
+    ;; id), when it does not store OperationDefinitions itself: a client reads what $egfr takes
+    [("GET" (list "OperationDefinition" id))
+     #:when (not (hash-has-key? (app-repositories app) 'OperationDefinition))
+     (values 'read (or (findf (lambda (od) (member id (od-names od))) (app-operation-definitions app))
+                       (operation-outcome "error" "not-found" (format "no OperationDefinition ~a here (~a)" id
+                                                            (string-join (append-map od-names (app-operation-definitions app)) ", ")))))]
+    [("GET" (list "OperationDefinition"))
+     #:when (not (hash-has-key? (app-repositories app) 'OperationDefinition))
+     (values 'search (make-searchset (app-operation-definitions app)))]
     ;; history:  /{Type}/{id}/_history   and   /{Type}/_history ; vread:  /{Type}/{id}/_history/{vid}
     [("GET" (list (? known-type? t) id "_history")) (values 'history (dispatch app (history-request (sym t) id query)))]
     [("GET" (list (? known-type? t) "_history")) (values 'history (dispatch app (history-request (sym t) #f query)))]
@@ -160,6 +182,11 @@
   (filter (lambda (s) (positive? (string-length s)))
           (string-split (car (string-split (string-append path "?") "?")) "/")))
 
+;; od-names : OperationDefinition -> (listof string)   its id and its code, how a client asks for it
+(define (od-names od)
+  (filter string? (list (let ([v (fhir-ref od 'id #f)]) (and v (leaf->string v)))
+                        (let ([v (fhir-ref od 'code #f)]) (and v (leaf->string v))))))
+
 (define (known-type? s) (and (regexp-match? #px"^[A-Z]" s) (type-registered? (string->symbol s))))
 (define (op-seg? s) (and (string? s) (> (string-length s) 0) (char=? (string-ref s 0) #\$)))
 (define (sym s) (string->symbol s))
@@ -199,6 +226,7 @@
 ;; ---- status codes --------------------------------------------------------------------------
 (define (status-for kind node)
   (cond
+    [(operation-result? node) 200]                     ; $validate's answer, whatever it found
     [(and (fhir? node) (eq? (fhir-type node) 'OperationOutcome)) (outcome-status node)]
     [(eq? kind 'create) 201]
     [else 200]))
@@ -238,7 +266,7 @@
   (check-equal? (hash-ref (cadr (go "GET" "/Patient/1")) 'gender) "female")
   (check-equal? (car (go "GET" "/Patient/9")) 404)                     ; miss -> not-found
   (check-equal? (hash-ref (cadr (go "GET" "/Patient")) 'type) "searchset")
-  (check-equal? (car (go "DELETE" "/Patient/1")) 404)                  ; undeclared interaction
+  (check-equal? (car (go "DELETE" "/Patient/1")) 405)                  ; undeclared interaction on a served type
   (check-equal? (car (go "GET" "/Nope/1")) 404)                        ; unknown type
   ;; a batch for an app without a transaction processor routes each entry on its own
   (define batch (jsexpr->string (hasheq 'resourceType "Bundle" 'type "batch"

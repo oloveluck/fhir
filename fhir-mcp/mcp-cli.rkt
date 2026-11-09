@@ -73,7 +73,13 @@
       (unless t (usage-error "fhir-mcp" usages "call" (format "no tool ~a (raco fhir-mcp tools lists them)" name)))
       (define-values (text err?) (call-tool t arguments))
       (displayln text)
-      (exit (if err? 1 0)))))
+      (exit (if (or err? (reports-errors? text)) 1 0)))))
+
+;; reports-errors? : text -> boolean   an answer that counts errors (a stage that cannot commit, a
+;; check with problems at error level): the shell's exit status says so too, as the JSON does
+(define (reports-errors? text)
+  (define js (with-handlers ([exn:fail? (lambda (_) #f)]) (string->jsexpr text)))
+  (and (hash? js) (let ([n (hash-ref js 'errors #f)]) (and (exact-positive-integer? n) #t))))
 
 ;; call-arguments : (listof string) -> jsexpr   a JSON object (or `-`: JSON on stdin), then
 ;; `key=value` (a string), `key=@file` (the file's text: FSH, CQL, SQL with no escaping) and
@@ -127,8 +133,15 @@
     [else (usage-error "fhir-mcp" usages "guide"
                        (format "no guide ~a (topics: ~a)" topic (string-join (map car learn-topics) ", ")))]))
 
+;; broken-pipe? : exn -> boolean   stdout closed by the reader (`… | head`): not an error of ours
+(define (broken-pipe? e)
+  (and (exn:fail:filesystem:errno? e) (equal? (exn:fail:filesystem:errno-errno e) '(32 . posix))))
+
 (module+ main
   (define args (vector->list (current-command-line-arguments)))
+  ;; `raco fhir-mcp guide fhir | head` closes the pipe early: end quietly, as a shell tool does
+  (let ([default (uncaught-exception-handler)])
+    (uncaught-exception-handler (lambda (e) (if (broken-pipe? e) (exit 0) (default e)))))
   (cond
     ;; -h/--help: every usage on stdout, exit 0 (as every raco command of the family)
     [(and (pair? args) (member (car args) '("-h" "--help")))
