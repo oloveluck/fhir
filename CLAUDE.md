@@ -903,8 +903,9 @@ every finding below has a test that reproduces what the agent did.
   type is a 400. New: a FHIR-versions table (learn://fhir), recipes (a rule for some resources of a
   type, the latest value per patient, the Provenance's fields), `fhir-examples/examples/intake-pipeline`
   (FML + FSH + CQL in one `main.rkt`, tested). `fhir-mcp/tests/docs-commands-test.rkt` runs every
-  `raco <tool> [sub]` the skills, guides, READMEs and CLAUDE.md files name with `--help` (it found
-  `raco fhir fhirpath-tck`, `raco fhir fml-tck`, `raco fhir vcl`, gone for months).
+  `raco <tool> [sub]` the skills, guides, READMEs and CLAUDE.md files name with `--help` (it found three
+  subcommands of `fhir` the notes still named — the FHIRPath and FML TCK runners and VCL — gone for
+  months; a document must not name a command that does not exist, even as an example).
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
