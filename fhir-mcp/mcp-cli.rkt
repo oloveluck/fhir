@@ -9,19 +9,22 @@
 ;;;                                      override it
 ;;;   raco fhir-mcp tools [same flags]   the tools offered, with their schemas (JSON)
 ;;;   raco fhir-mcp call <tool> ['<json arguments>'] [same flags]   run one tool, print its text (exit 1 on error)
+;;;   raco fhir-mcp guide [<topic>]      a learn:// guide as text (the topics, without one): every
+;;;                                      language's guide and the workspace's, with no server running
 
 (require (only-in "mcp/init.rkt" init-workspace!)
          racket/list racket/string json
          (only-in fhir/subcommands run-subcommands usage-error)
          "mcp/server.rkt" "mcp/tools.rkt" "mcp/workspace.rkt" "mcp/verbs.rkt"
-         (only-in "mcp/resources.rkt" current-result-resources))
+         (only-in "mcp/resources.rkt" current-result-resources learn-topics learn-text))
 
 (define flags "[--workspace <dir>] [--package <tgz|name>]… [--data <dir|file|url>]")
 (define usages
   `(("serve" ,(format "raco fhir-mcp [serve] ~a   the server over stdin/stdout" flags))
     ("tools" ,(format "raco fhir-mcp tools ~a   the tools and their schemas" flags))
     ("call"  ,(format "raco fhir-mcp call <tool> ['<json>'] ~a   run one tool" flags))
-    ("init"  "raco fhir-mcp init [<dir>] [--fhir-version 4.0.1|5.0.0]   make a directory a workspace an agent can use: workspace.yaml, data/, .mcp.json, CLAUDE.md")))
+    ("init"  "raco fhir-mcp init [<dir>] [--fhir-version 4.0.1|5.0.0]   make a directory a workspace an agent can use: workspace.yaml, data/, .mcp.json, CLAUDE.md")
+    ("guide" "raco fhir-mcp guide [<topic>]   a guide (learn://<topic>) as text; without a topic, the topics")))
 
 ;; An Opts is (opts workspace packages data rest)
 (struct opts (workspace packages data rest))
@@ -86,6 +89,17 @@
     (printf "~a ~a\n" (if (eq? (cdr r) 'written) "wrote" "kept ") (path->string (build-path dir (car r)))))
   (printf "Claude Code starts the server from .mcp.json in ~a; put FHIR JSON in ~a\n" dir (path->string (build-path dir "data"))))
 
+;; guide-command : args -> void   learn://<topic> printed, or the topics with what each covers
+(define (guide-command args)
+  (define topic (and (pair? args) (car args)))
+  (cond
+    [(not topic)
+     (for ([t (in-list learn-topics)]) (printf "~a  ~a\n" (car t) (cdr t)))
+     (printf "\nraco fhir-mcp guide <topic> prints one; an MCP client reads it as learn://<topic>\n")]
+    [(learn-text topic) => display]
+    [else (usage-error "fhir-mcp" usages "guide"
+                       (format "no guide ~a (topics: ~a)" topic (string-join (map car learn-topics) ", ")))]))
+
 (module+ main
   (define args (vector->list (current-command-line-arguments)))
   (cond
@@ -95,5 +109,5 @@
      (exit 0)]
     [(or (null? args) (regexp-match? #rx"^--" (car args))) (serve-command args)]
     [else (run-subcommands "fhir-mcp" usages
-                           (hash "serve" serve-command "tools" tools-command "call" call-command "init" init-command)
+                           (hash "serve" serve-command "tools" tools-command "call" call-command "init" init-command "guide" guide-command)
                            args)]))

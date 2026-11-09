@@ -337,9 +337,18 @@
      (define half (* 1/2 (expt 10 (- frac))))
      (values (exact->inexact (- (inexact->exact n) half)) (exact->inexact (+ (inexact->exact n) half)))]))
 
+;; number-bounds : prefix text -> (values lo hi)   the search value's range for eq/ne/ap (its
+;; precision: 100 is [99.5, 100.5)); the exact value for the comparisons, which FHIR defines
+;; "regardless of the precision" (gt8 matches 8.4: the range would have made it 8.5)
+(define (number-bounds p s)
+  (define-values (lo hi) (number-range s))
+  (if (and lo (memq p '(gt lt ge le sa eb)))
+      (let ([n (exact->inexact (string->number s 10))]) (values n n))
+      (values lo hi)))
+
 (define (number-clause name v)
   (define-values (p rest) (split-prefix v))
-  (define-values (lo hi) (number-range rest))
+  (define-values (lo hi) (number-bounds p rest))
   (and lo (let-values ([(sql args) (if (eq? p 'eq)
                                          (values "x.value >= ? AND x.value < ?" (list lo hi))
                                          (build-range p "value" "value" lo hi))])
@@ -350,7 +359,7 @@
     (let ([parts (string-split v "|" #:trim? #f)])
       (list (car parts) (and (> (length parts) 1) (cadr parts)) (and (> (length parts) 2) (caddr parts)))))
   (define-values (p rest) (split-prefix num))
-  (define-values (lo hi) (number-range rest))
+  (define-values (lo hi) (number-bounds p rest))
   (and lo
        (let*-values ([(sql args) (if (eq? p 'eq)
                                      (values "x.value >= ? AND x.value < ?" (list lo hi))
@@ -361,6 +370,12 @@
 
 (module+ test
   (require rackunit)
+  ;; numbers: eq at the value's precision, the comparisons against the exact value (FHIR search)
+  (define (bounds p s) (call-with-values (lambda () (number-bounds p s)) list))
+  (check-equal? (bounds 'eq "100") '(99.5 100.5))
+  (check-equal? (bounds 'gt "8") '(8.0 8.0))                      ; gt8 matches 8.4
+  (check-equal? (bounds 'le "8.0") '(8.0 8.0))
+  (check-equal? (bounds 'ap "8") '(7.5 8.5))
   ;; dates are ranges at their own precision, shifted to UTC when zoned
   (check-equal? (date-range "2024") (cons "2024-01-01T00:00:00.000" "2024-12-31T23:59:59.999"))
   (check-equal? (date-range "2024-02") (cons "2024-02-01T00:00:00.000" "2024-02-29T23:59:59.999"))

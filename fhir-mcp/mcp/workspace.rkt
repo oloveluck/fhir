@@ -26,6 +26,7 @@
          (only-in fhir/data-source current-data-source data-source? data-source-all data-source-read data-source-search
                   directory->data-source resources->data-source empty-data-source bundle-resources)
          (only-in fhir/rest-data-source rest->data-source rest-write! rest-url?)
+         "search-index.rkt" "sql.rkt"
          (only-in fhir/sd/sd-index current-sd-packages resolve-canonical-raw sd-index-available?)
          (only-in fhir/operation operation operation-definition operation-code operation-url operation-levels
                   operation-resource-types apply-operation exn:fail:operation? exn:fail:operation-outcome)
@@ -306,7 +307,7 @@
     (lambda ()
       (cond
         [(equal? lang "fhir") (run-json h text opts)]
-        [(equal? lang "search") (run-search text opts)]
+        [(equal? lang "search") (run-search h text opts)]
         [else (define sup (support-for lang))
               (unless (ws-support-run sup) (error 'run (format "~a files do not run" lang)))
               ((ws-support-run sup) (hub-ws h) path text opts)]))))
@@ -321,17 +322,41 @@
   (define r (execute h lang full text opts))
   (result-json (store! h (stored lang full text opts r)) r))
 
-(define query-languages (hash "fhirpath" "fhirpath" "cql" "cql" "vcl" "vcl" "search" "search" "view" "sql-on-fhir" "sql-on-fhir" "sql-on-fhir"))
+(define query-languages (hash "fhirpath" "fhirpath" "cql" "cql" "vcl" "vcl" "search" "search" "view" "sql-on-fhir" "sql-on-fhir" "sql-on-fhir" "sql" "sql"))
 (define (hub-query h language text args)
   (define lang (or (hash-ref query-languages language #f)
-                   (error 'query (format "query takes fhirpath, cql, vcl, search or view (got ~a)" language))))
+                   (error 'query (format "query takes fhirpath, cql, vcl, search, view or sql (got ~a)" language))))
   (refresh! h)
   (define opts (options args))
-  (define r (execute h lang #f text opts))
+  (define r (if (equal? lang "sql") (run-sql h text) (execute h lang #f text opts)))
   (result-json (store! h (stored lang #f text opts r)) r))
 
+;; run-sql : hub sql -> run-result   SQL over the workspace's tables (sql.rkt): each ViewDefinition
+;; file's rows, named by its file (`patients.view.json` is `patients`) and by its `name`, and every
+;; earlier result whose rows are a table (`r1`, `r2`, …: a CQL run's defines per patient, a view's
+;; rows), so a cohort can be joined with a view's columns
+(define (run-sql h text)
+  (define views
+    (for*/list ([f (in-list (workspace-files (hub-ws h)))]
+                #:when (equal? (workspace-language-of f) "sql-on-fhir")
+                [name (in-list (remove-duplicates
+                                (filter values (list (regexp-replace #rx"[.]view[.]json$|[.]json$" (path->string (file-name-from-path f)) "")
+                                                     (with-handlers ([exn:fail? (lambda (_) #f)])
+                                                       (let ([n (hash-ref (call-with-input-file f read-json) 'name #f)]) (and (string? n) n)))))))])
+      (cons name (lambda () (let ([r (execute h "sql-on-fhir" f (file->string f) (hasheq))])
+                              (table (run-result-columns r) (run-result-rows r)))))))
+  (define results
+    (for/list ([(uri st) (in-hash (hub-results h))]
+               #:when (andmap hash? (run-result-rows (stored-result st))))
+      (cons (regexp-replace #rx"^result://" uri "")
+            (lambda () (table (map (lambda (c) (format "~a" c)) (run-result-columns (stored-result st)))
+                              (run-result-rows (stored-result st)))))))
+  (define t (with-handlers ([exn:fail:user? (lambda (e) (error 'sql (regexp-replace #rx"^sql: " (exn-message e) "")))])
+              (sql-query text (make-immutable-hash (append results views)))))
+  (run-result "table" (table-columns t) (table-rows t) (hasheq 'rows (length (table-rows t)))))
+
 ;; run-search : "Type?params" options -> run-result   FHIR search where the data source can run it
-(define (run-search text opts)
+(define (run-search h text opts)
   (define m (regexp-match #px"^\\s*([A-Za-z]+)(?:\\?(.*))?\\s*$" text))
   (unless m (error 'search "a search is Type?name=value&… (Observation?code=http://loinc.org|4548-4)"))
   (define type (cadr m))
@@ -340,10 +365,34 @@
   (define found
     (cond [(data-source-search ds) ((data-source-search ds) type (for/list ([p (in-list params)]) (cons (symbol->string (car p)) (or (cdr p) ""))))]
           [(null? params) ((data-source-all ds) type)]
-          [else (error 'search "this data is files, not a FHIR server: it has no search engine. Ask with FHIRPath instead: query(\"fhirpath\", \"Observation.where(…)\")")]))
+          [(file-search-index h) => (lambda (search) (search type (for/list ([p (in-list params)]) (cons (symbol->string (car p)) (or (cdr p) "")))))]
+          [else (error 'search "searching files needs the fhir-server package (raco pkg install fhir-server); meanwhile ask with FHIRPath: query(\"fhirpath\", \"Observation.where(…)\")")]))
   (run-result "resources" '("resource" "json")
               (for/list ([r (in-list found)]) (hasheq 'resource (format "~a/~a" (hash-ref r 'resourceType "?") (hash-ref r 'id "?")) 'json r))
               (hasheq 'resources (length found))))
+
+;; file-search-index : hub -> (type params -> resources) | #f   the data's files indexed for FHIR
+;; search (search-index.rkt), built on the first search and kept until the data is read again (a
+;; commit, a new workspace.yaml): keyed by the data source, which configure! replaces
+(define file-indexes (make-weak-hasheq))
+(define (file-search-index h)
+  (and (search-index-available?)
+       (hash-ref! file-indexes (hub-data h)
+                  (lambda () (build-search-index (data-resources h) (hub-packages h)
+                                                 (if (workspace-r4? (hub-ws h)) 'fhir/r4/schemas 'fhir/r5/schemas))))))
+
+;; data-resources : hub -> (listof jsexpr)   every resource of the data when it is files (a
+;; directory's JSON files, or the one file), Bundles as they are
+(define (data-resources h)
+  (define d (ws-config-data (workspace-config (hub-ws h))))
+  (define p (and d (not (rest-url? d)) (simplify-path (path->complete-path d (hub-root h)))))
+  (define (read-one f) (with-handlers ([exn:fail? (lambda (_) #f)]) (call-with-input-file f read-json)))
+  (cond [(and p (directory-exists? p))
+         (for*/list ([f (in-directory p)] #:when (regexp-match? #rx"[.]json$" (path->string f))
+                     [js (in-value (read-one f))] #:when (and (hash? js) (string? (hash-ref js 'resourceType #f))))
+           js)]
+        [(and p (file-exists? p)) (let ([js (read-one p)]) (if (hash? js) (list js) '()))]
+        [else '()]))
 
 ;; run-json : hub text options -> run-result   a Measure evaluated, any other resource validated
 (define (run-json h text opts)
@@ -425,6 +474,8 @@
   (with-hub h
     (lambda ()
       (cond
+        [(and (regexp-match? #rx"^result://" ref) (equal? (hash-ref args 'as #f) "csv") (not against))
+         (result-csv h ref offset (let ([l (hash-ref args 'limit #f)]) (if (exact-positive-integer? l) l 1000)))]
         [(regexp-match? #rx"^result://" ref) (describe-result h ref offset limit against)]
         [(regexp-match #px"^(?:([A-Za-z]+)/)?[$]([A-Za-z-]+)$" ref) (describe-operation ref)]
         [(regexp-match? #rx"/OperationDefinition/" ref) (describe-operation ref)]
@@ -469,6 +520,30 @@
           'inputs (for/list ([p (in-list (hash-ref od 'parameter '()))] #:when (equal? (hash-ref p 'use #f) "in"))
                     (hasheq 'name (hash-ref p 'name) 'type (hash-ref p 'type 'null) 'min (hash-ref p 'min 0) 'max (hash-ref p 'max "1")
                             'documentation (let ([d (hash-ref p 'documentation "")]) (if (> (string-length d) 240) (string-append (substring d 0 240) "…") d))))))
+
+;; result-csv : hub uri offset limit -> text-answer   a result's rows as CSV, a header line first: the
+;; compact form of a table (JSON rows repeat every column name); a last line says what is left
+(define (result-csv h uri offset limit)
+  (define st (or (hash-ref (hub-results h) uri #f) (error 'describe (format "no result ~a (results: ~a)" uri (string-join (hub-result-uris h) ", ")))))
+  (define r (stored-result st))
+  (define cols (map (lambda (c) (format "~a" c)) (run-result-columns r)))
+  (define rows (run-result-rows r))
+  (define page (take (drop rows (min offset (length rows))) (min limit (max 0 (- (length rows) offset)))))
+  (define (line cells) (string-join (map csv-cell cells) ","))
+  (text-answer
+   (string-append
+    (string-join (cons (line cols)
+                       (for/list ([row (in-list page)])
+                         (line (for/list ([c (in-list cols)]) (if (hash? row) (hash-ref row (string->symbol c) 'null) row)))))
+                 "\n")
+    (let ([next (+ offset (length page))])
+      (if (< next (length rows)) (format "\n… ~a more rows: describe(\"~a\", as: \"csv\", offset: ~a)" (- (length rows) next) uri next) "")))))
+;; csv-cell : jsexpr -> string   RFC 4180: quoted when it holds a comma, quote or line break; null empty
+(define (csv-cell v)
+  (define s (cond [(eq? v 'null) ""] [(string? v) v] [(boolean? v) (if v "true" "false")]
+                  [(number? v) (number->string (if (and (inexact? v) (= v (round v)) (< (abs v) 1e15)) (inexact->exact v) v))]
+                  [else (jsexpr->string v)]))
+  (if (regexp-match? #rx"[,\"\n\r]" s) (string-append "\"" (string-replace s "\"" "\"\"") "\"") s))
 
 (define (describe-result h uri offset limit against)
   (define st (or (hash-ref (hub-results h) uri #f) (error 'describe (format "no result ~a (results: ~a)" uri (string-join (hub-result-uris h) ", ")))))

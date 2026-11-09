@@ -28,13 +28,15 @@ Examples validate against the profiles the FSH defines.
   (`result://r1`). Narrow it with `entry` (one CQL define), `over` (`Patient/123`, or a type) and
   `parameters` (CQL expressions by name).
 - `query(language, text)` asks once without saving a file: a FHIRPath or CQL expression, a FHIR
-  search (`Observation?code=http://loinc.org|4548-4`), or a VCL expression.
+  search (`Observation?code=http://loinc.org|4548-4`, over files too: `learn://search`), a VCL
+  expression, a ViewDefinition, or SQL (below).
 - `explain(ref, subject)` (`ref` a result such as `result://r1`, or a file) says why the answer for
   one subject is what it is: CQL define by define down to the retrieves, FHIRPath part by part, a
   view's `where` clauses, a map's rules, an FSH instance's problems.
 - `describe(ref)` reads anything by reference: `result://r1` (paged with offset/limit, or compared
   with `against`), `Patient/123`, a canonical url, a type or element (`Observation.component`), an
-  operation (`$expand`), or a fragment of a definition's name. `describe(ref, as: "fsh")` answers a
+  operation (`$expand`), or a fragment of a definition's name. `describe("result://r1", as: "csv")`
+  answers a result's rows as CSV, the compact form of a table. `describe(ref, as: "fsh")` answers a
   resource as an FSH Instance: a line per coding, quantity or reference, a third shorter than its JSON
   for coded data (compact JSON is as short for a small resource of plain values).
 - `apply(operation, inputs)` applies any FHIR operation the server implements. `describe("$code")`
@@ -59,10 +61,22 @@ InstanceOf: Observation
   answers `fsh:1:1 error: … InstanceOf … not found … (did you mean …?)`, naming both.
   A resource whose type FHIR does not define is an error, not an unknown.
 
+## Analysis: views, then SQL
+A ViewDefinition (`*.view.json`) turns resources into a table, one row per resource (or per
+repetition, with `forEach`). `query("sql", "SELECT …")` then asks SQLite over those tables: each view
+by its file name or `name`, and each earlier result by its handle (`r1`, `r2`, …), so a CQL run's
+answer per patient joins with a view's columns. One reading statement; a column holding a list is
+its JSON text (`json_each` reads it); a name with a space is quoted (`r3."Poor Control"`).
+
+```
+SELECT p.gender, count(*) AS n, round(avg(b.systolic), 1) AS mean_systolic
+FROM bp b JOIN patients p ON p.id = b.patient GROUP BY p.gender
+```
+
 ## Which language for which question
 - A value inside one resource: FHIRPath.
 - A fact about a patient, or a cohort: CQL.
-- A table or a count across a population: a ViewDefinition.
+- A table or a count across a population: a ViewDefinition, then SQL.
 - A set of codes: VCL.
 - What valid data looks like (a profile, an example): FSH.
 - Converting data from one structure to another: FML.

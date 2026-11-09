@@ -1,9 +1,12 @@
 ---
 name: fhir-authoring
-description: Author and run the FHIR Racket #langs — resources (#lang fhir/r6, /r4), profiles (/sd), FHIR Shorthand (/fsh), CQL (/cql), VCL (/vcl), StructureMaps (/fml), capability apps (/capability). Use when writing or running any .fhir6/.fsh/.cql/.rkt FHIR-lang file in this repo.
+description: "Write FHIR programs as Racket modules (the #langs) — resources (#lang fhir/r6, /r4), profiles (/sd), FHIR Shorthand (/fsh), CQL (/cql), VCL (/vcl), StructureMaps (/fml), capability apps (/capability). Use when writing or running any .fhir6/.fsh/.cql/.rkt FHIR-lang file in this repo."
 ---
 
 # Authoring the FHIR `#lang`s
+
+For using FHIR as a tool (create, search, compute, analyze data through the workspace), start with
+the `fhir` skill; this one is about writing the languages as Racket modules.
 
 Every language validates at **compile time** and builds a typed node that serializes to JSON. A
 `.rkt`/`.fhir6` file with a `#lang fhir/…` header is a normal Racket module — run it with

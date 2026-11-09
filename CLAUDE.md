@@ -24,7 +24,7 @@ never `../model/node.rkt`. Dependency order (base first):
 | `fsh` | `oloveluck/fsh` | `#lang fsh` (bidirectional), projects + packaging, `check.rkt`; `raco fsh`, `raco fsh check` | fhir, fhirpath, fhir-validation |
 | `fhir-server` | `oloveluck/fhir` → `fhir-server/` | `capability/ http/ store/` (SQLite), IG-generated servers, `$evaluate-measure`, `server-cli.rkt` (`raco fhir-server`), server tests | fhir, fhir-spec, fhirpath, fhir-tx, fhir-validation, cql, db-lib |
 | `fhir-lsp` | `oloveluck/fhir` → `fhir-lsp/` | the Language Server Protocol server for the five languages: `lsp/jsonrpc.rkt` (framing), `lsp/diagnostics.rkt` (fhir/diagnostic -> LSP), `lsp/languages.rkt` (the catalogue over `fhir/lang/support`), `lsp/server.rkt` (state, dispatch, loop; hover/definition/completion/symbols handed to the document's language support with its project), `lsp-cli.rkt` (`raco fhir-lsp`, `check`) | fhir (+ the languages' `support` modules at run time) |
-| `fhir-mcp` | `oloveluck/fhir` → `fhir-mcp/` | the Model Context Protocol server over a WORKSPACE (below): `mcp/workspace.rkt` (the hub: config, packages, data source, artifacts registered, results, stages), `mcp/verbs.rkt` (the nine tools), `learn/*.md` (`learn://` guides with the official references for the workspace, search and the languages that do not ship their own yet; a language's own guide comes from its repo, below; their examples compile in the test), `mcp/tools.rkt` (the Tool struct; operations loaded and applied to JSON; elements and definitions in the packages), `mcp/resources.rkt` (guides, packages, definitions, learn, results; prompts), `mcp/server.rkt` (dispatch, one JSON line per message), `mcp/init.rkt` (`raco fhir-mcp init`: workspace.yaml, data/, .mcp.json, CLAUDE.md), `mcp-cli.rkt` (`raco fhir-mcp [--workspace d]`, `init`, `tools`, `call`) | fhir, fhir-lsp (+ the operations and languages at run time) |
+| `fhir-mcp` | `oloveluck/fhir` → `fhir-mcp/` | the Model Context Protocol server over a WORKSPACE (below): `mcp/workspace.rkt` (the hub: config, packages, data source, artifacts registered, results, stages), `mcp/verbs.rkt` (the nine tools), `learn/*.md` (`learn://` guides with the official references for the workspace, search and the languages that do not ship their own yet; a language's own guide comes from its repo, below; their examples compile in the test), `mcp/tools.rkt` (the Tool struct; operations loaded and applied to JSON; elements and definitions in the packages), `mcp/resources.rkt` (guides, packages, definitions, learn, results; prompts), `mcp/server.rkt` (dispatch, one JSON line per message), `mcp/init.rkt` (`raco fhir-mcp init`: workspace.yaml, data/, .mcp.json, CLAUDE.md), `mcp/search-index.rkt` (FHIR search over data that is files, through fhir-server's store, loaded on demand), `mcp/sql.rkt` (SQL over views and results, in-memory SQLite), `mcp-cli.rkt` (`raco fhir-mcp [--workspace d]`, `init`, `guide`, `tools`, `call`) | fhir, fhir-lsp (+ the operations and languages at run time) |
 | `sql-on-fhir` | `oloveluck/sql-on-fhir` | `#lang sql-on-fhir`: ViewDefinition model and operation definitions GENERATED from the IG package (`target.rkt`, `model/`), the view engine, `$sql-run`/`$sql-export` as operations; `raco sql-on-fhir` | fhir, fhirpath (fhir-spec to regenerate) |
 | `fhir-examples` | `oloveluck/fhir-examples` | `examples/` (operations applied as procedures), `bench.rkt` (prose → FSH tasks from a published IG, scored), recorded runs; `raco spec-bench` | fhir, fhir-spec, fhir-validation, fsh, fml |
 
@@ -786,6 +786,38 @@ compactly, and gets back one precise line per problem.
   except an R5 resource in an R4 project (SUSHI allows it; the IG Publisher makes it a Basic — IPS's
   ActorDefinitions). FHIRPath's static check now enters operators' operands (`activ = true`,
   `where(famly = 'x')` were unchecked); `trace`'s projection sees its input's type. TCK floors hold.
+
+## FHIR as a tool for agents (2026-11-09)
+The third round: the whole cycle an agent wants — create, store, search, compute, analyze — in one
+workspace, and the fhir repository as the place an agent learns it.
+- **Search over files** (`mcp/search-index.rkt`). `query("search")` refused a data directory ("files
+  have no search engine"). The first search now loads the data into a fhir-server store (a SQLite
+  file in the temporary directory) as one transaction of PUTs — ids kept, so references still
+  resolve — indexed by the packages' own SearchParameters (core, then the workspace's IGs; the
+  catalogue memoised per package list), and answers the ORIGINAL resources by type and id. The index
+  is keyed by the hub's data source, which `configure!` replaces when the data is read again (a
+  commit), so it follows the data. fhir-server is dynamic-required (a build dependency only).
+  It found a search bug in fhir-server: a number or quantity prefix compared against the value's
+  PRECISION RANGE (`gt8` meant "above 8.5", so 8.4 was missed); FHIR defines gt/lt/ge/le/sa/eb
+  "regardless of precision", the range is for eq/ne/ap (`number-bounds`, store/search-index.rkt).
+- **Analysis** (`mcp/sql.rkt`): `query("sql", "SELECT …")` over the workspace's ViewDefinitions as
+  tables (by file stem and by `name`) and every earlier result whose rows are a table (`r1`, …: a CQL
+  run's defines per patient), so a cohort joins with a view's columns. A throwaway in-memory SQLite
+  database per query; one reading statement (SELECT/WITH/VALUES, no `;` outside strings — ATTACH
+  would write a file); only the tables the statement names are computed; a list cell is its JSON text,
+  a boolean 1/0. `describe(result, as: "csv")` answers a table as CSV (default 1000 rows, a last line
+  says how to read on). fhir-mcp now depends on db-lib.
+- **Where an agent starts** — in this repository: the `fhir` skill (`.claude/skills/fhir/SKILL.md`:
+  setup, the guides, the tools, a whole session from FSH data to SQL, what to do when an answer
+  surprises); `fhir-mcp/tests/skill-test.rkt` replays that session as written, in a workspace made
+  by `init` (```call blocks, "<the FSH above>" placeholders, ```answer blocks matched as a subset).
+  `learn://fhir` (`fhir-mcp/learn/fhir.md`) is FHIR itself for agents — which resource holds which
+  fact, the recurring shapes, the code systems, the links — with an FSH example and a FHIRPath line
+  the workspace test compiles. `raco fhir-mcp guide [topic]` prints any `learn://` guide (every
+  language's own, from its installed package) with no server running. `fhir-authoring` is now
+  scoped to writing the languages as Racket modules.
+- fsh's decompiler writes a `code` element as `#code` (`* status = #final`), FSH's own idiom; GoFSH
+  IPS 117/117 and mCODE 341/349 exact, round trip 22/22, unchanged.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

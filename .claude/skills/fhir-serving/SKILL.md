@@ -1,6 +1,6 @@
 ---
 name: fhir-serving
-description: Serve and persist FHIR with the fhir-server package — servers generated from IG packages (`raco fhir-server serve-ig`), `raco fhir-server serve` for a #lang fhir/capability app, the embedded SQLite store, `raco fhir-server load`, transaction/batch bundles, audit/provenance, and `$evaluate-measure`. Use when running a FHIR server or loading resources into a store.
+description: "Serve and persist FHIR with the fhir-server package — servers generated from IG packages (`raco fhir-server serve-ig`), `raco fhir-server serve` for a #lang fhir/capability app, the embedded SQLite store, `raco fhir-server load`, transaction/batch bundles, audit/provenance, and `$evaluate-measure`. Use when running a FHIR server or loading resources into a store."
 ---
 
 # Serving & persisting FHIR

@@ -65,11 +65,11 @@ token never goes in a file. @tt{raco fhir-mcp call <tool> '<json>'} runs one too
       (list @tt{write} @elem{@tt{path}, @tt{text}} "saves a file (empty text deletes it) and answers its problems in the same call; never outside the workspace or into the data")
       (list @tt{check} @tt{paths?} "every problem, and the configuration: FHIR version, packages, data")
       (list @tt{run} @elem{@tt{path}, @tt{entry?}, @tt{over?}, @tt{parameters?}} "a file against the data: a summary, the first rows, and a handle result://rN")
-      (list @tt{query} @elem{@tt{language}, @tt{text}, …} "the same without a file: fhirpath, cql (an expression is evaluated per patient), vcl, search (Type?params, on a FHIR server), view")
+      (list @tt{query} @elem{@tt{language}, @tt{text}, …} "the same without a file: fhirpath, cql (an expression is evaluated per patient), vcl, search (Type?params; files are indexed by the packages' search parameters on the first search), view, sql (one SELECT over the views' rows and earlier results as tables)")
       (list @tt{explain} @elem{@tt{ref}, @tt{subject}, @tt{entry?}} "why one subject's answer is what it is (a result or a file)")
-      (list @tt{describe} @elem{@tt{ref}, @tt{offset?}, @tt{limit?}, @tt{against?}} "anything by reference: a result (paged, or compared with another), Type/id, a canonical, a type or element, an operation and its inputs, a fragment of a name")
+      (list @tt{describe} @elem{@tt{ref}, @tt{offset?}, @tt{limit?}, @tt{against?}, @tt{as?}} "anything by reference: a result (paged, as CSV, or compared with another), Type/id (as JSON or an FSH Instance), a canonical, a type or element, an operation and its inputs, a fragment of a name")
       (list @tt{apply} @elem{@tt{operation}, @tt{inputs?}, @tt{resource?}} "any registered FHIR operation, in the workspace's context")
-      (list @tt{stage} @elem{@tt{resources} | @tt{result} | @tt{path}} "a write prepared: each resource validated and compared with the data's copy (create, update and its changed paths, unchanged)")
+      (list @tt{stage} @elem{@tt{resources} | @tt{fsh} | @tt{result} | @tt{path}} "a write prepared: each resource validated and compared with the data's copy (create, update and its changed paths, unchanged)")
       (list @tt{commit} @tt{stage} "a stage written: to a data directory (a file per resource), or a FHIR server when allowed; a stage with errors is refused"))]
 
 Tool definitions are short (about 6 KB for the nine), and an operation's inputs are read only when an
@@ -77,7 +77,8 @@ agent asks for them with @tt{describe("$code")}.
 
 @section{Resources}
 
-@tt{learn://workspace} explains the workspace. @tt{learn://fsh}, @tt{learn://cql},
+@tt{learn://fhir} is FHIR for agents (which resource holds which fact, the recurring shapes, the code
+systems); @tt{learn://workspace} explains the workspace. @tt{learn://fsh}, @tt{learn://cql},
 @tt{learn://fhirpath}, @tt{learn://vcl}, @tt{learn://fml}, @tt{learn://sql-on-fhir} and
 @tt{learn://search} each give a cheat sheet, a worked example, common problems and links to the
 language's official reference: the FHIR Shorthand specification, cql.hl7.org, FHIRPath N1, the VCL
@@ -85,7 +86,9 @@ page of the IG guidance, the FHIR Mapping Language, sql-on-fhir.org and FHIR sea
 every worked example. @tt{result://rN} is a run's whole result. @tt{fhir://guide/...},
 @tt{fhir://packages} and @tt{fhir://definition/{kind}/{ref}} serve the guides, the packages in
 context and their definitions. The prompts @tt{fsh-profile}, @tt{fsh-instance} and @tt{fix-workspace}
-start an agent on common work.
+start an agent on common work. @tt{raco fhir-mcp guide [topic]} prints any @tt{learn://} guide with no
+server running; @tt{raco fhir-mcp init [dir]} makes a directory a workspace (@tt{workspace.yaml},
+@tt{data/}, @tt{.mcp.json}, @tt{CLAUDE.md}).
 
 @section{Limits}
 
@@ -95,8 +98,10 @@ server's memory.}
 @item{CQL's installed FHIR model is 4.0.1; a library that uses FHIR in an R5 workspace is told so at its
 @tt{using}. Any other model works: one designed in the workspace as FSH logical models and named in
 @tt{workspace.yaml}'s @tt{models}, or a ModelInfo document in a directory named by @tt{CQL_MODEL_PATH}.}
-@item{A directory or file of JSON has no search engine. @tt{query("search")} needs a FHIR server, and
-FHIRPath queries work everywhere.}
+@item{Search over files needs the fhir-server package (its SQLite store holds the index, in the
+temporary directory, rebuilt when the data is read again). Without it, FHIRPath queries work everywhere.}
+@item{SQL runs one reading statement (@tt{SELECT}, @tt{WITH}, @tt{VALUES}) in an in-memory SQLite
+database made for the query; a collection column is its JSON text.}
 @item{Expansion uses the code systems in the packages. SNOMED CT and LOINC are not shipped, so a
 filter over them does not expand, though enumerated codes still work.}
 @item{An update replaces the whole resource (PUT). The staged diff lists every path that changes,

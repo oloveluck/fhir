@@ -1,0 +1,186 @@
+---
+name: fhir
+description: Use FHIR as a tool for health data — create resources, validate them, search them, compute on them (FHIRPath, CQL cohorts, value sets, maps) and analyze them (ViewDefinitions + SQL), through the fhir-mcp workspace or its command line. Start here for any FHIR task; it says which language does what and where each one's guide is.
+---
+
+# FHIR as a tool
+
+One workspace holds FHIR data and the programs that work on it, in six languages that compose by
+canonical url. The `fhir-mcp` server gives an agent nine tools over it; every problem comes back as
+one line, `file:line:col severity: message`, with "did you mean …" for a misspelt name.
+
+## Set up
+```sh
+fhir-mcp init my-workspace        # or: raco fhir-mcp init my-workspace [--fhir-version 5.0.0]
+```
+writes `workspace.yaml` (FHIR 4.0.1, `data: data/`), `data/`, a `.mcp.json` that registers the
+server for Claude Code, and a `CLAUDE.md`. Elsewhere: `claude mcp add fhir -- fhir-mcp --workspace <dir>`.
+Without an MCP client, every tool runs from the shell: `raco fhir-mcp call <tool> '<json>' --workspace <dir>`
+(a fresh process each time, so a `result://` handle does not outlive its call).
+Not installed: the README's "Getting the tools" (Racket 9, then `raco pkg install` of the repositories).
+
+## The guides
+`raco fhir-mcp guide` lists them and `raco fhir-mcp guide <topic>` prints one; an MCP client reads the
+same text as `learn://<topic>`. Read `fhir` (resources, codes, quantities, references) and
+`workspace` (the tools) first, then the language you write:
+
+| Topic | For |
+|---|---|
+| `fhir` | which resource holds which fact; the shapes that recur; the code systems |
+| `workspace` | the nine tools, workspace.yaml, which language for which question |
+| `fsh` | FHIR Shorthand: example data, profiles, extensions, value sets, code systems |
+| `cql` | Clinical Quality Language: per-patient logic, cohorts, measures |
+| `fhirpath` | a value inside a resource; invariants; search parameters |
+| `vcl` | a value set in one line |
+| `fml` | the FHIR Mapping Language: one structure to another |
+| `sql-on-fhir` | ViewDefinitions: resources flattened into tables |
+| `search` | FHIR search syntax |
+
+## The tools
+| Tool | Does |
+|---|---|
+| `write(path, text)` | saves a file; answers its problems |
+| `check()` | every file's problems |
+| `run(path)` | a file against the data: a summary, the first rows, a handle `result://rN` |
+| `query(language, text)` | once, without a file: `fhirpath`, `cql`, `vcl`, `search`, `view`, `sql` |
+| `explain(ref, subject)` | why one patient's (resource's) answer is what it is, step by step |
+| `describe(ref)` | a result (paged; `as: "csv"`), `Type/id` (`as: "fsh"`), a canonical, a type or element, an operation |
+| `apply(operation, inputs)` | any FHIR operation: `$validate`, `$expand`, `$lookup`, `$translate`, `$evaluate-measure`, … |
+| `stage(…)`, `commit(stage)` | write data: validated and diffed first; a stage with errors is refused |
+
+## A session
+Two patients and their HbA1c results, written as FSH, stored, searched, put through a CQL rule,
+flattened into a table and joined with the rule's answer in SQL. Each call is shown with the part of
+its answer that matters (this exact session runs in the fhir-mcp tests).
+
+Create the data. FSH writes a coding, a quantity or a reference in one value; `Reference(ann)` is
+the instance `ann` written in the same text:
+
+```fsh
+Instance: ann
+InstanceOf: Patient
+* name.family = "Ng"
+* gender = #female
+* birthDate = "1961-04-12"
+
+Instance: bob
+InstanceOf: Patient
+* name.family = "Okafor"
+* gender = #male
+* birthDate = "1988-09-30"
+
+Instance: ann-a1c
+InstanceOf: Observation
+* status = #final
+* code = http://loinc.org#4548-4 "Hemoglobin A1c"
+* subject = Reference(ann)
+* effectiveDateTime = "2025-02-10"
+* valueQuantity = 8.4 '%'
+
+Instance: bob-a1c
+InstanceOf: Observation
+* status = #final
+* code = http://loinc.org#4548-4 "Hemoglobin A1c"
+* subject = Reference(bob)
+* effectiveDateTime = "2025-03-02"
+* valueQuantity = 5.6 '%'
+```
+
+```call
+stage {"fsh": "<the FSH above>"}
+```
+```answer
+{"errors": 0, "stage": "stage-1", "changes": [{"action": "create", "resource": "Patient/ann"}, {"action": "create", "resource": "Patient/bob"},
+ {"action": "create", "resource": "Observation/ann-a1c"}, {"action": "create", "resource": "Observation/bob-a1c"}]}
+```
+```call
+commit {"stage": "stage-1"}
+```
+
+Find results above 8% with a FHIR search (over files, the workspace indexes the data by FHIR's own
+search parameters):
+
+```call
+query {"language": "search", "text": "Observation?code=http://loinc.org|4548-4&value-quantity=gt8"}
+```
+```answer
+{"result": "result://r2", "total": 1, "rows": [{"resource": "Observation/ann-a1c"}]}
+```
+
+A rule per patient, in CQL:
+
+```cql
+library Diabetes version '1.0.0'
+using FHIR version '4.0.1'
+include FHIRHelpers version '4.0.1' called FHIRHelpers
+codesystem "LOINC": 'http://loinc.org'
+code "HbA1c": '4548-4' from "LOINC"
+context Patient
+define "A1c Results": [Observation: "HbA1c"] O where O.status = 'final'
+define "Poor Control": exists ("A1c Results" O where (O.value as Quantity) > 8 '%')
+```
+
+```call
+write {"path": "Diabetes.cql", "text": "<the CQL above>"}
+```
+```answer
+{"problems": []}
+```
+```call
+run {"path": "Diabetes.cql"}
+```
+```answer
+{"result": "result://r3", "summary": {"patients": 2, "defines": {"Poor Control": {"true": 1, "false": 1}}},
+ "rows": [{"patient": "ann", "Poor Control": true}, {"patient": "bob", "Poor Control": false}]}
+```
+
+A table of every HbA1c result, as a ViewDefinition:
+
+```view
+{"resourceType": "ViewDefinition", "name": "a1c", "status": "active", "resource": "Observation",
+ "where": [{"path": "code.coding.exists(system = 'http://loinc.org' and code = '4548-4')"}],
+ "select": [{"column": [
+   {"name": "patient", "path": "subject.getReferenceKey(Patient)"},
+   {"name": "date", "path": "effective.ofType(dateTime)"},
+   {"name": "value", "path": "value.ofType(Quantity).value"}]}]}
+```
+
+```call
+write {"path": "a1c.view.json", "text": "<the view above>"}
+```
+```answer
+{"problems": []}
+```
+
+Then SQL over the tables: each view by its name, each earlier result by its handle (`r3` is the CQL
+run; a column whose name has a space is quoted):
+
+```call
+query {"language": "sql", "text": "SELECT a1c.patient, a1c.value FROM a1c JOIN r3 ON r3.patient = a1c.patient WHERE r3.\"Poor Control\" = 1"}
+```
+```answer
+{"columns": ["patient", "value"], "rows": [{"patient": "ann", "value": 8.4}]}
+```
+
+Read one resource back in its compact form:
+
+```call
+describe {"ref": "Observation/ann-a1c", "as": "fsh"}
+```
+```answer
+"Instance: ann-a1c\nInstanceOf: Observation\n* code = http://loinc.org#4548-4 \"Hemoglobin A1c\"\n* effectiveDateTime = \"2025-02-10\"\n* status = #final\n* subject = Reference(Patient/ann)\n* valueQuantity = 8.4 '%'"
+```
+
+## When something is off
+- A problem line names the file, line and column: fix it there and `write` again.
+- An answer you did not expect: `explain(ref: "result://r3", subject: "Patient/bob", entry: "Poor Control")`
+  walks the CQL down to the retrieve and says which resources it kept.
+- A stage with errors lists them per resource; nothing is written until they are gone.
+
+## Without MCP
+Each language also has a command line and a Racket `#lang` (its repository's README and
+`.claude/skills/<language>/SKILL.md`): `raco fsh check <dir>`, `raco cql <file> --data <dir>`,
+`raco fhirpath '<expr>' <resource.json>`, `raco vcl '<expr>'`, `raco fml <map> --transform <src>`,
+`raco sql-on-fhir run <view> <data>`, `raco fhir-validate <resource.json> [profile.json]`,
+`raco fhir-tx expand <url>`, `raco fhir-server serve-ig <package>`. Writing the languages in Racket
+modules: the `fhir-authoring` skill; serving FHIR over HTTP: `fhir-serving`.

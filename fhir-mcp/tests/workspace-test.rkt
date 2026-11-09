@@ -82,6 +82,17 @@
     (define v (ok "run" (hasheq 'path "patients.view.json")))
     (check-equal? (hash-ref v 'columns) '("id" "gender"))
     (check-equal? (hash-ref v 'total) 3)
+    ;; analysis: SQL over the views as tables, joined with an earlier result (r1: Gap per patient)
+    (define q (ok "query" (hasheq 'language "sql"
+                                  'text "SELECT p.gender, count(*) AS n FROM patients p JOIN r1 ON r1.patient = p.id WHERE r1.Gap = 1 GROUP BY p.gender")))
+    (check-equal? (hash-ref q 'columns) '("gender" "n"))
+    (check-equal? (hash-ref q 'rows) (list (hasheq 'gender "male" 'n 1)))
+    (check-regexp-match #rx"no such column: gendr" (hash-ref (fails "query" (hasheq 'language "sql" 'text "SELECT gendr FROM patients")) 'error))
+    (fails "query" (hasheq 'language "sql" 'text "DROP TABLE patients"))
+    ;; a table as CSV: one header line, then one line per row
+    (check-equal? (text "describe" (hasheq 'ref (hash-ref q 'result) 'as "csv")) "gender,n\nmale,1")
+    (check-equal? (text "describe" (hasheq 'ref (hash-ref v 'result) 'as "csv" 'limit 1))
+                  (format "id,gender\na,female\n… 2 more rows: describe(\"~a\", as: \"csv\", offset: 1)" (hash-ref v 'result)))
     (define fsh (ok "write" (hasheq 'path "profiles.fsh"
                                     'text (string-append "Profile: Final\nParent: Observation\nId: final-obs\n* status = #final\n\n"
                                                          "Instance: good\nInstanceOf: Final\n* status = #final\n* code = http://loinc.org#4548-4\n\n"
@@ -91,7 +102,10 @@
     (define fx (ok "explain" (hasheq 'ref "profiles.fsh" 'subject "bad")))
     (check-equal? (length (hash-ref fx 'problems)) 1)
     (fails "run" (hasheq 'path "nope.cql"))
-    (fails "query" (hasheq 'language "search" 'text "Observation?code=http://loinc.org|4548-4"))   ; files have no search engine
+    ;; FHIR search over files: the data indexed by the core package's SearchParameters on the first search
+    (define found (ok "query" (hasheq 'language "search" 'text "Observation?code=http://loinc.org|4548-4")))
+    (check-equal? (map (lambda (r) (hash-ref r 'resource)) (hash-ref found 'rows)) '("Observation/o1"))
+    (check-equal? (hash-ref (ok "query" (hasheq 'language "search" 'text "Patient?birthdate=lt1965-01-01")) 'total) 1)
 
     ;; ---- check: every problem, and the configuration
     (define c (ok "check" (hasheq)))
@@ -131,6 +145,9 @@
     (define cm (ok "commit" (hasheq 'stage (hash-ref st 'stage))))
     (check-equal? (length (hash-ref cm 'written)) 2)
     (check-true (file-exists? (build-path dir "data" "Observation-o3.json")))
+    ;; the search index follows the data: built again after a commit
+    (check-equal? (sort (map (lambda (r) (hash-ref r 'resource)) (hash-ref (ok "query" (hasheq 'language "search" 'text "Observation?code=http://loinc.org|4548-4")) 'rows)) string<?)
+                  '("Observation/o1" "Observation/o3"))
     (check-equal? (hash-ref (call-with-input-file (build-path dir "data" "Observation-o2.json") read-json) 'status) "amended")
     (define r2 (ok "run" (hasheq 'path "Gap.cql" 'entry "Gap")))
     (check-equal? (hash-ref (hash-ref (hash-ref r2 'summary) 'defines) 'Gap) (hasheq 'false 3))

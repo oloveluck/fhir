@@ -1,8 +1,9 @@
 # FHIR search in the workspace
 
-`query("search", "Type?name=value&…")` runs a FHIR search when the data is a FHIR server. A directory
-or file of JSON has no search engine, so use a FHIRPath query instead
-(`query("fhirpath", "Observation.where(code.coding.code = '4548-4')")`).
+`query("search", "Type?name=value&…")` runs a FHIR search over the data. On a FHIR server the server
+answers it. When the data is files, the first search indexes them by the search parameters of the
+workspace's packages (FHIR core, then its IGs) and answers from that index, which is rebuilt when the
+data changes. The answer is the resources themselves, as the files hold them.
 
 ## Official reference
 - FHIR search: https://hl7.org/fhir/search.html

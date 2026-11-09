@@ -51,7 +51,8 @@
 ;; ---- learn: the languages in a workspace, with their official references ------------------------
 (define-runtime-path learn-dir "../learn")
 (define learn-topics
-  '(("workspace" . "The workspace: files, the tools (write, check, run, query, explain, describe, apply, stage, commit), which language for which question, workspace.yaml")
+  '(("fhir" . "FHIR for agents: which resource holds which fact, the shapes that recur (codes, quantities, references, choice elements), the usual code systems, links to the specification")
+    ("workspace" . "The workspace: files, the tools (write, check, run, query, explain, describe, apply, stage, commit), which language for which question, workspace.yaml")
     ("fsh" . "FHIR Shorthand: profiles, extensions, value sets, examples; cheat sheet, worked example, links to the FSH specification")
     ("cql" . "Clinical Quality Language: patient logic and cohorts; cheat sheet, worked example, links to the CQL specification and reference")
     ("fhirpath" . "FHIRPath: navigating inside resources; cheat sheet, links to the FHIRPath specification")

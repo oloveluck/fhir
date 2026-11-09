@@ -64,9 +64,21 @@ fhir-mcp init my-workspace          # or: raco fhir-mcp init my-workspace [--fhi
 It writes `workspace.yaml` (FHIR version, canonical, `data: data/`), `data/` for the FHIR JSON the
 tools run over, `.mcp.json` (Claude Code starts the server from it) and a three-line `CLAUDE.md`, and
 keeps any of them that already exist. Elsewhere: `claude mcp add fhir -- fhir-mcp --workspace <dir>`.
-The server's first resource to read is `learn://workspace`; each language has its own
-(`learn://fsh`, `learn://cql`, …). Without MCP, each language's repository has a Claude skill
-(`.claude/skills/<language>/SKILL.md`) for its command line.
+The guides are MCP resources (`learn://fhir`, `learn://workspace`, then one per language:
+`learn://fsh`, `learn://cql`, …) and text at the shell (`fhir-mcp guide [topic]`). The `fhir` skill in
+this repository (`.claude/skills/fhir/SKILL.md`) is where an agent starts: the tools, which language
+for which job, and a whole session, from creating data to SQL over it.
+
+With a workspace, an agent can:
+- create resources as FSH (`stage(fsh: "Instance: …")`), each validated before `commit` writes it;
+- find them with FHIR search, over a FHIR server or over plain files (indexed on the first search);
+- compute with FHIRPath, CQL (per patient, cohorts, measures), VCL value sets and FML maps;
+- analyze: ViewDefinitions turn resources into tables, then `query("sql", "SELECT …")` groups and
+  joins them with earlier results;
+- read anything back compactly: a resource as FSH, a table as CSV.
+
+Without MCP, each language's repository has a Claude skill (`.claude/skills/<language>/SKILL.md`)
+for its command line.
 
 ## In Racket
 

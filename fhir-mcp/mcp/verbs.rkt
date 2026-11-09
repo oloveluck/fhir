@@ -56,9 +56,9 @@
          (schema (hash-set run-props 'path (s "the file, relative to the workspace")) '("path"))
          (lambda (args) (answer (lambda () (hub-run h (need args 'path) args)))))
    (tool "query"
-         "Ask once without saving a file. language: fhirpath (an expression; `over` a type or Type/id), cql (an expression, evaluated per patient, or a whole library), vcl (an expression, expanded), search (Type?name=value… when the data is a FHIR server), view (a ViewDefinition as JSON). Answers like run."
-         (schema (hash-set* run-props 'language (hasheq 'type "string" 'enum '("fhirpath" "cql" "vcl" "search" "view"))
-                            'text (s "the expression, library, search or view"))
+         "Ask once without saving a file. language: fhirpath (an expression; `over` a type or Type/id), cql (an expression, evaluated per patient, or a whole library), vcl (an expression, expanded), search (Type?name=value…, a FHIR search over the data, files included), view (a ViewDefinition as JSON), sql (one SELECT over the tables: each *.view.json by its file name or `name`, and earlier results as r1, r2 … — group, join, count, average). Answers like run."
+         (schema (hash-set* run-props 'language (hasheq 'type "string" 'enum '("fhirpath" "cql" "vcl" "search" "view" "sql"))
+                            'text (s "the expression, library, search, view or SQL statement"))
                  '("language" "text"))
          (lambda (args) (answer (lambda () (hub-query h (need args 'language) (need args 'text) args)))))
    (tool "explain"
@@ -69,12 +69,12 @@
                  '("ref" "subject"))
          (lambda (args) (answer (lambda () (hub-explain h (need args 'ref) (need args 'subject) args)))))
    (tool "describe"
-         "Read anything by reference: result://rN (paged with offset and limit; compared with another result by `against`), Type/id (data, then what the workspace defines), a canonical url, a type or element (Observation, Observation.component.code), an operation ($expand, ValueSet/$validate-code) and its inputs, or a fragment of a definition's name or url."
+         "Read anything by reference: result://rN (paged with offset and limit; as CSV with as: \"csv\"; compared with another result by `against`), Type/id (data, then what the workspace defines), a canonical url, a type or element (Observation, Observation.component.code), an operation ($expand, ValueSet/$validate-code) and its inputs, or a fragment of a definition's name or url."
          (schema (hasheq 'ref (s "what to describe")
                          'offset (hasheq 'type "integer" 'description "results: the first row")
                          'limit (hasheq 'type "integer" 'description "results: at most this many rows (default 20)")
                          'against (s "results: an earlier result to compare with")
-                         'as (s "a resource (Type/id, a canonical): \"fsh\" for an FSH Instance instead of JSON — shorter for coded data (a blood-pressure Observation: 480 characters, 692 as JSON)"))
+                         'as (s "\"fsh\": a resource (Type/id, a canonical) as an FSH Instance, shorter than JSON for coded data; \"csv\": a result's rows as CSV (default limit 1000), the compact form of a table"))
                  '("ref"))
          (lambda (args) (answer (lambda () (hub-describe h (need args 'ref) args)))))
    (tool "apply"
