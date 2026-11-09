@@ -113,3 +113,63 @@
   (check-equal? ((dynamic-require 'db 'query-value) c "SELECT typeof(resource) FROM fhir_resources") "blob")
   ((dynamic-require 'db 'disconnect) c)
   (delete-directory/files dir))
+
+;; ---- what is sent is what is validated: a store-backed app refuses a write the lenient parse would
+;; have trimmed (a misspelt element, a bad date), and its $validate sees them, as a bare resource body too
+(let ()
+  (define dir (make-temporary-directory "cap-valid-~a"))
+  (define src (build-path dir "v.rkt"))
+  (call-with-output-file src
+    (lambda (o)
+      (write-string (string-append
+                     "#lang fhir/capability\n(require (only-in fhir/conformance/operations $validate))\n"
+                     "(server #:store \"fhir.db\")\n"
+                     "(resource Patient #:interactions (read create search-type) #:search-params ([gender token]))\n"
+                     "(operation $validate)\n")
+                    o)))
+  (define app (dynamic-require src 'app))
+  (define handle (dynamic-require 'fhir/http/router 'handle))
+  (define bad "{\"resourceType\":\"Patient\",\"nmae\":[{\"family\":\"X\"}],\"birthDate\":\"1965-13-45\"}")
+  (define-values (st out) (handle app "POST" "/Patient" '() bad))
+  (check-equal? st 422)
+  (define msgs (map (lambda (i) (hash-ref i 'diagnostics "")) (hash-ref out 'issue)))
+  (check-true (for/or ([m msgs]) (regexp-match? #rx"nmae" m)) (format "~a" msgs))
+  (check-true (for/or ([m msgs]) (regexp-match? #rx"1965-13-45" m)) (format "~a" msgs))
+  (define-values (st2 _o2) (handle app "POST" "/Patient" '() "{\"resourceType\":\"Patient\",\"gender\":\"female\"}"))
+  (check-equal? st2 201)
+  ;; $validate on the resource as sent: in Parameters, and as the bare body
+  (define (errors-of out) (filter (lambda (i) (equal? (hash-ref i 'severity #f) "error")) (hash-ref out 'issue '())))
+  (define-values (_s3 v1) (handle app "POST" "/Patient/$validate" '()
+                                  (string-append "{\"resourceType\":\"Parameters\",\"parameter\":[{\"name\":\"resource\",\"resource\":" bad "}]}")))
+  (check-equal? (length (errors-of v1)) 2)
+  (define-values (_s4 v2) (handle app "POST" "/Patient/$validate" '() bad))
+  (check-equal? (length (errors-of v2)) 2)
+  (delete-directory/files dir))
+
+;; ---- an operation's inputs are typed by its declaration, the same over GET and POST
+(let ()
+  (define dir (make-temporary-directory "cap-ops-~a"))
+  (define src (build-path dir "o.rkt"))
+  (call-with-output-file src
+    (lambda (o)
+      (write-string (string-append
+                     "#lang fhir/capability\n(server)\n"
+                     "(define (h in req)\n"
+                     "  (define (input k) (car (hash-ref in k)))\n"
+                     "  (Parameters (parameter (ParametersParameter (name \"out\") (valueString (format \"~a ~a ~a ~a\" (* 2 (input \"w\")) (+ 1 (input \"n\")) (input \"flag\") (input \"when\")))))))\n"
+                     "(operation $t #:system #:in ([w decimal 1 1] [n integer 1 1] [flag boolean 1 1] [when date 1 1]) #:out ([out string 1 1]) #:handler h)\n")
+                    o)))
+  (define app (dynamic-require src 'app))
+  (define handle (dynamic-require 'fhir/http/router 'handle))
+  (define (out-of o) (hash-ref (car (hash-ref o 'parameter)) 'valueString))
+  (define-values (s1 o1) (handle app "GET" "/$t" '((w . "80.5") (n . "41") (flag . "true") (when . "2024-03-01")) ""))
+  (check-equal? s1 200)
+  (check-equal? (out-of o1) "161.0 42 #t 2024-03-01")
+  (define-values (s2 o2) (handle app "POST" "/$t" '()
+                                 "{\"resourceType\":\"Parameters\",\"parameter\":[{\"name\":\"w\",\"valueDecimal\":80.5},{\"name\":\"n\",\"valueInteger\":41},{\"name\":\"flag\",\"valueBoolean\":true},{\"name\":\"when\",\"valueDate\":\"2024-03-01\"}]}"))
+  (check-equal? s2 200)
+  (check-equal? (out-of o2) "161.0 42 #t 2024-03-01")
+  (define-values (s3 o3) (handle app "GET" "/$t" '((w . "heavy") (n . "41") (flag . "true") (when . "2024-03-01")) ""))
+  (check-equal? s3 400)
+  (check-regexp-match #rx"parameter 'w' must be a decimal, got \"heavy\"" (hash-ref (car (hash-ref o3 'issue)) 'diagnostics))
+  (delete-directory/files dir))

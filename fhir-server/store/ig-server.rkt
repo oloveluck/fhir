@@ -30,6 +30,7 @@
 ;;; store as `current-data-source` and the server's packages as `current-sd-packages`.
 ;;; Not yet: chained parameters, other IG operations, SMART auth — each listed as a gap.
 
+(require (only-in "validated.rkt" write-json-of))
 (require racket/contract racket/list racket/string
          (only-in fhir/package read-package)
          (only-in fhir/sd/sd-index current-sd-packages)
@@ -108,7 +109,7 @@
   (define (checked write)
     (lambda args
       (define node (last args))
-      (define js (strip-jnum (node->jsexpr node)))
+      (define js (write-json-of node))                  ; as sent: the lenient node has dropped what it did not know
       (define errors (write-errors js validate? sd-packages))
       (if (null? errors) (apply write args) (validation-outcome js errors))))
   (make-repository

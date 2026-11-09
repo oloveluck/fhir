@@ -30,8 +30,11 @@ history and search indexes). In a workspace the file is `<name>.capability.rkt`:
   `[name type "FHIRPath"]` (your own). Types: `token string reference date number quantity uri`.
 - A resource without `#:repository` is kept in the store: the workspace's when the workspace serves
   it, else `#:store`'s file beside the module, else (no store anywhere) in memory.
-- A handler receives `in`, a hash from each input's name to its list of values (strings, numbers,
-  dates as FHIRPath values, resources as typed nodes), and returns a resource built with the R6 forms
+- A handler receives `in`, a hash from each input's name to its list of values, typed by the
+  declaration and the same over GET (`?weight=80.5`) and POST (a Parameters body): `integer` an exact
+  integer, `decimal` a Racket real, `boolean` `#t`/`#f`, `string`/`code`/`uri`/`date`/`dateTime` the
+  text as sent, a resource a typed node. A value that is not of its type is answered 400 before the
+  handler runs. The handler returns a resource built with the R6 forms
   (`(Parameters (parameter (ParametersParameter (name "x") (valueString "…"))))`). An exception becomes
   an OperationOutcome.
 - Existing operations by reference: `"Resource/$validate"`, `"ValueSet/$expand"`,
@@ -59,9 +62,9 @@ operation of its own.
 (operation "StructureMap/$transform")       ; POST /StructureMap/$transform with srcMap (FML) and content
 
 (define (bmi-handler in req)
-  (define (number k) (string->number (format "~a" (car (hash-ref in k)))))
-  (define m (/ (number "height") 100))
-  (define bmi (/ (number "weight") (* m m)))
+  (define (input k) (car (hash-ref in k)))           ; declared decimal: a Racket real, GET or POST
+  (define m (/ (input "height") 100))
+  (define bmi (/ (input "weight") (* m m)))
   (Parameters (parameter (ParametersParameter (name "bmi") (valueDecimal (real->decimal-string bmi 1))))))
 (operation $bmi #:system
   #:in ([weight decimal 1 1] [height decimal 1 1])

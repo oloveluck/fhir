@@ -27,7 +27,8 @@
          (only-in fhir/capability/runtime
                   app? app-capability-statement app-transaction app-metadata dispatch
                   read-request vread-request create-request update-request delete-request
-                  search-request invoke-request history-request patch-request operation-outcome-invalid operation-outcome-not-supported))
+                  search-request invoke-request history-request patch-request operation-outcome-invalid operation-outcome-not-supported
+                  current-request-json))
 
 (provide
  (contract-out
@@ -183,10 +184,11 @@
 
 ;; parse a JSON body into a typed node, or short-circuit with an `invalid` OperationOutcome
 (define (with-body body k)
-  (define r (with-handlers ([exn:fail? (lambda (e) #f)])
-              (from-json (read-json (open-input-string body)) #:lenient? #t)))
-  (cond [(and r (ok? r)) (k (ok-value r))]
-        [else (values 'error (operation-outcome-invalid "request body is not valid FHIR JSON"))]))
+  (define js (with-handlers ([exn:fail? (lambda (e) #f)]) (read-json (open-input-string body))))
+  (define r (and js (with-handlers ([exn:fail? (lambda (e) #f)]) (from-json js #:lenient? #t))))
+  (cond [(and r (ok? r)) (parameterize ([current-request-json js]) (k (ok-value r)))]
+        [(not js) (values 'error (operation-outcome-invalid "request body is not JSON"))]
+        [else (values 'error (operation-outcome-invalid "request body is not a FHIR resource"))]))
 
 ;; ---- status codes --------------------------------------------------------------------------
 (define (status-for kind node)

@@ -18,7 +18,7 @@
          "fhir-sqlite.rkt" "fhir-engine.rkt" "ig-params.rkt" "bundle.rkt"
          (only-in "search-index.rkt" indexed-kind?)
          (only-in fhir/capability/derive derive-capability-statement rc-server rc-resource)
-         (only-in fhir/capability/runtime make-repository build-app app? search-result)
+         (only-in fhir/capability/runtime make-repository build-app app? search-result search-result/ignored)
          (only-in fhir/serialize/from-json from-json)
          (only-in fhir/serialize/to-json node->jsexpr)
          (only-in fhir/result/result ok? ok-value ok-or-raise)
@@ -76,11 +76,15 @@
                                  (fhir-history-type store rtype #:since since #:count count))))
    #:search (lambda (params)
               (define qps (for/list ([p (in-list params)]) (cons (symbol->string (car p)) (cdr p))))
-              (define matches (fhir-search store rtype qps #:search-params catalog))
+              (define-values (matches ignored) (fhir-search/ignored store rtype qps #:search-params catalog))
               (define nodes (map js->node matches))
-              (if (for/or ([q (in-list qps)]) (member (car q) '("_include" "_revinclude")))
-                  (search-result nodes (map js->node (fhir-includes store rtype matches qps)))
-                  nodes))))
+              (define includes (if (for/or ([q (in-list qps)]) (member (car q) '("_include" "_revinclude")))
+                                   (map js->node (fhir-includes store rtype matches qps))
+                                   '()))
+              ;; what the store cannot search on is said in the searchset, not silently dropped
+              (cond [(pair? ignored) (search-result/ignored nodes includes ignored)]
+                    [(pair? includes) (search-result nodes includes)]
+                    [else nodes]))))
 
 ;; ---- audit / provenance recording --------------------------------------------
 ;; One AuditEvent per write (+ one Provenance per create/update), created in the SAME store so

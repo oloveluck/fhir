@@ -18,6 +18,8 @@
          (only-in fhir/result/result ok-or-raise ok? ok-value)
          (only-in fhirpath/navigate navigate)
          (only-in fhirpath/value item->system)
+         (only-in fhirpath/decimal fp-decimal? decimal->exact decimal->string)
+         (only-in fhirpath/render item->json)
          (only-in fhirpath/eval eval-fhirpath)
          (only-in fhirpath/parser/parse parse-fhirpath)
          (only-in "derive.rkt" op-code->canonical)
@@ -31,7 +33,12 @@
  (struct-out app)
  (struct-out request)
  (struct-out search-result)
+ (struct-out search-result/ignored)
  current-app
+ ;; current-request-json : (parameter jsexpr|#f)   the request body AS SENT (the HTTP layer sets it
+ ;; while dispatching): validation and operations read it, since the typed node is parsed leniently
+ ;; and has dropped whatever it did not know (a misspelt element, a value it could not parse)
+ current-request-json
  (contract-out
   [make-repository (->* () (#:read (or/c procedure? #f) #:vread (or/c procedure? #f)
                             #:create (or/c procedure? #f) #:update (or/c procedure? #f)
@@ -87,6 +94,7 @@
 ;; each declared search-param's FHIRPath expression against stored resources (a param without an
 ;; expression, or an unknown query param, is ignored — FHIR lenient handling).
 (define current-repository-factory (make-parameter #f))
+(define current-request-json (make-parameter #f))
 (define (make-default-repository type interactions sps)
   (define f (current-repository-factory))
   (if f (f type interactions sps) (make-memory-repository type interactions sps)))
@@ -124,6 +132,9 @@
 (struct operation-handler (proc op-def level target) #:transparent)
 ;; what a repository's search may return instead of a plain list: matches + _include'd resources
 (struct search-result (matches includes) #:transparent)
+;; search-result/ignored : matches includes (listof param-name) -> search-result   the parameters the
+;; search could not apply, which the searchset reports (an OperationOutcome entry, mode "outcome")
+(struct search-result/ignored search-result (names) #:transparent)
 ;; operation-entry (produced by the #lang emitter, paired with its OperationDefinition in
 ;; build-app) is defined in kernel/operation-entry.rkt so generated towers need only fhir.
 
@@ -266,11 +277,51 @@
               (request-code req) (request-level req)
               (if (target-of req) (format " on ~a" (target-of req)) "")))]
     [else
-     (define in (parameters->hash (request-body req)))
-     (define bad (and (operation-handler-op-def h) (validate-inputs (operation-handler-op-def h) in)))
+     (define in0 (parameters->hash (request-body req)))
+     (define bad (and (operation-handler-op-def h) (validate-inputs (operation-handler-op-def h) in0)))
+     (define in (if (and (not bad) (operation-handler-op-def h)) (typed-inputs (operation-handler-op-def h) in0) in0))
      (cond
        [bad bad]
+       [(string? in) (operation-outcome-invalid in)]
        [else (guarded (lambda () ((operation-handler-proc h) in req)))])]))
+
+;; typed-inputs : OperationDefinition inputs -> inputs | problem-string   each primitive input as its
+;; declared type says, the same whether it came in a GET query (text) or a POSTed Parameters
+;; (FHIRPath values): integer types -> exact integers, decimal -> a Racket real, boolean -> #t/#f,
+;; everything else (string, code, uri, date, dateTime, …) -> the text as sent; resources stay nodes.
+;; A value that is not of its type is a problem naming the input.
+(define (typed-inputs od in)
+  (define types (for/hash ([p (in-list (navigate (list od) 'parameter))]
+                           #:when (equal? (leaf->string (single (navigate (list p) 'use))) "in"))
+                  (values (leaf->string (single (navigate (list p) 'name)))
+                          (let ([t (single (navigate (list p) 'type))]) (and t (leaf->string t))))))
+  (let/ec return
+    (for/hash ([(name vs) (in-hash in)])
+      (define type (hash-ref types name #f))
+      (values name
+              (for/list ([v (in-list vs)])
+                (define c (typed-value type v))
+                (when (eq? c 'bad)
+                  (return (format "parameter '~a' must be a ~a, got ~a" name type (shown v))))
+                c)))))
+(define (raw-text v)
+  (cond [(string? v) v]
+        [(fp-decimal? v) (decimal->string v)]
+        [(fhir? v) v]
+        [else (let ([j (item->json v)]) (regexp-replace #rx"^@T?" (if (string? j) j (format "~a" j)) ""))]))   ; a date or time, as FHIR writes it (no FHIRPath @)
+(define (shown v) (if (string? v) (format "\"~a\"" v) (format "~a" (raw-text v))))
+(define (typed-value type v)
+  (cond
+    [(fhir? v) v]
+    [(member type '("integer" "positiveInt" "unsignedInt" "integer64"))
+     (define n (cond [(exact-integer? v) v] [(string? v) (string->number v 10)] [else #f]))
+     (if (exact-integer? n) n 'bad)]
+    [(equal? type "decimal")
+     (define n (cond [(fp-decimal? v) (exact->inexact (decimal->exact v))] [(real? v) v] [(string? v) (string->number v 10)] [else #f]))
+     (if (real? n) n 'bad)]
+    [(equal? type "boolean")
+     (cond [(boolean? v) v] [(member v '("true")) #t] [(member v '("false")) #f] [else 'bad])]
+    [else (raw-text v)]))
 
 (define (target-of req) (and (request-type req) (symbol->string (request-type req))))
 
@@ -332,13 +383,25 @@
     (if (search-result? result)
         (values (search-result-matches result) (search-result-includes result))
         (values result '())))
+  (define ignored (if (search-result/ignored? result) (search-result/ignored-names result) '()))
   (define (entry n mode) (hasheq 'resource (node->jsexpr n) 'search (hasheq 'mode mode)))
+  ;; a parameter the server does not support is ignored, as FHIR allows — and said so, in an
+  ;; OperationOutcome entry (https://hl7.org/fhir/search.html#errors): without it, `?birthdate=lt1900`
+  ;; on a server that cannot search birthdate looks like every patient matched
+  (define outcome
+    (if (null? ignored) '()
+        (list (hasheq 'resource (hasheq 'resourceType "OperationOutcome"
+                                        'issue (for/list ([n (in-list ignored)])
+                                                 (hasheq 'severity "warning" 'code "not-supported"
+                                                         'diagnostics (format "search parameter `~a` is not supported here: it was ignored" n))))
+                      'search (hasheq 'mode "outcome")))))
   (ok-or-raise
    (from-json (hasheq 'resourceType "Bundle" 'type "searchset"
                       'total (length matches)
                       ;; a nested resource inside a Bundle entry is given to from-json as jsexpr
                       'entry (append (for/list ([n (in-list matches)]) (entry n "match"))
-                                     (for/list ([n (in-list includes)]) (entry n "include")))))))
+                                     (for/list ([n (in-list includes)]) (entry n "include"))
+                                     outcome)))))
 
 (define (operation-outcome severity code diagnostics)
   (ok-or-raise

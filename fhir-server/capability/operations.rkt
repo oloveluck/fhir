@@ -26,7 +26,7 @@
          (only-in fhir/result/result ok-or-raise ok? ok-value)
          (only-in "derive.rkt" rc-operation rc-server derive-capability-statement)
          (only-in "runtime.rkt" build-app app? current-app app-repositories repository-read
-                  request request-id request-body request-type)
+                  request request-id request-body request-type current-request-json)
          (only-in fhir/model/node fhir?))
 
 (provide
@@ -74,7 +74,16 @@
          (lambda ()
            (with-handlers ([exn:fail:operation? exn:fail:operation-outcome])
              (define body (request-body req))
-             (define inputs (parameters->inputs (if body (strip-jnum (node->jsexpr body)) (hasheq))))
+             ;; the body as sent (its resources whole: a misspelt element is the validator's to see);
+             ;; a resource other than Parameters is the operation's subject input (`resource` for
+             ;; $validate), as FHIR allows for an operation that takes one resource
+             (define raw (let ([j (current-request-json)]) (and (hash? j) (strip-jnum j))))
+             (define sent (or raw (and body (strip-jnum (node->jsexpr body)))))
+             (define inputs
+               (cond [(not sent) (hasheq)]
+                     [(equal? (hash-ref sent 'resourceType #f) "Parameters") (parameters->inputs sent)]
+                     [(operation-subject op) (hash (operation-subject op) (list sent))]
+                     [else (parameters->inputs sent)]))
              ;; the request's own type: an operation on Resource is entered under "Resource"
              (define rtype (let ([t (request-type req)]) (if t (symbol->string t) type)))
              (define subject (and (eq? level 'instance) read (read rtype (request-id req))))
