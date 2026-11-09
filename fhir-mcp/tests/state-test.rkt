@@ -31,9 +31,9 @@
     (define q2 (call b "query" (hasheq 'language "sql" 'text "SELECT count(*) AS n FROM Patient")))
     (check-equal? (hash-ref q2 'result) "result://r2")             ; numbers continue from what is saved
     (check-equal? (hash-ref q2 'rows) (list (hasheq 'n 1)))
-    (check-equal? (hash-ref (call b "stage" (hasheq 'fsh "Instance: bob\nInstanceOf: Patient\n")) 'stage) "stage-1")))  ; stage-1 was committed
+    (check-equal? (hash-ref (call b "stage" (hasheq 'fsh "Instance: bob\nInstanceOf: Patient\n")) 'stage) "stage-2")))  ; a committed stage's number is not reused
 ;; a committed stage is gone for everyone
 (define-values (t err?) ((tool-run (hash-ref (tools-of a) "commit")) (hasheq 'stage "stage-9")))
 (check-true err?)
-(check-regexp-match #rx"no stage stage-9 [(]stages: stage-1[)]" t)
+(check-regexp-match #rx"no stage stage-9 [(]stages: stage-2[)]" t)
 (delete-directory/files dir)

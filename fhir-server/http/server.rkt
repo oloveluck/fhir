@@ -11,7 +11,7 @@
          racket/string
          racket/port
          racket/contract
-         (only-in json jsexpr->string)
+         (only-in json jsexpr->string bytes->jsexpr)
          (only-in fhir/capability/runtime app?)
          (only-in "router.rkt" handle/raw parse-query))
 
@@ -61,7 +61,10 @@
             (write-response out 401 (oo-json "login" "a valid bearer token is required"))]
            [else
             (define-values (status bytes ctype) (handle/raw app method path (parse-query query) body))
-            (write-raw-response out status bytes ctype)])])))
+            (write-raw-response out status bytes ctype
+                                #:location (and (= status 201) (regexp-match? #rx"json" ctype)
+                                                (created-location status (with-handlers ([exn:fail? (lambda (_) #f)])
+                                                                           (bytes->jsexpr bytes)))))])])))
   (flush-output out)
   (close-output-port out)
   (close-input-port in))
@@ -103,7 +106,7 @@
 
 ;; created-location : status jsexpr -> string | #f   a create's Location: Type/id/_history/version
 (define (created-location status js)
-  (and (= status 201) (hash? js) (string? (hash-ref js 'resourceType #f)) (string? (hash-ref js 'id #f))
+  (and (= status 201) js (hash? js) (string? (hash-ref js 'resourceType #f)) (string? (hash-ref js 'id #f))
        (let ([v (let ([m (hash-ref js 'meta #f)]) (and (hash? m) (hash-ref m 'versionId #f)))])
          (format "~a/~a~a" (hash-ref js 'resourceType) (hash-ref js 'id) (if (string? v) (format "/_history/~a" v) "")))))
 
@@ -123,4 +126,5 @@
 (define (reason status)
   (case status
     [(200) "OK"] [(201) "Created"] [(204) "No Content"] [(400) "Bad Request"]
-    [(403) "Forbidden"] [(404) "Not Found"] [(500) "Internal Server Error"] [else "OK"]))
+    [(401) "Unauthorized"] [(403) "Forbidden"] [(404) "Not Found"] [(405) "Method Not Allowed"]
+    [(409) "Conflict"] [(422) "Unprocessable Entity"] [(500) "Internal Server Error"] [else "OK"]))

@@ -42,7 +42,10 @@ history and search indexes). In a workspace the file is `<name>.capability.rkt`:
   integer, `decimal` a Racket real, `boolean` `#t`/`#f`, `string`/`code`/`uri`/`date`/`dateTime` the
   text as sent, a resource a typed node. A value that is not of its type is answered 400 before the
   handler runs. The handler returns a resource built with the R6 forms
-  (`(Parameters (parameter (ParametersParameter (name "x") (valueString "…"))))`). To refuse a request
+  (`(Parameters (parameter (ParametersParameter (name "x") (valueString "…"))))`). A repeating field
+  takes all its values in ONE form — two outputs are
+  `(Parameters (parameter (ParametersParameter (name "egfr") (valueDecimal "57.5")) (ParametersParameter (name "stage") (valueString "G3a"))))`,
+  not two `(parameter …)` forms (that is a "duplicate field" error). To refuse a request
   (400), return an OperationOutcome whose issue code is `invalid`:
   `(OperationOutcome (issue (OperationOutcomeIssue (severity "error") (code "invalid") (diagnostics "…"))))`;
   `processing` answers 422, `not-found` 404. An exception becomes a 500 OperationOutcome.

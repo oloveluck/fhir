@@ -919,7 +919,8 @@
 (define (hub-commit! h id [reason #f])
   (define st (or (stage-of h id)
                  (error 'commit (format "no stage ~a~a" id
-                                        (let ([ids (saved-names h "stages")]) (if (null? ids) " (stage something first)" (format " (stages: ~a)" (string-join ids ", "))))))))
+                                        (let ([ids (filter (lambda (n) (regexp-match? #rx"^stage-" n)) (saved-names h "stages"))])
+                                          (if (null? ids) " (stage something first)" (format " (stages: ~a)" (string-join ids ", "))))))))
   (define changes (staged-changes st))
   (define errors (for/sum ([c (in-list changes)]) (length (change-errors c))))
   (unless (zero? errors) (error 'commit (format "~a has ~a validation error(s); fix them and stage again" id errors)))
@@ -956,7 +957,9 @@
          (call-with-output-file (cdr p) (lambda (o) (write-json (car p) o)) #:exists 'truncate/replace)
          (hasheq 'resource (format "~a/~a" (hash-ref (car p) 'resourceType) (hash-ref (car p) 'id)) 'file (path-string (cdr p)) 'ok #t))]))
   (hash-remove! (hub-stages h) id)
-  (forget-state! h "stages" id)
+  ;; kept as committed-stage-N: its number is never handed out again
+  (let ([f (build-path (state-dir h "stages") (string-append id ".json"))])
+    (when (file-exists? f) (rename-file-or-directory f (build-path (state-dir h "stages") (string-append "committed-" id ".json")) #t)))
   ;; the trail: a Provenance and an AuditEvent in the data, naming the versions written
   (define targets (for/list ([w (in-list written)] [ch (in-list todo)] #:when (hash-ref w 'ok #f))
                     (list (hash-ref w 'version (hash-ref w 'resource)) (if (eq? (change-action ch) 'create) 'create 'update))))
