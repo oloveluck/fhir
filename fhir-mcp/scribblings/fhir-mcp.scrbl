@@ -63,14 +63,14 @@ token never goes in a file. @tt{raco fhir-mcp call <tool> '<json>'} runs one too
 @tabular[#:style 'boxed #:sep @hspace[2]
 (list (list @bold{tool} @bold{arguments} @bold{does})
       (list @tt{write} @elem{@tt{path}, @tt{text}} "saves a file (empty text deletes it) and answers its problems in the same call; never outside the workspace or into the data")
-      (list @tt{check} @tt{paths?} "every problem, and the configuration: FHIR version, packages, data")
+      (list @tt{check} @elem{@tt{paths?}, @tt{data?}} "every problem, and the configuration: FHIR version, packages, data; with data, every stored resource held to its type and the workspace's profiles")
       (list @tt{run} @elem{@tt{path}, @tt{entry?}, @tt{over?}, @tt{parameters?}} "a file against the data: a summary, the first rows, and a handle result://rN")
       (list @tt{query} @elem{@tt{language}, @tt{text}, …} "the same without a file: fhirpath, cql (an expression is evaluated per patient), vcl, search (Type?params; files are indexed by the packages' search parameters on the first search), view, sql (one SELECT over the views' rows and earlier results as tables)")
       (list @tt{explain} @elem{@tt{ref}, @tt{subject}, @tt{entry?}} "why one subject's answer is what it is (a result or a file)")
       (list @tt{describe} @elem{@tt{ref}, @tt{offset?}, @tt{limit?}, @tt{against?}, @tt{as?}} "anything by reference: a result (paged, as CSV, or compared with another), Type/id (as JSON or an FSH Instance), a canonical, a type or element, an operation and its inputs, a fragment of a name")
       (list @tt{apply} @elem{@tt{operation}, @tt{inputs?}, @tt{resource?}} "any registered FHIR operation, in the workspace's context")
       (list @tt{stage} @elem{@tt{resources} | @tt{fsh} | @tt{result} | @tt{path}} "a write prepared: each resource validated and compared with the data's copy (create, update and its changed paths, unchanged)")
-      (list @tt{commit} @tt{stage} "a stage written: to a data directory (a file per resource), or a FHIR server when allowed; a stage with errors is refused"))]
+      (list @tt{commit} @elem{@tt{stage}, @tt{reason?}} "a stage written: to the workspace's SQLite store (one transaction), a data directory, or a FHIR server when allowed; a stage with errors is refused; a Provenance (versions, agent, reason, source text and hash) and an AuditEvent are written beside the data"))]
 
 Tool definitions are short (about 6 KB for the nine), and an operation's inputs are read only when an
 agent asks for them with @tt{describe("$code")}.

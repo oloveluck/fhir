@@ -8,6 +8,7 @@
 ;;; A State is (state tools initialized?); dispatch is pure and the loop does the I/O, as the
 ;;; language server's. A tool call's result is {content [{type "text", text}], isError}.
 
+(require (only-in "trail.rkt" current-agent agent-from-client))
 (require racket/contract racket/string racket/list json
          (only-in fhir/lsp/jsonrpc request? notification? message-method message-id message-params
                   response error-response method-not-found invalid-params parse-error)
@@ -33,8 +34,11 @@
     ".map/.fml (mappings), .view.json (SQL on FHIR views), .json (resources); what one file defines, the others see by canonical. "
     "The loop: write (answers the file's problems at their lines) -> fix -> run (a summary and result://rN) -> explain one subject when an answer surprises you. "
     "query asks once without a file; describe reads any reference (results paged, types and elements, operations, Type/id, canonicals); "
-    "apply runs a FHIR operation; stage then commit writes validated, diffed changes to the data. "
-    "Read learn://workspace first, and learn://<language> (fsh, cql, fhirpath, vcl, fml, sql-on-fhir, search) before writing a language: each has a cheat sheet and links to its official specification.")))
+    "apply runs a FHIR operation; stage then commit writes validated, diffed changes to the data (SQLite, every resource as JSONB), leaving a Provenance and an AuditEvent: give commit a reason. "
+    "Rules the data must keep are FSH profiles named in workspace.yaml `profiles`; check(data: true) holds the store to them. "
+    "describe(\"Type/id/_history\") and SQL over history, Provenance and AuditEvent compute over the trail. "
+    "A FHIR server is a <name>.capability.rkt file (#lang fhir/capability): run serves it over the same store. "
+    "Read learn://fhir and learn://workspace first, and learn://<language> (fsh, cql, fhirpath, vcl, fml, sql-on-fhir, capability, search) before writing a language: each has a cheat sheet and links to its official specification.")))
 (provide current-server-instructions)
 (define protocol-version "2024-11-05")
 
@@ -42,6 +46,7 @@
 (define handlers
   (hash "initialize"
         (lambda (params st)
+          (set-box! current-agent (agent-from-client (hash-ref params 'clientInfo #f)))   ; who the trail names
           (values (hasheq 'protocolVersion protocol-version
                           'capabilities (hasheq 'tools (hasheq 'listChanged #f)
                                                 'resources (hasheq 'listChanged #f 'subscribe #f)

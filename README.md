@@ -81,7 +81,10 @@ With a workspace, an agent can:
   the workspace serves it.
 
 All of it is stored in SQLite (`fhir.db`): every resource as JSONB, with its versions and search
-indexes, open to SQL.
+indexes, open to SQL. Rules the data must keep are FHIR profiles (written in FSH, named in
+`workspace.yaml`): a change that breaks one is refused. Every change leaves a Provenance (the
+versions, the agent, the reason, the source text) and an AuditEvent in the same store, so who
+changed what, when, why and from what is a query.
 
 Without MCP, each language's repository has a Claude skill (`.claude/skills/<language>/SKILL.md`)
 for its command line.

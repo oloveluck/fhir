@@ -48,9 +48,12 @@
          (schema (hasheq 'path (s "the file's path, relative to the workspace") 'text (s "the whole file")) '("path" "text"))
          (lambda (args) (answer (lambda () (hub-write! h (need args 'path) (let ([t (hash-ref args 'text #f)]) (if (string? t) t (need args 'text))))))))
    (tool "check"
-         "Every problem in the workspace (or in the files named), each at its file, line and column, with the workspace's configuration: FHIR version, packages, data."
-         (schema (hasheq 'paths (hasheq 'type "array" 'items (hasheq 'type "string") 'description "files to check (default: all)")) '())
-         (lambda (args) (answer (lambda () (hub-check h (let ([ps (hash-ref args 'paths '())]) (if (list? ps) (filter string? ps) '())))))))
+         "Every problem in the workspace (or in the files named), each at its file, line and column, with the workspace's configuration: FHIR version, packages, data. With data: true, also every stored resource held to its base type and the workspace's profiles (workspace.yaml `profiles`), violations counted by rule."
+         (schema (hasheq 'paths (hasheq 'type "array" 'items (hasheq 'type "string") 'description "files to check (default: all)")
+                         'data (hasheq 'type "boolean" 'description "also validate the stored data against the workspace's constraints"))
+                 '())
+         (lambda (args) (answer (lambda () (hub-check h (let ([ps (hash-ref args 'paths '())]) (if (list? ps) (filter string? ps) '()))
+                                                      #:data? (eq? (hash-ref args 'data #f) #t))))))
    (tool "run"
          "Run a workspace file against the data: CQL -> every define per patient; FHIRPath -> the value per resource; VCL -> the expansion; FML -> each source transformed and validated; a ViewDefinition -> its rows; FSH -> the resources it defines, examples validated; a Measure -> its populations. Answers a summary, the first rows and a handle (result://rN) for describe and explain."
          (schema (hash-set run-props 'path (s "the file, relative to the workspace")) '("path"))
@@ -95,6 +98,8 @@
                  '())
          (lambda (args) (answer (lambda () (hub-stage! h args)))))
    (tool "commit"
-         "Write a stage to the data: a directory (one file per resource), or a FHIR server when workspace.yaml allows writes. A stage with validation errors is refused."
-         (schema (hasheq 'stage (s "the stage id from stage")) '("stage"))
-         (lambda (args) (answer (lambda () (hub-commit! h (need args 'stage))))))))
+         "Write a stage to the data: the workspace's SQLite store (one transaction), a directory, or a FHIR server when workspace.yaml allows writes. A stage with validation errors is refused. It leaves a Provenance (the versions written, the agent, the reason, the source text with its hash) and an AuditEvent in the data."
+         (schema (hasheq 'stage (s "the stage id from stage")
+                         'reason (s "why: recorded in the Provenance (Provenance.reason)"))
+                 '("stage"))
+         (lambda (args) (answer (lambda () (hub-commit! h (need args 'stage) (let ([r (hash-ref args 'reason #f)]) (and (string? r) r)))))))))

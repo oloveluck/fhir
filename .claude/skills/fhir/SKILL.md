@@ -101,8 +101,11 @@ stage {"fsh": "<the FSH above>"}
  {"action": "create", "resource": "Observation/ann-a1c"}, {"action": "create", "resource": "Observation/bob-a1c"}]}
 ```
 ```call
-commit {"stage": "stage-1"}
+commit {"stage": "stage-1", "reason": "two patients' HbA1c results"}
 ```
+
+The commit leaves a Provenance in the store beside the data: the versions it wrote, the agent, the
+reason, and the FSH it came from (the text itself, with its SHA-1).
 
 Find results above 8% with a FHIR search (the store indexes every resource by FHIR's own search
 parameters):
@@ -180,6 +183,15 @@ query {"language": "sql", "text": "SELECT resource ->> '$.gender' AS gender, cou
 {"rows": [{"gender": "female", "n": 1}, {"gender": "male", "n": 1}]}
 ```
 
+Every version of a resource, what changed and why (its Provenance):
+
+```call
+describe {"ref": "Observation/ann-a1c/_history"}
+```
+```answer
+{"resource": "Observation/ann-a1c", "versions": [{"version": "1", "changed": "created", "reason": "two patients' HbA1c results"}]}
+```
+
 Read one resource back in its compact form:
 
 ```call
@@ -188,6 +200,18 @@ describe {"ref": "Observation/ann-a1c", "as": "fsh"}
 ```answer
 "Instance: ann-a1c\nInstanceOf: Observation\n* code = http://loinc.org#4548-4 \"Hemoglobin A1c\"\n* effectiveDateTime = \"2025-02-10\"\n* status = #final\n* subject = Reference(Patient/ann)\n* valueQuantity = 8.4 '%'"
 ```
+
+## Constraints and the trail
+Rules about the data are FHIR profiles: write one in FSH (cardinalities, fixed codes, value sets,
+FHIRPath invariants for anything more complex) and name it in workspace.yaml —
+`profiles:` / `  Observation: <canonical>`. Every staged resource of the type is held to it and
+claims it in `meta.profile`; a stage that breaks it lists the rule and cannot commit;
+`check(data: true)` holds everything already stored to the rules and counts violations by rule.
+Every commit writes a Provenance (versions, agent, `reason`, source text and hash) and an AuditEvent
+into the store; `audit: all` in workspace.yaml records every run, query and apply as an AuditEvent
+too. All of it is data: `describe("Type/id/_history")`, `query("search", "Provenance?target=Patient/ann")`,
+and SQL over `history` (every version), `Provenance` and `AuditEvent`. A result's `describe` names
+its source (file, SHA-1, the data as of when).
 
 ## Build a FHIR server
 A file `<name>.capability.rkt` in `#lang fhir/capability` declares a server: `(resource Patient

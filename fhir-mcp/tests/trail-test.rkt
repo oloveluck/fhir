@@ -1,0 +1,76 @@
+#lang racket/base
+
+;;; trail-test.rkt — constraints and the trail, end to end in a workspace made by `init`: a profile
+;;; with an invariant (FSH) named in workspace.yaml's `profiles` refuses a stage that breaks it; each
+;;; commit leaves a Provenance (the versions, the reason, the source text) and an AuditEvent in the
+;;; store; the history of a resource reads back with what changed and why; SQL joins the versions to
+;;; their Provenance; `audit: all` records executions; `check(data: true)` holds the store to the rules.
+
+(require rackunit racket/file racket/string json net/base64
+         fhir/mcp/workspace fhir/mcp/verbs fhir/mcp/init
+         (only-in fhir/mcp/trail current-agent)
+         (only-in fhir/mcp/tools tool-name tool-run))
+
+(define dir (make-temporary-directory "trail-~a"))
+(void (init-workspace! dir))
+(void (call-with-output-file (build-path dir "workspace.yaml") #:exists (quote append)
+  (lambda (o) (write-string "profiles:\n  Observation: http://example.org/fhir/StructureDefinition/a1c\naudit: all\n" o))))
+(define h (open-hub dir))
+(define tools (for/hash ([t (in-list (workspace-tools h))]) (values (tool-name t) t)))
+(define (call name args #:ok? [ok? #t])
+  (define-values (text err?) ((tool-run (hash-ref tools name)) args))
+  (when ok? (check-false err? (format "~a: ~a" name text)))
+  (string->jsexpr text))
+(set-box! current-agent "claude-code 2.0 via fhir-mcp")
+
+(define rules (string-append "Profile: A1c\nParent: Observation\nId: a1c\n* code = http://loinc.org#4548-4\n* subject 1..1\n"
+                             "* value[x] only Quantity\n* valueQuantity 1..1\n* obeys a1c-percent\n\n"
+                             "Invariant: a1c-percent\nDescription: \"An HbA1c is a percentage\"\nSeverity: #error\n"
+                             "Expression: \"value.ofType(Quantity).code = '%'\"\n"))
+(define (a1c value unit) (format "Instance: a1\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#4548-4\n* subject = Reference(Patient/ann)\n* valueQuantity = ~a '~a'\n" value unit))
+
+(with-hub h
+  (lambda ()
+    (check-equal? (hash-ref (call "write" (hasheq 'path "rules.fsh" 'text rules)) 'problems) '())
+    ;; the constraint: an HbA1c in mmol/mol breaks the invariant, so the stage cannot commit
+    (define bad (call "stage" (hasheq 'fsh (a1c 64 "mmol/mol"))))
+    (check-equal? (hash-ref (car (hash-ref bad 'changes)) 'errors) '("Observation: a1c-percent: An HbA1c is a percentage"))
+    (call "commit" (hasheq 'stage (hash-ref bad 'stage)) #:ok? #f)
+    ;; a valid one commits, claims the profile, and leaves a Provenance naming the version and the reason
+    (define ok1 (call "stage" (hasheq 'fsh (string-append "Instance: ann\nInstanceOf: Patient\n* gender = #female\n\n" (a1c 8.0 "%")))))
+    (define c1 (call "commit" (hasheq 'stage (hash-ref ok1 'stage) 'reason "intake: ann's first HbA1c")))
+    (check-regexp-match #rx"^Provenance/" (hash-ref c1 'provenance))
+    (define stored (call "describe" (hasheq 'ref "Observation/a1")))
+    (check-equal? (hash-ref (hash-ref stored 'meta) 'profile) '("http://example.org/fhir/StructureDefinition/a1c"))
+    (define prov (call "describe" (hasheq 'ref (hash-ref c1 'provenance))))
+    (check-equal? (sort (map (lambda (t) (hash-ref t 'reference)) (hash-ref prov 'target)) string<?) '("Observation/a1/_history/1" "Patient/ann/_history/1"))
+    (check-equal? (hash-ref (hash-ref (car (hash-ref prov 'agent)) 'who) 'display) "claude-code 2.0 via fhir-mcp")
+    (define att (hash-ref (car (hash-ref (car (hash-ref prov 'contained)) 'content)) 'attachment))
+    (check-regexp-match #rx"valueQuantity = 8.0 '%'" (bytes->string/utf-8 (base64-decode (string->bytes/utf-8 (hash-ref att 'data)))))
+    ;; a correction: version 2, its own Provenance
+    (call "commit" (hasheq 'stage (hash-ref (call "stage" (hasheq 'fsh (a1c 8.4 "%"))) 'stage) 'reason "lab corrected the value"))
+    (define hist (call "describe" (hasheq 'ref "Observation/a1/_history")))
+    (check-equal? (map (lambda (v) (list (hash-ref v 'version) (hash-ref v 'changed) (hash-ref v 'reason) (hash-ref v 'by))) (hash-ref hist 'versions))
+                  '(("2" ("valueQuantity.value") "lab corrected the value" "claude-code 2.0 via fhir-mcp")
+                    ("1" "created" "intake: ann's first HbA1c" "claude-code 2.0 via fhir-mcp")))
+    ;; computing over the trail: every version with the reason it was written, in SQL
+    (define q (call "query" (hasheq 'language "sql" 'text (string-append
+                                                         "SELECT h.versionId, h.resource ->> '$.valueQuantity.value' AS value, p.resource ->> '$.reason[0].text' AS reason "
+                                                         "FROM history h JOIN Provenance p ON EXISTS (SELECT 1 FROM json_each(p.resource, '$.target') t "
+                                                         "WHERE t.value ->> '$.reference' = h.type || '/' || h.id || '/_history/' || h.versionId) "
+                                                         "WHERE h.type = 'Observation' AND h.id = 'a1' ORDER BY h.versionId"))))
+    (check-equal? (hash-ref q 'rows) (list (hasheq 'versionId 1 'value 8 'reason "intake: ann's first HbA1c")
+                                           (hasheq 'versionId 2 'value 8.4 'reason "lab corrected the value")))
+    ;; FHIR search finds the trail too
+    (check-equal? (hash-ref (call "query" (hasheq 'language "search" 'text "Provenance?target=Observation/a1")) 'total) 2)
+    ;; audit: all — the SQL query above left an execution AuditEvent beside the two commits'
+    (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT resource ->> '$.action' AS action, count(*) AS n FROM AuditEvent GROUP BY 1 ORDER BY 1")) 'rows)
+                  (list (hasheq 'action "C" 'n 1) (hasheq 'action "E" 'n 2) (hasheq 'action "U" 'n 1)))
+    ;; a result says where it came from
+    (check-equal? (hash-ref (hash-ref (call "describe" (hasheq 'ref (hash-ref q 'result))) 'source) 'language) "sql")
+    ;; the stored data, held to the rules: all of it holds (the trail's own resources included)
+    (define cd (hash-ref (call "check" (hasheq 'data #t)) 'data))
+    (check-equal? (hash-ref cd 'invalid) 0)
+    (check-true (>= (hash-ref cd 'checked) 8))))
+
+(delete-directory/files dir)

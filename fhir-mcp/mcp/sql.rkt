@@ -5,7 +5,8 @@
 ;;; dropped after it; only a reading statement runs (SELECT, WITH or VALUES), so nothing is written
 ;;; anywhere. Over a FHIR store (#:database, fhir-server's SQLite file) the query runs on a READ-ONLY
 ;;; connection to the store itself: the tables become TEMP tables there, and every resource type
-;;; stored is a TEMP view `"<Type>"(id, versionId, lastUpdated, resource)`, plus `resources(type, …)`,
+;;; stored is a TEMP view `"<Type>"(id, versionId, lastUpdated, resource)`, plus `resources(type, …)`
+;;; and `history(type, id, versionId, lastUpdated, resource)` (every version ever written),
 ;;; whose `resource` is the stored JSONB — `resource ->> '$.gender'`, `json_each(resource, '$.name')`.
 ;;; A JSONB cell in the answer is rendered as its JSON text.
 ;;;
@@ -69,10 +70,12 @@
   (for ([t (in-list types)])
     (query-exec c (format "CREATE TEMP VIEW ~a AS SELECT id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_resources WHERE resource_type = '~a'"
                           (q t) (string-replace t "'" "''"))))
-  (cond [(free? "resources")
-         (query-exec c "CREATE TEMP VIEW resources AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_resources")
-         (cons "resources" types)]
-        [else types]))
+  (define (view! name sql) (and (free? name) (begin (query-exec c sql) name)))
+  (append (filter values
+                  (list (view! "resources" "CREATE TEMP VIEW resources AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_resources")
+                        ;; every version of every resource, the current one included: what changed, when
+                        (view! "history" "CREATE TEMP VIEW history AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_history")))
+          types))
 (define (q s) (string-append "\"" (string-replace s "\"" "\"\"") "\""))
 
 ;; load-table! : connection name table [#:temp?] -> void
@@ -138,6 +141,7 @@
   (define db (make-temporary-file "sql-store-~a.db"))
   (let ([w (sqlite3-connect #:database db)])
     (query-exec w "CREATE TABLE fhir_resources (resource_type TEXT, id TEXT, version_id INTEGER, last_updated TEXT, resource BLOB)")
+    (query-exec w "CREATE TABLE fhir_history (resource_type TEXT, id TEXT, version_id INTEGER, last_updated TEXT, resource BLOB)")
     (for ([r (list "{\"resourceType\":\"Patient\",\"id\":\"a\",\"gender\":\"female\",\"name\":[{\"family\":\"Ng\"}]}"
                    "{\"resourceType\":\"Patient\",\"id\":\"b\",\"gender\":\"male\"}")])
       (query-exec w "INSERT INTO fhir_resources VALUES ('Patient', json_extract(?, '$.id'), 1, '2025-01-01', jsonb(?))" r r))
@@ -150,5 +154,5 @@
                 (list (hasheq 'names "[{\"family\":\"Ng\"}]")))
   (check-equal? (table-rows (sql-query "SELECT resource FROM Patient WHERE id = 'b'" (hash) #:database db))
                 (list (hasheq 'resource (hasheq 'resourceType "Patient" 'id "b" 'gender "male"))))
-  (check-exn #rx"names none of the tables: Patient, resources" (lambda () (sql-query "SELECT 1" (hash) #:database db)))
+  (check-exn #rx"names none of the tables: Patient, history, resources" (lambda () (sql-query "SELECT 1" (hash) #:database db)))
   (delete-file db))

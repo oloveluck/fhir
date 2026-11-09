@@ -26,8 +26,9 @@
          (only-in fhir/data-source current-data-source data-source? data-source-all data-source-read data-source-search
                   directory->data-source resources->data-source empty-data-source bundle-resources)
          (only-in fhir/rest-data-source rest->data-source rest-write! rest-url?)
-         "search-index.rkt" "sql.rkt"
+         "search-index.rkt" "sql.rkt" "trail.rkt"
          (only-in net/url string->url post-pure-port)
+         (only-in db sqlite3-connect query-value query-list disconnect)
          (only-in fhir/sd/sd-index current-sd-packages resolve-canonical-raw sd-index-available?)
          (only-in fhir/operation operation operation-definition operation-code operation-url operation-levels
                   operation-resource-types apply-operation exn:fail:operation? exn:fail:operation-outcome)
@@ -42,14 +43,14 @@
   [hub-root        (-> hub? path?)]
   [with-hub        (-> hub? (-> any) any)]
   [hub-write!      (-> hub? string? string? jsexpr?)]
-  [hub-check       (-> hub? (listof string?) jsexpr?)]
+  [hub-check       (->* (hub? (listof string?)) (#:data? boolean?) jsexpr?)]
   [hub-run         (-> hub? string? hash? jsexpr?)]
   [hub-query       (-> hub? string? string? hash? jsexpr?)]
   [hub-explain     (-> hub? string? string? hash? jsexpr?)]
   [hub-describe    (-> hub? string? hash? (or/c jsexpr? text-answer?))]   ; text when `as` is "fsh"
   [hub-apply       (-> hub? string? hash? (or/c hash? #f) jsexpr?)]
   [hub-stage!      (-> hub? hash? jsexpr?)]
-  [hub-commit!     (-> hub? string? jsexpr?)]
+  [hub-commit!     (->* (hub? string?) ((or/c string? #f)) jsexpr?)]
   [hub-result-uris (-> hub? (listof string?))]
   [hub-read-result (-> hub? string? (or/c jsexpr? #f))]))
 
@@ -60,6 +61,7 @@
              results stages [counter #:mutable]))
 (struct stored (language path text options result))
 (struct change (resource action paths errors))
+(struct staged (changes source))           ; a stage: its changes, and what they were made from (trail.rkt's Source)
 
 (define (hub-root h) (workspace-root (hub-ws h)))
 
@@ -278,15 +280,43 @@
           'parameters (for/hasheq ([(k v) (in-hash (ws-config-parameters c))]) (values (string->symbol k) v))
           'warnings (hub-warnings h)))
 
-(define (hub-check h paths)
+(define (hub-check h paths #:data? [data? #f])
   (refresh! h)
   (define ds (if (null? paths) (hub-diagnostics h)
                  (append* (for/list ([p (in-list paths)]) (problems-of h (inside h p))))))
-  (hasheq 'files (map (lambda (f) (rel h f)) (workspace-files (hub-ws h)))
-          'errors (count-severity ds 'error)
-          'warnings (count-severity ds 'warning)
-          'problems (map (lambda (d) (problem-json h d)) ds)
-          'workspace (config-json h)))
+  (define base (hasheq 'files (map (lambda (f) (rel h f)) (workspace-files (hub-ws h)))
+                       'errors (count-severity ds 'error)
+                       'warnings (count-severity ds 'warning)
+                       'problems (map (lambda (d) (problem-json h d)) ds)
+                       'workspace (config-json h)))
+  (if data? (hash-set base 'data (with-hub h (lambda () (check-data h)))) base))
+
+;; check-data : hub -> jsexpr   every stored resource validated against its base type and the
+;; workspace's profiles for its type: how many, how many break a rule, the rules by how often they
+;; are broken, and the first problems as lines (`Observation/x: Observation.value[x]: …`)
+(define (check-data h)
+  (define resources (all-data h))
+  (define found
+    (for*/list ([r (in-list resources)]
+                [e (in-list (validation-errors (with-profiles h r)))])
+      (cons (format "~a/~a" (hash-ref r 'resourceType "?") (hash-ref r 'id "?")) e)))
+  (define by-rule (for/fold ([acc (hash)]) ([f (in-list found)]) (hash-update acc (cdr f) add1 0)))
+  (hasheq 'checked (length resources)
+          'invalid (length (remove-duplicates (map car found)))
+          'profiles (for/hasheq ([(t us) (in-hash (ws-config-profiles (workspace-config (hub-ws h))))]) (values (string->symbol t) us))
+          'byRule (for/list ([kv (in-list (sort (hash->list by-rule) > #:key cdr))] [_ (in-range 20)])
+                    (hasheq 'rule (car kv) 'count (cdr kv)))
+          'problems (for/list ([f (in-list found)] [_ (in-range 50)]) (format "~a: ~a" (car f) (cdr f)))))
+
+;; all-data : hub -> (listof resource)   every resource the data holds (a store's current versions,
+;; a directory's files); a FHIR server is not read whole
+(define (all-data h)
+  (define p (data-store-path h))
+  (cond
+    [p (define c (sqlite3-connect #:database p #:mode 'read-only))
+       (begin0 (map string->jsexpr (query-list c "SELECT json(resource) FROM fhir_resources ORDER BY resource_type, id"))
+               (disconnect c))]
+    [else (append-map bundle-resources (data-resources h))]))
 
 ;; ---- run, query, results ---------------------------------------------------------------------------
 (define preview-rows 10)
@@ -344,8 +374,20 @@
   (refresh! h)
   (define text (file->string full))
   (define opts (options args))
-  (define r (execute h lang full text opts))
+  (define r (audited h "run" (hasheq 'kind "file" 'path (rel h full) 'language lang 'text text)
+                     (lambda () (execute h lang full text opts))))
   (result-json (store! h (stored lang full text opts r)) r))
+
+;; audited : hub what Source thunk -> value   with `audit: all`, the execution leaves an AuditEvent
+;; in the data (its outcome, its source text), whether it succeeds or fails
+(define (audited h what src thunk)
+  (define c (workspace-config (hub-ws h)))
+  (define (record! outcome)
+    (write-trail! h (list (execution-audit (ws-config-fhir-version c) what src outcome (unbox current-agent) (now-instant)))))
+  (cond
+    [(not (equal? (ws-config-audit c) "all")) (thunk)]
+    [else (with-handlers ([exn:fail? (lambda (e) (record! (exn-message e)) (raise e))])
+            (begin0 (thunk) (record! #t)))]))
 
 (define query-languages (hash "fhirpath" "fhirpath" "cql" "cql" "vcl" "vcl" "search" "search" "view" "sql-on-fhir" "sql-on-fhir" "sql-on-fhir" "sql" "sql"))
 (define (hub-query h language text args)
@@ -353,7 +395,8 @@
                    (error 'query (format "query takes fhirpath, cql, vcl, search, view or sql (got ~a)" language))))
   (refresh! h)
   (define opts (options args))
-  (define r (if (equal? lang "sql") (run-sql h text) (execute h lang #f text opts)))
+  (define r (audited h (string-append "query " language) (hasheq 'kind "query" 'language language 'text text)
+                     (lambda () (if (equal? lang "sql") (run-sql h text) (execute h lang #f text opts)))))
   (result-json (store! h (stored lang #f text opts r)) r))
 
 ;; run-sql : hub sql -> run-result   SQL over the workspace's tables (sql.rkt): each ViewDefinition
@@ -507,6 +550,8 @@
         [(regexp-match? #rx"^result://" ref) (describe-result h ref offset limit against)]
         [(regexp-match #px"^(?:([A-Za-z]+)/)?[$]([A-Za-z-]+)$" ref) (describe-operation ref)]
         [(regexp-match? #rx"/OperationDefinition/" ref) (describe-operation ref)]
+        [(regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)/_history$" ref)
+         => (lambda (m) (describe-history h (cadr m) (caddr m)))]
         [(regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)$" ref)
          => (lambda (m) (shown (or ((data-source-read (current-data-source)) (cadr m) (caddr m))
                                    (registered-resource (cadr m) (caddr m))
@@ -518,6 +563,39 @@
         [(regexp-match #px"^([A-Z][A-Za-z]+)(?:[.](.+))?$" ref)
          => (lambda (m) (describe-element (cadr m) (caddr m) ref))]
         [else (search-definitions ref)]))))
+
+;; describe-history : hub type id -> jsexpr   every version of a stored resource, newest first: when,
+;; what changed since the one before, and the Provenance that wrote it (who, why, from what)
+(define (describe-history h type id)
+  (define p (or (data-store-path h) (error 'describe "history is kept by the workspace's store: data: fhir.db")))
+  (define-values (store catalog) (open-store p (hub-packages h)))
+  (define versions (reverse ((dynamic-require 'fhir/store/fhir-engine 'fhir-history) store type id)))   ; oldest first
+  (when (null? versions) (error 'describe (format "no ~a/~a in the store" type id)))
+  (define (vid r) (hash-ref (hash-ref r 'meta (hasheq)) 'versionId "?"))
+  ;; the Provenances naming this resource, by the version they name
+  (define provs
+    (for*/hash ([pv (in-list ((dynamic-require 'fhir/store/fhir-engine 'fhir-search) store "Provenance"
+                                                                                    (list (cons "target" (format "~a/~a" type id)))
+                                                                                    #:search-params catalog))]
+                [t (in-list (hash-ref pv 'target '()))]
+                [m (in-value (regexp-match #px"^([A-Za-z]+)/([^/]+)/_history/([^/]+)$" (hash-ref t 'reference "")))]
+                #:when (and m (equal? (cadr m) type) (equal? (caddr m) id)))
+      (values (cadddr m) pv)))
+  (define entries
+    (for/list ([cur (in-list versions)] [prev (in-list (cons #f versions))])
+      (define pv (hash-ref provs (vid cur) #f))
+      (for/fold ([e (hasheq 'version (vid cur)
+                            'at (hash-ref (hash-ref cur 'meta (hasheq)) 'lastUpdated "?")
+                            'changed (if prev (json-diff prev cur) "created"))])
+                ([kv (in-list (if pv
+                                  (list (cons 'provenance (format "Provenance/~a" (hash-ref pv 'id "?")))
+                                        (cons 'by (let ([a (hash-ref pv 'agent '())]) (and (pair? a) (hash-ref (hash-ref (car a) 'who (hasheq)) 'display #f))))
+                                        (cons 'reason (let ([r (hash-ref pv 'reason '())]) (and (pair? r) (hash-ref (car r) 'text #f))))
+                                        (cons 'source (let ([en (hash-ref pv 'entity '())]) (and (pair? en) (hash-ref (hash-ref (car en) 'what (hasheq)) 'display #f)))))
+                                  '()))]
+                 #:when (cdr kv))
+        (hash-set e (car kv) (cdr kv)))))
+  (hasheq 'resource (format "~a/~a" type id) 'versions (reverse entries)))
 
 ;; trim-definition : resource -> resource   a StructureDefinition without its snapshot (the elements
 ;; are a describe of Type.path away); the narrative dropped
@@ -584,7 +662,29 @@
      (define rows (run-result-rows r))
      (define page (take (drop rows (min offset (length rows))) (min limit (max 0 (- (length rows) offset)))))
      (hasheq 'result uri 'kind (run-result-kind r) 'columns (run-result-columns r) 'total (length rows)
-             'offset offset 'rows page 'summary (run-result-summary r))]))
+             'offset offset 'rows page 'summary (run-result-summary r)
+             'source (result-source h st))]))
+
+;; result-source : hub stored -> jsexpr   what a result came from: the file (or query), its hash, the
+;; options, and the data it ran over (the store's latest write) — enough to run it again and compare
+(define (result-source h st)
+  (for/fold ([src (hasheq 'language (stored-language st) 'sha1 (text-sha1 (stored-text st)))])
+            ([kv (in-list (list (cons 'file (and (stored-path st) (rel h (stored-path st))))
+                                (cons 'entry (hash-ref (stored-options st) 'entry #f))
+                                (cons 'over (hash-ref (stored-options st) 'over #f))
+                                (cons 'data (hub-data-label h))
+                                (cons 'dataAsOf (store-as-of h))))]
+             #:when (string? (cdr kv)))
+    (hash-set src (car kv) (cdr kv))))
+
+;; store-as-of : hub -> string | #f   the instant of the store's latest write
+(define (store-as-of h)
+  (define p (data-store-path h))
+  (and p (file-exists? p)
+       (with-handlers ([exn:fail? (lambda (_) #f)])
+         (define c (sqlite3-connect #:database p #:mode 'read-only))
+         (begin0 (let ([v (query-value c "SELECT max(last_updated) FROM fhir_history")]) (and (string? v) v))
+                 (disconnect c)))))
 
 ;; diff-results : before after -> {added removed changed}   rows matched by their first column
 (define (diff-results before after bname aname)
@@ -605,10 +705,12 @@
   (with-hub h
     (lambda ()
       (define o (with-handlers ([exn:fail? (lambda (e) e)]) (operation ref)))
-      (cond
-        [(not (exn? o)) (apply-json o inputs resource)]
-        [(apply-on-servers ref inputs resource) => values]
-        [else (error 'apply (format "no operation ~a: ~a" ref (exn-message o)))]))))
+      (audited h "apply" (hasheq 'kind "operation" 'operation ref 'text (jsexpr->string inputs))
+               (lambda ()
+                 (cond
+                   [(not (exn? o)) (apply-json o inputs resource)]
+                   [(apply-on-servers ref inputs resource) => values]
+                   [else (error 'apply (format "no operation ~a: ~a" ref (exn-message o)))]))))))
 
 ;; apply-on-servers : ref inputs resource -> jsexpr | #f   an operation of a capability app the
 ;; workspace serves (capability/workspace's running servers), POSTed as a Parameters resource to
@@ -713,7 +815,8 @@
   (refresh! h)
   (with-hub h
     (lambda ()
-      (define rs (staged-resources h args))
+      (define rs (map (lambda (r) (with-profiles h r)) (staged-resources h args)))
+      (define source (stage-source h args))
       (when (null? rs) (error 'stage "nothing to stage"))
       (define changes
         (for/list ([r (in-list rs)])
@@ -722,7 +825,7 @@
           (change r (cond [(not current) 'create] [(null? paths) 'unchanged] [else 'update]) paths (validation-errors r))))
       (set-hub-counter! h (add1 (hub-counter h)))
       (define id (format "stage-~a" (hub-counter h)))
-      (hash-set! (hub-stages h) id changes)
+      (hash-set! (hub-stages h) id (staged changes source))
       (define errors (for/sum ([c (in-list changes)]) (length (change-errors c))))
       (hasheq 'stage id
               'target (hub-data-label h)
@@ -735,8 +838,9 @@
               'next (if (zero? errors) (format "commit(\"~a\") writes the ~a change(s)" id (count (lambda (c) (not (eq? (change-action c) 'unchanged))) changes))
                         "fix the errors, then stage again: a stage with errors is not committed")))))
 
-(define (hub-commit! h id)
-  (define changes (or (hash-ref (hub-stages h) id #f) (error 'commit (format "no stage ~a" id))))
+(define (hub-commit! h id [reason #f])
+  (define st (or (hash-ref (hub-stages h) id #f) (error 'commit (format "no stage ~a" id))))
+  (define changes (staged-changes st))
   (define errors (for/sum ([c (in-list changes)]) (length (change-errors c))))
   (unless (zero? errors) (error 'commit (format "~a has ~a validation error(s); fix them and stage again" id errors)))
   (define todo (filter (lambda (c) (not (eq? (change-action c) 'unchanged))) changes))
@@ -772,8 +876,73 @@
          (call-with-output-file (cdr p) (lambda (o) (write-json (car p) o)) #:exists 'truncate/replace)
          (hasheq 'resource (format "~a/~a" (hash-ref (car p) 'resourceType) (hash-ref (car p) 'id)) 'file (path-string (cdr p)) 'ok #t))]))
   (hash-remove! (hub-stages h) id)
+  ;; the trail: a Provenance and an AuditEvent in the data, naming the versions written
+  (define targets (for/list ([w (in-list written)] [ch (in-list todo)] #:when (hash-ref w 'ok #f))
+                    (list (hash-ref w 'version (hash-ref w 'resource)) (if (eq? (change-action ch) 'create) 'create 'update))))
+  (define trail (if (null? targets) '() (write-trail! h (list (provenance targets (staged-source st) reason (unbox current-agent) (now-instant))
+                                                               (commit-audit (ws-config-fhir-version c) targets (unbox current-agent) (now-instant))))))
   (configure! h (hub-root h))                              ; the data read again
-  (hasheq 'stage id 'written written))
+  (hasheq 'stage id 'written (for/list ([w (in-list written)]) (hash-remove w 'version)) 'provenance (if (pair? trail) (car trail) 'null)))
+
+;; stage-source : hub args -> Source   what a stage's resources are made from (trail.rkt)
+(define (stage-source h args)
+  (define fsh (hash-ref args 'fsh #f))
+  (define path (hash-ref args 'path #f))
+  (define result (hash-ref args 'result #f))
+  (cond
+    [(string? fsh) (hasheq 'kind "fsh" 'language "fsh" 'text fsh)]
+    [(string? result)
+     (define st (hash-ref (hub-results h) result #f))
+     (if st
+         (for/fold ([src (hasheq 'kind "result" 'result result 'language (stored-language st))])
+                   ([kv (in-list (list (cons 'path (and (stored-path st) (rel h (stored-path st))))
+                                       (cons 'text (stored-text st))
+                                       (cons 'entry (hash-ref (stored-options st) 'entry #f))))]
+                    #:when (string? (cdr kv)))
+           (hash-set src (car kv) (cdr kv)))
+         (hasheq 'kind "result" 'result result))]
+    [(string? path)
+     (define full (inside h path))
+     (hasheq 'kind "file" 'path path 'language (or (workspace-language-of full) "fhir")
+             'text (if (file-exists? full) (file->string full) ""))]
+    [else (hasheq 'kind "resources")]))
+
+;; with-profiles : hub resource -> resource   the workspace's profiles for its type (workspace.yaml
+;; `profiles`) claimed in meta.profile, so validation holds it to them and the data says so
+(define (with-profiles h r)
+  (define urls (hash-ref (ws-config-profiles (workspace-config (hub-ws h))) (hash-ref r 'resourceType "") '()))
+  (cond
+    [(null? urls) r]
+    [else
+     (define meta (let ([m (hash-ref r 'meta #f)]) (if (hash? m) m (hasheq))))
+     (define claimed (let ([p (hash-ref meta 'profile '())]) (if (list? p) p '())))
+     (hash-set r 'meta (hash-set meta 'profile (append claimed (filter (lambda (u) (not (member u claimed))) urls))))]))
+
+;; write-trail! : hub (listof resource) -> (listof "Type/id")   the trail written where the data is
+(define (write-trail! h resources)
+  (define c (workspace-config (hub-ws h)))
+  (define d (ws-config-data c))
+  (with-handlers ([exn:fail? (lambda (e) (log-warning "fhir-mcp: the trail was not written: ~a" (exn-message e)) '())])
+    (cond
+      [(store-file? d)
+       (define-values (store catalog) (open-store (data-store-path h) (hub-packages h)))
+       (define create! (dynamic-require 'fhir/store/fhir-engine 'fhir-create!))
+       (for/list ([r (in-list resources)])
+         (define-values (t id _v) (create! store r #:search-params catalog))
+         (format "~a/~a" t id))]
+      [(rest-url? d) '()]                                  ; a server keeps its own audit trail
+      [(and d (directory-exists? (simplify-path (path->complete-path d (hub-root h)))))
+       (for/list ([r (in-list resources)])
+         (define id (new-id))
+         (call-with-output-file (build-path (simplify-path (path->complete-path d (hub-root h))) (format "~a-~a.json" (hash-ref r 'resourceType) id))
+           (lambda (o) (write-json (hash-set r 'id id) o)) #:exists 'error)
+         (format "~a/~a" (hash-ref r 'resourceType) id))]
+      [else '()])))
+
+(define (now-instant)
+  (define d (seconds->date (current-seconds) #f))
+  (format "~a-~a-~aT~a:~a:~aZ" (date-year d) (pad (date-month d)) (pad (date-day d)) (pad (date-hour d)) (pad (date-minute d)) (pad (date-second d))))
+(define (pad n) (if (< n 10) (format "0~a" n) (number->string n)))
 
 ;; commit-to-store : hub changes -> written   one FHIR transaction: a resource with an id is PUT (its
 ;; id kept, a new version if it exists), one without is POSTed (the store gives it an id); all or none
@@ -792,9 +961,10 @@
   (for/list ([e (in-list (hash-ref resp 'entry '()))] [ch (in-list todo)])
     (define r (hash-ref e 'response (hasheq)))
     (define status (hash-ref r 'status ""))
-    (hasheq 'resource (let ([loc (hash-ref r 'location #f)])
-                        (if (string? loc) (regexp-replace #rx"/_history/.*$" loc "")
-                            (format "~a/~a" (hash-ref (change-resource ch) 'resourceType) (hash-ref (change-resource ch) 'id "(new)"))))
+    (define loc (hash-ref r 'location #f))
+    (define ref (if (string? loc) (regexp-replace #rx"/_history/.*$" loc "")
+                    (format "~a/~a" (hash-ref (change-resource ch) 'resourceType) (hash-ref (change-resource ch) 'id "(new)"))))
+    (hasheq 'resource ref 'version (if (string? loc) loc ref)
             'status status 'ok (regexp-match? #rx"^2" status))))
 
 ;; resource-files : dir -> (hash (cons type id) -> (cons file 'resource|'bundle))

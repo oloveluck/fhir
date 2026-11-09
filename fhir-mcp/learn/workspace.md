@@ -109,6 +109,42 @@ is a table of `id`, `versionId`, `lastUpdated` and `resource` (JSONB: `resource 
 `json_each(resource, '$.name')`), beside the views and earlier results. Import FHIR JSON with
 `raco fhir-server load fhir.db <dir|bundle.json>`.
 
+## Constraints
+A rule about the data is a FHIR profile: write it in FSH (cardinalities, fixed codes, bindings,
+FHIRPath invariants for the complex ones) and name it in workspace.yaml:
+
+```yaml
+profiles:
+  Observation: http://example.org/fhir/StructureDefinition/a1c
+```
+
+Every staged resource of that type is validated against it and claims it in `meta.profile`; a
+stage that breaks it lists the broken rule per resource and cannot be committed. `check(data: true)`
+holds everything already stored to the rules: how many resources, how many break a rule, the rules
+by how often they are broken, the first problems as lines.
+
+## The trail
+Every commit writes, into the data itself, a Provenance — the versions it wrote
+(`Observation/a1/_history/2`), when, the agent (the MCP client), the `reason` given to commit, and
+the source the data came from (the FSH, the file, or the run, with its text and SHA-1) — and an
+AuditEvent of the transaction. With `audit: all`, every run, query and apply leaves an AuditEvent
+too (its outcome, its text). The trail is data like any other:
+- `describe("Observation/a1/_history")`: every version, newest first, what changed since the one
+  before, and who wrote it, why, from what;
+- `query("search", "Provenance?target=Observation/a1")`;
+- SQL: `history` (every version of every resource), `Provenance`, `AuditEvent`, e.g. each version
+  with the reason it was written:
+
+```
+SELECT h.versionId, p.resource ->> '$.reason[0].text' AS reason
+FROM history h JOIN Provenance p ON EXISTS (SELECT 1 FROM json_each(p.resource, '$.target') t
+  WHERE t.value ->> '$.reference' = h.type || '/' || h.id || '/_history/' || h.versionId)
+WHERE h.type = 'Observation' AND h.id = 'a1'
+```
+
+`describe(result)` names where a result came from: the file or query, its SHA-1, the options, and
+the data as of its latest write.
+
 ## The loop
 Write a file, read its problems, fix them at their lines, then run it. When an answer surprises you,
 explain it for one subject before you change anything.

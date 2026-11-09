@@ -849,6 +849,33 @@ workspace, and the fhir repository as the place an agent learns it.
   runs its worked example: the quoted problem at its line, served over the store (committed data
   found by the app's search, the app's writes seen by the workspace's SQL), `$bmi` applied, explained.
 
+## Constraints and the trail: traceable, computable (2026-11-09)
+The goal: Claude as the interface to health data — traceable, precise, token efficient — with
+constraints on the data as the standard, repeatable way to do complex things.
+- **Constraints are profiles** (fhir/lang/workspace `ws-config-profiles`; workspace.yaml `profiles:
+  {Type: canonical…}`). `stage` claims the type's profiles in `meta.profile` (`with-profiles`) before
+  validating, so `$validate` holds the resource to them — FSH profiles of the workspace (registered)
+  or an IG's; a broken rule (an invariant's human text, a cardinality, a pattern) is the change's
+  error and the stage cannot commit. `check(data: true)` (`check-data`) validates every stored
+  resource the same way: checked, invalid, by rule (counted), the first problems as lines.
+- **The trail** (`mcp/trail.rkt`, pure builders, R4 and R5 shapes): every commit writes, after its
+  transaction, a Provenance — targets the versions written (`Type/id/_history/v`, from the
+  transaction's locations), `recorded`, the agent (`current-agent`: the MCP client's clientInfo from
+  initialize, "claude-code 2.0 via fhir-mcp"), `reason` (commit's new `reason` argument), activity
+  CREATE/UPDATE, and the source (`stage-source`: FSH text, a file, a result with its file and define)
+  CONTAINED as a DocumentReference with the text base64 and its SHA-1 — and an AuditEvent of the
+  transaction. `audit: all` (`ws-config-audit`) adds an AuditEvent per run, query and apply
+  (`audited`: outcome, the text as `entity.query`). Written where the data is (`write-trail!`: the
+  store, a directory's files; a FHIR server keeps its own). The store indexes a versioned reference
+  by type and id, so `Provenance?target=Observation/a1` finds every version's.
+- **Computing over it**: SQL's `history` view (fhir_history: every version, JSONB) beside the
+  `Provenance` and `AuditEvent` type views; `describe("Type/id/_history")` (`describe-history`:
+  versions newest first, `changed` paths since the previous version, the Provenance's agent, reason
+  and source); `describe(result)` has `source` (file, SHA-1, entry, over, the data and the store's
+  latest write). `fhir-mcp/tests/trail-test.rkt` runs it all: an FSH invariant refusing 64 mmol/mol,
+  two commits with reasons, the history, SQL joining versions to Provenance, search, audit counts,
+  `check(data: true)` over the store (the trail's own resources validate).
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.
