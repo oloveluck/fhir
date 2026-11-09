@@ -190,9 +190,10 @@
                                                                      #:repository r))))
   ;; parse-operation yields rc-operation + its OperationDefinition + entries; strips the $;
   ;; validates param types
-  (define-values (ostx odstx entries)
-    (parse-operation #'(operation $expand #:on ValueSet #:in ([url uri 1 1])
-                                  #:out ([return ValueSet 1 1]) #:handler h)))
+  (define po (parse-operation #'(operation $expand #:on ValueSet #:in ([url uri 1 1])
+                                             #:out ([return ValueSet 1 1]) #:handler h)))
+  (define ostx (parsed-operation-rc po))
+  (define entries (parsed-operation-entries po))
   (check-equal? (syntax->datum ostx)
                 '(rc-operation "expand" "$expand" (list #f #t #f) (list "ValueSet")
                                (list (rc-param "url" "uri" 1 1 "in"))
@@ -200,10 +201,12 @@
   (check-equal? (syntax->datum entries)
                 '(list (operation-entry 'type "expand" "ValueSet" h)))
   ;; an existing operation, by reference or as a value in scope, brings its own definition
-  (define-values (rrc rod rentries) (parse-operation #'(operation "ValueSet/$expand")))
+  (define rpo (parse-operation #'(operation "ValueSet/$expand")))
+  (define rrc (parsed-operation-rc rpo))
+  (define rentries (parsed-operation-entries rpo))
   (check-equal? (syntax->datum rrc) '(operation->rc (operation "ValueSet/$expand")))
   (check-equal? (syntax->datum rentries) '(operation->entries (operation "ValueSet/$expand")))
-  (define-values (vrc vod ventries) (parse-operation #'(operation $validate)))
+  (define ventries (parsed-operation-entries (parse-operation #'(operation $validate))))
   (check-equal? (syntax->datum ventries) '(operation->entries $validate))
   (check-exn exn:fail:syntax? (lambda () (parse-operation #'(operation $x #:in ([p NoSuch 1 1])
                                                                        #:handler h)))))
