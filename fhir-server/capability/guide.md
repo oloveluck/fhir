@@ -29,9 +29,10 @@ history and search indexes). In a workspace the file is `<name>.capability.rkt`:
 - A search parameter is `[name type]` (the definition FHIR gives that name for the type: `birthdate`,
   `gender`, `patient`, `subject`, `code`, `date`, … — a name FHIR does not define, or a wrong type, is
   an error when the app loads, naming the nearest) or `[name type "FHIRPath"]` (your own). Types:
-  `token string reference date number quantity uri`. A search with a parameter the server does not
-  have answers its matches without it and says so: an OperationOutcome entry (`search.mode` outcome)
-  in the Bundle.
+  `token string reference date number quantity uri`. The server searches with exactly what it
+  declares (what `/metadata` advertises, plus `_id`, `_lastUpdated`, `_count`, `_sort`): a search with
+  any other parameter — even one FHIR defines, like `name` when only `gender` is declared — answers its
+  matches without it and says so: an OperationOutcome entry (`search.mode` outcome) in the Bundle.
 - A resource without `#:repository` is kept in the store: the workspace's when the workspace serves
   it, else `#:store`'s file beside the module, else (no store anywhere) in memory. A store-backed
   create or update is validated as sent (its base type, the profiles it claims): an error refuses it

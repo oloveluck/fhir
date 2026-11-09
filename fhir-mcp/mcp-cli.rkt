@@ -93,7 +93,10 @@
       [(regexp-match #rx"^([A-Za-z_][A-Za-z0-9_]*)=@(.+)$" w)
        => (lambda (m) (define f (caddr m))
             (unless (file-exists? f) (bad (format "~a=@~a: no such file" (cadr m) f)))
-            (hash-set args (string->symbol (cadr m)) (file->string f)))]
+            ;; the file's name goes with its text (`files`), so a stage's errors and its Provenance
+            ;; name `patients.fsh:12`, not the text
+            (hash-set (hash-set args (string->symbol (cadr m)) (file->string f))
+                      'files (hash-set (hash-ref args 'files (hasheq)) (string->symbol (cadr m)) f)))]
       [(regexp-match #rx"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$" w)
        => (lambda (m) (hash-set args (string->symbol (cadr m)) (caddr m)))]
       [else (bad (format "unexpected ~a (arguments are '<json>', key=value, key=@file or key:=<json>)" w))])))
@@ -135,3 +138,15 @@
     [else (run-subcommands "fhir-mcp" usages
                            (hash "serve" serve-command "tools" tools-command "call" call-command "init" init-command "guide" guide-command)
                            args)]))
+
+(module+ test
+  (require rackunit racket/file)
+  ;; key=@file reads the file's text and keeps its name, so a stage's errors name the file
+  (define f (make-temporary-file "args-~a.fsh"))
+  (with-output-to-file f #:exists 'truncate (lambda () (display "Instance: x\nInstanceOf: Patient\n")))
+  (define args (call-arguments (list (format "fsh=@~a" f) "reason=intake" "n:=3")))
+  (check-equal? (hash-ref args 'fsh) "Instance: x\nInstanceOf: Patient\n")
+  (check-equal? (hash-ref (hash-ref args 'files) 'fsh) (path->string f))
+  (check-equal? (hash-ref args 'reason) "intake")
+  (check-equal? (hash-ref args 'n) 3)
+  (delete-file f))

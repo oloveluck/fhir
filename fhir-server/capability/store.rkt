@@ -52,7 +52,34 @@
     (define repo (store-repository store type (with-declared base type sps)))
     ;; what is stored is valid FHIR: a create or update that breaks its base type or a profile it
     ;; claims is refused (422) rather than stored with whatever the lenient parse dropped
-    (restrict (if validate? (validated-writes repo) repo) interactions)))
+    (restrict (declared-search (if validate? (validated-writes repo) repo) (map (lambda (sp) (symbol->string (car sp))) sps))
+              interactions)))
+
+;; declared-search : repository (listof name) -> repository
+;; The server searches with what /metadata advertises: a parameter the declaration does not name
+;; (`name` on an app declaring `gender`) is left out and reported in the searchset, as one the store
+;; cannot apply is. The store still INDEXES with the whole catalogue, so the workspace's own search
+;; over the same store loses nothing to the app's writes. `_id`, `_lastUpdated`, `_count`, `_sort`
+;; and the other `_` parameters are FHIR's for every type.
+(define (declared-search r names)
+  (define search (repository-search r))
+  (define (declared? p)
+    (define n (symbol->string (car p)))
+    (or (string-prefix? n "_") (member (car (string-split n #rx"[:.]")) names)))
+  (if (not search)
+      r
+      (struct-copy repository r
+                   [search (lambda (params)
+                             (define-values (kept dropped) (partition declared? params))
+                             (define result (search kept))
+                             (define dropped-names (remove-duplicates (map (lambda (p) (symbol->string (car p))) dropped)))
+                             (cond [(null? dropped-names) result]
+                                   [(search-result/ignored? result)
+                                    (search-result/ignored (search-result-matches result) (search-result-includes result)
+                                                           (remove-duplicates (append dropped-names (search-result/ignored-names result))))]
+                                   [(search-result? result)
+                                    (search-result/ignored (search-result-matches result) (search-result-includes result) dropped-names)]
+                                   [else (search-result/ignored result '() dropped-names)]))])))
 
 (define opened (make-hash))
 (define (store-file-factory p)
@@ -111,5 +138,11 @@
   ;; a parameter it cannot search is reported, not silently matched
   (define r ((repository-search repo) (list (cons 'foo "bar"))))
   (check-equal? (search-result/ignored-names r) '("foo"))
+  ;; FHIR defines `name` for Patient, but this app does not declare it: /metadata does not advertise
+  ;; it, so the search ignores it and says so (a new user's app answered it unadvertised)
+  (define r2 ((repository-search repo) (list (cons 'name "zzz") (cons 'gender "female"))))
+  (check-equal? (search-result/ignored-names r2) '("name"))
+  (check-equal? (length (search-result-matches r2)) 1)
+  (check-equal? (length (let ([r ((repository-search repo) (list (cons 'family:exact "Ng") (cons '_id id)))]) (if (list? r) r (search-result-matches r)))) 1)
   ;; stored as JSONB in the file
   (check-true (file-exists? db)))

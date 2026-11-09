@@ -120,9 +120,14 @@ profiles:
 ```
 
 Every staged resource of that type is validated against it and claims it in `meta.profile`; a
-stage that breaks it lists the broken rule per resource and cannot be committed. `check(data: true)`
-holds everything already stored to the rules: how many resources, how many break a rule, the rules
-by how often they are broken, the first problems as lines.
+stage that breaks it lists the broken rule per resource and cannot be committed. `check` holds the
+workspace's FSH examples to it too, and `check(data: true)` everything already stored: how many
+resources, how many break a rule, the rules by how often they are broken, the first problems as lines.
+
+Keep DATA out of the workspace's `.fsh` files: they are the project (profiles, value sets, a few
+examples), and every one of them is compiled and checked together, so a patient written there twice
+is a duplicate id. Data goes in through `stage(fsh: "…")`, the text in the call (from the shell,
+`raco fhir-mcp call stage fsh=@../batch.fsh` reads a file kept outside the workspace), then `commit`.
 
 A rule for SOME resources of a type — blood pressures among all Observations — is an invariant that
 applies only to them, written with `implies`:
@@ -149,7 +154,9 @@ the source the data came from (the FSH, the file, or the run, with its text and 
 AuditEvent of the transaction. With `audit: all`, every run, query and apply leaves an AuditEvent
 too (its outcome, its text). The trail is data like any other:
 - `describe("Observation/a1/_history")`: every version, newest first, what changed since the one
-  before, and who wrote it, why, from what;
+  before (`valueQuantity.value: 8.0 → 8.4`), and who wrote it, why, from what;
+- `describe("Provenance/<id>", as: "source")`: the text the data was made from (the FSH, the file),
+  decoded;
 - `query("search", "Provenance?target=Observation/a1")`;
 - SQL: `history` (every version of every resource), `Provenance`, `AuditEvent`, e.g. each version
   with the reason it was written:

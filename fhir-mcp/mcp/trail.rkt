@@ -64,7 +64,7 @@
 (define (source-label src)
   (define sha (let ([t (hash-ref src 'text #f)]) (if (string? t) (string-append " sha1:" (substring (text-sha1 t) 0 12)) "")))
   (case (hash-ref src 'kind "resources")
-    [("fsh") (string-append "FSH written in the stage" sha)]
+    [("fsh") (if (hash-ref src 'path #f) (format "~a~a" (hash-ref src 'path) sha) (string-append "FSH written in the stage" sha))]
     [("file") (format "~a~a" (hash-ref src 'path "a file") sha)]
     [("result") (format "~a of ~a~a~a" (hash-ref src 'result "a result") (or (hash-ref src 'path #f) (hash-ref src 'language "a query"))
                         (let ([e (hash-ref src 'entry #f)]) (if (string? e) (format " (~a)" e) ""))

@@ -15,7 +15,7 @@
 ;;; dotted paths that differ from the data's copy, errors the validation errors.
 ;;; Every hub-* procedure answers a jsexpr, or raises: exn:fail:diagnostic (positioned), exn:fail.
 
-(require racket/contract racket/list racket/string racket/file racket/path racket/match json
+(require racket/contract racket/list racket/string racket/file racket/path racket/match json (only-in net/base64 base64-decode)
          (only-in fhir/serialize/json-position json-path-location)
          net/uri-codec
          fhir/lang/workspace
@@ -609,9 +609,32 @@
   (define r* (cond [(not meta) r] [(zero? (hash-count meta)) (hash-remove r 'meta)] [else (hash-set r 'meta meta)]))
   (text-answer (regexp-replace #rx"\nUsage: #example(?=\n|$)" (fhir->fsh r*) "")))
 
+;; argument-file : args key -> string | #f   the file an argument's text was read from (`files`, which
+;; `raco fhir-mcp call key=@file` fills; a client may pass it too)
+(define (argument-file args k)
+  (define fs (hash-ref args 'files #f))
+  (define f (and (hash? fs) (hash-ref fs k #f)))
+  (and (string? f) f))
+
+;; as-source : resource -> text-answer   the text a resource carries as an attachment: the source a
+;; commit's Provenance holds (a contained DocumentReference, base64), a DocumentReference's, a Binary's
+(define (as-source r)
+  (define (attachments x)
+    (match (hash-ref x 'resourceType #f)
+      ["Binary" (list (hasheq 'data (hash-ref x 'data "") 'contentType (hash-ref x 'contentType "")))]
+      ["DocumentReference" (for/list ([c (in-list (hash-ref x 'content '()))] #:when (hash? (hash-ref c 'attachment #f))) (hash-ref c 'attachment))]
+      [_ (append-map attachments (filter hash? (hash-ref x 'contained '())))]))
+  (define a (for/first ([a (in-list (attachments r))] #:when (string? (hash-ref a 'data #f))) a))
+  (unless a (error 'describe (format "~a/~a carries no source text (as: \"source\" reads a commit's Provenance, a DocumentReference or a Binary)"
+                                     (hash-ref r 'resourceType "?") (hash-ref r 'id "?"))))
+  (text-answer (bytes->string/utf-8 (base64-decode (string->bytes/utf-8 (hash-ref a 'data))) #\?)))
+
 (define (hub-describe h ref args)
   (define fsh? (equal? (hash-ref args 'as #f) "fsh"))
-  (define (shown r) (if (and fsh? (hash? r) (string? (hash-ref r 'resourceType #f))) (as-fsh r) r))
+  (define source? (equal? (hash-ref args 'as #f) "source"))
+  (define (shown r) (cond [(and fsh? (hash? r) (string? (hash-ref r 'resourceType #f))) (as-fsh r)]
+                          [(and source? (hash? r)) (as-source r)]
+                          [else r]))
   (define offset (let ([o (hash-ref args 'offset 0)]) (if (exact-nonnegative-integer? o) o 0)))
   (define limit (let ([l (hash-ref args 'limit 20)]) (if (exact-positive-integer? l) l 20)))
   (define against (let ([a (hash-ref args 'against #f)]) (and (string? a) a)))
@@ -844,7 +867,7 @@
                                #:when (and (equal? (hash-ref p 'severity #f) "error")
                                            (not (equal? (hash-ref p 'phase #f) "validate"))
                                            (equal? (hash-ref p 'source #f) (path->string tmp))))
-                      (format "fsh:~a:~a error: ~a" (hash-ref p 'line "?") (hash-ref p 'column "?") (hash-ref p 'message ""))))
+                      (format "~a:~a:~a error: ~a" (or (argument-file args 'fsh) "fsh") (hash-ref p 'line "?") (hash-ref p 'column "?") (hash-ref p 'message ""))))
         (when (pair? own) (error 'stage (string-join own "\n")))
         (define rs (filter instance? (map (lambda (row) (hash-ref row 'resource)) (run-result-rows r))))
         (when (null? rs) (error 'stage "the FSH defines no instance"))
@@ -865,17 +888,26 @@
        [_ (error 'stage "stage takes resources, a result of a run, an FSH file's instances or a JSON file")])]
     [else (error 'stage "stage takes `resources`, `fsh`, `result` or `path`")]))
 
-;; json-diff : a b -> (listof dotted path)   where two JSON values differ
+;; json-diff : a b -> (listof string)   where two JSON values differ and how, one line each:
+;; `valueQuantity.value: 8 → 8.4`, `note: added [{"text":"…"}]`, `status: removed "final"`
+;; (a history or a stage reads as what changed, not only where; a long value is cut at 60 characters)
 (define (json-diff a b [prefix ""])
   (define (at k) (if (string=? prefix "") (format "~a" k) (format "~a.~a" prefix k)))
+  (define (shown v)
+    (define t (jsexpr->string v))
+    (if (> (string-length t) 60) (string-append (substring t 0 57) "…") t))
   (cond [(and (hash? a) (hash? b))
-         (append* (for/list ([k (in-list (remove-duplicates (append (hash-keys a) (hash-keys b))))]
+         (append* (for/list ([k (in-list (sort (remove-duplicates (append (hash-keys a) (hash-keys b))) symbol<?))]
                              #:unless (memq k '(meta text)))
                     (json-diff (hash-ref a k 'null) (hash-ref b k 'null) (at k))))]
         [(and (list? a) (list? b) (= (length a) (length b)))
          (append* (for/list ([x (in-list a)] [y (in-list b)] [i (in-naturals)]) (json-diff x y (format "~a[~a]" prefix i))))]
         [(equal? a b) '()]
-        [else (list (if (string=? prefix "") "(whole resource)" prefix))]))
+        [else
+         (define where (if (string=? prefix "") "(whole resource)" prefix))
+         (list (cond [(eq? a 'null) (format "~a: added ~a" where (shown b))]
+                     [(eq? b 'null) (format "~a: removed ~a" where (shown a))]
+                     [else (format "~a: ~a → ~a" where (shown a) (shown b))]))]))
 
 (define (validation-errors r)
   (with-handlers ([exn:fail:operation? (lambda (e) (list (format "~a" (exn-message e))))]
@@ -894,7 +926,7 @@
       (define (at-line r errors)
         (define fsh (and (equal? (hash-ref source 'kind #f) "fsh") (hash-ref source 'text #f)))
         (define line (and fsh (hash-ref r 'id #f) (instance-line fsh (hash-ref r 'id))))
-        (if line (map (lambda (e) (format "fsh:~a: ~a" line e)) errors) errors))
+        (if line (map (lambda (e) (format "~a:~a: ~a" (hash-ref source 'path "fsh") line e)) errors) errors))
       (when (null? rs) (error 'stage "nothing to stage"))
       (define changes
         (for/list ([r (in-list rs)])
@@ -986,7 +1018,9 @@
   (define path (hash-ref args 'path #f))
   (define result (hash-ref args 'result #f))
   (cond
-    [(string? fsh) (hasheq 'kind "fsh" 'language "fsh" 'text fsh)]
+    [(string? fsh) (let ([src (hasheq 'kind "fsh" 'language "fsh" 'text fsh)]
+                         [from (argument-file args 'fsh)])
+                     (if from (hash-set src 'path from) src))]
     [(string? result)
      (define st (result-of h result))
      (if st

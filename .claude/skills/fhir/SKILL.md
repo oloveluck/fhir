@@ -11,6 +11,10 @@ FHIR views) and one to declare FHIR servers (capability apps). Every resource is
 as JSONB. The `fhir-mcp` server gives an agent nine tools over it; every problem comes back as
 one line, `file:line:col severity: message`, with "did you mean …" for a misspelt name.
 
+Writing a Racket program instead (the languages as modules: an FML map, an FSH profile and a CQL
+library required side by side, operations applied as procedures)? The `fhir-authoring` skill, and
+each language's own skill (`cql`, `fsh`, `fml`, `fhirpath`, `vcl`, `sql-on-fhir`) for its command line.
+
 ## Set up
 ```sh
 raco fhir-mcp init my-workspace   # [--fhir-version 5.0.0]; `fhir-mcp init` once the standalone tools are on PATH
@@ -33,7 +37,9 @@ raco fhir-mcp call query language=sql text=@summary.sql --workspace ws
 raco fhir-mcp call describe ref=result://r1 as=csv --workspace ws
 ```
 
-The trail names the agent `raco fhir-mcp call` (set `FHIR_MCP_AGENT` to name yourself). A capability
+Keep data files like `patients.fsh` outside the workspace directory: the workspace's own `.fsh`
+files are its project (profiles, value sets, a few examples), compiled and checked together, so a
+patient written there and staged too is a duplicate id. The trail names the agent `raco fhir-mcp call` (set `FHIR_MCP_AGENT` to name yourself). A capability
 app that `run` serves lives as long as the process that ran it: from the shell, serve it with
 `raco fhir-server serve app.capability.rkt 8080 --store fhir.db`.
 Not installed: the README's "Getting the tools" (Racket 9, then `raco pkg install` of the repositories).
@@ -130,7 +136,8 @@ query {"language": "search", "text": "Observation?code=http://loinc.org|4548-4&v
 {"result": "result://r1", "total": 1, "rows": [{"resource": "Observation/ann-a1c"}]}
 ```
 
-A rule per patient, in CQL:
+That search answers "was ANY result above 8%?". A rule per patient — "is the LATEST result above
+8%?" — is CQL (the recipe in `learn://cql`, "the latest value per patient"):
 
 ```cql
 library Diabetes version '1.0.0'
@@ -139,8 +146,9 @@ include FHIRHelpers version '4.0.1' called FHIRHelpers
 codesystem "LOINC": 'http://loinc.org'
 code "HbA1c": '4548-4' from "LOINC"
 context Patient
-define "A1c Results": [Observation: "HbA1c"] O where O.status = 'final'
-define "Poor Control": exists ("A1c Results" O where (O.value as Quantity) > 8 '%')
+define "A1c Results": [Observation: "HbA1c"] O where O.status in { 'final', 'amended', 'corrected' }
+define "Latest": Last("A1c Results" O sort by (effective as dateTime))
+define "Poor Control": ("Latest".value as Quantity) > 8 '%'
 ```
 
 ```call
@@ -218,11 +226,13 @@ describe {"ref": "Observation/ann-a1c", "as": "fsh"}
 Rules about the data are FHIR profiles: write one in FSH (cardinalities, fixed codes, value sets,
 FHIRPath invariants for anything more complex) and name it in workspace.yaml —
 `profiles:` / `  Observation: <canonical>`. Every staged resource of the type is held to it and
-claims it in `meta.profile`; a stage that breaks it lists the rule and cannot commit;
-`check(data: true)` holds everything already stored to the rules and counts violations by rule.
+claims it in `meta.profile`; a stage that breaks it lists the rule and cannot commit; `check`
+holds the workspace's FSH examples to it, `check(data: true)` everything already stored, counting
+violations by rule.
 Every commit writes a Provenance (versions, agent, `reason`, source text and hash) and an AuditEvent
 into the store; `audit: all` in workspace.yaml records every run, query and apply as an AuditEvent
-too. All of it is data: `describe("Type/id/_history")`, `query("search", "Provenance?target=Patient/ann")`,
+too. All of it is data: `describe("Type/id/_history")` (each version's changes as `path: old → new`),
+`describe("Provenance/<id>", as: "source")` (the source text, decoded), `query("search", "Provenance?target=Patient/ann")`,
 and SQL over `history` (every version), `Provenance` and `AuditEvent`. A result's `describe` names
 its source (file, SHA-1, the data as of when).
 

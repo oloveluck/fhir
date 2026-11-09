@@ -141,7 +141,7 @@
     (fails "commit" (hasheq 'stage (hash-ref bad-stage 'stage)))
     (define st (ok "stage" (hasheq 'resources (list (obs "o3" "b" "4548-4") (hash-set (obs "o2" "b" "1234-5") 'status "amended")))))
     (check-equal? (map (lambda (c) (hash-ref c 'action)) (hash-ref st 'changes)) '("create" "update"))
-    (check-equal? (hash-ref (cadr (hash-ref st 'changes)) 'changed) '("status"))
+    (check-equal? (hash-ref (cadr (hash-ref st 'changes)) 'changed) '("status: \"final\" → \"amended\""))
     (define cm (ok "commit" (hasheq 'stage (hash-ref st 'stage))))
     (check-equal? (length (hash-ref cm 'written)) 2)
     (check-true (file-exists? (build-path dir "data" "Observation-o3.json")))

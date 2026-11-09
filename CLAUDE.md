@@ -907,6 +907,28 @@ every finding below has a test that reproduces what the agent did.
   subcommands of `fhir` the notes still named — the FHIRPath and FML TCK runners and VCL — gone for
   months; a document must not name a command that does not exist, even as an example).
 
+## New users, round 3 (2026-11-09)
+The same four agents' second rerun named what still cost them time; each fix has a test that does
+what the agent did.
+- **A capability server searches with what it declares** (capability/store.rkt `declared-search`):
+  FHIR's `name` on an app declaring only `gender` was answered though /metadata did not advertise it;
+  it is now ignored and reported in the searchset like any other unsupported parameter. The store
+  still indexes with the whole core catalogue, so the workspace's search over the same store loses
+  nothing to the app's writes. `_` parameters are every type's.
+- **Constraints reach the FSH examples** (`check-fsh-project #:profiles`, fsh/workspace passes
+  workspace.yaml's `profiles`), and two Instances of one type (or profile) with one id are an error
+  naming the first (`duplicate-id-diagnostics`; data files kept in the workspace beside its examples).
+- **The trail reads as values**: a history's and a stage's `changed` lines are `path: old → new`
+  (`added`/`removed`; values cut at 60 characters); `describe(Provenance/x, as: "source")` decodes the
+  source text; `raco fhir-mcp call key=@file` passes the file's name (`files`), so stage errors read
+  `a1c.fsh:12: …` and the Provenance names the file.
+- **Messages**: `ensure-valid` names the profiles it held the resource to; a CQL module's
+  `evaluate #:define` with a misspelt name suggests the nearest; a `code`/`concept`/`valueset` naming a
+  terminology definition the library lacks is a translation error at its line (it failed per patient
+  at run time); `#:now`/`--now`/`current-evaluation-time` fix CQL's clock. Docs: the CQL cheat sheet
+  sorts by `(effective as dateTime)` as the recipe does; the fhir skill's session asks the
+  latest-value question (a search answers "any"); an FML recipe splits one text into several elements.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

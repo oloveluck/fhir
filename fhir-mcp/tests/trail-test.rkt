@@ -36,6 +36,9 @@
     (define bad (call "stage" (hasheq 'fsh (a1c 64 "mmol/mol"))))
     (check-equal? (hash-ref (car (hash-ref bad 'changes)) 'errors) '("fsh:1: Observation: a1c-percent: An HbA1c is a percentage"))
     (call "commit" (hasheq 'stage (hash-ref bad 'stage)) #:ok? #f)
+    ;; FSH read from a file (`fsh=@a1c.fsh` on the command line) is named by the file
+    (check-equal? (hash-ref (car (hash-ref (call "stage" (hasheq 'fsh (a1c 64 "mmol/mol") 'files (hasheq 'fsh "a1c.fsh"))) 'changes)) 'errors)
+                  '("a1c.fsh:1: Observation: a1c-percent: An HbA1c is a percentage"))
     ;; a valid one commits, claims the profile, and leaves a Provenance naming the version and the reason
     (define ok1 (call "stage" (hasheq 'fsh (string-append "Instance: ann\nInstanceOf: Patient\n* gender = #female\n\n" (a1c 8.0 "%")))))
     (define c1 (call "commit" (hasheq 'stage (hash-ref ok1 'stage) 'reason "intake: ann's first HbA1c")))
@@ -47,11 +50,15 @@
     (check-equal? (hash-ref (hash-ref (car (hash-ref prov 'agent)) 'who) 'display) "claude-code 2.0 via fhir-mcp")
     (define att (hash-ref (car (hash-ref (car (hash-ref prov 'contained)) 'content)) 'attachment))
     (check-regexp-match #rx"valueQuantity = 8.0 '%'" (bytes->string/utf-8 (base64-decode (string->bytes/utf-8 (hash-ref att 'data)))))
+    ;; the source reads back as text: no base64 to decode by hand
+    (let-values ([(text err?) ((tool-run (hash-ref tools "describe")) (hasheq 'ref (hash-ref c1 'provenance) 'as "source"))])
+      (check-false err? text)
+      (check-regexp-match #rx"^Instance: ann\n" text))
     ;; a correction: version 2, its own Provenance
     (call "commit" (hasheq 'stage (hash-ref (call "stage" (hasheq 'fsh (a1c 8.4 "%"))) 'stage) 'reason "lab corrected the value"))
     (define hist (call "describe" (hasheq 'ref "Observation/a1/_history")))
     (check-equal? (map (lambda (v) (list (hash-ref v 'version) (hash-ref v 'changed) (hash-ref v 'reason) (hash-ref v 'by))) (hash-ref hist 'versions))
-                  '(("2" ("valueQuantity.value") "lab corrected the value" "claude-code 2.0 via fhir-mcp")
+                  '(("2" ("valueQuantity.value: 8.0 → 8.4") "lab corrected the value" "claude-code 2.0 via fhir-mcp")
                     ("1" "created" "intake: ann's first HbA1c" "claude-code 2.0 via fhir-mcp")))
     ;; computing over the trail: every version with the reason it was written, in SQL
     (define q (call "query" (hasheq 'language "sql" 'text (string-append

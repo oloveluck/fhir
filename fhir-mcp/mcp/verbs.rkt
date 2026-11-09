@@ -77,7 +77,7 @@
                          'offset (hasheq 'type "integer" 'description "results: the first row")
                          'limit (hasheq 'type "integer" 'description "results: at most this many rows (default 20)")
                          'against (s "results: an earlier result to compare with")
-                         'as (s "\"fsh\": a resource (Type/id, a canonical) as an FSH Instance, shorter than JSON for coded data; \"csv\": a result's rows as CSV (default limit 1000), the compact form of a table"))
+                         'as (s "\"fsh\": a resource (Type/id, a canonical) as an FSH Instance, shorter than JSON for coded data; \"csv\": a result's rows as CSV (default limit 1000), the compact form of a table; \"source\": the text a commit's Provenance (or a DocumentReference, a Binary) carries, decoded"))
                  '("ref"))
          (lambda (args) (answer (lambda () (hub-describe h (need args 'ref) args)))))
    (tool "apply"

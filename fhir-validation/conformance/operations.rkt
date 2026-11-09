@@ -12,7 +12,7 @@
 ;;; Required bindings are checked against the value sets of the data source and the packages (the
 ;;; terminology service); a value set nothing can expand stays undecided (fail-open).
 
-(require racket/list
+(require racket/list racket/string
          (only-in fhir/r5/operations validate-definition)
          fhir/operation fhir/data-source
          (only-in fhir/sd/operations resolve-structure-definition)
@@ -58,12 +58,21 @@
   (if (outcome-errors? oo)
       ;; every error, one per line: a resource missing two required elements says both
       (raise (exn:fail:operation
-              (format "invalid ~a:~a" (hash-ref r 'resourceType "resource")
+              (format "invalid ~a~a:~a" (hash-ref r 'resourceType "resource") (against-what r profile)
                       (apply string-append
                              (for/list ([i (in-list (hash-ref oo 'issue))] #:when (member (hash-ref i 'severity) '("error" "fatal")))
                                (format "\n  ~a ~a" (car (hash-ref i 'expression '(""))) (hash-ref i 'diagnostics "")))))
               (current-continuation-marks) oo))
       r))
+
+;; against-what : resource profile -> string   which profiles held it: the one asked for, the claimed
+(define (against-what r profile)
+  (define asked (cond [(string? profile) (list profile)]
+                      [(hash? profile) (list (hash-ref profile 'url (hash-ref profile 'id "a profile")))]
+                      [else '()]))
+  (define claimed (let* ([m (hash-ref r 'meta #f)] [p (and (hash? m) (hash-ref m 'profile '()))]) (if (list? p) p '())))
+  (define all (remove-duplicates (append asked claimed)))
+  (if (null? all) "" (format " against ~a" (string-join all ", "))))
 
 (register-operation! $validate)
 
@@ -86,4 +95,7 @@
   (parameterize ([current-data-source (resources->data-source (list sd))])
     (check-true (outcome-errors? (apply-operation "$validate" ok #:profile "http://example.org/StructureDefinition/named")))
     (check-false (outcome-errors? (apply-operation "Resource/$validate" (hash-set ok 'name (list (hasheq 'family "X")))
-                                                   #:profile "http://example.org/StructureDefinition/named")))))
+                                                   #:profile "http://example.org/StructureDefinition/named")))
+    ;; the error names the profile it broke
+    (check-exn #rx"^invalid Patient against http://example.org/StructureDefinition/named:\n  Patient.name"
+               (lambda () (ensure-valid ok #:profile "http://example.org/StructureDefinition/named")))))

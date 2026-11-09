@@ -98,8 +98,9 @@ its own language by `raco make`. Worked examples: `fhir-examples/examples/intake
   (define patient (ensure-valid (transform qr) #:profile (canonical-of "IntakePatient")))
   (values patient (render (hash-ref (evaluate (list patient)) "Is 65 Or Older"))))
 ```
-`ensure-valid` returns the resource, or raises `exn:fail:operation` listing every error (one per
-line) with the OperationOutcome in `exn:fail:operation-outcome`. `(apply-operation "$validate" r
+`ensure-valid` returns the resource, or raises `exn:fail:operation` (`(require fhir/operation)` for
+the predicate and `exn:fail:operation-outcome`) naming the profiles it was held to and listing every
+error, one per line, with the OperationOutcome in `exn:fail:operation-outcome`. `(apply-operation "$validate" r
 #:profile url)` returns the OperationOutcome itself: `issue` is a list of `{severity, code,
 diagnostics, expression: [path]}`, one `information` "All OK" when clean. A CQL module's `evaluate`
 raises an `exn:fail` (positioned at the define when it can) for a run-time error.
