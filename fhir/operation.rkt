@@ -63,7 +63,9 @@
   [parameters->inputs (-> hash? hash?)]
   [outputs->parameters (-> operation? hash? hash?)]))
 
-(struct exn:fail:operation exn:fail (outcome) #:transparent)
+;; an exn:fail:user: an operation's refusal is the caller's input explained (an invalid resource, a
+;; missing parameter), so an uncaught one prints its message alone — no stack trace
+(struct exn:fail:operation exn:fail:user (outcome) #:transparent)
 
 ;; An operation applies like a procedure: (op [subject [parameters]] #:name value …)
 (struct op (definition subject run)

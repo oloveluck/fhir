@@ -7,7 +7,7 @@
 ;;;   raco fhir-server load <store.db> <file|dir>
 ;;;   raco fhir-server evaluate-measure <store.db> <Measure> --period-start D --period-end D …
 
-(require racket/list
+(require racket/list (only-in racket/os getpid)
          (only-in json jsexpr->string write-json)
          (only-in racket/file make-temporary-file)
          (only-in racket/string string-join)
@@ -71,15 +71,20 @@
      (with-handlers ([exn:break? (lambda (_) (stop))]) (sync/enable-break never-evt))]))
 
 ;; raco fhir-server serve <app.rkt> [port] — serve a #lang fhir/capability module's `app` over HTTP
-(define (cmd-serve file port-str [store #f])
+(define (cmd-serve file port-str [store #f] #:log? [log? #f])
   (define serve-app (dynamic-require 'fhir/http/server 'serve-app))
   ;; --store: every resource declared without a repository lives in that SQLite FHIR store
   (define app (parameterize ([(dynamic-require 'fhir/capability/runtime 'current-repository-factory)
                               (and store ((dynamic-require 'fhir/capability/store 'store-file-factory) store))])
                 (dynamic-require (path->complete-path file) 'app)))
   (define port (or (and port-str (string->number port-str)) 8080))
-  (define stop (serve-app app #:port port))
-  (printf "FHIR server on http://localhost:~a  (Ctrl-C to stop)\n" port)
+  (define stop (serve-app app #:port port #:log? log?))
+  ;; what is served and where its data lives: the store `--store` named, else the module's own
+  ;; `(server #:store …)` (beside it), else memory; the pid, so a script can stop it
+  (define stores ((dynamic-require 'fhir/capability/store 'opened-store-files)))
+  (printf "FHIR server on http://localhost:~a  (Ctrl-C, or kill ~a, to stop)\n" port (getpid))
+  (printf "store: ~a\n" (if (null? stores) "none: resources without a repository are kept in memory"
+                             (string-join (map path->string stores) ", ")))
   (flush-output)                                          ; said at once, even when the output is a file
   (with-handlers ([exn:break? (lambda (_) (stop))]) (sync/enable-break never-evt)))
 
@@ -157,7 +162,7 @@
 
 (define usages
   '(("serve-ig"         "raco fhir-server serve-ig <ig> [--db store.db] [--port 8080] [--bearer token] [--capability id] [--load file|dir]… [--tz-offset ±hh:mm] [--no-examples] [--no-validate] [--gaps]")
-    ("serve"            "raco fhir-server serve <app.rkt> [port] [--store fhir.db]   (--store: resources declared without a repository kept in that SQLite store)")
+    ("serve"            "raco fhir-server serve <app.rkt> [port] [--store fhir.db] [--log]   (--store: resources declared without a repository kept in that SQLite store, over the module's own #:store; --log: one line per request on stderr)")
     ("load"             "raco fhir-server load <store.db> <file|dir>   (Bundles, resources, .cql libraries)")
     ("sql"              "raco fhir-server sql <store.db> \"SELECT …\"   (read-only; a view per type: id, versionId, lastUpdated, resource; resources, history; CSV out)")
     ("evaluate-measure" "raco fhir-server evaluate-measure <store.db> <Measure id|url> --period-start D --period-end D [--subject Patient/x] [--tz-offset ±hh:mm]")))
@@ -170,8 +175,10 @@
    (hash "serve-ig" (lambda (as) (need as 0 "serve-ig") (cmd-serve-ig as))
          "serve" (lambda (as) (need as 0 "serve") (require-files! "fhir-server" usages "serve" (list (arg as 0)))
                    (define store (let ([m (member "--store" as)]) (and m (pair? (cdr m)) (cadr m))))
-                   (define plain (let loop ([xs as]) (cond [(null? xs) '()] [(equal? (car xs) "--store") (if (pair? (cdr xs)) (loop (cddr xs)) '())] [else (cons (car xs) (loop (cdr xs)))])))
-                   (cmd-serve (car plain) (and (pair? (cdr plain)) (cadr plain)) store))
+                   (define log? (and (member "--log" as) #t))
+                   (define plain (let loop ([xs as]) (cond [(null? xs) '()] [(equal? (car xs) "--store") (if (pair? (cdr xs)) (loop (cddr xs)) '())]
+                                                           [(equal? (car xs) "--log") (loop (cdr xs))] [else (cons (car xs) (loop (cdr xs)))])))
+                   (cmd-serve (car plain) (and (pair? (cdr plain)) (cadr plain)) store #:log? log?))
          "load" (lambda (as) (need as 1 "load")
                   (unless (or (file-exists? (arg as 1)) (directory-exists? (arg as 1)))
                     (usage-error "fhir-server" usages "load" (format "no such file or directory: ~a" (arg as 1))))

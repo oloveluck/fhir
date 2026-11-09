@@ -15,7 +15,7 @@
 ;;; dotted paths that differ from the data's copy, errors the validation errors.
 ;;; Every hub-* procedure answers a jsexpr, or raises: exn:fail:diagnostic (positioned), exn:fail.
 
-(require racket/contract racket/list racket/string racket/file racket/path racket/match json (only-in net/base64 base64-decode)
+(require racket/contract racket/list racket/string racket/file racket/path racket/match racket/set json (only-in net/base64 base64-decode)
          (only-in fhir/serialize/json-position json-path-location)
          net/uri-codec
          fhir/lang/workspace
@@ -467,7 +467,18 @@
   (define lang (or (hash-ref query-languages language #f)
                    (error 'query (format "query takes fhirpath, cql, vcl, search, view or sql (got ~a)" language))))
   (refresh! h)
-  (define opts (options args))
+  ;; what the result came from besides its text: the file it was read from (`text=@table.sql`) and,
+  ;; for SQL, the earlier results it reads (`r1`), so a derived table's trail is complete too
+  (define opts
+    (let* ([o (options args)]
+           [f (argument-file args 'text)]
+           [o (if f (hash-set o 'textFile f) o)]
+           [reads (if (equal? lang "sql")
+                      (for/list ([n (in-list (remove-duplicates (regexp-match* #px"\\br[0-9]+\\b" text)))]
+                                 #:when (result-of h (string-append "result://" n)))
+                        (string-append "result://" n))
+                      '())])
+      (if (pair? reads) (hash-set o 'reads reads) o)))
   (define r (audited h (string-append "query " language) (hasheq 'kind "query" 'language language 'text text)
                      (lambda () (if (equal? lang "sql") (run-sql h text) (execute h lang #f text opts)))))
   (result-json (store! h (stored lang #f text opts r)) r))
@@ -619,6 +630,18 @@
   (define f (and (hash? fs) (hash-ref fs k #f)))
   (and (string? f) f))
 
+;; source-line : Provenance id -> "file:line" | #f   the line of the FSH a commit's source holds where
+;; the Instance with this id begins (a batch file of many resources: which lines made this one)
+(define (source-line pv id)
+  (with-handlers ([exn:fail? (lambda (_) #f)])
+    (define text (text-answer-text (as-source pv)))
+    (define line (instance-line text id))
+    (define title (for*/first ([c (in-list (hash-ref pv 'contained '()))]
+                               [d (in-list (hash-ref c 'content '()))]
+                               [t (in-value (hash-ref (hash-ref d 'attachment (hasheq)) 'title #f))] #:when (string? t))
+                    t))
+    (and line (format "~a:~a" (if (and title (not (equal? title "fsh"))) title "fsh") line))))
+
 ;; as-source : resource -> text-answer   the text a resource carries as an attachment: the source a
 ;; commit's Provenance holds (a contained DocumentReference, base64), a DocumentReference's, a Binary's
 (define (as-source r)
@@ -691,7 +714,9 @@
                                   (list (cons 'provenance (format "Provenance/~a" (hash-ref pv 'id "?")))
                                         (cons 'by (let ([a (hash-ref pv 'agent '())]) (and (pair? a) (hash-ref (hash-ref (car a) 'who (hasheq)) 'display #f))))
                                         (cons 'reason (let ([r (hash-ref pv 'reason '())]) (and (pair? r) (hash-ref (car r) 'text #f))))
-                                        (cons 'source (let ([en (hash-ref pv 'entity '())]) (and (pair? en) (hash-ref (hash-ref (car en) 'what (hasheq)) 'display #f)))))
+                                        (cons 'source (let ([en (hash-ref pv 'entity '())]) (and (pair? en) (hash-ref (hash-ref (car en) 'what (hasheq)) 'display #f))))
+                                        ;; where in that source this resource was written: an FSH Instance's line
+                                        (cons 'at (source-line pv id)))
                                   '()))]
                  #:when (cdr kv))
         (hash-set e (car kv) (cdr kv)))))
@@ -769,12 +794,14 @@
 ;; options, and the data it ran over (the store's latest write) — enough to run it again and compare
 (define (result-source h st)
   (for/fold ([src (hasheq 'language (stored-language st) 'sha1 (text-sha1 (stored-text st)))])
-            ([kv (in-list (list (cons 'file (and (stored-path st) (rel h (stored-path st))))
+            ([kv (in-list (list (cons 'file (or (and (stored-path st) (rel h (stored-path st)))
+                                                (hash-ref (stored-options st) 'textFile #f)))
+                                (cons 'reads (hash-ref (stored-options st) 'reads #f))
                                 (cons 'entry (hash-ref (stored-options st) 'entry #f))
                                 (cons 'over (hash-ref (stored-options st) 'over #f))
                                 (cons 'data (hub-data-label h))
                                 (cons 'dataAsOf (store-as-of h))))]
-             #:when (string? (cdr kv)))
+             #:when (or (string? (cdr kv)) (pair? (cdr kv))))
     (hash-set src (car kv) (cdr kv))))
 
 ;; store-as-of : hub -> string | #f   the instant of the store's latest write
@@ -974,16 +1001,45 @@
       (hash-set! (hub-stages h) id (staged changes source))
       (save-state! h "stages" id (lambda () (staged->jsexpr (staged changes source))))
       (define errors (for/sum ([c (in-list changes)]) (length (change-errors c))))
+      (define dangling (dangling-references h rs))
       (hasheq 'stage id
               'target (hub-data-label h)
               'changes (for/list ([c (in-list changes)])
-                         (hasheq 'resource (format "~a/~a" (hash-ref (change-resource c) 'resourceType) (hash-ref (change-resource c) 'id "(new id)"))
-                                 'action (symbol->string (change-action c))
-                                 'changed (if (eq? (change-action c) 'create) "created" (take (change-paths c) (min 30 (length (change-paths c)))))
-                                 'errors (change-errors c)))
+                         (define base (hasheq 'resource (format "~a/~a" (hash-ref (change-resource c) 'resourceType) (hash-ref (change-resource c) 'id "(new id)"))
+                                              'action (symbol->string (change-action c))
+                                              'changed (if (eq? (change-action c) 'create) "created" (take (change-paths c) (min 30 (length (change-paths c)))))
+                                              'errors (change-errors c)))
+                         (define ws (hash-ref dangling (change-resource c) '()))
+                         (if (null? ws) base (hash-set base 'warnings ws)))
               'errors errors
               'next (if (zero? errors) (format "commit(\"~a\") writes the ~a change(s)" id (count (lambda (c) (not (eq? (change-action c) 'unchanged))) changes))
                         "fix the errors, then stage again: a stage with errors is not committed")))))
+
+;; dangling-references : hub (listof resource) -> (hash resource -> (listof string))   each literal
+;; reference (`Patient/pat-a`) to a resource neither in the data nor in this stage: a warning, not an
+;; error (the patient may come in a later stage), so a typo in an id is seen before it is committed
+(define (dangling-references h rs)
+  (define staged-keys (for/set ([r (in-list rs)] #:when (hash-ref r 'id #f))
+                        (format "~a/~a" (hash-ref r 'resourceType "?") (hash-ref r 'id))))
+  (define read (data-source-read (current-data-source)))
+  (define known (make-hash))
+  (define (exists? ref)
+    (hash-ref! known ref
+               (lambda ()
+                 (or (set-member? staged-keys ref)
+                     (let ([m (regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)$" ref)])
+                       (or (not m)                                     ; not a literal Type/id reference: not ours to judge
+                           (with-handlers ([exn:fail? (lambda (_) #t)]) (and (read (cadr m) (caddr m)) #t))))))))
+  (define (refs v path)
+    (cond [(hash? v)
+           (append (let ([r (hash-ref v 'reference #f)]) (if (and (string? r) (not (exists? r))) (list (cons path r)) '()))
+                   (append* (for/list ([(k x) (in-hash v)] #:unless (eq? k 'contained))
+                              (refs x (if (string=? path "") (symbol->string k) (format "~a.~a" path k))))))]
+          [(list? v) (append* (for/list ([x (in-list v)] [i (in-naturals)]) (refs x (format "~a[~a]" path i))))]
+          [else '()]))
+  (for/hash ([r (in-list rs)])
+    (values r (for/list ([pr (in-list (refs r ""))])
+                (format "~a: ~a is neither in the data nor in this stage" (car pr) (cdr pr))))))
 
 (define (hub-commit! h id [reason #f])
   (define st (or (stage-of h id)
@@ -1035,7 +1091,13 @@
   (define trail (if (null? targets) '() (write-trail! h (list (provenance targets (staged-source st) reason (unbox current-agent) (now-instant))
                                                                (commit-audit (ws-config-fhir-version c) targets (unbox current-agent) (now-instant))))))
   (configure! h (hub-root h))                              ; the data read again
-  (hasheq 'stage id 'written (for/list ([w (in-list written)]) (hash-remove w 'version)) 'provenance (if (pair? trail) (car trail) 'null)))
+  ;; who the trail names: said, so an unnamed shell is noticed (FHIR_MCP_AGENT names it)
+  (define agent (unbox current-agent))
+  (define answer (hasheq 'stage id 'written (for/list ([w (in-list written)]) (hash-remove w 'version))
+                         'provenance (if (pair? trail) (car trail) 'null) 'agent agent))
+  (if (equal? agent "raco fhir-mcp call")
+      (hash-set answer 'note "the trail names the agent \"raco fhir-mcp call\"; set FHIR_MCP_AGENT to name who is writing")
+      answer))
 
 ;; instance-line : fsh-text id -> line | #f   where `Instance: <id>` (or an instance with `* id = "<id>"`) starts
 (define (instance-line text id)

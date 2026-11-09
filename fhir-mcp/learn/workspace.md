@@ -161,6 +161,53 @@ Named for `Observation` in `profiles`, it holds every blood pressure to the rule
 Observation through. A refusal quotes the rule's `Description` (`bp-systolic: A blood pressure …`),
 not the value it found: write the description as the fix the author needs.
 
+### Rules cookbook
+Each rule is an invariant on a profile named in `profiles`; `X implies Y` keeps it to the resources
+it is about. Write the FHIRPath in FSH's `Expression:`, the fix in `Description:`.
+
+```fsh
+Profile: VitalsRules
+Parent: Observation
+Id: vitals-rules
+* obeys hr-range and hr-unit and not-future
+
+Invariant: hr-range
+Description: "A heart rate (LOINC 8867-4) is between 20 and 250 /min"
+Severity: #error
+Expression: "code.coding.where(system = 'http://loinc.org' and code = '8867-4').exists() implies value.ofType(Quantity).where(value >= 20 and value <= 250).exists()"
+
+Invariant: hr-unit
+Description: "A heart rate (LOINC 8867-4) is in /min (UCUM)"
+Severity: #error
+Expression: "code.coding.where(system = 'http://loinc.org' and code = '8867-4').exists() implies value.ofType(Quantity).where(system = 'http://unitsofmeasure.org' and code = '/min').exists()"
+
+Invariant: not-future
+Description: "An observation is not dated in the future"
+Severity: #error
+Expression: "effective.ofType(dateTime).exists() implies effective.ofType(dateTime) <= now()"
+```
+
+- a value in a range: `value.ofType(Quantity).where(value >= lo and value <= hi).exists()`;
+- a unit: `value.ofType(Quantity).where(system = 'http://unitsofmeasure.org' and code = 'u').exists()`;
+- a required part: `component.where(code.coding.where(system = … and code = …).exists()).exists()`
+  (the blood-pressure rule above);
+- not in the future: `effective.ofType(dateTime) <= now()`;
+- a code from a value set: no invariant — bind it in FSH, `* code from <ValueSet> (required)`;
+- required elements and fixed values: no invariant either — `* subject 1..1`, `* status = #final`.
+
+Check an expression on stored data before making it a rule: `query("fhirpath", "<expression>", over:
+"Observation")` answers it per resource.
+
+### Correcting a stored resource
+`describe("Observation/bp-a1", as: "fsh")` answers the resource as an FSH Instance; change the line
+that is wrong and stage the whole text again — the stage shows the change (`… 150 → 140`) and the
+commit writes version 2 with its reason:
+```
+raco fhir-mcp call describe ref=Observation/bp-a1 as=fsh > bp-a1.fsh     # edit it
+raco fhir-mcp call stage fsh=@bp-a1.fsh
+raco fhir-mcp call commit stage=stage-4 reason="typo: systolic 150 was 140"
+```
+
 ## The trail
 Every commit writes, into the data itself, a Provenance — the versions it wrote
 (`Observation/a1/_history/2`), when, the agent (the MCP client), the `reason` given to commit, and
@@ -168,7 +215,8 @@ the source the data came from (the FSH, the file, or the run, with its text and 
 AuditEvent of the transaction. With `audit: all`, every run, query and apply leaves an AuditEvent
 too (its outcome, its text). The trail is data like any other:
 - `describe("Observation/a1/_history")`: every version, newest first, what changed since the one
-  before (`valueQuantity.value: 8.0 → 8.4`), and who wrote it, why, from what;
+  before (`valueQuantity.value: 8.0 → 8.4`), and who wrote it, why, from what — the file and the line
+  its Instance begins at (`"at": "patients.fsh:33"`);
 - `describe("Provenance/<id>", as: "source")`: the text the data was made from (the FSH, the file),
   decoded;
 - `query("search", "Provenance?target=Observation/a1")`;
@@ -191,8 +239,13 @@ in one line, with its SHA-1) and `contained[0]` (a DocumentReference holding the
 `recorded`, `outcome` (`0` success, `8` failure; R5 `outcome.code.code`), `agent[0].who.display`,
 `entity[n].what`.
 
-`describe(result)` names where a result came from: the file or query, its SHA-1, the options, and
-the data as of its latest write.
+`describe(result)` names where a result came from: the file or query (`text=@table.sql` keeps the
+file's name), its SHA-1, the options, the earlier results a SQL query read (`reads: ["result://r1"]`)
+and the data as of its latest write.
+
+A stage warns (without refusing) about a reference to a resource that is neither in the data nor in
+the stage (`subject: Patient/pat-a is neither in the data nor in this stage`): a typo in an id, or
+data that comes in a later stage. A commit answers the `agent` its Provenance names.
 
 ## The loop
 Write a file, read its problems, fix them at their lines, then run it. When an answer surprises you,

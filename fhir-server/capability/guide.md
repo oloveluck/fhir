@@ -56,6 +56,8 @@ history and search indexes). In a workspace the file is `<name>.capability.rkt`:
   (400), return an OperationOutcome whose issue code is `invalid`:
   `(OperationOutcome (issue (OperationOutcomeIssue (severity "error") (code "invalid") (diagnostics "…"))))`;
   `processing` answers 422, `not-found` 404. An exception becomes a 500 OperationOutcome.
+- `(operation $validate)` serves `POST /<Type>/$validate` (and `/<Type>/<id>/$validate`) for every
+  declared type, not `POST /$validate`: FHIR defines it on resources.
 - `$validate` takes the resource in a Parameters (`resource`) or as the bare POST body, and reads it
   as sent: a misspelt element or a bad date is reported, as `raco fhir-validate` reports it. It
   answers 200 either way, its findings in the OperationOutcome (its result IS an OperationOutcome).
@@ -105,8 +107,11 @@ In a workspace, as `clinic.capability.rkt`:
 - `explain(ref: "clinic.capability.rkt", subject: "Patient")` shows what it declares for a type.
 
 On the command line: `racket clinic.capability.rkt` prints the CapabilityStatement;
-`raco fhir-server serve clinic.capability.rkt 8080 --store fhir.db` serves it (it prints
-`FHIR server on http://localhost:8080` when it is listening; a script waits for `GET /metadata`).
+`raco fhir-server serve clinic.capability.rkt 8080 --store fhir.db` serves it. It prints
+`FHIR server on http://localhost:8080  (Ctrl-C, or kill <pid>, to stop)` and `store: <file>` when it
+is listening (a script waits for `GET /metadata`, then stops it with that pid); `--log` prints one
+line per request (`GET /Patient?gender=female 200`) on stderr. `--store` wins over the module's own
+`(server #:store …)`, which is beside the module; with neither, resources live in memory.
 `raco fhir-server sql fhir.db "SELECT id, resource ->> '$.gender' AS gender FROM Patient"` reads the
 store as CSV, read-only: a view per stored type (`id, versionId, lastUpdated, resource`), `resources`
 (every type) and `history` (every version).

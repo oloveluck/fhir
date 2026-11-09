@@ -52,6 +52,20 @@
     (let-values ([(text err?) ((tool-run (hash-ref (tools-of c) "commit")) (hasheq 'stage "stage-3"))])
       (check-true err?)
       (check-regexp-match #rx"no stage stage-3" text))))
+;; a derived table says what it read: its file and the earlier results it joined
+(define d (open-hub dir))
+(with-hub d
+  (lambda ()
+    (define q (call d "query" (hasheq 'language "sql" 'text "SELECT count(*) AS n FROM r1" 'files (hasheq 'text "count.sql"))))
+    (define src (hash-ref (call d "describe" (hasheq 'ref (hash-ref q 'result))) 'source))
+    (check-equal? (hash-ref src 'reads) '("result://r1"))
+    (check-equal? (hash-ref src 'file) "count.sql")
+    ;; a reference to a resource neither stored nor staged is a warning (not an error)
+    (define st (call d "stage" (hasheq 'fsh "Instance: o1\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#4548-4\n* subject = Reference(Patient/nobody)\n")))
+    (check-equal? (hash-ref st 'errors) 0)
+    (check-equal? (hash-ref (car (hash-ref st 'changes)) 'warnings) '("subject: Patient/nobody is neither in the data nor in this stage"))
+    ;; the commit says who the trail names
+    (check-true (string? (hash-ref (call d "commit" (hasheq 'stage (hash-ref st 'stage))) 'agent)))))
 ;; the shell: a call whose answer counts errors exits 1
 (define (shell . words)
   (define out (open-output-string))

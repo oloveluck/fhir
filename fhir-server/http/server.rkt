@@ -19,11 +19,11 @@
  (contract-out
   ;; #:bearer token — require `Authorization: Bearer <token>` on every request except GET /metadata
   ;; (a static token: enough for test kits that take a manually supplied access token; NOT SMART)
-  [serve-app (->* (app?) (#:port (integer-in 1 65535) #:host (or/c string? #f) #:bearer (or/c string? #f))
+  [serve-app (->* (app?) (#:port (integer-in 1 65535) #:host (or/c string? #f) #:bearer (or/c string? #f) #:log? boolean?)
                   (-> void))]))
 
 ;; start serving `app` on `port`; returns a thunk that stops the server.
-(define (serve-app app #:port [port 8080] #:host [host #f] #:bearer [bearer #f])
+(define (serve-app app #:port [port 8080] #:host [host #f] #:bearer [bearer #f] #:log? [log? #f])
   (define listener (tcp-listen port 128 #t host))
   (define stopped? (box #f))
   (define (accept-loop)
@@ -31,7 +31,7 @@
       (with-handlers ([exn:fail? (lambda (_) #f)])
         (call-with-values (lambda () (tcp-accept listener)) list)))
     (when (and conn (not (unbox stopped?)))
-      (thread (lambda () (serve-conn app (car conn) (cadr conn) bearer)))
+      (thread (lambda () (serve-conn app (car conn) (cadr conn) bearer log?)))
       (accept-loop)))
   (define worker (thread accept-loop))
   (lambda ()
@@ -40,7 +40,7 @@
     (kill-thread worker)))
 
 ;; serve exactly one request on this connection, then close it
-(define (serve-conn app in out [bearer #f])
+(define (serve-conn app in out [bearer #f] [log? #f])
   (with-handlers ([exn:fail? (lambda (e) (write-response out 500 (oo-json "exception" (exn-message e))))])
     (define reqline (read-line in 'any))
     (when (string? reqline)
@@ -61,6 +61,8 @@
             (write-response out 401 (oo-json "login" "a valid bearer token is required"))]
            [else
             (define-values (status bytes ctype) (handle/raw app method path (parse-query query) body))
+            ;; --log: one line per request, as a server log reads (method, target, status)
+            (when log? (eprintf "~a ~a ~a\n" method target status) (flush-output (current-error-port)))
             (write-raw-response out status bytes ctype
                                 #:location (and (= status 201) (regexp-match? #rx"json" ctype)
                                                 (absolute (base-of headers)

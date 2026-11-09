@@ -60,6 +60,8 @@
     (check-equal? (map (lambda (v) (list (hash-ref v 'version) (hash-ref v 'changed) (hash-ref v 'reason) (hash-ref v 'by))) (hash-ref hist 'versions))
                   '(("2" ("valueQuantity.value: 8.0 → 8.4") "lab corrected the value" "claude-code 2.0 via fhir-mcp")
                     ("1" "created" "intake: ann's first HbA1c" "claude-code 2.0 via fhir-mcp")))
+    ;; each version names the line of its source where its Instance begins
+    (check-equal? (map (lambda (v) (hash-ref v 'at #f)) (hash-ref hist 'versions)) '("fsh:1" "fsh:5"))
     ;; computing over the trail: every version with the reason it was written, in SQL
     (define q (call "query" (hasheq 'language "sql" 'text (string-append
                                                          "SELECT h.versionId, h.resource ->> '$.valueQuantity.value' AS value, p.resource ->> '$.reason[0].text' AS reason "

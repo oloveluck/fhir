@@ -37,5 +37,37 @@
     (check-regexp-match #rx"bp-diastolic" (string-join (errors-of (bp "nodia" #:dia #f)) "\n"))
     (check-regexp-match #rx"bp-subject" (string-join (errors-of (bp "nosubj" #:subject #f)) "\n"))
     ;; another Observation is not a blood pressure: the rule does not apply
-    (check-equal? (errors-of "Instance: a1c\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#4548-4\n* valueQuantity = 6.1 '%'\n") '())))
+    (check-equal? (errors-of "Instance: a1c\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#4548-4\n* valueQuantity = 6.1 '%'\n") '())
+    ;; correcting a stored reading: its FSH, one line changed, staged again
+    (call "commit" (hasheq 'stage (hash-ref (call "stage" (hasheq 'fsh (bp "bp-a1"))) 'stage) 'reason "intake"))
+    (define-values (fsh _e) ((tool-run (hash-ref tools "describe")) (hasheq 'ref "Observation/bp-a1" 'as "fsh")))
+    (define fixed (regexp-replace #rx"150 'mm\\[Hg\\]'" fsh "140 'mm[Hg]'"))
+    (check-false (equal? fixed fsh))
+    (define st (call "stage" (hasheq 'fsh fixed)))
+    (check-equal? (hash-ref (car (hash-ref st 'changes)) 'action) "update")
+    (check-equal? (hash-ref (car (hash-ref st 'changes)) 'changed) '("component[0].valueQuantity.value: 150 → 140"))))
 (delete-directory/files dir)
+
+;; the cookbook's rules: each refuses what it says and lets the rest through
+(define cookbook (cadr (regexp-match #px"```fsh\n(Profile: VitalsRules.*?)```" (learn-text "workspace"))))
+(define dir2 (make-temporary-directory "vitals-~a"))
+(void (init-workspace! dir2))
+(void (call-with-output-file (build-path dir2 "workspace.yaml") #:exists 'append
+        (lambda (o) (write-string "profiles:\n  Observation: http://example.org/fhir/StructureDefinition/vitals-rules\n" o))))
+(define h2 (open-hub dir2))
+(define tools2 (for/hash ([t (in-list (workspace-tools h2))]) (values (tool-name t) t)))
+(define (call2 name args)
+  (define-values (text err?) ((tool-run (hash-ref tools2 name)) args))
+  (check-false err? (format "~a: ~a" name text))
+  (string->jsexpr text))
+(define (hr id value unit date)
+  (format "Instance: ~a\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#8867-4\n* subject = Reference(Patient/a)\n* effectiveDateTime = \"~a\"\n* valueQuantity = ~a '~a'\n" id date value unit))
+(define (errors2 fsh) (string-join (hash-ref (car (hash-ref (call2 "stage" (hasheq 'fsh fsh)) 'changes)) 'errors) "\n"))
+(with-hub h2
+  (lambda ()
+    (check-equal? (hash-ref (call2 "write" (hasheq 'path "rules.fsh" 'text cookbook)) 'problems) '())
+    (check-equal? (errors2 (hr "ok" 72 "/min" "2025-03-01")) "")
+    (check-regexp-match #rx"hr-range" (errors2 (hr "fast" 300 "/min" "2025-03-01")))
+    (check-regexp-match #rx"hr-unit" (errors2 (hr "hz" 1.2 "Hz" "2025-03-01")))
+    (check-regexp-match #rx"not-future" (errors2 (hr "later" 72 "/min" "2999-01-01")))))
+(delete-directory/files dir2)

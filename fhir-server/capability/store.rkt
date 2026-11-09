@@ -36,7 +36,10 @@
   ;; with-declared : catalog type sps -> catalog   the declaration's search parameters added
   [with-declared (-> hash? symbol? (listof list?) hash?)]
   ;; core-search-params : -> catalog   the core package's SearchParameters over the engine's own
-  [core-search-params (-> hash?)]))
+  [core-search-params (-> hash?)]
+  ;; opened-store-files : -> (listof path)   the store files this process has opened for apps
+  [opened-store-files (-> (listof path?))]))
+(define (opened-store-files) (sort (hash-keys opened) path<?))
 
 ;; core-search-params : -> catalog   read once per process
 (define core-catalog #f)

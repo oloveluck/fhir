@@ -111,7 +111,12 @@ not in required value set …`.
 
 `ensure-valid` returns the resource, or raises `exn:fail:operation` (`(require fhir/operation)` for
 the predicate and `exn:fail:operation-outcome`) naming the profiles it was held to and listing every
-error, one per line, with the OperationOutcome in `exn:fail:operation-outcome`. `(apply-operation "$validate" r
+error, one per line, with the OperationOutcome in `exn:fail:operation-outcome`. Uncaught, it prints
+that message alone (no stack trace); to answer it yourself:
+`(with-handlers ([exn:fail:operation? (lambda (e) (eprintf "~a\n" (exn-message e)) (exit 1))]) (intake qr))`.
+A `#lang fsh` profile that constrains an element its base lacks (`* birthdate 1..1`) fails `raco make`
+at that rule, as a misspelt element does in `#lang fml` and `#lang cql`; the examples' validation
+needs the whole project, so it is `raco fsh check` (or the fsh skill's `raco test` snippet). `(apply-operation "$validate" r
 #:profile url)` returns the OperationOutcome itself: `issue` is a list of `{severity, code,
 diagnostics, expression: [path]}`, one `information` "All OK" when clean. A CQL module's `evaluate`
 raises an `exn:fail` (positioned at the define when it can) for a run-time error.

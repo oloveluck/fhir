@@ -960,6 +960,23 @@ The third rerun of the four agents: every task solved first time, no source read
   latest-value recipe's number/unit and a patient's name, FHIR versions per step of a Racket
   pipeline, checking FSH examples under `raco test`.
 
+## New users, round 5 (2026-11-09)
+The fourth rerun: every task first time, 10–21 calls, no source read. What remained, fixed:
+- **A `#lang fsh` typo fails the build** (fsh's reader runs the rule checks; fsh/CLAUDE.md), and
+  `exn:fail:operation` is an `exn:fail:user` too, so an uncaught `ensure-valid` prints its message.
+- **The trail, finer**: `describe(Type/id/_history)` gives each version's `at` — the source file and
+  the line its FSH Instance begins (`source-line`, from the source the Provenance contains); a query's
+  result records the file its text came from (`textFile`) and, for SQL, the earlier results it read
+  (`reads`); a commit answers the `agent` it names (with a note when the shell left it unnamed); a
+  stage WARNS about a literal reference to a resource neither stored nor staged (`dangling-references`).
+- **A dropped stage's id is never reused** (kept as `dropped-stage-N`; the rerun found the bug).
+- **Rules**: learn://workspace has a tested cookbook (range, unit, not-in-the-future; what is a binding
+  or a cardinality instead) and the correction recipe (describe as fsh, edit, stage, commit) —
+  `fhir-mcp/tests/bp-rule-test.rkt` runs both. A refusal still quotes the rule, not the value found.
+- **Servers**: `serve` prints the store file(s) in use (`opened-store-files`) and its pid; `--log`
+  prints one line per request. Docs: `$validate`'s levels, stopping a server, `--workspace` defaults to
+  the current directory, `Coalesce` for "never tested", deliberately invalid FSH examples kept apart.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.
