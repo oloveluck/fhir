@@ -13,16 +13,17 @@
 ;;;                                      language's guide and the workspace's, with no server running
 
 (require (only-in "mcp/init.rkt" init-workspace!)
-         racket/list racket/string json
+         racket/list racket/string racket/port racket/file json
          (only-in fhir/subcommands run-subcommands usage-error)
          "mcp/server.rkt" "mcp/tools.rkt" "mcp/workspace.rkt" "mcp/verbs.rkt"
-         (only-in "mcp/resources.rkt" current-result-resources learn-topics learn-text))
+         (only-in "mcp/resources.rkt" current-result-resources learn-topics learn-text)
+         (only-in "mcp/trail.rkt" current-agent))
 
 (define flags "[--workspace <dir>] [--package <tgz|name>]… [--data <dir|file|url>]")
 (define usages
   `(("serve" ,(format "raco fhir-mcp [serve] ~a   the server over stdin/stdout" flags))
     ("tools" ,(format "raco fhir-mcp tools ~a   the tools and their schemas" flags))
-    ("call"  ,(format "raco fhir-mcp call <tool> ['<json>'] ~a   run one tool" flags))
+    ("call"  ,(format "raco fhir-mcp call <tool> ['<json>' | -] [key=value | key=@file | key:=<json>]… ~a   run one tool: arguments as a JSON object (- reads it from stdin) and/or one by one, a file's text with @" flags))
     ("init"  "raco fhir-mcp init [<dir>] [--fhir-version 4.0.1|5.0.0]   make a directory a workspace an agent can use: workspace.yaml (data: fhir.db, a SQLite FHIR store), .mcp.json, CLAUDE.md")
     ("guide" "raco fhir-mcp guide [<topic>]   a guide (learn://<topic>) as text; without a topic, the topics")))
 
@@ -63,10 +64,9 @@
   (define rest (opts-rest o))
   (when (null? rest) (usage-error "fhir-mcp" usages "call" "no tool named"))
   (define name (car rest))
-  (define arguments (if (pair? (cdr rest))
-                        (with-handlers ([exn:fail? (lambda (_) (usage-error "fhir-mcp" usages "call" "the arguments are not JSON"))])
-                          (string->jsexpr (cadr rest)))
-                        (hasheq)))
+  (define arguments (call-arguments (cdr rest)))
+  ;; who the trail names: the shell, unless FHIR_MCP_AGENT says who is at it
+  (set-box! current-agent (or (getenv "FHIR_MCP_AGENT") "raco fhir-mcp call"))
   (with-workspace o
     (lambda (h tools)
       (define t (findf (lambda (x) (equal? (tool-name x) name)) tools))
@@ -74,6 +74,29 @@
       (define-values (text err?) (call-tool t arguments))
       (displayln text)
       (exit (if err? 1 0)))))
+
+;; call-arguments : (listof string) -> jsexpr   a JSON object (or `-`: JSON on stdin), then
+;; `key=value` (a string), `key=@file` (the file's text: FSH, CQL, SQL with no escaping) and
+;; `key:=<json>` (a number, a boolean, an array, an object), later ones winning
+(define (call-arguments words)
+  (define (bad msg) (usage-error "fhir-mcp" usages "call" msg))
+  (define (json-of s what)
+    (with-handlers ([exn:fail? (lambda (_) (bad (format "~a is not JSON" what)))]) (string->jsexpr s)))
+  (for/fold ([args (hasheq)]) ([w (in-list words)])
+    (cond
+      [(equal? w "-") (let ([j (json-of (port->string (current-input-port)) "stdin")])
+                        (if (hash? j) (for/fold ([a args]) ([(k v) (in-hash j)]) (hash-set a k v)) (bad "stdin is not a JSON object")))]
+      [(regexp-match? #rx"^[ \t\n]*[{]" w)
+       (let ([j (json-of w "the arguments")]) (for/fold ([a args]) ([(k v) (in-hash j)]) (hash-set a k v)))]
+      [(regexp-match #rx"^([A-Za-z_][A-Za-z0-9_]*):=(.*)$" w)
+       => (lambda (m) (hash-set args (string->symbol (cadr m)) (json-of (caddr m) (format "~a's value" (cadr m)))))]
+      [(regexp-match #rx"^([A-Za-z_][A-Za-z0-9_]*)=@(.+)$" w)
+       => (lambda (m) (define f (caddr m))
+            (unless (file-exists? f) (bad (format "~a=@~a: no such file" (cadr m) f)))
+            (hash-set args (string->symbol (cadr m)) (file->string f)))]
+      [(regexp-match #rx"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$" w)
+       => (lambda (m) (hash-set args (string->symbol (cadr m)) (caddr m)))]
+      [else (bad (format "unexpected ~a (arguments are '<json>', key=value, key=@file or key:=<json>)" w))])))
 
 ;; init-command : args -> void   a directory made ready for an agent (mcp/init.rkt); one line per file
 (define (init-command args)

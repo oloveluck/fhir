@@ -51,19 +51,21 @@
         (put! ".mcp.json" (lambda (p) (call-with-output-file p #:exists 'error
                                         (lambda (o) (write-json (hasheq 'mcpServers (hasheq 'fhir (mcp-server-entry))) o)
                                                     (newline o)))))
-        (put! "CLAUDE.md" (text claude-md))))
+        (put! "CLAUDE.md" (text claude-md))
+        ;; what the tools keep between calls, and SQLite's working files, are not sources
+        (put! ".gitignore" (text ".fhir-mcp/\nfhir.db-wal\nfhir.db-shm\n"))))
 
 (module+ test
   (require rackunit)
   (define d (make-temporary-directory))
   (define first (init-workspace! d))
-  (check-equal? (map cdr first) '(written written written))
+  (check-equal? (map cdr first) '(written written written written))
   (check-regexp-match #rx"fhirVersion: 4.0.1" (file->string (build-path d "workspace.yaml")))
   (check-regexp-match #rx"(?m:^data: fhir[.]db )" (file->string (build-path d "workspace.yaml")))
   (define mcp (call-with-input-file (build-path d ".mcp.json") read-json))
   (check-true (hash? (hash-ref (hash-ref mcp 'mcpServers) 'fhir)))
   ;; a second run keeps everything; an existing file is never overwritten
-  (call-with-output-file (build-path d "CLAUDE.md") (lambda (o) (write-string "mine" o)) #:exists 'truncate)
-  (check-equal? (map cdr (init-workspace! d)) '(kept kept kept))
+  (void (call-with-output-file (build-path d "CLAUDE.md") (lambda (o) (write-string "mine" o)) #:exists 'truncate))
+  (check-equal? (map cdr (init-workspace! d)) '(kept kept kept kept))
   (check-equal? (file->string (build-path d "CLAUDE.md")) "mine")
   (delete-directory/files d))

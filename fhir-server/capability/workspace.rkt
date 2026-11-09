@@ -143,7 +143,10 @@
   (run-result "server" '("type" "interactions" "search" "operations") rows
               (hasheq 'url (format "http://localhost:~a" port)
                       'store (if store (path->string store) "none: the app's own repositories")
-                      'try (format "curl http://localhost:~a/metadata" port))))
+                      'try (format "curl http://localhost:~a/metadata" port)
+                      'lives (format "as long as this fhir-mcp process; from a shell, keep it with: raco fhir-server serve ~a ~a~a"
+                                     (path->string (file-name-from-path path)) port
+                                     (if store (format " --store ~a" (path->string store)) "")))))
 
 (define (explain ws path text subject opts)
   (define cs (car (capability-of ws path text)))

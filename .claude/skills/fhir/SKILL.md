@@ -21,8 +21,21 @@ JSONB with its version history and search indexes, written only through `stage` 
 searched with FHIR search, and open to SQL (`resource ->> '$.gender'`). `data:` may instead name a
 directory of JSON files or a FHIR server's base url. To import JSON files:
 `raco fhir-server load fhir.db <dir|bundle.json>`. Elsewhere: `claude mcp add fhir -- fhir-mcp --workspace <dir>`.
-Without an MCP client, every tool runs from the shell: `raco fhir-mcp call <tool> '<json>' --workspace <dir>`
-(a fresh process each time, so a `result://` handle does not outlive its call).
+Without an MCP client, every tool runs from the shell, each call its own process; stages and results
+are kept in the workspace (`.fhir-mcp/`), so one call's stage is committed by the next and a result
+is described or joined in SQL later. Arguments are a JSON object and/or `key=value`, `key=@file`
+(a file's text: no escaping FSH, CQL or SQL into JSON) and `key:=<json>`:
+
+```sh
+raco fhir-mcp call stage fsh=@patients.fsh --workspace ws
+raco fhir-mcp call commit stage=stage-1 reason="intake" --workspace ws
+raco fhir-mcp call query language=sql text=@summary.sql --workspace ws
+raco fhir-mcp call describe ref=result://r1 as=csv --workspace ws
+```
+
+The trail names the agent `raco fhir-mcp call` (set `FHIR_MCP_AGENT` to name yourself). A capability
+app that `run` serves lives as long as the process that ran it: from the shell, serve it with
+`raco fhir-server serve app.capability.rkt 8080 --store fhir.db`.
 Not installed: the README's "Getting the tools" (Racket 9, then `raco pkg install` of the repositories).
 
 ## The guides
@@ -114,7 +127,7 @@ parameters):
 query {"language": "search", "text": "Observation?code=http://loinc.org|4548-4&value-quantity=gt8"}
 ```
 ```answer
-{"result": "result://r2", "total": 1, "rows": [{"resource": "Observation/ann-a1c"}]}
+{"result": "result://r1", "total": 1, "rows": [{"resource": "Observation/ann-a1c"}]}
 ```
 
 A rule per patient, in CQL:
@@ -140,7 +153,7 @@ write {"path": "Diabetes.cql", "text": "<the CQL above>"}
 run {"path": "Diabetes.cql"}
 ```
 ```answer
-{"result": "result://r3", "summary": {"patients": 2, "defines": {"Poor Control": {"true": 1, "false": 1}}},
+{"result": "result://r2", "summary": {"patients": 2, "defines": {"Poor Control": {"true": 1, "false": 1}}},
  "rows": [{"patient": "ann", "Poor Control": true}, {"patient": "bob", "Poor Control": false}]}
 ```
 
@@ -162,11 +175,11 @@ write {"path": "a1c.view.json", "text": "<the view above>"}
 {"problems": []}
 ```
 
-Then SQL over the tables: each view by its name, each earlier result by its handle (`r3` is the CQL
+Then SQL over the tables: each view by its name, each earlier result by its handle (`r2` is the CQL
 run; a column whose name has a space is quoted):
 
 ```call
-query {"language": "sql", "text": "SELECT a1c.patient, a1c.value FROM a1c JOIN r3 ON r3.patient = a1c.patient WHERE r3.\"Poor Control\" = 1"}
+query {"language": "sql", "text": "SELECT a1c.patient, a1c.value FROM a1c JOIN r2 ON r2.patient = a1c.patient WHERE r2.\"Poor Control\" = 1"}
 ```
 ```answer
 {"columns": ["patient", "value"], "rows": [{"patient": "ann", "value": 8.4}]}
@@ -226,7 +239,7 @@ the workspace's search and SQL see — and `apply("$yourOperation", inputs)` cal
 
 ## When something is off
 - A problem line names the file, line and column: fix it there and `write` again.
-- An answer you did not expect: `explain(ref: "result://r3", subject: "Patient/bob", entry: "Poor Control")`
+- An answer you did not expect: `explain(ref: "result://r2", subject: "Patient/bob", entry: "Poor Control")`
   walks the CQL down to the retrieve and says which resources it kept.
 - A stage with errors lists them per resource; nothing is written until they are gone.
 

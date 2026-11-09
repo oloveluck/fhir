@@ -318,6 +318,76 @@
                (disconnect c))]
     [else (append-map bundle-resources (data-resources h))]))
 
+;; ---- state that outlives the process --------------------------------------------------------------
+;; Results and stages live in the workspace (`.fhir-mcp/results/rN.json`, `.fhir-mcp/stages/stage-N.json`)
+;; as well as in memory, so a stage made by one `raco fhir-mcp call` is committed by the next, and a
+;; result is described, joined in SQL or staged from another process. Numbers continue from what is
+;; saved; results count r1, r2, … and stages stage-1, stage-2, … each on their own.
+(define (state-dir h kind) (build-path (hub-root h) ".fhir-mcp" kind))
+;; saved-names : hub kind -> (listof name)   "r1", "stage-2", … in number order
+(define (saved-names h kind)
+  (define d (state-dir h kind))
+  (define names (if (directory-exists? d)
+                    (for/list ([f (in-list (directory-list d))] #:when (regexp-match? #rx"[.]json$" (path->string f)))
+                      (regexp-replace #rx"[.]json$" (path->string f) ""))
+                    '()))
+  (sort names < #:key (lambda (n) (or (string->number (regexp-replace #rx"^[^0-9]*" n "")) 0))))
+;; next-number : hub kind prefix memory -> integer   one more than any saved or held
+(define (next-number h kind prefix mem)
+  (define (num n) (or (string->number (regexp-replace #rx"^[^0-9]*" n "")) 0))
+  (add1 (apply max 0 (append (map num (saved-names h kind))
+                             (map (lambda (k) (num (regexp-replace (regexp (regexp-quote prefix)) k ""))) (hash-keys mem))))))
+(define (save-state! h kind name thunk)
+  (with-handlers ([exn:fail? (lambda (e) (log-warning "fhir-mcp: ~a ~a not saved: ~a" kind name (exn-message e)))])
+    (define js (thunk))
+    (make-directory* (state-dir h kind))
+    (call-with-output-file (build-path (state-dir h kind) (string-append name ".json"))
+      (lambda (o) (write-json js o)) #:exists 'truncate/replace)))
+(define (forget-state! h kind name)
+  (define f (build-path (state-dir h kind) (string-append name ".json")))
+  (when (file-exists? f) (delete-file f)))
+(define (load-state h kind name)
+  (define f (build-path (state-dir h kind) (string-append name ".json")))
+  (and (file-exists? f) (with-handlers ([exn:fail? (lambda (_) #f)]) (call-with-input-file f read-json))))
+
+;; result-of : hub uri -> stored | #f ; stage-of : hub id -> staged | #f   memory, else the workspace
+(define (result-of h uri)
+  (or (hash-ref (hub-results h) uri #f)
+      (let ([js (and (string? uri) (load-state h "results" (regexp-replace #rx"^result://" uri "")))])
+        (and (hash? js) (let ([st (jsexpr->stored js)]) (hash-set! (hub-results h) uri st) st)))))
+(define (stage-of h id)
+  (or (hash-ref (hub-stages h) id #f)
+      (let ([js (load-state h "stages" id)])
+        (and (hash? js) (let ([st (jsexpr->staged js)]) (hash-set! (hub-stages h) id st) st)))))
+
+(define (stored->jsexpr st)
+  (define r (stored-result st))
+  (define o (stored-options st))
+  (hasheq 'language (stored-language st)
+          'path (let ([p (stored-path st)]) (if p (path->string p) 'null))
+          'text (stored-text st)
+          'options (for/hasheq ([(k v) (in-hash o)])
+                     (values k (if (hash? v) (for/hasheq ([(n x) (in-hash v)]) (values (string->symbol n) x)) v)))
+          'result (hasheq 'kind (run-result-kind r) 'columns (run-result-columns r)
+                          'rows (run-result-rows r) 'summary (run-result-summary r))))
+(define (jsexpr->stored js)
+  (define r (hash-ref js 'result (hasheq)))
+  (stored (hash-ref js 'language "?")
+          (let ([p (hash-ref js 'path 'null)]) (and (string? p) (string->path p)))
+          (hash-ref js 'text "")
+          (for/hasheq ([(k v) (in-hash (hash-ref js 'options (hasheq)))])
+            (values k (if (hash? v) (for/hash ([(n x) (in-hash v)]) (values (symbol->string n) x)) v)))
+          (run-result (hash-ref r 'kind "rows") (hash-ref r 'columns '()) (hash-ref r 'rows '()) (hash-ref r 'summary (hasheq)))))
+(define (staged->jsexpr st)
+  (hasheq 'source (staged-source st)
+          'changes (for/list ([c (in-list (staged-changes st))])
+                     (hasheq 'resource (change-resource c) 'action (symbol->string (change-action c))
+                             'paths (change-paths c) 'errors (change-errors c)))))
+(define (jsexpr->staged js)
+  (staged (for/list ([c (in-list (hash-ref js 'changes '()))])
+            (change (hash-ref c 'resource) (string->symbol (hash-ref c 'action "create")) (hash-ref c 'paths '()) (hash-ref c 'errors '())))
+          (hash-ref js 'source (hasheq 'kind "resources"))))
+
 ;; ---- run, query, results ---------------------------------------------------------------------------
 (define preview-rows 10)
 (define max-preview 400)
@@ -329,9 +399,9 @@
 (define (preview row) (if (hash? row) (for/hasheq ([(k v) (in-hash row)]) (values k (elide v))) (elide row)))
 
 (define (store! h st)
-  (set-hub-counter! h (add1 (hub-counter h)))
-  (define uri (format "result://r~a" (hub-counter h)))
+  (define uri (format "result://r~a" (next-number h "results" "result://r" (hub-results h))))
   (hash-set! (hub-results h) uri st)
+  (save-state! h "results" (regexp-replace #rx"^result://" uri "") (lambda () (stored->jsexpr st)))
   uri)
 
 (define (result-json uri r)
@@ -414,7 +484,7 @@
       (cons name (lambda () (let ([r (execute h "sql-on-fhir" f (file->string f) (hasheq))])
                               (table (run-result-columns r) (run-result-rows r)))))))
   (define results
-    (for/list ([(uri st) (in-hash (hub-results h))]
+    (for*/list ([uri (in-list (hub-result-uris h))] [st (in-value (result-of h uri))] #:when st
                #:when (andmap hash? (run-result-rows (stored-result st))))
       (cons (regexp-replace #rx"^result://" uri "")
             (lambda () (table (map (lambda (c) (format "~a" c)) (run-result-columns (stored-result st)))
@@ -489,9 +559,12 @@
                  (hasheq 'errors (count (lambda (i) (member (hash-ref i 'severity #f) '("error" "fatal"))) issues)
                          'warnings (count (lambda (i) (equal? (hash-ref i 'severity #f) "warning")) issues)))]))
 
-(define (hub-result-uris h) (sort (hash-keys (hub-results h)) string<?))
+(define (hub-result-uris h)
+  (sort (remove-duplicates (append (hash-keys (hub-results h))
+                                   (map (lambda (n) (string-append "result://" n)) (saved-names h "results"))))
+        string<?))
 (define (hub-read-result h uri)
-  (define st (hash-ref (hub-results h) uri #f))
+  (define st (result-of h uri))
   (and st (let ([r (stored-result st)])
             (hasheq 'kind (run-result-kind r) 'columns (run-result-columns r) 'summary (run-result-summary r) 'rows (run-result-rows r)))))
 
@@ -500,7 +573,7 @@
   (refresh! h)
   (define-values (lang path text opts)
     (cond
-      [(hash-ref (hub-results h) ref #f)
+      [(result-of h ref)
        => (lambda (st) (values (stored-language st) (stored-path st) (stored-text st)
                                (for/fold ([o (stored-options st)]) ([(k v) (in-hash (options args))]) (hash-set o k v))))]
       [(regexp-match? #rx"^result://" ref) (error 'explain (format "no result ~a (results: ~a)" ref (string-join (hub-result-uris h) ", ")))]
@@ -630,7 +703,7 @@
 ;; result-csv : hub uri offset limit -> text-answer   a result's rows as CSV, a header line first: the
 ;; compact form of a table (JSON rows repeat every column name); a last line says what is left
 (define (result-csv h uri offset limit)
-  (define st (or (hash-ref (hub-results h) uri #f) (error 'describe (format "no result ~a (results: ~a)" uri (string-join (hub-result-uris h) ", ")))))
+  (define st (or (result-of h uri) (error 'describe (format "no result ~a (results: ~a)" uri (string-join (hub-result-uris h) ", ")))))
   (define r (stored-result st))
   (define cols (map (lambda (c) (format "~a" c)) (run-result-columns r)))
   (define rows (run-result-rows r))
@@ -652,11 +725,11 @@
   (if (regexp-match? #rx"[,\"\n\r]" s) (string-append "\"" (string-replace s "\"" "\"\"") "\"") s))
 
 (define (describe-result h uri offset limit against)
-  (define st (or (hash-ref (hub-results h) uri #f) (error 'describe (format "no result ~a (results: ~a)" uri (string-join (hub-result-uris h) ", ")))))
+  (define st (or (result-of h uri) (error 'describe (format "no result ~a (results: ~a)" uri (string-join (hub-result-uris h) ", ")))))
   (define r (stored-result st))
   (cond
     [against
-     (define other (or (hash-ref (hub-results h) against #f) (error 'describe (format "no result ~a" against))))
+     (define other (or (result-of h against) (error 'describe (format "no result ~a" against))))
      (diff-results (stored-result other) r against uri)]
     [else
      (define rows (run-result-rows r))
@@ -759,7 +832,7 @@
     [(string? fsh)
      ;; FSH compiles as a file of the workspace's project (its profiles in context): a temporary
      ;; file, removed (and the workspace refreshed) whatever happens
-     (define tmp (build-path (hub-root h) (format "_stage-~a.fsh" (add1 (hub-counter h)))))
+     (define tmp (build-path (hub-root h) (format "_stage-~a.fsh" (current-milliseconds))))
      (dynamic-wind
       (lambda () (call-with-output-file tmp (lambda (o) (write-string fsh o)) #:exists 'truncate/replace) (refresh! h))
       (lambda ()
@@ -779,7 +852,7 @@
       (lambda () (when (file-exists? tmp) (delete-file tmp)) (refresh! h)))]
     [(list? given) (append-map (lambda (r) (if (hash? r) (bundle-resources r) (error 'stage "each resource is a JSON object"))) given)]
     [(string? result)
-     (define st (or (hash-ref (hub-results h) result #f) (error 'stage (format "no result ~a" result))))
+     (define st (or (result-of h result) (error 'stage (format "no result ~a" result))))
      (define rs (for/list ([row (in-list (run-result-rows (stored-result st)))] #:when (and (hash? row) (hash? (hash-ref row 'resource #f)))) (hash-ref row 'resource)))
      (when (null? rs) (error 'stage (format "~a holds no resources (an FML or FSH run does)" result)))
      (filter instance? rs)]
@@ -823,9 +896,9 @@
           (define current (and (hash-ref r 'id #f) ((data-source-read (current-data-source)) (hash-ref r 'resourceType) (hash-ref r 'id))))
           (define paths (if current (json-diff current r) '()))
           (change r (cond [(not current) 'create] [(null? paths) 'unchanged] [else 'update]) paths (validation-errors r))))
-      (set-hub-counter! h (add1 (hub-counter h)))
-      (define id (format "stage-~a" (hub-counter h)))
+      (define id (format "stage-~a" (next-number h "stages" "stage-" (hub-stages h))))
       (hash-set! (hub-stages h) id (staged changes source))
+      (save-state! h "stages" id (lambda () (staged->jsexpr (staged changes source))))
       (define errors (for/sum ([c (in-list changes)]) (length (change-errors c))))
       (hasheq 'stage id
               'target (hub-data-label h)
@@ -839,7 +912,9 @@
                         "fix the errors, then stage again: a stage with errors is not committed")))))
 
 (define (hub-commit! h id [reason #f])
-  (define st (or (hash-ref (hub-stages h) id #f) (error 'commit (format "no stage ~a" id))))
+  (define st (or (stage-of h id)
+                 (error 'commit (format "no stage ~a~a" id
+                                        (let ([ids (saved-names h "stages")]) (if (null? ids) " (stage something first)" (format " (stages: ~a)" (string-join ids ", "))))))))
   (define changes (staged-changes st))
   (define errors (for/sum ([c (in-list changes)]) (length (change-errors c))))
   (unless (zero? errors) (error 'commit (format "~a has ~a validation error(s); fix them and stage again" id errors)))
@@ -876,6 +951,7 @@
          (call-with-output-file (cdr p) (lambda (o) (write-json (car p) o)) #:exists 'truncate/replace)
          (hasheq 'resource (format "~a/~a" (hash-ref (car p) 'resourceType) (hash-ref (car p) 'id)) 'file (path-string (cdr p)) 'ok #t))]))
   (hash-remove! (hub-stages h) id)
+  (forget-state! h "stages" id)
   ;; the trail: a Provenance and an AuditEvent in the data, naming the versions written
   (define targets (for/list ([w (in-list written)] [ch (in-list todo)] #:when (hash-ref w 'ok #f))
                     (list (hash-ref w 'version (hash-ref w 'resource)) (if (eq? (change-action ch) 'create) 'create 'update))))
@@ -892,7 +968,7 @@
   (cond
     [(string? fsh) (hasheq 'kind "fsh" 'language "fsh" 'text fsh)]
     [(string? result)
-     (define st (hash-ref (hub-results h) result #f))
+     (define st (result-of h result))
      (if st
          (for/fold ([src (hasheq 'kind "result" 'result result 'language (stored-language st))])
                    ([kv (in-list (list (cons 'path (and (stored-path st) (rel h (stored-path st))))
