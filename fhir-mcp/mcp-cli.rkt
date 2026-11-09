@@ -23,7 +23,7 @@
   `(("serve" ,(format "raco fhir-mcp [serve] ~a   the server over stdin/stdout" flags))
     ("tools" ,(format "raco fhir-mcp tools ~a   the tools and their schemas" flags))
     ("call"  ,(format "raco fhir-mcp call <tool> ['<json>'] ~a   run one tool" flags))
-    ("init"  "raco fhir-mcp init [<dir>] [--fhir-version 4.0.1|5.0.0]   make a directory a workspace an agent can use: workspace.yaml, data/, .mcp.json, CLAUDE.md")
+    ("init"  "raco fhir-mcp init [<dir>] [--fhir-version 4.0.1|5.0.0]   make a directory a workspace an agent can use: workspace.yaml (data: fhir.db, a SQLite FHIR store), .mcp.json, CLAUDE.md")
     ("guide" "raco fhir-mcp guide [<topic>]   a guide (learn://<topic>) as text; without a topic, the topics")))
 
 ;; An Opts is (opts workspace packages data rest)
@@ -87,7 +87,8 @@
             [else (usage-error "fhir-mcp" usages "init" (format "unexpected ~a" (car as)))])))
   (for ([r (in-list (init-workspace! dir #:fhir-version fv))])
     (printf "~a ~a\n" (if (eq? (cdr r) 'written) "wrote" "kept ") (path->string (build-path dir (car r)))))
-  (printf "Claude Code starts the server from .mcp.json in ~a; put FHIR JSON in ~a\n" dir (path->string (build-path dir "data"))))
+  (printf "Claude Code starts the server from .mcp.json in ~a. The data is ~a, a SQLite FHIR store: stage and commit write it; raco fhir-server load ~a <dir> imports FHIR JSON\n"
+          dir (path->string (build-path dir "fhir.db")) (path->string (build-path dir "fhir.db"))))
 
 ;; guide-command : args -> void   learn://<topic> printed, or the topics with what each covers
 (define (guide-command args)

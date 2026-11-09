@@ -7,8 +7,11 @@
 ;;;
 ;;; Schema (see the module body; created idempotently on open):
 ;;;   fhir_resources       — the CURRENT version of every resource: (resource_type, id) PK,
-;;;                          version_id, last_updated (ISO-8601 UTC), raw_resource (JSON text)
+;;;                          version_id, last_updated (ISO-8601 UTC), resource (SQLite JSONB: written
+;;;                          with jsonb(?), read with json(resource); SQL reads it in place with
+;;;                          `resource ->> '$.gender'`, json_extract, json_each)
 ;;;   fhir_history         — immutable version history: + content_hash (SHA-1 of the JSON text)
+;;; A store written before JSONB (a `raw_resource` TEXT column) is migrated when it opens.
 ;;;   fhir_token_index     — search-param token index: param_name, system, code
 ;;;   fhir_reference_index — search-param reference index: param_name, target_type, target_id
 ;;; Indexes cover the search access paths (token by param/system/code; reference by param/target).
@@ -70,7 +73,7 @@
       id            TEXT NOT NULL,
       version_id    INTEGER NOT NULL,
       last_updated  TEXT NOT NULL,
-      raw_resource  TEXT NOT NULL,
+      resource      BLOB NOT NULL,
       PRIMARY KEY (resource_type, id))"
    "CREATE TABLE IF NOT EXISTS fhir_history (
       resource_type TEXT NOT NULL,
@@ -78,7 +81,7 @@
       version_id    INTEGER NOT NULL,
       last_updated  TEXT NOT NULL,
       content_hash  TEXT NOT NULL,
-      raw_resource  TEXT NOT NULL,
+      resource      BLOB NOT NULL,
       PRIMARY KEY (resource_type, id, version_id))"
    "CREATE TABLE IF NOT EXISTS fhir_token_index (
       resource_type TEXT NOT NULL,
@@ -122,7 +125,20 @@
    "CREATE INDEX IF NOT EXISTS idx_quantity_owner ON fhir_quantity_index (resource_type, resource_id)"))
 
 (define (ensure-schema! c)
-  (for ([stmt (in-list schema-statements)]) (query-exec c stmt)))
+  (for ([stmt (in-list schema-statements)]) (query-exec c stmt))
+  (migrate-to-jsonb! c))
+
+;; migrate-to-jsonb! : connection -> void   a table that still holds `raw_resource` JSON text gets
+;; its `resource` JSONB column filled from it, and the text column dropped
+(define (migrate-to-jsonb! c)
+  (for ([t (in-list '("fhir_resources" "fhir_history"))])
+    (define cols (query-list c (format "SELECT name FROM pragma_table_info('~a')" t)))
+    (when (member "raw_resource" cols)
+      (call-with-transaction c
+        (lambda ()
+          (unless (member "resource" cols) (query-exec c (format "ALTER TABLE ~a ADD COLUMN resource BLOB" t)))
+          (query-exec c (format "UPDATE ~a SET resource = jsonb(raw_resource)" t))
+          (query-exec c (format "ALTER TABLE ~a DROP COLUMN raw_resource" t)))))))
 
 (module+ test
   (require rackunit racket/file)
@@ -132,6 +148,19 @@
   (check-equal? (call-with-store-connection store
                   (lambda (c) (query-value c "PRAGMA journal_mode")))
                 "wal")
+  ;; a store written with JSON text is migrated to JSONB when it opens
+  (define old (make-temporary-file "fhir-store-old-~a.db"))
+  (let ([c (sqlite3-connect #:database old)])
+    (query-exec c "CREATE TABLE fhir_resources (resource_type TEXT NOT NULL, id TEXT NOT NULL, version_id INTEGER NOT NULL, last_updated TEXT NOT NULL, raw_resource TEXT NOT NULL, PRIMARY KEY (resource_type, id))")
+    (query-exec c "INSERT INTO fhir_resources VALUES ('Patient', 'p1', 1, '2025-01-01T00:00:00Z', '{\"resourceType\":\"Patient\",\"id\":\"p1\",\"gender\":\"female\"}')")
+    (disconnect c))
+  (define migrated (open-fhir-store old))
+  (check-equal? (call-with-store-connection migrated
+                  (lambda (c) (list (query-value c "SELECT resource ->> '$.gender' FROM fhir_resources")
+                                    (query-value c "SELECT typeof(resource) FROM fhir_resources")
+                                    (query-list c "SELECT name FROM pragma_table_info('fhir_resources') WHERE name = 'raw_resource'"))))
+                '("female" "blob" ()))
+  (delete-file old)
   ;; schema exists and is idempotent
   (check-not-exn (lambda () (call-with-store-connection store ensure-schema!)))
   (check-equal? (call-with-store-connection store

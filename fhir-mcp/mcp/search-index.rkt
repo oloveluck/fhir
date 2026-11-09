@@ -22,7 +22,9 @@
   [build-search-index (-> (listof hash?) (listof path-string?) module-path?
                           (-> string? (listof (cons/c string? string?)) (listof hash?)))]
   ;; search-index-available? : -> boolean   is fhir-server installed?
-  [search-index-available? (-> boolean?)]))
+  [search-index-available? (-> boolean?)]
+  ;; search-catalog : packages -> catalog   the packages' SearchParameters (core first), memoised
+  [search-catalog (-> (listof path-string?) hash?)]))
 
 (define (search-index-available?)
   (with-handlers ([exn:fail? (lambda (_) #f)])
@@ -34,6 +36,7 @@
 ;; catalog : (listof package) -> SearchParamCatalog   memoised per package list (reading a core
 ;; package's ~1,400 SearchParameters takes a moment)
 (define catalogs (make-hash))
+(define (search-catalog packages) (catalog packages))
 (define (catalog packages)
   (hash-ref! catalogs packages
              (lambda ()

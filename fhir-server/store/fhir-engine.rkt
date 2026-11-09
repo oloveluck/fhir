@@ -104,7 +104,7 @@
 
 (define (fhir-read store rtype id)
   (define raw (call-with-store-connection store
-                (lambda (c) (query-maybe-value c "SELECT raw_resource FROM fhir_resources WHERE resource_type=? AND id=?"
+                (lambda (c) (query-maybe-value c "SELECT json(resource) FROM fhir_resources WHERE resource_type=? AND id=?"
                                                rtype id))))
   (and raw (string->jsexpr raw)))
 
@@ -138,7 +138,7 @@
 (define (history-query store where args since count)
   (call-with-store-connection store
     (lambda (c)
-      (define sql (string-append "SELECT raw_resource FROM fhir_history WHERE " where
+      (define sql (string-append "SELECT json(resource) FROM fhir_history WHERE " where
                                  (if since " AND substr(last_updated,1,19) >= ?" "")
                                  " ORDER BY last_updated DESC, version_id DESC"
                                  (if (exact-nonnegative-integer? count) (format " LIMIT ~a" count) "")))
@@ -149,7 +149,7 @@
 ;; fhir-vread : one specific version from the immutable history
 (define (fhir-vread store rtype id vid)
   (define raw (call-with-store-connection store
-                (lambda (c) (query-maybe-value c "SELECT raw_resource FROM fhir_history
+                (lambda (c) (query-maybe-value c "SELECT json(resource) FROM fhir_history
                                                   WHERE resource_type=? AND id=? AND version_id=?"
                                                rtype id vid))))
   (and raw (string->jsexpr raw)))
@@ -163,22 +163,22 @@
   (define existed? (and (query-maybe-value c "SELECT 1 FROM fhir_resources WHERE resource_type=? AND id=?"
                                            rtype id) #t))
   (query-exec c "DELETE FROM fhir_resources WHERE resource_type=? AND id=?" rtype id)
-  (query-exec c "DELETE FROM fhir_token_index WHERE resource_type=? AND resource_id=?" rtype id)
-  (query-exec c "DELETE FROM fhir_reference_index WHERE resource_type=? AND resource_id=?" rtype id)
+  (for ([t (in-list index-tables)])                       ; every index of it, not only tokens and references
+    (query-exec c (format "DELETE FROM ~a WHERE resource_type=? AND resource_id=?" (car t)) rtype id))
   existed?)
 
 ;; write the current row + the immutable history row (inside the caller's transaction)
 (define (write-version! c rtype id vid now stored)
   (define text (jsexpr->string stored))
   (define hash (sha1 (open-input-bytes (string->bytes/utf-8 text))))
-  (query-exec c "INSERT INTO fhir_resources (resource_type,id,version_id,last_updated,raw_resource)
-                 VALUES (?,?,?,?,?)
+  (query-exec c "INSERT INTO fhir_resources (resource_type,id,version_id,last_updated,resource)
+                 VALUES (?,?,?,?,jsonb(?))
                  ON CONFLICT(resource_type,id) DO UPDATE
                  SET version_id=excluded.version_id, last_updated=excluded.last_updated,
-                     raw_resource=excluded.raw_resource"
+                     resource=excluded.resource"
               rtype id vid now text)
-  (query-exec c "INSERT INTO fhir_history (resource_type,id,version_id,last_updated,content_hash,raw_resource)
-                 VALUES (?,?,?,?,?,?)" rtype id vid now hash text))
+  (query-exec c "INSERT INTO fhir_history (resource_type,id,version_id,last_updated,content_hash,resource)
+                 VALUES (?,?,?,?,?,jsonb(?))" rtype id vid now hash text))
 
 (define (stamp-meta resource vid now)
   (define meta (let ([m (hash-ref resource 'meta (hash))])
@@ -248,7 +248,7 @@
   (define offset (number-of "_offset"))
   (define order (sort-keys catalog (let ([s (assoc "_sort" query-params)]) (and s (cdr s)))))
   (define sql
-    (string-append "SELECT raw_resource FROM fhir_resources r WHERE r.resource_type=?"
+    (string-append "SELECT json(r.resource) FROM fhir_resources r WHERE r.resource_type=?"
                    (apply string-append (for/list ([c (in-list (reverse clauses))])
                                           (string-append " AND " (clause-sql c))))
                    " ORDER BY " (if order (string-join (map car order) ", ") "r.last_updated, r.id")
@@ -328,7 +328,7 @@
               [(and (equal? (car qp) "_revinclude") (or (not target) (equal? target rtype)) (pair? match-ids))
                (for*/list ([raw (in-list (apply query-list c
                                                 (string-append
-                                                 "SELECT r.raw_resource FROM fhir_resources r WHERE r.resource_type=? AND EXISTS
+                                                 "SELECT json(r.resource) FROM fhir_resources r WHERE r.resource_type=? AND EXISTS
                                                   (SELECT 1 FROM fhir_reference_index x WHERE x.resource_type=r.resource_type
                                                    AND x.resource_id=r.id"
                                                  (if (equal? param "*") "" " AND x.param_name=?")

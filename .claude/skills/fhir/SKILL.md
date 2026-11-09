@@ -13,8 +13,12 @@ one line, `file:line:col severity: message`, with "did you mean …" for a missp
 ```sh
 fhir-mcp init my-workspace        # or: raco fhir-mcp init my-workspace [--fhir-version 5.0.0]
 ```
-writes `workspace.yaml` (FHIR 4.0.1, `data: data/`), `data/`, a `.mcp.json` that registers the
-server for Claude Code, and a `CLAUDE.md`. Elsewhere: `claude mcp add fhir -- fhir-mcp --workspace <dir>`.
+writes `workspace.yaml` (FHIR 4.0.1, `data: fhir.db`), a `.mcp.json` that registers the server for
+Claude Code, and a `CLAUDE.md`. The data is **`fhir.db`, a SQLite FHIR store**: every resource as
+JSONB with its version history and search indexes, written only through `stage` and `commit`,
+searched with FHIR search, and open to SQL (`resource ->> '$.gender'`). `data:` may instead name a
+directory of JSON files or a FHIR server's base url. To import JSON files:
+`raco fhir-server load fhir.db <dir|bundle.json>`. Elsewhere: `claude mcp add fhir -- fhir-mcp --workspace <dir>`.
 Without an MCP client, every tool runs from the shell: `raco fhir-mcp call <tool> '<json>' --workspace <dir>`
 (a fresh process each time, so a `result://` handle does not outlive its call).
 Not installed: the README's "Getting the tools" (Racket 9, then `raco pkg install` of the repositories).
@@ -49,8 +53,8 @@ same text as `learn://<topic>`. Read `fhir` (resources, codes, quantities, refer
 | `stage(…)`, `commit(stage)` | write data: validated and diffed first; a stage with errors is refused |
 
 ## A session
-Two patients and their HbA1c results, written as FSH, stored, searched, put through a CQL rule,
-flattened into a table and joined with the rule's answer in SQL. Each call is shown with the part of
+Two patients and their HbA1c results, written as FSH, stored in `fhir.db`, searched, put through a
+CQL rule, flattened into a table and joined with the rule's answer in SQL. Each call is shown with the part of
 its answer that matters (this exact session runs in the fhir-mcp tests).
 
 Create the data. FSH writes a coding, a quantity or a reference in one value; `Reference(ann)` is
@@ -97,8 +101,8 @@ stage {"fsh": "<the FSH above>"}
 commit {"stage": "stage-1"}
 ```
 
-Find results above 8% with a FHIR search (over files, the workspace indexes the data by FHIR's own
-search parameters):
+Find results above 8% with a FHIR search (the store indexes every resource by FHIR's own search
+parameters):
 
 ```call
 query {"language": "search", "text": "Observation?code=http://loinc.org|4548-4&value-quantity=gt8"}
@@ -160,6 +164,17 @@ query {"language": "sql", "text": "SELECT a1c.patient, a1c.value FROM a1c JOIN r
 ```
 ```answer
 {"columns": ["patient", "value"], "rows": [{"patient": "ann", "value": 8.4}]}
+```
+
+SQL reads the stored resources too: each resource type is a table of `id`, `versionId`,
+`lastUpdated` and `resource`, the resource as JSONB (`->>` takes a value out of it, `json_each`
+walks a list):
+
+```call
+query {"language": "sql", "text": "SELECT resource ->> '$.gender' AS gender, count(*) AS n FROM Patient GROUP BY gender ORDER BY gender"}
+```
+```answer
+{"rows": [{"gender": "female", "n": 1}, {"gender": "male", "n": 1}]}
 ```
 
 Read one resource back in its compact form:

@@ -3,20 +3,24 @@
 ;;; sql.rkt — SQL over tables of FHIR data: the analysis step after a ViewDefinition has flattened
 ;;; resources into rows. The tables live in an in-memory SQLite database made for the one query and
 ;;; dropped after it; only a reading statement runs (SELECT, WITH or VALUES), so nothing is written
-;;; anywhere.
+;;; anywhere. Over a FHIR store (#:database, fhir-server's SQLite file) the query runs on a READ-ONLY
+;;; connection to the store itself: the tables become TEMP tables there, and every resource type
+;;; stored is a TEMP view `"<Type>"(id, versionId, lastUpdated, resource)`, plus `resources(type, …)`,
+;;; whose `resource` is the stored JSONB — `resource ->> '$.gender'`, `json_each(resource, '$.name')`.
+;;; A JSONB cell in the answer is rendered as its JSON text.
 ;;;
 ;;; A Table is (table columns rows): columns (listof string), rows (listof (hash column-symbol ->
 ;;; jsexpr)). A cell that is a JSON array or object (a collection column) is stored as its JSON text,
 ;;; a boolean as 1/0, null as NULL. Tables are given as thunks, so only the ones a query names are
 ;;; computed.
 
-(require racket/contract racket/list racket/string json db)
+(require racket/contract racket/list racket/string racket/file json db)
 
 (provide
  (struct-out table)
  (contract-out
-  ;; sql-query : sql (hash name -> (-> table)) -> table   the statement's answer
-  [sql-query (-> string? (hash/c string? procedure?) table?)]
+  ;; sql-query : sql (hash name -> (-> table)) [#:database store-file] -> table   the statement's answer
+  [sql-query (->* (string? (hash/c string? procedure?)) (#:database (or/c path-string? #f)) table?)]
   ;; tables-named : sql (listof name) -> (listof name)   the names the statement mentions
   [tables-named (-> string? (listof string?) (listof string?))]))
 
@@ -33,34 +37,48 @@
   (and (regexp-match? #px"(?i:^(select|with|values)\\b)" s)
        (not (regexp-match? #px";" (regexp-replace* #px"'(?:[^']|'')*'" s "")))))
 
-(define (sql-query sql tables)
+(define (sql-query sql tables #:database [store #f])
   (unless (reading? sql)
     (raise-user-error 'sql "one SELECT (or WITH … SELECT) statement over the views' tables"))
-  (define names (tables-named sql (hash-keys tables)))
-  (when (null? names)
-    (raise-user-error 'sql (format "the statement names none of the tables: ~a" (string-join (sort (hash-keys tables) string<?) ", "))))
-  (define c (sqlite3-connect #:database 'memory))
+  (define c (if store (sqlite3-connect #:database store #:mode 'read-only) (sqlite3-connect #:database 'memory)))
   (dynamic-wind
    void
    (lambda ()
-     (for ([n (in-list names)]) (load-table! c n ((hash-ref tables n))))
+     (define types (if store (store-views! c (hash-keys tables)) '()))
+     (define names (tables-named sql (hash-keys tables)))
+     (when (and (null? names) (null? (tables-named sql types)))
+       (raise-user-error 'sql (format "the statement names none of the tables: ~a" (string-join (sort (append (hash-keys tables) types) string<?) ", "))))
+     (for ([n (in-list names)]) (load-table! c n ((hash-ref tables n)) #:temp? (and store #t)))
      (define r (with-handlers ([exn:fail:sql? (lambda (e) (raise-user-error 'sql (sql-message e)))])
                  (query c (regexp-replace #px";\\s*$" (string-trim sql) ""))))
      (define cols (for/list ([h (in-list (rows-result-headers r))]) (cdr (assq 'name h))))
      (table cols
             (for/list ([v (in-list (rows-result-rows r))])
-              (for/hasheq ([col (in-list cols)] [x (in-vector v)]) (values (string->symbol col) (cell-out x))))))
+              (for/hasheq ([col (in-list cols)] [x (in-vector v)]) (values (string->symbol col) (cell-out x c))))))
    (lambda () (disconnect c))))
 
 (define (sql-message e)
   (define info (exn:fail:sql-info e))
   (or (let ([m (assq 'message info)]) (and m (cdr m))) (exn-message e)))
 
-;; load-table! : connection name table -> void
-(define (load-table! c name t)
+;; store-views! : connection (listof taken-name) -> (listof name)   a TEMP view per resource type in
+;; the store (unless a table of the same name, any case, is given) and `resources`
+(define (store-views! c taken)
+  (define (free? n) (not (member (string-downcase n) (map string-downcase taken))))
+  (define types (filter free? (query-list c "SELECT DISTINCT resource_type FROM main.fhir_resources ORDER BY 1")))
+  (for ([t (in-list types)])
+    (query-exec c (format "CREATE TEMP VIEW ~a AS SELECT id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_resources WHERE resource_type = '~a'"
+                          (q t) (string-replace t "'" "''"))))
+  (cond [(free? "resources")
+         (query-exec c "CREATE TEMP VIEW resources AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_resources")
+         (cons "resources" types)]
+        [else types]))
+(define (q s) (string-append "\"" (string-replace s "\"" "\"\"") "\""))
+
+;; load-table! : connection name table [#:temp?] -> void
+(define (load-table! c name t #:temp? [temp? #f])
   (define cols (table-columns t))
-  (define (q s) (string-append "\"" (string-replace s "\"" "\"\"") "\""))
-  (query-exec c (format "CREATE TABLE ~a (~a)" (q name) (string-join (map q cols) ", ")))
+  (query-exec c (format "CREATE ~aTABLE ~a (~a)" (if temp? "TEMP " "") (q name) (string-join (map q cols) ", ")))
   (unless (null? cols)
     (define insert (prepare c (format "INSERT INTO ~a VALUES (~a)" (q name) (string-join (map (lambda (_) "?") cols) ", "))))
     (query-exec c "BEGIN")
@@ -75,12 +93,14 @@
         [(or (string? v) (exact-integer? v)) v]
         [(real? v) (exact->inexact v)]
         [else (jsexpr->string v)]))
-(define (cell-out x)
+;; a blob is a JSONB value (a stored resource, or a part of one), rendered as JSON; any other blob as text
+(define (cell-out x c)
   (cond [(sql-null? x) 'null]
         [(and (real? x) (inexact? x) (= x (round x)) (< (abs x) 1e15)) (inexact->exact x)]
         [(real? x) x]
         [(string? x) x]
-        [(bytes? x) (bytes->string/utf-8 x #\?)]
+        [(bytes? x) (with-handlers ([exn:fail? (lambda (_) (bytes->string/utf-8 x #\?))])
+                      (string->jsexpr (query-value c "SELECT json(?)" x)))]
         [else (format "~a" x)]))
 
 (module+ test
@@ -112,4 +132,23 @@
   (check-exn #rx"one SELECT" (lambda () (sql-query "ATTACH DATABASE 'x.db' AS x" tables)))
   (check-exn #rx"no such column: gendr" (lambda () (sql-query "SELECT gendr FROM patients" tables)))
   (check-exn #rx"names none of the tables: a1c, patients, unused" (lambda () (sql-query "SELECT 1" tables)))
-  (check-equal? (tables-named "select * from \"a1c\" join patients" '("a1c" "patients" "pat")) '("a1c" "patients")))
+  (check-equal? (tables-named "select * from \"a1c\" join patients" '("a1c" "patients" "pat")) '("a1c" "patients"))
+  ;; over a store: a view per resource type, the resource as JSONB read in place; tables beside it;
+  ;; the store is never written
+  (define db (make-temporary-file "sql-store-~a.db"))
+  (let ([w (sqlite3-connect #:database db)])
+    (query-exec w "CREATE TABLE fhir_resources (resource_type TEXT, id TEXT, version_id INTEGER, last_updated TEXT, resource BLOB)")
+    (for ([r (list "{\"resourceType\":\"Patient\",\"id\":\"a\",\"gender\":\"female\",\"name\":[{\"family\":\"Ng\"}]}"
+                   "{\"resourceType\":\"Patient\",\"id\":\"b\",\"gender\":\"male\"}")])
+      (query-exec w "INSERT INTO fhir_resources VALUES ('Patient', json_extract(?, '$.id'), 1, '2025-01-01', jsonb(?))" r r))
+    (disconnect w))
+  (check-equal? (table-rows (sql-query "SELECT resource ->> '$.gender' AS g, count(*) AS n FROM Patient GROUP BY g ORDER BY g" (hash) #:database db))
+                (list (hasheq 'g "female" 'n 1) (hasheq 'g "male" 'n 1)))
+  (check-equal? (table-rows (sql-query "SELECT p.id, a.value FROM Patient p JOIN a1c a ON a.patient = p.id WHERE a.value > 7" tables #:database db))
+                (list (hasheq 'id "b" 'value 9.1)))
+  (check-equal? (table-rows (sql-query "SELECT resource -> '$.name' AS names FROM resources WHERE id = 'a'" (hash) #:database db))
+                (list (hasheq 'names "[{\"family\":\"Ng\"}]")))
+  (check-equal? (table-rows (sql-query "SELECT resource FROM Patient WHERE id = 'b'" (hash) #:database db))
+                (list (hasheq 'resource (hasheq 'resourceType "Patient" 'id "b" 'gender "male"))))
+  (check-exn #rx"names none of the tables: Patient, resources" (lambda () (sql-query "SELECT 1" (hash) #:database db)))
+  (delete-file db))

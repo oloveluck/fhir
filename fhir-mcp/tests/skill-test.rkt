@@ -63,7 +63,7 @@
   (lambda ()
     (for/fold ([last (hash)] [answer #f] #:result (void)) ([b (in-list blocks)])
       (match-block b last answer)))))
-(check-equal? calls 8 "the session's calls all ran")
+(check-equal? calls 9 "the session's calls all ran")
 (delete-directory/files dir)
 
 ;; every skill's description is read whole: in YAML ` #` starts a comment, so an unquoted description

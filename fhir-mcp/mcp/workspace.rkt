@@ -81,7 +81,7 @@
   (define-values (pkgs missing) (workspace-packages ws*))
   (define core (workspace-core-package ws*))
   (dynamic-require (if (workspace-r4? ws*) 'fhir/r4/schemas 'fhir/r5/schemas) #f)
-  (define-values (ds label data-warnings) (open-data ws*))
+  (define-values (ds label data-warnings) (open-data ws* (append pkgs (if core (list core) '()))))
   (set-hub-ws! h ws*)
   (set-hub-packages! h (append pkgs (if core (list core) '())))
   (set-hub-data! h ds)
@@ -92,11 +92,35 @@
                                data-warnings))
   (hash-clear! (hub-cache h)))
 
-;; open-data : workspace -> (values data-source label warnings)
-(define (open-data ws)
+;; store-file? : data-setting -> boolean   a SQLite FHIR store (fhir-server's): `data: fhir.db`
+(define (store-file? d) (and (string? d) (regexp-match? #rx"[.](db|sqlite|sqlite3)$" d)))
+;; data-store-path : hub -> path | #f   the store file when the data is one
+(define (data-store-path h)
+  (define d (ws-config-data (workspace-config (hub-ws h))))
+  (and (store-file? d) (not (rest-url? d)) (simplify-path (path->complete-path d (hub-root h)))))
+
+;; open-store : path packages -> (values store catalog)   one store per file for the process (a store
+;; is a connection pool; the data is read again after every commit), its search parameters the
+;; packages' own
+(define stores (make-hash))
+(define (open-store p packages)
+  (values (hash-ref! stores p (lambda () ((dynamic-require 'fhir/store/fhir-sqlite 'open-fhir-store) p)))
+          (search-catalog packages)))
+
+;; open-data : workspace packages -> (values data-source label warnings)
+(define (open-data ws packages)
   (define d (ws-config-data (workspace-config ws)))
   (cond
     [(not d) (values empty-data-source "none (set `data` in workspace.yaml)" '())]
+    [(store-file? d)
+     (define p (simplify-path (path->complete-path d (workspace-root ws))))
+     (cond
+       [(search-index-available?)
+        (define-values (store catalog) (open-store p packages))
+        (values ((dynamic-require 'fhir/store/data-source 'store->data-source) store #:search-params catalog)
+                (format "the SQLite store ~a (resources as JSONB; FHIR search; SQL)" (path->string p)) '())]
+       [else (values empty-data-source "none"
+                     (list (format "workspace.yaml: data ~a is a SQLite FHIR store, which needs the fhir-server package (raco pkg install fhir-server)" d)))])]
     [(rest-url? d)
      (define auth (getenv "FHIR_AUTHORIZATION"))
      (values (rest->data-source d #:headers (if auth (list (string-append "Authorization: " auth)) '()))
@@ -352,7 +376,7 @@
             (lambda () (table (map (lambda (c) (format "~a" c)) (run-result-columns (stored-result st)))
                               (run-result-rows (stored-result st)))))))
   (define t (with-handlers ([exn:fail:user? (lambda (e) (error 'sql (regexp-replace #rx"^sql: " (exn-message e) "")))])
-              (sql-query text (make-immutable-hash (append results views)))))
+              (sql-query text (make-immutable-hash (append results views)) #:database (data-store-path h))))
   (run-result "table" (table-columns t) (table-rows t) (hasheq 'rows (length (table-rows t)))))
 
 ;; run-search : "Type?params" options -> run-result   FHIR search where the data source can run it
@@ -462,8 +486,11 @@
 (define (as-fsh r)
   (define fhir->fsh (with-handlers ([exn:fail? (lambda (_) (error 'describe "as \"fsh\" needs the fsh package"))])
                       (dynamic-require 'fsh/decompile 'fhir->fsh)))
-  ;; `Usage: #example` is what an Instance means without it: not said
-  (text-answer (regexp-replace #rx"\nUsage: #example(?=\n|$)" (fhir->fsh r) "")))
+  ;; `Usage: #example` is what an Instance means without it: not said; nor the store's bookkeeping
+  ;; (meta.versionId, meta.lastUpdated — describe as JSON shows them)
+  (define meta (let ([m (hash-ref r 'meta #f)]) (and (hash? m) (hash-remove (hash-remove m 'versionId) 'lastUpdated))))
+  (define r* (cond [(not meta) r] [(zero? (hash-count meta)) (hash-remove r 'meta)] [else (hash-set r 'meta meta)]))
+  (text-answer (regexp-replace #rx"\nUsage: #example(?=\n|$)" (fhir->fsh r*) "")))
 
 (define (hub-describe h ref args)
   (define fsh? (equal? (hash-ref args 'as #f) "fsh"))
@@ -689,9 +716,10 @@
          (define-values (status body) (rest-write! d (change-resource ch) #:headers (if auth (list (string-append "Authorization: " auth)) '())))
          (hasheq 'resource (format "~a/~a" (hash-ref (change-resource ch) 'resourceType) (hash-ref (change-resource ch) 'id "(new)"))
                  'status status 'ok (<= 200 status 299)))]
+      [(store-file? d) (commit-to-store h todo)]
       [else
        (define dir (simplify-path (path->complete-path d (hub-root h))))
-       (unless (directory-exists? dir) (error 'commit (format "data ~a is a file, not a directory: commit writes to a directory or a FHIR server" d)))
+       (unless (directory-exists? dir) (error 'commit (format "data ~a is a file, not a directory: commit writes to a SQLite store, a directory or a FHIR server" d)))
        (define where (resource-files dir))
        ;; every target decided before anything is written
        (define plan
@@ -709,6 +737,28 @@
   (hash-remove! (hub-stages h) id)
   (configure! h (hub-root h))                              ; the data read again
   (hasheq 'stage id 'written written))
+
+;; commit-to-store : hub changes -> written   one FHIR transaction: a resource with an id is PUT (its
+;; id kept, a new version if it exists), one without is POSTed (the store gives it an id); all or none
+(define (commit-to-store h todo)
+  (define-values (store catalog) (open-store (data-store-path h) (hub-packages h)))
+  (define bundle
+    (hasheq 'resourceType "Bundle" 'type "transaction"
+            'entry (for/list ([ch (in-list todo)])
+                     (define r (change-resource ch))
+                     (hasheq 'resource r
+                             'request (if (hash-ref r 'id #f)
+                                          (hasheq 'method "PUT" 'url (format "~a/~a" (hash-ref r 'resourceType) (hash-ref r 'id)))
+                                          (hasheq 'method "POST" 'url (hash-ref r 'resourceType)))))))
+  (define resp ((dynamic-require 'fhir/store/bundle 'process-bundle!) store bundle #:search-params catalog
+                #:tower (if (workspace-r4? (hub-ws h)) 'fhir/r4/schemas 'fhir/r5/schemas)))
+  (for/list ([e (in-list (hash-ref resp 'entry '()))] [ch (in-list todo)])
+    (define r (hash-ref e 'response (hasheq)))
+    (define status (hash-ref r 'status ""))
+    (hasheq 'resource (let ([loc (hash-ref r 'location #f)])
+                        (if (string? loc) (regexp-replace #rx"/_history/.*$" loc "")
+                            (format "~a/~a" (hash-ref (change-resource ch) 'resourceType) (hash-ref (change-resource ch) 'id "(new)"))))
+            'status status 'ok (regexp-match? #rx"^2" status))))
 
 ;; resource-files : dir -> (hash (cons type id) -> (cons file 'resource|'bundle))
 (define (resource-files dir)
