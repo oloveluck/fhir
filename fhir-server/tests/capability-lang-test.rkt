@@ -4,7 +4,7 @@
 ;;; Exercises the real example app, the derived /metadata, dispatch, and compile-time validation.
 
 (require rackunit
-         racket/list
+         racket/list racket/file
          (only-in fhir/r6/types)
          (only-in fhir/serialize/from-json from-json)
          (only-in fhir/serialize/to-json node->jsexpr)
@@ -89,3 +89,27 @@
   (lambda () (compile-capability '(resource Patient #:interactions (read) #:repository r))))
 
 (printf "capability-lang-test: all checks passed\n")
+
+;; ---- (server #:store "fhir.db"): resources without a repository live in a SQLite store beside the
+;; module, as JSONB; search goes through the store's indexes, with the declaration's own expressions
+(let ()
+  (define dir (make-temporary-directory "cap-store-~a"))
+  (define src (build-path dir "clinic.rkt"))
+  (call-with-output-file src
+    (lambda (o)
+      (write-string (string-append
+                     "#lang fhir/capability\n"
+                     "(server #:store \"fhir.db\")\n"
+                     "(resource Patient #:interactions (read create search-type) #:search-params ([gender token] [family string \"name.family\"]))\n")
+                    o)))
+  (define app (dynamic-require src 'app))
+  (define p (ok-value (from-json (hasheq 'resourceType "Patient" 'gender "female" 'name (list (hasheq 'family "Ng"))))))
+  (check-eq? (fhir-type (dispatch app (create-request 'Patient p))) 'Patient)
+  (define found (node->jsexpr (dispatch app (search-request 'Patient '((family . "ng"))))))
+  (check-equal? (length (hash-ref found 'entry '())) 1)
+  (check-true (file-exists? (build-path dir "fhir.db")))
+  (define c ((dynamic-require 'db 'sqlite3-connect) #:database (build-path dir "fhir.db")))
+  (check-equal? ((dynamic-require 'db 'query-value) c "SELECT resource ->> '$.name[0].family' FROM fhir_resources WHERE resource_type = 'Patient'") "Ng")
+  (check-equal? ((dynamic-require 'db 'query-value) c "SELECT typeof(resource) FROM fhir_resources") "blob")
+  ((dynamic-require 'db 'disconnect) c)
+  (delete-directory/files dir))

@@ -75,7 +75,13 @@ With a workspace, an agent can:
 - compute with FHIRPath, CQL (per patient, cohorts, measures), VCL value sets and FML maps;
 - analyze: ViewDefinitions turn resources into tables, then `query("sql", "SELECT …")` groups and
   joins them with earlier results;
-- read anything back compactly: a resource as FSH, a table as CSV.
+- read anything back compactly: a resource as FSH, a table as CSV;
+- build FHIR servers: a `#lang fhir/capability` file declares resources, interactions, search
+  parameters and operations (its own, or `$validate`, `$expand`, `$transform` … by reference), and
+  the workspace serves it.
+
+All of it is stored in SQLite (`fhir.db`): every resource as JSONB, with its versions and search
+indexes, open to SQL.
 
 Without MCP, each language's repository has a Claude skill (`.claude/skills/<language>/SKILL.md`)
 for its command line.

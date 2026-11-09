@@ -15,6 +15,7 @@ To start a new workspace from a shell: `fhir-mcp init [dir]` writes `workspace.y
 | `*.vcl` | one ValueSet Compose Language expression | the value set's expansion | `learn://vcl` |
 | `*.map`, `*.fml` | FHIR Mapping Language | each source resource transformed, the result validated | `learn://fml` |
 | `*.view.json` | a SQL on FHIR ViewDefinition | its rows | `learn://sql-on-fhir` |
+| `*.capability.rkt` | a FHIR server (`#lang fhir/capability`): resources, interactions, search parameters, operations | the server, started over the workspace's store; its url | `learn://capability` |
 | `*.json` | any FHIR resource | a Measure is evaluated; anything else validated | — |
 
 What one file defines, every other file sees by canonical. A VCL file `hba1c.vcl` is the ValueSet
@@ -80,6 +81,7 @@ FROM bp b JOIN patients p ON p.id = b.patient GROUP BY p.gender
 - A set of codes: VCL.
 - What valid data looks like (a profile, an example): FSH.
 - Converting data from one structure to another: FML.
+- A FHIR server with your own operations: a capability app.
 
 ## workspace.yaml
 ```yaml
@@ -87,7 +89,7 @@ fhirVersion: 4.0.1                 # or 5.0.0; every language follows it (CQL's 
 canonical: http://example.org/fhir # the base of what the workspace defines
 packages:                          # FHIR packages in context, by file or name
   - hl7.fhir.us.core-6.1.0
-data: data/                        # a directory, a JSON file, or a FHIR server's base url
+data: fhir.db                      # a SQLite FHIR store (resources as JSONB); or a directory, a JSON file, a FHIR server's url
 parameters:                        # CQL parameters, as CQL expressions
   Measurement Period: Interval[@2025-01-01T00:00:00.000, @2025-12-31T23:59:59.999]
 allowRemoteWrites: false           # commit may write to the server only when true
@@ -97,6 +99,15 @@ models:                            # data models made from the workspace's FSH l
 `models` lets CQL query a model you design here: `using Clinic version '1.0'`. learn://cql explains it.
 A server that needs a token reads it from the environment variable `FHIR_AUTHORIZATION`, which holds
 the whole header value (`Bearer …`). It is never kept in a file.
+
+## The data
+`data: fhir.db` (what `fhir-mcp init` writes) is a SQLite FHIR store, created on first use: every
+resource as JSONB with its versions and the search indexes FHIR's search parameters define. Only
+`commit` writes it (one transaction per stage; a resource with an id keeps it); every language,
+FHIR search and SQL read it; a capability app the workspace runs serves it. In SQL each stored type
+is a table of `id`, `versionId`, `lastUpdated` and `resource` (JSONB: `resource ->> '$.birthDate'`,
+`json_each(resource, '$.name')`), beside the views and earlier results. Import FHIR JSON with
+`raco fhir-server load fhir.db <dir|bundle.json>`.
 
 ## The loop
 Write a file, read its problems, fix them at their lines, then run it. When an answer surprises you,

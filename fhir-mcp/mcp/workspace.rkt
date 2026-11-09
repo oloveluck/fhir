@@ -27,6 +27,7 @@
                   directory->data-source resources->data-source empty-data-source bundle-resources)
          (only-in fhir/rest-data-source rest->data-source rest-write! rest-url?)
          "search-index.rkt" "sql.rkt"
+         (only-in net/url string->url post-pure-port)
          (only-in fhir/sd/sd-index current-sd-packages resolve-canonical-raw sd-index-available?)
          (only-in fhir/operation operation operation-definition operation-code operation-url operation-levels
                   operation-resource-types apply-operation exn:fail:operation? exn:fail:operation-outcome)
@@ -603,8 +604,44 @@
   (refresh! h)
   (with-hub h
     (lambda ()
-      (define o (with-handlers ([exn:fail? (lambda (e) (error 'apply (format "no operation ~a: ~a" ref (exn-message e))))]) (operation ref)))
-      (apply-json o inputs resource))))
+      (define o (with-handlers ([exn:fail? (lambda (e) e)]) (operation ref)))
+      (cond
+        [(not (exn? o)) (apply-json o inputs resource)]
+        [(apply-on-servers ref inputs resource) => values]
+        [else (error 'apply (format "no operation ~a: ~a" ref (exn-message o)))]))))
+
+;; apply-on-servers : ref inputs resource -> jsexpr | #f   an operation of a capability app the
+;; workspace serves (capability/workspace's running servers), POSTed as a Parameters resource to
+;; `<base>/[Type/][id/]$code`; #f when no running app has it
+(define (apply-on-servers ref inputs resource)
+  (define running (with-handlers ([exn:fail? (lambda (_) (lambda () '()))])
+                    (dynamic-require 'fhir/capability/workspace 'running-servers)))
+  (define m (regexp-match #px"^(?:([A-Z][A-Za-z]+)/)?(?:([A-Za-z0-9.-]+)/)?[$]([A-Za-z0-9-]+)$" ref))
+  (and m (pair? (running))
+       (let* ([type (cadr m)] [id (caddr m)] [code (cadddr m)]
+              [params (hasheq 'resourceType "Parameters"
+                              'parameter (append
+                                          (for*/list ([(k v) (in-hash inputs)] [x (in-list (if (list? v) v (list v)))])
+                                            (parameter-of (symbol->string k) x))
+                                          (if resource (list (hasheq 'name "resource" 'resource resource)) '())))])
+         (for/or ([srv (in-list (running))])
+           (define url (string-append (cdr srv) "/" (if type (string-append type "/") "") (if id (string-append id "/") "") "$" code))
+           (define answer (with-handlers ([exn:fail? (lambda (_) #f)])
+                            (define in (post-pure-port (string->url url) (string->bytes/utf-8 (jsexpr->string params))
+                                                       '("Content-Type: application/fhir+json")))
+                            (begin0 (read-json in) (close-input-port in))))
+           (and (hash? answer)
+                (not (and (equal? (hash-ref answer 'resourceType #f) "OperationOutcome")
+                          (for/or ([i (in-list (hash-ref answer 'issue '()))]) (equal? (hash-ref i 'code #f) "not-supported"))))
+                answer)))))
+
+;; parameter-of : name jsexpr -> Parameters.parameter   by the value's JSON type
+(define (parameter-of name v)
+  (cond [(and (hash? v) (hash-ref v 'resourceType #f)) (hasheq 'name name 'resource v)]
+        [(boolean? v) (hasheq 'name name 'valueBoolean v)]
+        [(exact-integer? v) (hasheq 'name name 'valueInteger v)]
+        [(real? v) (hasheq 'name name 'valueDecimal v)]
+        [else (hasheq 'name name 'valueString (format "~a" v))]))
 
 ;; ---- stage and commit -----------------------------------------------------------------------------
 (define instance? (lambda (r) (not (member (hash-ref r 'resourceType #f) (append conformance-kinds '("Library" "OperationDefinition" "SearchParameter" "CapabilityStatement" "ImplementationGuide" "ViewDefinition"))))))

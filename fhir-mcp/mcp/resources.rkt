@@ -59,6 +59,7 @@
     ("vcl" . "ValueSet Compose Language: value sets in one line; cheat sheet, link to the VCL specification")
     ("fml" . "FHIR Mapping Language: converting between structures; cheat sheet, links to the mapping language specification")
     ("sql-on-fhir" . "SQL on FHIR ViewDefinitions: tables from resources; cheat sheet, links to the specification")
+    ("capability" . "FHIR servers you declare (#lang fhir/capability): resources, interactions, search parameters, operations (new ones, and $validate, $expand, $transform … by reference); served over the workspace's SQLite store; cheat sheet, worked example")
     ("search" . "FHIR search syntax for query(\"search\"); link to the FHIR search specification")))
 ;; learn-text : topic -> string|#f   a language's own guide (`<id>/workspace`'s `guide`, kept and
 ;; tested in the language's repository), else learn/<topic>.md here (the workspace, search, and the

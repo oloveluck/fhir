@@ -77,7 +77,7 @@ agent asks for them with @tt{describe("$code")}.
 
 @section{Resources}
 
-@tt{learn://fhir} is FHIR for agents (which resource holds which fact, the recurring shapes, the code
+@tt{learn://capability} is FHIR servers declared as capability apps. @tt{learn://fhir} is FHIR for agents (which resource holds which fact, the recurring shapes, the code
 systems); @tt{learn://workspace} explains the workspace. @tt{learn://fsh}, @tt{learn://cql},
 @tt{learn://fhirpath}, @tt{learn://vcl}, @tt{learn://fml}, @tt{learn://sql-on-fhir} and
 @tt{learn://search} each give a cheat sheet, a worked example, common problems and links to the
@@ -98,8 +98,14 @@ server's memory.}
 @item{CQL's installed FHIR model is 4.0.1; a library that uses FHIR in an R5 workspace is told so at its
 @tt{using}. Any other model works: one designed in the workspace as FSH logical models and named in
 @tt{workspace.yaml}'s @tt{models}, or a ModelInfo document in a directory named by @tt{CQL_MODEL_PATH}.}
-@item{Search over files needs the fhir-server package (its SQLite store holds the index, in the
-temporary directory, rebuilt when the data is read again). Without it, FHIRPath queries work everywhere.}
+@item{The data a workspace keeps is a SQLite FHIR store (@tt{data: fhir.db}, what @tt{init} writes;
+fhir-server's store, every resource as JSONB): @tt{commit} writes it in one transaction, search uses
+its indexes, and SQL reads it in place (a view per resource type). A directory of JSON or a FHIR
+server's url work too; search over files indexes them in a store in the temporary directory. Both
+need the fhir-server package.}
+@item{A capability app (@tt{<name>.capability.rkt}, @tt{#lang fhir/capability}) is compiled and served
+in a process of its own (its types are FHIR R6), over the workspace's store; @tt{apply} forwards an
+operation it does not know to the apps the workspace runs. They stop with the server.}
 @item{SQL runs one reading statement (@tt{SELECT}, @tt{WITH}, @tt{VALUES}) in an in-memory SQLite
 database made for the query; a collection column is its JSON text.}
 @item{Expansion uses the code systems in the packages. SNOMED CT and LOINC are not shipped, so a

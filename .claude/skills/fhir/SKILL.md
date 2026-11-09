@@ -1,12 +1,14 @@
 ---
 name: fhir
-description: Use FHIR as a tool for health data — create resources, validate them, search them, compute on them (FHIRPath, CQL cohorts, value sets, maps) and analyze them (ViewDefinitions + SQL), through the fhir-mcp workspace or its command line. Start here for any FHIR task; it says which language does what and where each one's guide is.
+description: "Use FHIR as a tool for health data — create resources (FSH), store them (SQLite, JSONB), search them, compute on them (FHIRPath, CQL cohorts, value sets, FML transformations), analyze them (ViewDefinitions + SQL), and build FHIR servers with their own capabilities and operations (#lang fhir/capability), through the fhir-mcp workspace or its command line. Start here for any FHIR task; it says which language does what and where each one's guide is."
 ---
 
 # FHIR as a tool
 
-One workspace holds FHIR data and the programs that work on it, in six languages that compose by
-canonical url. The `fhir-mcp` server gives an agent nine tools over it; every problem comes back as
+One workspace holds FHIR data and the programs that work on it, in seven languages that compose by
+canonical url — six to describe and compute on health data (FSH, CQL, FHIRPath, VCL, FML, SQL on
+FHIR views) and one to declare FHIR servers (capability apps). Every resource is stored in SQLite,
+as JSONB. The `fhir-mcp` server gives an agent nine tools over it; every problem comes back as
 one line, `file:line:col severity: message`, with "did you mean …" for a misspelt name.
 
 ## Set up
@@ -38,6 +40,7 @@ same text as `learn://<topic>`. Read `fhir` (resources, codes, quantities, refer
 | `vcl` | a value set in one line |
 | `fml` | the FHIR Mapping Language: one structure to another |
 | `sql-on-fhir` | ViewDefinitions: resources flattened into tables |
+| `capability` | FHIR servers you declare: resources, interactions, search parameters, operations (new ones, and $validate, $expand, $transform … by reference) |
 | `search` | FHIR search syntax |
 
 ## The tools
@@ -185,6 +188,17 @@ describe {"ref": "Observation/ann-a1c", "as": "fsh"}
 ```answer
 "Instance: ann-a1c\nInstanceOf: Observation\n* code = http://loinc.org#4548-4 \"Hemoglobin A1c\"\n* effectiveDateTime = \"2025-02-10\"\n* status = #final\n* subject = Reference(Patient/ann)\n* valueQuantity = 8.4 '%'"
 ```
+
+## Build a FHIR server
+A file `<name>.capability.rkt` in `#lang fhir/capability` declares a server: `(resource Patient
+#:interactions (read create search-type) #:search-params ([gender token]))`, existing operations by
+reference (`(operation "StructureMap/$transform")` serves FML transformations, `$validate`, `$expand`,
+`$evaluate-measure`), and operations of your own with a Racket handler, which can call any of the
+languages. `write` checks it (problems at their lines), `run` serves it on a free port over the
+workspace's `fhir.db` — what the workspace commits, the server serves, and what the server writes,
+the workspace's search and SQL see — and `apply("$yourOperation", inputs)` calls the running server.
+`raco fhir-mcp guide capability` has the cheat sheet and a worked example (a clinic server with a
+`$bmi` operation), tested as written.
 
 ## When something is off
 - A problem line names the file, line and column: fix it there and `write` again.

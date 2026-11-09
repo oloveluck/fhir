@@ -39,8 +39,11 @@
                             #:history (or/c procedure? #f)
                             #:patch (or/c (cons/c procedure? procedure?) #f))
                        repository?)]
-  ;; a generic in-memory repository: type, declared interactions, search-params (list name type expr)
+  ;; the repository of a resource declared without #:repository: the factory's when one is set
+  ;; (capability/store: a SQLite store), else a generic in-memory one; type, declared interactions,
+  ;; search-params (list name type expr)
   [make-default-repository (-> symbol? (listof symbol?) (listof list?) repository?)]
+  [current-repository-factory (parameter/c (or/c #f (-> symbol? (listof symbol?) (listof list?) repository?)))]
   [build-app (->* (#:capability fhir? #:operation-definitions (listof fhir?)
                    #:repositories (listof (cons/c symbol? repository?))
                    #:operations (listof operation-entry?))
@@ -83,7 +86,11 @@
 ;; a ready-made in-memory repository implementing exactly the declared interactions. Search evaluates
 ;; each declared search-param's FHIRPath expression against stored resources (a param without an
 ;; expression, or an unknown query param, is ignored — FHIR lenient handling).
+(define current-repository-factory (make-parameter #f))
 (define (make-default-repository type interactions sps)
+  (define f (current-repository-factory))
+  (if f (f type interactions sps) (make-memory-repository type interactions sps)))
+(define (make-memory-repository type interactions sps)
   (define store (make-hash))                 ; id(string) -> resource node
   (define counter (box 0))
   (define (has? k) (and (memq k interactions) #t))

@@ -26,7 +26,7 @@
 ;;; `key: value` maps) when the directory has one.
 ;;;
 ;;; A WsSupport is (ws-support id artifacts run explain)
-;;;   id        : the language id ("fsh", "cql", "fml", "vcl", "fhirpath", "sql-on-fhir")
+;;;   id        : the language id ("fsh", "cql", "fml", "vcl", "fhirpath", "sql-on-fhir", "capability")
 ;;;   artifacts : workspace (listof (cons path text)) -> (values (listof resource) (listof diagnostic))
 ;;;               what the language's files define, as FHIR resources, and every problem in them
 ;;;   run       : workspace path|#f text options -> RunResult
@@ -90,11 +90,16 @@
 (struct ws-support (id artifacts run explain) #:transparent)
 (struct run-result (kind columns rows summary) #:transparent)
 
-(define workspace-languages '("fsh" "cql" "fml" "vcl" "fhirpath" "sql-on-fhir"))
+(define workspace-languages '("fsh" "cql" "fml" "vcl" "fhirpath" "sql-on-fhir" "capability"))
+;; support-module : id -> module name   `<id>/workspace`, but for capability apps (`#lang
+;; fhir/capability`, fhir-server's), whose collection is fhir
+(define (support-module id)
+  (if (equal? id "capability") 'fhir/capability/workspace (string->symbol (string-append id "/workspace"))))
 
 (define (workspace-language-of p)
   (define s (string-downcase (if (path? p) (path->string p) p)))
   (cond [(regexp-match? #rx"[.]view[.]json$" s) "sql-on-fhir"]
+        [(regexp-match? #rx"[.]capability[.]rkt$" s) "capability"]
         [(regexp-match? #rx"[.]json$" s) "fhir"]
         [else (language-id-of p)]))
 
@@ -106,7 +111,7 @@
                (and (member id workspace-languages)
                     (with-handlers ([exn:fail:filesystem:missing-module? (lambda (_) #f)]
                                     [exn:fail:syntax:missing-module? (lambda (_) #f)])
-                      (define g (dynamic-require (string->symbol (string-append id "/workspace")) 'guide (lambda () #f)))
+                      (define g (dynamic-require (support-module id) 'guide (lambda () #f)))
                       (and (string? g) g))))))
 (define current-workspace-supports (make-parameter (hash)))
 (define (workspace-support id)
@@ -116,7 +121,7 @@
                    (and (member id workspace-languages)
                         (with-handlers ([exn:fail:filesystem:missing-module? (lambda (_) #f)]
                                         [exn:fail:syntax:missing-module? (lambda (_) #f)])
-                          (define v (dynamic-require (string->symbol (string-append id "/workspace")) 'workspace-support))
+                          (define v (dynamic-require (support-module id) 'workspace-support))
                           (and (ws-support? v) v)))))))
 
 ;; ---- configuration --------------------------------------------------------------------------

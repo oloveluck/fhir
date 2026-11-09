@@ -45,6 +45,7 @@
               (~optional (~seq #:fhir-version fv:str))
               (~optional (~seq #:date date:str))
               (~optional (~seq #:url url:str))
+              (~optional (~seq #:store store:str))         ; read by module-begin (server-store)
               (~optional (~seq #:format fmt:str ...))) ...)
      (define mode-v (if (attribute mode) (syntax-e #'mode) "server"))
      (unless (member mode-v '("server" "client"))

@@ -6,7 +6,8 @@ description: "Serve and persist FHIR with the fhir-server package — servers ge
 # Serving & persisting FHIR
 
 > Built for spec development and testing, not production. Persistence is an embedded **SQLite** store
-> (WAL, connection pool, versioned history, FHIRPath-extracted, type-driven search indexes).
+> (WAL, connection pool, every resource as JSONB, versioned history, FHIRPath-extracted, type-driven
+> search indexes).
 
 ## Serve a capability app over HTTP
 
@@ -15,7 +16,14 @@ description: "Serve and persist FHIR with the fhir-server package — servers ge
 
 ```sh
 raco fhir-server serve examples/server-app.rkt 8080
+raco fhir-server serve clinic.rkt 8080 --store fhir.db   # resources without a #:repository kept in SQLite
 ```
+
+A resource declared without `#:repository` is kept in a SQLite FHIR store when there is one — the
+`--store` file, `(server #:store "fhir.db")` (beside the module), or a workspace's `fhir.db` when the
+workspace runs the app (`<name>.capability.rkt`, learn://capability) — and in memory otherwise. The
+store keeps each resource as SQLite JSONB (`resource ->> '$.gender'` in SQL), with its history and
+search indexes.
 
 Exposes the FHIR REST grammar: `GET /metadata` (the derived CapabilityStatement), resource CRUD
 (`GET/POST/PUT/DELETE /{Type}[/{id}]`), vread (`/{Type}/{id}/_history/{vid}`),

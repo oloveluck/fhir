@@ -24,7 +24,7 @@ never `../model/node.rkt`. Dependency order (base first):
 | `fsh` | `oloveluck/fsh` | `#lang fsh` (bidirectional), projects + packaging, `check.rkt`; `raco fsh`, `raco fsh check` | fhir, fhirpath, fhir-validation |
 | `fhir-server` | `oloveluck/fhir` → `fhir-server/` | `capability/ http/ store/` (SQLite), IG-generated servers, `$evaluate-measure`, `server-cli.rkt` (`raco fhir-server`), server tests | fhir, fhir-spec, fhirpath, fhir-tx, fhir-validation, cql, db-lib |
 | `fhir-lsp` | `oloveluck/fhir` → `fhir-lsp/` | the Language Server Protocol server for the five languages: `lsp/jsonrpc.rkt` (framing), `lsp/diagnostics.rkt` (fhir/diagnostic -> LSP), `lsp/languages.rkt` (the catalogue over `fhir/lang/support`), `lsp/server.rkt` (state, dispatch, loop; hover/definition/completion/symbols handed to the document's language support with its project), `lsp-cli.rkt` (`raco fhir-lsp`, `check`) | fhir (+ the languages' `support` modules at run time) |
-| `fhir-mcp` | `oloveluck/fhir` → `fhir-mcp/` | the Model Context Protocol server over a WORKSPACE (below): `mcp/workspace.rkt` (the hub: config, packages, data source, artifacts registered, results, stages), `mcp/verbs.rkt` (the nine tools), `learn/*.md` (`learn://` guides with the official references for the workspace, search and the languages that do not ship their own yet; a language's own guide comes from its repo, below; their examples compile in the test), `mcp/tools.rkt` (the Tool struct; operations loaded and applied to JSON; elements and definitions in the packages), `mcp/resources.rkt` (guides, packages, definitions, learn, results; prompts), `mcp/server.rkt` (dispatch, one JSON line per message), `mcp/init.rkt` (`raco fhir-mcp init`: workspace.yaml, data/, .mcp.json, CLAUDE.md), `mcp/search-index.rkt` (FHIR search over data that is files, through fhir-server's store, loaded on demand), `mcp/sql.rkt` (SQL over views and results, in-memory SQLite), `mcp-cli.rkt` (`raco fhir-mcp [--workspace d]`, `init`, `guide`, `tools`, `call`) | fhir, fhir-lsp (+ the operations and languages at run time) |
+| `fhir-mcp` | `oloveluck/fhir` → `fhir-mcp/` | the Model Context Protocol server over a WORKSPACE (below): `mcp/workspace.rkt` (the hub: config, packages, data source, artifacts registered, results, stages), `mcp/verbs.rkt` (the nine tools), `learn/*.md` (`learn://` guides with the official references for the workspace, search and the languages that do not ship their own yet; a language's own guide comes from its repo, below; their examples compile in the test), `mcp/tools.rkt` (the Tool struct; operations loaded and applied to JSON; elements and definitions in the packages), `mcp/resources.rkt` (guides, packages, definitions, learn, results; prompts), `mcp/server.rkt` (dispatch, one JSON line per message), `mcp/init.rkt` (`raco fhir-mcp init`: workspace.yaml, data/, .mcp.json, CLAUDE.md), `mcp/search-index.rkt` (FHIR search over data that is files, through fhir-server's store, loaded on demand), `mcp/sql.rkt` (SQL over views and results, and over the workspace's store read-only), `mcp-cli.rkt` (`raco fhir-mcp [--workspace d]`, `init`, `guide`, `tools`, `call`) | fhir, fhir-lsp (+ the operations and languages at run time) |
 | `sql-on-fhir` | `oloveluck/sql-on-fhir` | `#lang sql-on-fhir`: ViewDefinition model and operation definitions GENERATED from the IG package (`target.rkt`, `model/`), the view engine, `$sql-run`/`$sql-export` as operations; `raco sql-on-fhir` | fhir, fhirpath (fhir-spec to regenerate) |
 | `fhir-examples` | `oloveluck/fhir-examples` | `examples/` (operations applied as procedures), `bench.rkt` (prose → FSH tasks from a published IG, scored), recorded runs; `raco spec-bench` | fhir, fhir-spec, fhir-validation, fsh, fml |
 
@@ -818,6 +818,36 @@ workspace, and the fhir repository as the place an agent learns it.
   scoped to writing the languages as Racket modules.
 - fsh's decompiler writes a `code` element as `#code` (`* status = #final`), FSH's own idiom; GoFSH
   IPS 117/117 and mCODE 341/349 exact, round trip 22/22, unchanged.
+
+## Everything in SQLite; servers as a workspace language (2026-11-09)
+- **The store keeps JSONB** (fhir-server's `store/`): `fhir_resources.resource` and
+  `fhir_history.resource` are SQLite JSONB (`jsonb(?)` on write, `json(resource)` on read; SQLite
+  3.45.1 here), so SQL reads a resource in place (`resource ->> '$.gender'`). A store with the old
+  `raw_resource` TEXT column is migrated when it opens (`migrate-to-jsonb!`). Deleting a resource now
+  removes every index row of it (string/date/number/quantity rows used to stay).
+- **A workspace's data is a store** (fhir-mcp): `data: fhir.db` (`init` writes it) opens it once per
+  process with the packages' search parameters; `commit` is one FHIR transaction (PUT with an id, POST
+  without); every language, search and `query("sql")` read it — SQL on a READ-ONLY connection to the
+  store, a TEMP view per stored type (`id, versionId, lastUpdated, resource`) and `resources`, the
+  workspace's views and results as TEMP tables; a JSONB cell answers as JSON. `describe as fsh` drops
+  the store's meta.versionId/lastUpdated. The fhir skill's session runs over it.
+- **Capability apps store in SQLite**: `current-repository-factory` (capability/runtime) makes the
+  repository of a resource declared without `#:repository`; `capability/store.rkt`'s
+  `store-repository-factory` makes store repositories restricted to the declared interactions, the
+  declaration's own `[name type "FHIRPath"]` search parameters added to the catalogue. Set by
+  `(server #:store "fhir.db")` (beside the module), `raco fhir-server serve app.rkt --store f`, or a
+  workspace running the app; outside wins. Without any, in memory as before.
+- **`capability` is a workspace language** (`*.capability.rkt`; support `fhir/capability/workspace`,
+  mapped in fhir/lang/workspace's `support-module`): the app is compiled and served in its OWN
+  process — the capability language types with R6 and a workspace process holds its FHIR version's
+  tower; two towers in one process register over each other. `artifacts` = `racket <file>` (the
+  derived CapabilityStatement, or the compile error at its line), cached by text; `run` = `raco
+  fhir-server serve <file> <port> --store <workspace store>` on a free port (killed when the file runs
+  again or the process ends — a plumber flush callback); `explain` = the statement's entry for a type
+  or an operation. fhir-mcp's `apply` forwards an operation it cannot resolve to the running apps (a
+  Parameters POST). `capability/guide.md` is `learn://capability`; `fhir-mcp/tests/capability-test.rkt`
+  runs its worked example: the quoted problem at its line, served over the store (committed data
+  found by the app's search, the app's writes seen by the workspace's SQL), `$bmi` applied, explained.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

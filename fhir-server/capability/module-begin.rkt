@@ -18,7 +18,8 @@
                      fhir/r6/types)             ; populate the phase-1 registry for validation
          ;; runtime bindings the emitted template references (resolve at the user module's phase 0)
          (only-in "derive.rkt" derive-capability-statement derive-operation-definition)
-         (only-in "runtime.rkt" build-app)
+         (only-in "runtime.rkt" build-app current-repository-factory)
+         (only-in "store.rkt" store-file-factory)
          (only-in json jsexpr->string)
          (only-in fhir/serialize/to-json node->jsexpr))
 
@@ -31,6 +32,13 @@
       [((~datum resource) . _)  'resource]
       [((~datum operation) . _) 'operation]
       [_ #f])))
+
+;; server-store : (server …) syntax -> string | #f   its #:store file
+(define-for-syntax (server-store stx)
+  (let loop ([xs (cdr (syntax->list stx))])
+    (cond [(or (null? xs) (null? (cdr xs))) #f]
+          [(and (eq? (syntax-e (car xs)) '#:store) (string? (syntax-e (cadr xs)))) (syntax-e (cadr xs))]
+          [else (loop (cdr xs))])))
 
 (define-syntax (app-module-begin stx)
   (syntax-parse stx
@@ -52,6 +60,9 @@
        (raise-syntax-error 'capability "only one (server …) declaration is allowed" (cadr servers)))
      ;; 3. parse + validate declarations -> runtime construction syntax
      (define server-stx (parse-server (car servers)))
+     ;; (server #:store "fhir.db"): the resources without a repository live in that SQLite file,
+     ;; beside the module (a factory set outside — `serve --store`, a workspace — takes precedence)
+     (define store-file (server-store (car servers)))
      (define-values (resource-stxs repo-pair-stxs)
        (for/lists (rs ps) ([r (in-list resources)]) (parse-resource r)))
      (define parsed (map parse-operation operations))
@@ -71,10 +82,19 @@
         (define operation-definitions (list #,@od-stxs))
         #,@op-defines
         (define app
-          (build-app #:capability capability-statement
-                     #:operation-definitions operation-definitions
-                     #:repositories (list #,@repo-pair-stxs)
-                     #:operations (append #,@entry-list-stxs)))
+          (parameterize ([current-repository-factory
+                          (or (current-repository-factory)
+                              #,(if store-file
+                                    #`(store-file-factory
+                                       (let ([src (variable-reference->module-source (#%variable-reference))])
+                                         (if (path? src)
+                                             (let-values ([(dir name dir?) (split-path src)]) (build-path dir #,store-file))
+                                             #,store-file)))
+                                    #'#f))])
+            (build-app #:capability capability-statement
+                       #:operation-definitions operation-definitions
+                       #:repositories (list #,@repo-pair-stxs)
+                       #:operations (append #,@entry-list-stxs))))
         (provide app capability-statement operation-definitions #,@op-names)
         (module+ main
           (displayln (jsexpr->string (node->jsexpr capability-statement)))))]))

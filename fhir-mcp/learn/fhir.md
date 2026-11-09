@@ -82,3 +82,5 @@ Observation.component.where(code.coding.code = '8480-6').value.ofType(Quantity).
 | check data against a profile | a `.json` file (its problems on write), or `apply("$validate")` |
 | define profiles, extensions, value sets | FSH (`learn://fsh`) |
 | convert one structure to another | FML (`learn://fml`) |
+| serve FHIR, with operations of your own | a capability app (`learn://capability`) |
+| keep the data | the workspace's `fhir.db`: SQLite, every resource as JSONB |
