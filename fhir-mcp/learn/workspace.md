@@ -26,9 +26,9 @@ Examples validate against the profiles the FSH defines.
   `parameters` (CQL expressions by name).
 - `query(language, text)` asks once without saving a file: a FHIRPath or CQL expression, a FHIR
   search (`Observation?code=http://loinc.org|4548-4`), or a VCL expression.
-- `explain(result | path, subject)` says why the answer for one subject is what it is: CQL define by
-  define down to the retrieves, FHIRPath part by part, a view's `where` clauses, a map's rules, an FSH
-  instance's problems.
+- `explain(ref, subject)` (`ref` a result such as `result://r1`, or a file) says why the answer for
+  one subject is what it is: CQL define by define down to the retrieves, FHIRPath part by part, a
+  view's `where` clauses, a map's rules, an FSH instance's problems.
 - `describe(ref)` reads anything by reference: `result://r1` (paged with offset/limit, or compared
   with `against`), `Patient/123`, a canonical url, a type or element (`Observation.component`), an
   operation (`$expand`), or a fragment of a definition's name.

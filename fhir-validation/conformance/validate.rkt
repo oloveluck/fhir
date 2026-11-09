@@ -12,6 +12,7 @@
 ;;; typed node is used only for invariants.
 
 (require (only-in fhir/canonical canonical-url)
+         (only-in fhir/suggest did-you-mean)
          racket/contract (only-in json jsexpr->string string->jsexpr)
          racket/string
          racket/list
@@ -20,7 +21,7 @@
                   make-element-index index-elements index-root child-elements slices-of
                   index-by-id type-index opaque-type?)
          (only-in fhir/model/leaf listify)
-         (only-in fhir/model/binding binding-expansion)
+         (only-in fhir/model/binding binding-expansion binding-expansion-codes)
          (only-in fhir/sd/snapshot generate-snapshot shipped-snapshot)
          (only-in fhir/serialize/from-json from-json)
          (only-in fhir/serialize/to-json node->jsexpr)
@@ -247,7 +248,9 @@
                           ;; a disallowed choice variant (allowed-key? #f) is NOT known -> flagged here
                           (for/or ([ce (in-list children)]) (allowed-key? (elem-leaf ce path) ce k))))
     (issue "error" "structure" (string-append path "." (symbol->string k))
-           (format "element '~a' is not defined at ~a" k path))))
+           (format "element '~a' is not defined at ~a~a" k path
+                   (did-you-mean (symbol->string k)
+                                 (for/list ([ce (in-list children)]) (regexp-replace #rx"\\[x\\]$" (elem-leaf ce path) "")))))))
 
 ;; fixed[x] must equal; pattern[x] must be contained (recursive subset)
 ;; fixed-pattern-issues : ElementDef loc value -> (listof Issue)
@@ -339,8 +342,20 @@
      (cond
        [(or (not vs) (null? codes)) '()]
        [(for/and ([c (in-list codes)]) (eq? (member? tx vs (cdr c) (car c)) 'no))
-        (list (issue "error" "code-invalid" loc (format "code not in required value set ~a" vs)))]
+        (list (issue "error" "code-invalid" loc (format "code not in required value set ~a~a" vs (code-hint vs codes))))]
        [else '()])]))                                  ; any yes/unknown -> fail-open
+
+;; code-hint : value-set-url (listof (cons system code)) -> string   what the value set does hold, from
+;; its offline expansion: the closest codes, and every code when there are at most 20 ("" otherwise)
+(define (code-hint vs codes)
+  (define members (binding-expansion-codes vs))
+  (cond
+    [(not (and members (pair? codes) (string? (cdr (car codes))))) ""]
+    [else
+     (define near (did-you-mean (cdr (car codes)) members))
+     (if (<= (length members) 20)
+         (format "~a; it holds ~a" near (string-join members ", "))
+         near)]))
 
 ;; -> 'yes | 'no | 'unknown. tx first when present; the offline expansion decides otherwise.
 ;; member? : tx|#f value-set-url code system|#f -> Membership

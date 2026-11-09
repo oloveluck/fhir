@@ -16,6 +16,7 @@
 ;;; Every hub-* procedure answers a jsexpr, or raises: exn:fail:diagnostic (positioned), exn:fail.
 
 (require racket/contract racket/list racket/string racket/file racket/path racket/match json
+         (only-in fhir/serialize/json-position json-path-location)
          net/uri-codec
          fhir/lang/workspace
          (only-in fhir/lang/support language-id-of)
@@ -129,8 +130,26 @@
   (for/fold ([rs '()] [ds '()] #:result (values (reverse rs) ds)) ([f (in-list files)])
     (define js (with-handlers ([exn:fail? (lambda (e) e)]) (string->jsexpr (cdr f))))
     (cond [(exn? js) (values rs (append ds (list (diagnostic 'fhir 'parse 'error (format "not JSON: ~a" (exn-message js)) (loc (path-string (car f)) #f #f #f #f)))))]
-          [(and (hash? js) (string? (hash-ref js 'resourceType #f))) (values (append (reverse (bundle-resources js)) rs) ds)]
+          [(and (hash? js) (string? (hash-ref js 'resourceType #f)))
+           (values (append (reverse (bundle-resources js)) rs) (append ds (resource-problems f js)))]
           [else (values rs (append ds (list (diagnostic 'fhir 'parse 'error "a FHIR resource is a JSON object with a resourceType" (loc (path-string (car f)) #f #f #f #f)))))])))
+
+;; resource-problems : (cons path text) jsexpr -> diagnostics   the resource validated ($validate:
+;; its base type, the profiles it claims, the workspace's own), each issue at the key of its element
+;; in the file (`json-path-location`), else at the file. Errors and warnings; information is not a
+;; problem. Undecidable (no validator, a failure) -> none.
+(define (resource-problems f js)
+  (define oo (with-handlers ([exn:fail? (lambda (_) #f)]) (apply-operation "$validate" js)))
+  (for*/list ([i (in-list (if (hash? oo) (hash-ref oo 'issue '()) '()))]
+              [sev (in-value (case (hash-ref i 'severity #f) [("error" "fatal") 'error] [("warning") 'warning] [else #f]))]
+              #:when sev)
+    (define where (let ([e (hash-ref i 'expression (hash-ref i 'location '()))]) (and (pair? e) (string? (car e)) (car e))))
+    (define at (and where (json-path-location (cdr f) where)))
+    (diagnostic 'fhir 'validate sev
+                (format "~a~a" (if where (string-append where ": ") "") (hash-ref i 'diagnostics (hash-ref i 'code "invalid")))
+                (if at
+                    (loc (path-string (car f)) (car at) (cadr at) (caddr at) (cadddr at))
+                    (loc (path-string (car f)) #f #f #f #f)))))
 
 ;; refresh! : hub -> void   every language's artifacts (recomputed only where a file changed),
 ;; registered, and every problem collected

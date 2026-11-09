@@ -73,6 +73,10 @@
 (module+ main
   (define args (vector->list (current-command-line-arguments)))
   (cond
+    ;; -h/--help: every usage on stdout, exit 0 (as every raco command of the family)
+    [(and (pair? args) (member (car args) '("-h" "--help")))
+     (for ([u (in-list usages)]) (printf "~a\n" (cadr u)))
+     (exit 0)]
     [(or (null? args) (regexp-match? #rx"^--" (car args))) (serve-command args)]
     [else (run-subcommands "fhir-mcp" usages
                            (hash "serve" serve-command "tools" tools-command "call" call-command)
