@@ -45,7 +45,13 @@
     (check-equal? (hash-ref (car (hash-ref st 'stages)) 'resources) '("create Patient/bob"))
     (check-equal? (hash-ref (car (hash-ref (call c "stage" (hasheq 'fsh "Instance: cy\nInstanceOf: Patient\n")) 'changes)) 'changed) "created")
     (check-equal? (hash-ref (call c "stage" (hasheq 'drop "stage-2")) 'stages) '("stage-3"))
-    (check-equal? (map (lambda (s) (hash-ref s 'stage)) (hash-ref (call c "describe" (hasheq 'ref "stages")) 'stages)) '("stage-3"))))
+    (check-equal? (map (lambda (s) (hash-ref s 'stage)) (hash-ref (call c "describe" (hasheq 'ref "stages")) 'stages)) '("stage-3"))
+    ;; a dropped stage's number is not handed out again
+    (call c "stage" (hasheq 'drop "stage-3"))
+    (check-equal? (hash-ref (call c "stage" (hasheq 'fsh "Instance: dee\nInstanceOf: Patient\n")) 'stage) "stage-4")
+    (let-values ([(text err?) ((tool-run (hash-ref (tools-of c) "commit")) (hasheq 'stage "stage-3"))])
+      (check-true err?)
+      (check-regexp-match #rx"no stage stage-3" text))))
 ;; the shell: a call whose answer counts errors exits 1
 (define (shell . words)
   (define out (open-output-string))

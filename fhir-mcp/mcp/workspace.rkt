@@ -928,7 +928,10 @@
   (unless (stage-of h id)
     (error 'stage (format "no stage ~a to drop~a" id (let ([ids (pending-stage-ids h)]) (if (null? ids) "" (format " (stages: ~a)" (string-join ids ", ")))))))
   (hash-remove! (hub-stages h) id)
-  (forget-state! h "stages" id)
+  ;; kept as dropped-stage-N, as a commit keeps committed-stage-N: its number is never handed out
+  ;; again (a script still holding the id cannot commit other data under it)
+  (let ([f (build-path (state-dir h "stages") (string-append id ".json"))])
+    (when (file-exists? f) (rename-file-or-directory f (build-path (state-dir h "stages") (string-append "dropped-" id ".json")) #t)))
   (hasheq 'dropped id 'stages (pending-stage-ids h)))
 
 ;; pending-stage-ids : hub -> (listof id)   the stages not committed (in memory or saved)
