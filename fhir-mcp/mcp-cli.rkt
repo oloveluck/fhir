@@ -10,7 +10,8 @@
 ;;;   raco fhir-mcp tools [same flags]   the tools offered, with their schemas (JSON)
 ;;;   raco fhir-mcp call <tool> ['<json arguments>'] [same flags]   run one tool, print its text (exit 1 on error)
 
-(require racket/list racket/string json
+(require (only-in "mcp/init.rkt" init-workspace!)
+         racket/list racket/string json
          (only-in fhir/subcommands run-subcommands usage-error)
          "mcp/server.rkt" "mcp/tools.rkt" "mcp/workspace.rkt" "mcp/verbs.rkt"
          (only-in "mcp/resources.rkt" current-result-resources))
@@ -19,7 +20,8 @@
 (define usages
   `(("serve" ,(format "raco fhir-mcp [serve] ~a   the server over stdin/stdout" flags))
     ("tools" ,(format "raco fhir-mcp tools ~a   the tools and their schemas" flags))
-    ("call"  ,(format "raco fhir-mcp call <tool> ['<json>'] ~a   run one tool" flags))))
+    ("call"  ,(format "raco fhir-mcp call <tool> ['<json>'] ~a   run one tool" flags))
+    ("init"  "raco fhir-mcp init [<dir>] [--fhir-version 4.0.1|5.0.0]   make a directory a workspace an agent can use: workspace.yaml, data/, .mcp.json, CLAUDE.md")))
 
 ;; An Opts is (opts workspace packages data rest)
 (struct opts (workspace packages data rest))
@@ -70,6 +72,20 @@
       (displayln text)
       (exit (if err? 1 0)))))
 
+;; init-command : args -> void   a directory made ready for an agent (mcp/init.rkt); one line per file
+(define (init-command args)
+  (define-values (dir fv)
+    (let loop ([as args] [dir #f] [fv "4.0.1"])
+      (cond [(null? as) (values (or dir ".") fv)]
+            [(and (equal? (car as) "--fhir-version") (pair? (cdr as)))
+             (unless (member (cadr as) '("4.0.1" "5.0.0")) (usage-error "fhir-mcp" usages "init" (format "--fhir-version ~a: 4.0.1 or 5.0.0" (cadr as))))
+             (loop (cddr as) dir (cadr as))]
+            [(and (not dir) (not (regexp-match? #rx"^-" (car as)))) (loop (cdr as) (car as) fv)]
+            [else (usage-error "fhir-mcp" usages "init" (format "unexpected ~a" (car as)))])))
+  (for ([r (in-list (init-workspace! dir #:fhir-version fv))])
+    (printf "~a ~a\n" (if (eq? (cdr r) 'written) "wrote" "kept ") (path->string (build-path dir (car r)))))
+  (printf "Claude Code starts the server from .mcp.json in ~a; put FHIR JSON in ~a\n" dir (path->string (build-path dir "data"))))
+
 (module+ main
   (define args (vector->list (current-command-line-arguments)))
   (cond
@@ -79,5 +95,5 @@
      (exit 0)]
     [(or (null? args) (regexp-match? #rx"^--" (car args))) (serve-command args)]
     [else (run-subcommands "fhir-mcp" usages
-                           (hash "serve" serve-command "tools" tools-command "call" call-command)
+                           (hash "serve" serve-command "tools" tools-command "call" call-command "init" init-command)
                            args)]))

@@ -20,7 +20,7 @@
          net/uri-codec
          fhir/lang/workspace
          (only-in fhir/lang/support language-id-of)
-         (only-in fhir/diagnostic diagnostic diagnostic? loc loc-source loc-line diagnostic-loc diagnostic-severity
+         (only-in fhir/diagnostic diagnostic diagnostic? loc loc-source loc-line loc-column diagnostic-loc diagnostic-severity
                   diagnostic->jsexpr diagnostic-message exn:fail:diagnostic? exn:fail:diagnostic-diagnostic)
          (only-in fhir/registry register-resources! unregister-source! registered-resource registered-resources registered-kinds)
          (only-in fhir/data-source current-data-source data-source? data-source-all data-source-read data-source-search
@@ -32,6 +32,7 @@
          "tools.rkt")
 
 (provide
+ (struct-out text-answer)
  (contract-out
   [hub?            (-> any/c boolean?)]
   ;; open-hub : dir [#:data override] [#:packages extra] -> hub
@@ -43,7 +44,7 @@
   [hub-run         (-> hub? string? hash? jsexpr?)]
   [hub-query       (-> hub? string? string? hash? jsexpr?)]
   [hub-explain     (-> hub? string? string? hash? jsexpr?)]
-  [hub-describe    (-> hub? string? hash? jsexpr?)]
+  [hub-describe    (-> hub? string? hash? (or/c jsexpr? text-answer?))]   ; text when `as` is "fsh"
   [hub-apply       (-> hub? string? hash? (or/c hash? #f) jsexpr?)]
   [hub-stage!      (-> hub? hash? jsexpr?)]
   [hub-commit!     (-> hub? string? jsexpr?)]
@@ -190,10 +191,18 @@
   (filter (lambda (d) (let ([l (diagnostic-loc d)])
                         (and l (loc-source l) (equal? (path-string (simplify-path (path->complete-path (loc-source l) (hub-root h)))) full))))
           (hub-diagnostics h)))
+;; problem-json : hub diagnostic -> string   one line an agent reads at a glance and acts on:
+;; "pat.json:5:3 error: Patient.birthDat: element 'birthDat' is not defined … (did you mean …)" — the
+;; file relative to the workspace, the line and column when known, the severity, the message. (A
+;; problem used to be an object of nine fields, the absolute source path among them: ~3x the tokens.)
 (define (problem-json h d)
-  (define j (diagnostic->jsexpr d))
-  (define src (let ([l (diagnostic-loc d)]) (and l (loc-source l))))
-  (if (and src (hash? j)) (hash-set j 'file (rel h src)) j))
+  (define l (diagnostic-loc d))
+  (define src (and l (loc-source l)))
+  (define where
+    (string-append (if src (rel h src) "")
+                   (if (and l (loc-line l)) (format ":~a" (loc-line l)) "")
+                   (if (and l (loc-line l) (loc-column l)) (format ":~a" (loc-column l)) "")))
+  (format "~a~a~a: ~a" where (if (string=? where "") "" " ") (diagnostic-severity d) (diagnostic-message d)))
 (define (count-severity ds s) (count (lambda (d) (eq? (diagnostic-severity d) s)) ds))
 
 ;; ---- paths ----------------------------------------------------------------------------------------
@@ -227,12 +236,14 @@
   (refresh! h)
   (define mine (if config? '() (problems-of h full)))
   (define others (- (length (hub-diagnostics h)) (length mine)))
-  (hasheq 'path (rel h full)
-          'language (or lang "workspace.yaml")
-          'written (file-exists? full)
-          'problems (map (lambda (d) (problem-json h d)) mine)
-          'problemsElsewhere others
-          'config (if config? (config-json h) 'null)))
+  (define answer
+    (hasheq 'path (rel h full)
+            'language (or lang "workspace.yaml")
+            'written (file-exists? full)
+            'problems (map (lambda (d) (problem-json h d)) mine)
+            'problemsElsewhere others))
+  ;; the configuration only when it is what was written
+  (if config? (hash-set answer 'config (config-json h)) answer))
 
 (define (config-json h)
   (define c (workspace-config (hub-ws h)))
@@ -394,7 +405,20 @@
 ;; ---- describe -----------------------------------------------------------------------------------
 (define conformance-kinds '("StructureDefinition" "ValueSet" "CodeSystem" "ConceptMap" "StructureMap"))
 
+;; A TextAnswer is (text-answer string): an answer that is text, not JSON (an FSH rendering), sent
+;; as it is (as JSON every newline would be escaped)
+(struct text-answer (text))
+;; as-fsh : resource -> TextAnswer   the resource as an FSH Instance (fsh/decompile, loaded on demand:
+;; fhir-mcp does not depend on fsh) — a third shorter than its JSON for coded data, and the form FSH files use
+(define (as-fsh r)
+  (define fhir->fsh (with-handlers ([exn:fail? (lambda (_) (error 'describe "as \"fsh\" needs the fsh package"))])
+                      (dynamic-require 'fsh/decompile 'fhir->fsh)))
+  ;; `Usage: #example` is what an Instance means without it: not said
+  (text-answer (regexp-replace #rx"\nUsage: #example(?=\n|$)" (fhir->fsh r) "")))
+
 (define (hub-describe h ref args)
+  (define fsh? (equal? (hash-ref args 'as #f) "fsh"))
+  (define (shown r) (if (and fsh? (hash? r) (string? (hash-ref r 'resourceType #f))) (as-fsh r) r))
   (define offset (let ([o (hash-ref args 'offset 0)]) (if (exact-nonnegative-integer? o) o 0)))
   (define limit (let ([l (hash-ref args 'limit 20)]) (if (exact-positive-integer? l) l 20)))
   (define against (let ([a (hash-ref args 'against #f)]) (and (string? a) a)))
@@ -405,13 +429,13 @@
         [(regexp-match #px"^(?:([A-Za-z]+)/)?[$]([A-Za-z-]+)$" ref) (describe-operation ref)]
         [(regexp-match? #rx"/OperationDefinition/" ref) (describe-operation ref)]
         [(regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)$" ref)
-         => (lambda (m) (or ((data-source-read (current-data-source)) (cadr m) (caddr m))
-                            (registered-resource (cadr m) (caddr m))
-                            (error 'describe (format "no ~a in the data or the workspace" ref))))]
+         => (lambda (m) (shown (or ((data-source-read (current-data-source)) (cadr m) (caddr m))
+                                   (registered-resource (cadr m) (caddr m))
+                                   (error 'describe (format "no ~a in the data or the workspace" ref)))))]
         [(regexp-match? #rx"://" ref)
          (define r (or (for/or ([k (in-list (registered-kinds))]) (registered-resource k ref))
                        (and (sd-index-available?) (for/or ([k (in-list conformance-kinds)]) (resolve-canonical-raw k ref)))))
-         (if r (trim-definition r) (error 'describe (format "no definition ~a in the workspace or the packages" ref)))]
+         (if r (shown (trim-definition r)) (error 'describe (format "no definition ~a in the workspace or the packages" ref)))]
         [(regexp-match #px"^([A-Z][A-Za-z]+)(?:[.](.+))?$" ref)
          => (lambda (m) (describe-element (cadr m) (caddr m) ref))]
         [else (search-definitions ref)]))))
@@ -488,7 +512,30 @@
   (define given (hash-ref args 'resources #f))
   (define path (hash-ref args 'path #f))
   (define result (hash-ref args 'result #f))
+  (define fsh (hash-ref args 'fsh #f))
   (cond
+    ;; FSH Instances written in the call: the compact way to state coded data (a line per coding)
+    [(string? fsh)
+     ;; FSH compiles as a file of the workspace's project (its profiles in context): a temporary
+     ;; file, removed (and the workspace refreshed) whatever happens
+     (define tmp (build-path (hub-root h) (format "_stage-~a.fsh" (add1 (hub-counter h)))))
+     (dynamic-wind
+      (lambda () (call-with-output-file tmp (lambda (o) (write-string fsh o)) #:exists 'truncate/replace) (refresh! h))
+      (lambda ()
+        (define r (execute h "fsh" tmp fsh (hasheq)))
+        ;; the text's own parse and compile errors refuse the stage, every one by its line in the text
+        ;; (an entity that does not compile would otherwise be dropped from the stage without a word;
+        ;; validation issues are the stage's own report, per resource)
+        (define own (for/list ([p (in-list (hash-ref (run-result-summary r) 'problems '()))]
+                               #:when (and (equal? (hash-ref p 'severity #f) "error")
+                                           (not (equal? (hash-ref p 'phase #f) "validate"))
+                                           (equal? (hash-ref p 'source #f) (path->string tmp))))
+                      (format "fsh:~a:~a error: ~a" (hash-ref p 'line "?") (hash-ref p 'column "?") (hash-ref p 'message ""))))
+        (when (pair? own) (error 'stage (string-join own "\n")))
+        (define rs (filter instance? (map (lambda (row) (hash-ref row 'resource)) (run-result-rows r))))
+        (when (null? rs) (error 'stage "the FSH defines no instance"))
+        rs)
+      (lambda () (when (file-exists? tmp) (delete-file tmp)) (refresh! h)))]
     [(list? given) (append-map (lambda (r) (if (hash? r) (bundle-resources r) (error 'stage "each resource is a JSON object"))) given)]
     [(string? result)
      (define st (or (hash-ref (hub-results h) result #f) (error 'stage (format "no result ~a" result))))
@@ -502,7 +549,7 @@
        ["fsh" (define r (execute h "fsh" full (file->string full) (hasheq)))
               (filter instance? (map (lambda (row) (hash-ref row 'resource)) (run-result-rows r)))]
        [_ (error 'stage "stage takes resources, a result of a run, an FSH file's instances or a JSON file")])]
-    [else (error 'stage "stage takes `resources`, `result` or `path`")]))
+    [else (error 'stage "stage takes `resources`, `fsh`, `result` or `path`")]))
 
 ;; json-diff : a b -> (listof dotted path)   where two JSON values differ
 (define (json-diff a b [prefix ""])

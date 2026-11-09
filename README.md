@@ -51,6 +51,23 @@ export PATH="$PWD/dist/bin:$PATH"
 `dist/` (about 380 MB) holds the tools and the HL7 packages they read. A tool also finds packages in
 the directories named by `FHIR_PACKAGE_PATH`. `fhir-server` needs the system's SQLite library.
 
+## For agents (Claude Code and other MCP clients)
+
+`fhir-mcp` is the agent's way in: nine tools over a workspace directory, every answer one line per
+problem (`file:line:col severity: message`, with "did you mean …" when a name is misspelt). To set
+a directory up:
+
+```sh
+fhir-mcp init my-workspace          # or: raco fhir-mcp init my-workspace [--fhir-version 5.0.0]
+```
+
+It writes `workspace.yaml` (FHIR version, canonical, `data: data/`), `data/` for the FHIR JSON the
+tools run over, `.mcp.json` (Claude Code starts the server from it) and a three-line `CLAUDE.md`, and
+keeps any of them that already exist. Elsewhere: `claude mcp add fhir -- fhir-mcp --workspace <dir>`.
+The server's first resource to read is `learn://workspace`; each language has its own
+(`learn://fsh`, `learn://cql`, …). Without MCP, each language's repository has a Claude skill
+(`.claude/skills/<language>/SKILL.md`) for its command line.
+
 ## In Racket
 
 Each language is also a Racket `#lang`: a source file is a module, checked when it compiles, that

@@ -31,6 +31,7 @@
   (values (string->jsexpr text) err?))
 (define (ok name args) (define-values (j e) (call name args)) (check-false e (format "~a: ~a" name (jsexpr->string j))) j)
 (define (fails name args) (define-values (j e) (call name args)) (check-true e (format "~a should fail" name)) j)
+(define (text name args) (define-values (t e) ((tool-run (hash-ref tools name)) args)) (check-false e t) t)
 
 (with-hub h
   (lambda ()
@@ -38,7 +39,8 @@
     (ok "write" (hasheq 'path "hba1c.vcl" 'text "(http://loinc.org)(4548-4; 17856-6)"))
     (define bad (ok "write" (hasheq 'path "Gap.cql" 'text "library Gap version '1'\nusing FHIR version '4.0.1'\ncontext Patient\ndefine \"Gap\": Nope\n")))
     (check-equal? (length (hash-ref bad 'problems)) 1)
-    (check-equal? (hash-ref (car (hash-ref bad 'problems)) 'file) "Gap.cql")
+    ;; a problem is one line: file:line:col severity: message
+    (check-regexp-match #rx"^Gap[.]cql:[0-9]+:[0-9]+ error: " (car (hash-ref bad 'problems)))
     (define gap (string-append "library Gap version '1'\nusing FHIR version '4.0.1'\n"
                                "include FHIRHelpers version '4.0.1' called FHIRHelpers\n"
                                "valueset \"HbA1c\": 'http://example.org/ws/ValueSet/hba1c'\n"
@@ -85,7 +87,7 @@
                                                          "Instance: good\nInstanceOf: Final\n* status = #final\n* code = http://loinc.org#4548-4\n\n"
                                                          "Instance: bad\nInstanceOf: Final\n* status = #preliminary\n* code = http://loinc.org#4548-4\n"))))
     (check-equal? (length (hash-ref fsh 'problems)) 1)
-    (check-equal? (hash-ref (car (hash-ref fsh 'problems)) 'line) 13)          ; * status = #preliminary
+    (check-regexp-match #rx"^[^:]+[.]fsh:13:" (car (hash-ref fsh 'problems)))          ; * status = #preliminary
     (define fx (ok "explain" (hasheq 'ref "profiles.fsh" 'subject "bad")))
     (check-equal? (length (hash-ref fx 'problems)) 1)
     (fails "run" (hasheq 'path "nope.cql"))
@@ -101,6 +103,13 @@
     (define page (ok "describe" (hasheq 'ref "result://r1" 'offset 1 'limit 1)))
     (check-equal? (length (hash-ref page 'rows)) 1)
     (check-equal? (hash-ref (ok "describe" (hasheq 'ref "Patient/a")) 'birthDate) "1960-01-01")
+    ;; as FSH: an Instance, a CodeableConcept and a Reference one rule each, shorter than the JSON
+    (define o1 (text "describe" (hasheq 'ref "Observation/o1" 'as "fsh")))
+    (check-regexp-match #rx"^Instance: o1\nInstanceOf: Observation\n" o1)
+    (check-false (regexp-match? #rx"Usage" o1))                                    ; #example goes without saying
+    (check-regexp-match #rx"\\* code = http://loinc.org#4548-4\n" o1)
+    (check-regexp-match #rx"\\* subject = Reference\\(Patient/a\\)" o1)
+    (check-true (< (string-length o1) (string-length (text "describe" (hasheq 'ref "Observation/o1")))))
     (check-equal? (hash-ref (ok "describe" (hasheq 'ref "http://example.org/ws/ValueSet/hba1c")) 'resourceType) "ValueSet")
     (check-equal? (hash-ref (ok "describe" (hasheq 'ref "http://example.org/ws/StructureDefinition/final-obs")) 'type) "Observation")
     (check-equal? (hash-ref (car (ok "describe" (hasheq 'ref "Observation.status"))) 'path) "Observation.status")
@@ -132,7 +141,19 @@
     ;; staging an FSH file's examples: the invalid one blocks the commit
     (define fs (ok "stage" (hasheq 'path "profiles.fsh")))
     (check-equal? (length (hash-ref fs 'changes)) 2)
-    (void (fails "commit" (hasheq 'stage (hash-ref fs 'stage))))))
+    (void (fails "commit" (hasheq 'stage (hash-ref fs 'stage))))
+    ;; staging FSH Instances written in the call: the compact way to state data; no file is left
+    (define sf (ok "stage" (hasheq 'fsh (string-append "Instance: o4\nInstanceOf: Observation\n* status = #final\n"
+                                                      "* code = http://loinc.org#4548-4 \"Hemoglobin A1c\"\n"
+                                                      "* subject = Reference(Patient/a)\n* valueQuantity = 6.2 '%'\n"))))
+    (check-equal? (hash-ref sf 'errors) 0)
+    (check-equal? (map (lambda (c) (hash-ref c 'resource)) (hash-ref sf 'changes)) '("Observation/o4"))
+    (check-false (for/or ([f (in-list (directory-list dir))]) (regexp-match? #rx"^_stage" (path->string f))))
+    (check-regexp-match #rx"^fsh:1:1 error: .*InstanceOf `Observaton` not found.*did you mean `Observation`"
+                        (hash-ref (fails "stage" (hasheq 'fsh "Instance: o5\nInstanceOf: Observaton\n")) 'error))
+    ;; a resource type that does not exist is an error, not an unknown to fail open on
+    (define typo (ok "stage" (hasheq 'resources (list (hasheq 'resourceType "Observaton" 'id "o6")))))
+    (check-regexp-match #rx"is not a resource type [(]did you mean `Observation`" (car (hash-ref (car (hash-ref typo 'changes)) 'errors)))))
 
 ;; ---- learn: each guide links its official references, and its worked example compiles
 (for ([t (in-list learn-topics)])

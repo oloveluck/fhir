@@ -26,7 +26,8 @@
                                                             #t))]
                   [exn:fail:operation? (lambda (e) (values (jsexpr->string (exn:fail:operation-outcome e)) #t))]
                   [exn:fail? (lambda (e) (values (jsexpr->string (hasheq 'error (strip-who (exn-message e)))) #t))])
-    (values (jsexpr->string (thunk)) #f)))
+    (define v (thunk))
+    (values (if (text-answer? v) (text-answer-text v) (jsexpr->string v)) #f)))
 (define (strip-who m) (regexp-replace #px"^[a-z-]+: " m ""))
 
 (define (str args k) (let ([v (hash-ref args k #f)]) (and (string? v) v)))
@@ -72,7 +73,8 @@
          (schema (hasheq 'ref (s "what to describe")
                          'offset (hasheq 'type "integer" 'description "results: the first row")
                          'limit (hasheq 'type "integer" 'description "results: at most this many rows (default 20)")
-                         'against (s "results: an earlier result to compare with"))
+                         'against (s "results: an earlier result to compare with")
+                         'as (s "a resource (Type/id, a canonical): \"fsh\" for an FSH Instance instead of JSON — shorter for coded data (a blood-pressure Observation: 480 characters, 692 as JSON)"))
                  '("ref"))
          (lambda (args) (answer (lambda () (hub-describe h (need args 'ref) args)))))
    (tool "apply"
@@ -85,8 +87,9 @@
                                                       (let ([i (hash-ref args 'inputs (hasheq))]) (if (hash? i) i (hasheq)))
                                                       (let ([r (hash-ref args 'resource #f)]) (and (hash? r) r)))))))
    (tool "stage"
-         "Prepare a write to the data: resources given as JSON, the resources of a run (result://rN, an FML transform), an FSH file's example instances, or a JSON file. Each is validated and compared with the data's copy (create, update with the changed paths, unchanged). Nothing is written until commit."
+         "Prepare a write to the data: resources given as JSON or as FSH Instances (`fsh`), the resources of a run (result://rN, an FML transform), an FSH file's example instances, or a JSON file. Each is validated and compared with the data's copy (create, update with the changed paths, unchanged). Nothing is written until commit."
          (schema (hasheq 'resources (hasheq 'type "array" 'items (hasheq 'type "object") 'description "FHIR resources (or Bundles)")
+                         'fsh (s "FSH Instances, as text: the compact way to write resources")
                          'result (s "a result whose rows hold resources")
                          'path (s "an FSH file (its instances) or a JSON file"))
                  '())

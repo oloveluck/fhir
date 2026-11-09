@@ -27,7 +27,7 @@
          (only-in fhir/serialize/to-json node->jsexpr)
          (only-in fhir/serialize/read-json jnum? jnum-lexeme jnum-value)
          (only-in fhir/result/result ok? ok-value ok-or-raise err)
-         (only-in fhir/model/registry constructor-of)
+         (only-in fhir/model/registry constructor-of all-types type-registered?)
          (only-in fhirpath/eval eval-fhirpath)
          (only-in fhirpath/parser/parse parse-fhirpath)
          (only-in fhirpath/value item->system)
@@ -88,7 +88,13 @@
      ;; targets: the base type (cached index) + any resolvable meta.profile + supplied profiles
      (define indexes (target-indexes rt json profiles))
      (cond
-       [(null? indexes) dup-issues]                   ; unknown type / unresolvable -> fail-open (dups still real)
+       ;; a resourceType the packages do not define, while they define the types (an index is
+       ;; there): decided, not undecidable — `Observaton` would otherwise pass as clean
+       [(and (null? indexes) (unknown-resource-type? rt))
+        (append dup-issues (list (issue "error" "structure" rt
+                                        (format "`~a` is not a resource type~a" rt
+                                                (did-you-mean rt (map symbol->string (all-types)))))))]
+       [(null? indexes) dup-issues]                   ; unresolvable -> fail-open (dups still real)
        [else
         (define node (let ([r (from-json json #:lenient? #t)]) (and (ok? r) (ok-value r))))
         (define seen (make-hash))
@@ -98,6 +104,14 @@
           (for/fold ([acc acc]) ([is (in-list issues)])
             (define k (list (issue-code is) (issue-path is) (issue-msg is)))
             (if (hash-ref seen k #f) acc (begin (hash-set! seen k #t) (cons is acc)))))])]))
+
+;; unknown-resource-type? : string -> boolean   a plain name that neither the packages in context (which
+;; do define the base types) nor the registered towers and logical models know
+(define (unknown-resource-type? rt)
+  (and (regexp-match? #px"^[A-Za-z][A-Za-z0-9_]*$" rt)
+       (resolve-sd-raw "Resource")
+       (not (resolve-sd-raw rt))
+       (not (type-registered? (string->symbol rt)))))
 
 ;; element indexes to validate against: the base type via the cached `type-index`, plus meta.profile +
 ;; supplied profiles whose `type` matches (their snapshots generated on demand)

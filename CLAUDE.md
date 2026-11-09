@@ -24,7 +24,7 @@ never `../model/node.rkt`. Dependency order (base first):
 | `fsh` | `oloveluck/fsh` | `#lang fsh` (bidirectional), projects + packaging, `check.rkt`; `raco fsh`, `raco fsh check` | fhir, fhirpath, fhir-validation |
 | `fhir-server` | `oloveluck/fhir` → `fhir-server/` | `capability/ http/ store/` (SQLite), IG-generated servers, `$evaluate-measure`, `server-cli.rkt` (`raco fhir-server`), server tests | fhir, fhir-spec, fhirpath, fhir-tx, fhir-validation, cql, db-lib |
 | `fhir-lsp` | `oloveluck/fhir` → `fhir-lsp/` | the Language Server Protocol server for the five languages: `lsp/jsonrpc.rkt` (framing), `lsp/diagnostics.rkt` (fhir/diagnostic -> LSP), `lsp/languages.rkt` (the catalogue over `fhir/lang/support`), `lsp/server.rkt` (state, dispatch, loop; hover/definition/completion/symbols handed to the document's language support with its project), `lsp-cli.rkt` (`raco fhir-lsp`, `check`) | fhir (+ the languages' `support` modules at run time) |
-| `fhir-mcp` | `oloveluck/fhir` → `fhir-mcp/` | the Model Context Protocol server over a WORKSPACE (below): `mcp/workspace.rkt` (the hub: config, packages, data source, artifacts registered, results, stages), `mcp/verbs.rkt` (the nine tools), `learn/*.md` (`learn://` guides with the official references for the workspace, search and the languages that do not ship their own yet; a language's own guide comes from its repo, below; their examples compile in the test), `mcp/tools.rkt` (the Tool struct; operations loaded and applied to JSON; elements and definitions in the packages), `mcp/resources.rkt` (guides, packages, definitions, learn, results; prompts), `mcp/server.rkt` (dispatch, one JSON line per message), `mcp-cli.rkt` (`raco fhir-mcp [--workspace d]`, `tools`, `call`) | fhir, fhir-lsp (+ the operations and languages at run time) |
+| `fhir-mcp` | `oloveluck/fhir` → `fhir-mcp/` | the Model Context Protocol server over a WORKSPACE (below): `mcp/workspace.rkt` (the hub: config, packages, data source, artifacts registered, results, stages), `mcp/verbs.rkt` (the nine tools), `learn/*.md` (`learn://` guides with the official references for the workspace, search and the languages that do not ship their own yet; a language's own guide comes from its repo, below; their examples compile in the test), `mcp/tools.rkt` (the Tool struct; operations loaded and applied to JSON; elements and definitions in the packages), `mcp/resources.rkt` (guides, packages, definitions, learn, results; prompts), `mcp/server.rkt` (dispatch, one JSON line per message), `mcp/init.rkt` (`raco fhir-mcp init`: workspace.yaml, data/, .mcp.json, CLAUDE.md), `mcp-cli.rkt` (`raco fhir-mcp [--workspace d]`, `init`, `tools`, `call`) | fhir, fhir-lsp (+ the operations and languages at run time) |
 | `sql-on-fhir` | `oloveluck/sql-on-fhir` | `#lang sql-on-fhir`: ViewDefinition model and operation definitions GENERATED from the IG package (`target.rkt`, `model/`), the view engine, `$sql-run`/`$sql-export` as operations; `raco sql-on-fhir` | fhir, fhirpath (fhir-spec to regenerate) |
 | `fhir-examples` | `oloveluck/fhir-examples` | `examples/` (operations applied as procedures), `bench.rkt` (prose → FSH tasks from a published IG, scored), recorded runs; `raco spec-bench` | fhir, fhir-spec, fhir-validation, fsh, fml |
 
@@ -757,6 +757,35 @@ changed:
   now 60-70% of an fsh compile (mCODE: RuleSet bodies re-parsed per distinct instantiation are 3.6 s
   of a 5.2 s compile). A parser derived from the same grammar files (kept as the specification and
   the error reporter) would remove most of it; not done in this pass.
+
+## Claude as the user (2026-11-09)
+Two rounds of working a workspace through fhir-mcp the way an agent does (setting it up, writing each
+language, reading every reply) drove these. The aim: an agent sets up in one step, states FHIR
+compactly, and gets back one precise line per problem.
+- **Setup.** `raco fhir-mcp init [dir] [--fhir-version]` (`mcp/init.rkt`) writes what is missing,
+  never overwriting: `workspace.yaml`, `data/`, `.mcp.json` (the `fhir` server: the standalone
+  `fhir-mcp` when on PATH, else `raco fhir-mcp`), and a three-line `CLAUDE.md` pointing to
+  `learn://workspace`. The README's "For agents" section covers it and `claude mcp add`.
+  `fhir/lang/workspace` no longer lists the data directory's files as sources (`data: data/`, with
+  its slash, was compared as a file path).
+- **Replies.** A problem is one line, `file:line:col severity: message`, not an object (a check of 10
+  problems went from ~1050 tokens for 4 to ~500); `write` mentions `config` only when it wrote
+  workspace.yaml. Suggestions everywhere a name can be wrong (`fhir/suggest`'s `did-you-mean`):
+  elements, Parents, InstanceOfs, CQL identifiers and functions, resource types. JSON validation is
+  positioned at the key (`fhir/serialize/json-position`).
+- **FHIR as compact text.** `describe(ref, as: "fsh")` answers a resource as an FSH Instance (a
+  blood-pressure Observation: 480 characters, 692 as JSON; a small Patient of plain values is not shorter) — fsh's decompiler now writes a Coding, single-coding CodeableConcept, UCUM Quantity or
+  plain Reference as one rule when that rule compiles back to exactly the JSON. `stage(fsh: …)` takes
+  FSH Instances written in the call (compiled as a file of the workspace's project, so its profiles
+  apply; the temporary file is removed); its own compile errors refuse the stage, each as
+  `fsh:line:col error: …` (an instance that failed to compile used to be dropped silently).
+- **Fail-open is for the undecidable, not the misspelt.** The validator reported nothing for
+  `{"resourceType": "Observaton"}`: now `` `Observaton` is not a resource type (did you mean
+  `Observation`?) `` whenever the packages in context define the base types and nothing (packages,
+  towers, logical models) defines that name. fsh reports an `InstanceOf` nothing defines (SUSHI does),
+  except an R5 resource in an R4 project (SUSHI allows it; the IG Publisher makes it a Basic — IPS's
+  ActorDefinitions). FHIRPath's static check now enters operators' operands (`activ = true`,
+  `where(famly = 'x')` were unchecked); `trace`'s projection sees its input's type. TCK floors hold.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

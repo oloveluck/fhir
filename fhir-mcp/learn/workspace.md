@@ -2,7 +2,10 @@
 
 You work in a directory of source files. Each file is a program in one of the FHIR languages, or a FHIR
 resource as JSON. The tools check them, run them against FHIR data, and explain the answers. Every
-problem is reported at a file, line and column.
+problem is one line, at its file, line and column: `Gap.cql:4:1 error: in define "Gap": unknown identifier 'Nope'`.
+
+To start a new workspace from a shell: `fhir-mcp init [dir]` writes `workspace.yaml`, `data/`, a
+`.mcp.json` that registers this server, and a `CLAUDE.md` that points here. It never overwrites a file.
 
 | File | Language | `run` gives | Guide |
 |---|---|---|---|
@@ -31,12 +34,30 @@ Examples validate against the profiles the FSH defines.
   view's `where` clauses, a map's rules, an FSH instance's problems.
 - `describe(ref)` reads anything by reference: `result://r1` (paged with offset/limit, or compared
   with `against`), `Patient/123`, a canonical url, a type or element (`Observation.component`), an
-  operation (`$expand`), or a fragment of a definition's name.
+  operation (`$expand`), or a fragment of a definition's name. `describe(ref, as: "fsh")` answers a
+  resource as an FSH Instance: a line per coding, quantity or reference, a third shorter than its JSON
+  for coded data (compact JSON is as short for a small resource of plain values).
 - `apply(operation, inputs)` applies any FHIR operation the server implements. `describe("$code")`
   lists its inputs.
 - `stage(...)` and `commit(stage)` write to the data. Staged resources are validated and shown as a
   diff first. A stage with errors is not committed. A FHIR server is written only when
-  `workspace.yaml` allows it.
+  `workspace.yaml` allows it. Stage `resources` (JSON), a file (`path`), a run's output (`result`), or
+  FSH Instances written in the call (`fsh`). FSH is the compact way to state data: one line per
+  coding, quantity or reference.
+
+```fsh
+Instance: a1c-ann
+InstanceOf: Observation
+* status = #final
+* code = http://loinc.org#4548-4 "Hemoglobin A1c"
+* subject = Reference(Patient/ann)
+* effectiveDateTime = "2025-07-01"
+* valueQuantity = 6.2 '%'
+```
+
+  FSH that does not compile is refused, each error at its line in the text: an `InstanceOf: Observaton`
+  answers `fsh:1:1 error: … InstanceOf … not found … (did you mean …?)`, naming both.
+  A resource whose type FHIR does not define is an error, not an unknown.
 
 ## Which language for which question
 - A value inside one resource: FHIRPath.

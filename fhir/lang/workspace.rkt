@@ -199,12 +199,15 @@
 
 (define (workspace-files ws)
   (define root (workspace-root ws))
+  ;; compared as directory paths: `data: data/` is the directory `data` (with the slash, it never
+  ;; matched, and every data file was taken for one of the workspace's own)
   (define data (let ([d (ws-config-data (workspace-config ws))])
                  (and d (not (regexp-match? #rx"^https?://" d))
-                      (simplify-path (path->complete-path d root)))))
+                      (path->directory-path (simplify-path (path->complete-path d root))))))
   (define (skip-dir? p)
     (define name (let-values ([(_b n _d) (split-path p)]) (path->string n)))
-    (or (regexp-match? #rx"^[.]" name) (equal? name "compiled") (and data (equal? (simplify-path p) data))))
+    (or (regexp-match? #rx"^[.]" name) (equal? name "compiled")
+        (and data (equal? (path->directory-path (simplify-path p)) data))))
   (sort (for/list ([f (in-directory root (lambda (p) (not (skip-dir? p))))]
                    #:when (file-exists? f)
                    #:when (workspace-language-of f)
@@ -267,4 +270,10 @@
   (check-equal? (file-stem "q.view.json") "q")
   (check-true (workspace-r4? w))
   (check-false (workspace-support "cobol"))
+  ;; `data: data/`, as the guide and `fhir-mcp init` write it, is the same directory (with the slash
+  ;; it was not left out: every data file counted as one of the workspace's)
+  (with-output-to-file (build-path dir "workspace.yaml") #:exists 'truncate (lambda () (display "data: data/\ncanonical: http://x\n")))
+  (define-values (w2 _2) (open-workspace dir))
+  (check-equal? (map (lambda (p) (path->string (find-relative-path (workspace-root w2) p))) (workspace-files w2))
+                '("a.cql" "q.view.json" "sub/p.fsh" "v.vcl"))
   (delete-directory/files dir))
