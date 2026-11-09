@@ -39,6 +39,9 @@ compile to a **delegating** form macro; `#:base` may be another profile (multi-l
 
 ## `#lang fsh` — FHIR Shorthand (bidirectional)
 
+**The fsh repository's own skill (`fsh/.claude/skills/fsh`) is the guide**, with the language
+guide it points to (`fsh/guide.md`). In brief:
+
 A `.fsh` file is a module providing `document`/`compiled`/`resources`; `main` prints JSON.
 - `racket examples/patient.fsh` — compile one file.
 - `raco fsh <dir>` — SUSHI-style batch compile a folder into `fsh-generated/` (reads the project's
@@ -108,11 +111,16 @@ language guide it points to (`cql/guide.md`). In brief:
 
 ## `#lang vcl` — ValueSet Compose Language
 
+**The vcl repository's own skill (`vcl/.claude/skills/vcl`) is the guide**, with `vcl/guide.md`.
 One expression per file; a parse error is a compile error. Provides `compose`/`valueset`.
 `raco vcl '(http://loinc.org)(a;b)'` prints the ValueSet. Implicit
 `http://fhir.org/VCL?v1=…` URLs expand directly in `$expand`/`%terminologies`.
 
 ## `#lang fml` — FHIR Mapping Language
+
+**The fml repository's own skill (`fml/.claude/skills/fml`) is the guide**, with `fml/guide.md`.
+FHIRPath and SQL on FHIR have theirs too (`fhirpath/.claude/skills/fhirpath`,
+`sql-on-fhir/.claude/skills/sql-on-fhir`). In brief:
 
 A `.map`/`.fml` file is one mapping: `uses` names the source and target structures by canonical
 (a FHIR type, a profile, or a logical model from the project, a data source or a package), groups

@@ -9,7 +9,7 @@
          fhir/mcp/workspace fhir/mcp/verbs
          (only-in fhir/mcp/resources read-resource learn-topics learn-text)
          (only-in fhir/mcp/tools tool-name tool-run)
-         (only-in fhir/lang/workspace workspace-support))
+         (only-in fhir/lang/workspace workspace-support workspace-languages workspace-guide))
 
 (define dir (make-temporary-directory "mcp-ws-~a"))
 (define (put! rel text) (make-parent-directory* (build-path dir rel)) (call-with-output-file (build-path dir rel) (lambda (o) (void (write-string text o))) #:exists 'truncate/replace))
@@ -140,6 +140,12 @@
   (check-true (string? text) (car t))
   (check-regexp-match #rx"https?://" text (car t))
   (check-true (and (read-resource (string-append "learn://" (car t))) #t)))
+;; every workspace language ships its own guide (its repository's guide.md, tested there), and
+;; learn://<id> is that text, not a copy kept here
+(for ([id (in-list workspace-languages)])
+  (define g (workspace-guide id))
+  (check-true (string? g) (format "~a/workspace provides no guide" id))
+  (check-equal? (learn-text id) g id))
 (check-regexp-match #rx"https://cql.hl7.org/" (learn-text "cql"))
 (check-regexp-match #rx"https://hl7.org/fhir/uv/shorthand/" (learn-text "fsh"))
 (check-regexp-match #rx"http://hl7.org/fhirpath/N1" (learn-text "fhirpath"))
