@@ -977,6 +977,30 @@ The fourth rerun: every task first time, 10–21 calls, no source read. What rem
   prints one line per request. Docs: `$validate`'s levels, stopping a server, `--workspace` defaults to
   the current directory, `Coalesce` for "never tested", deliberately invalid FSH examples kept apart.
 
+## New users, round 6 (2026-11-09)
+The fifth rerun (every task first time, 10–22 calls) found a loophole in our own guide and a few gaps:
+- **The guide's blood-pressure rule** checked that SOME systolic was in mm[Hg] (`X.where(…).exists()`),
+  so a second one in kPa passed: it is `X.exists() and X.all(…)` now, the guide says why, and
+  `bp-rule-test` stages the mixed reading.
+- **Capability operation inputs bound to a value set**: `[sex code 1 1 #:binding "<ValueSet url>"]`
+  (declare.rkt → `rc-param`'s `binding` → the OperationDefinition's `parameter.binding`, required);
+  `validate-inputs` refuses a code outside the expansion (`value-set-codes`, `$expand` through fhir-tx,
+  once per url; a value set that does not expand checks nothing). `rc-param` keeps its 5-argument
+  constructor (the struct is `rc-param-struct`).
+- **`raco fsh check <dir> --context <dir>`** (`check-fsh-project`/`compile-project #:context`): another
+  folder's definitions in context, its instances and problems left out — examples meant to fail live
+  apart without copying the profile (which made `check .` report duplicate ids).
+- **Suggestions**: a qualified CQL name (`Diabetes."Latest Valu"` → `` `Diabetes."Latest Value"` ``)
+  and an unknown included function (`unknown function FHIRHelpers.ToStrng (did you mean ToString?)`);
+  an FSH unit written bare (`7.1 %` → "a quantity's UCUM unit is quoted"; `hinted` in fsh's parse.rkt);
+  a dangling reference's nearest stored id.
+- **The trail as a table**: SQL's `trail` view, one row per version a commit wrote (type, id, versionId,
+  recorded, agent, reason, source, provenance). `stage drop=all`. `Prefer: handling=strict` makes a
+  capability server refuse an unsupported search parameter (400; `current-search-strict?`).
+- Docs: the CQL recipe's "No HbA1c", text answers print as text, the shell's `write … text=@file`.
+Not done, named: a refusal quoting the value it found; operation canonicals under the server's
+`#:url` (the `urn:fhir-capability:operation:<code>` join key is used in several places).
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

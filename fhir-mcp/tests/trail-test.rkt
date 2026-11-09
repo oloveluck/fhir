@@ -75,6 +75,10 @@
     ;; audit: all — the SQL query above left an execution AuditEvent beside the two commits'
     (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT resource ->> '$.action' AS action, count(*) AS n FROM AuditEvent GROUP BY 1 ORDER BY 1")) 'rows)
                   (list (hasheq 'action "C" 'n 1) (hasheq 'action "E" 'n 2) (hasheq 'action "U" 'n 1)))
+    ;; the same, from the `trail` view: one row per version a commit wrote, no json_each to write
+    (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT versionId, reason, agent FROM trail WHERE type = 'Observation' AND id = 'a1' ORDER BY versionId")) 'rows)
+                  (list (hasheq 'versionId 1 'reason "intake: ann's first HbA1c" 'agent "claude-code 2.0 via fhir-mcp")
+                        (hasheq 'versionId 2 'reason "lab corrected the value" 'agent "claude-code 2.0 via fhir-mcp")))
     ;; a result says where it came from
     (check-equal? (hash-ref (hash-ref (call "describe" (hasheq 'ref (hash-ref q 'result))) 'source) 'language) "sql")
     ;; the stored data, held to the rules: all of it holds (the trail's own resources included)

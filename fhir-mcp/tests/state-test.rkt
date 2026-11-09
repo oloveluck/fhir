@@ -64,8 +64,14 @@
     (define st (call d "stage" (hasheq 'fsh "Instance: o1\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#4548-4\n* subject = Reference(Patient/nobody)\n")))
     (check-equal? (hash-ref st 'errors) 0)
     (check-equal? (hash-ref (car (hash-ref st 'changes)) 'warnings) '("subject: Patient/nobody is neither in the data nor in this stage"))
+    ;; a misspelt id: the stored one it most likely meant
+    (define st2 (call d "stage" (hasheq 'fsh "Instance: o2\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#4548-4\n* subject = Reference(Patient/anm)\n")))
+    (check-regexp-match #rx"Patient/anm is neither in the data nor in this stage [(]did you mean `Patient/ann`[?][)]"
+                        (car (hash-ref (car (hash-ref st2 'changes)) 'warnings)))
+    (call d "stage" (hasheq 'fsh "Instance: o3\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#4548-4\n"))
     ;; the commit says who the trail names
-    (check-true (string? (hash-ref (call d "commit" (hasheq 'stage (hash-ref st 'stage))) 'agent)))))
+    (check-true (string? (hash-ref (call d "commit" (hasheq 'stage (hash-ref st 'stage))) 'agent)))
+    (check-equal? (hash-ref (call d "stage" (hasheq 'drop "all")) 'stages) '())))   ; every pending stage at once
 ;; the shell: a call whose answer counts errors exits 1
 (define (shell . words)
   (define out (open-output-string))

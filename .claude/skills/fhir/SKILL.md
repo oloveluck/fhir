@@ -33,12 +33,15 @@ is described or joined in SQL later. Arguments are a JSON object and/or `key=val
 ```sh
 raco fhir-mcp call stage fsh=@patients.fsh --workspace ws
 raco fhir-mcp call commit stage=stage-1 reason="intake" --workspace ws
+raco fhir-mcp call write path=Diabetes.cql text=@Diabetes.cql --workspace ws
 raco fhir-mcp call query language=sql text=@summary.sql --workspace ws
 raco fhir-mcp call describe ref=result://r1 as=csv --workspace ws
 ```
 `--workspace` defaults to the current directory. A call prints the tool's answer (JSON, or text) and exits 0; 1 when the tool failed or its answer
 counts errors (`"errors": 2`: a stage that cannot be committed, a check with errors); 2 for a usage
-error. `describe ref=stages` lists the stages not committed; `stage drop=stage-3` discards one.
+error. `describe ref=stages` lists the stages not committed; `stage drop=stage-3` discards one
+(`drop=all`, every one). A tool answering text (`describe … as=fsh`, `as=csv`, `as=source`) prints
+the text itself, not a JSON string.
 
 Keep data files like `patients.fsh` outside the workspace directory: the workspace's own `.fsh`
 files are its project (profiles, value sets, a few examples), compiled and checked together, so a
@@ -236,7 +239,8 @@ Every commit writes a Provenance (versions, agent, `reason`, source text and has
 into the store; `audit: all` in workspace.yaml records every run, query and apply as an AuditEvent
 too. All of it is data: `describe("Type/id/_history")` (each version's changes as `path: old → new`),
 `describe("Provenance/<id>", as: "source")` (the source text, decoded), `query("search", "Provenance?target=Patient/ann")`,
-and SQL over `history` (every version), `Provenance` and `AuditEvent`. A result's `describe` names
+and SQL over `trail` (each written version with its agent, reason and source), `history` (every
+version), `Provenance` and `AuditEvent`. A result's `describe` names
 its source (file, SHA-1, the data as of when).
 
 ## Build a FHIR server

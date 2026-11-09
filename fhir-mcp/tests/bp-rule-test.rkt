@@ -36,6 +36,9 @@
     (check-regexp-match #rx"bp-systolic: A blood pressure" (string-join (errors-of (bp "kpa" #:sys "20 'kPa'")) "\n"))
     (check-regexp-match #rx"bp-diastolic" (string-join (errors-of (bp "nodia" #:dia #f)) "\n"))
     (check-regexp-match #rx"bp-subject" (string-join (errors-of (bp "nosubj" #:subject #f)) "\n"))
+    ;; EVERY systolic in mm[Hg]: a second one in kPa beside a good one is refused (a rerun found the gap)
+    (check-regexp-match #rx"bp-systolic"
+                        (string-join (errors-of (string-append (bp "mixed") "* component[2].code = http://loinc.org#8480-6\n* component[2].valueQuantity = 20 'kPa'\n")) "\n"))
     ;; another Observation is not a blood pressure: the rule does not apply
     (check-equal? (errors-of "Instance: a1c\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#4548-4\n* valueQuantity = 6.1 '%'\n") '())
     ;; correcting a stored reading: its FSH, one line changed, staged again

@@ -74,7 +74,22 @@
   (append (filter values
                   (list (view! "resources" "CREATE TEMP VIEW resources AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_resources")
                         ;; every version of every resource, the current one included: what changed, when
-                        (view! "history" "CREATE TEMP VIEW history AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_history")))
+                        (view! "history" "CREATE TEMP VIEW history AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_history")
+                        ;; the trail, one row per version a commit wrote: who, when, why, from what —
+                        ;; every Provenance's targets unfolded (`Type/id/_history/v`), no json_each to write
+                        (view! "trail" (string-append
+                                        "CREATE TEMP VIEW trail AS SELECT "
+                                        "substr(t.value ->> '$.reference', 1, instr(t.value ->> '$.reference', '/') - 1) AS type, "
+                                        "substr(t.value ->> '$.reference', instr(t.value ->> '$.reference', '/') + 1, "
+                                        "  instr(t.value ->> '$.reference', '/_history/') - instr(t.value ->> '$.reference', '/') - 1) AS id, "
+                                        "CAST(substr(t.value ->> '$.reference', instr(t.value ->> '$.reference', '/_history/') + 10) AS INTEGER) AS versionId, "
+                                        "p.resource ->> '$.recorded' AS recorded, "
+                                        "p.resource ->> '$.agent[0].who.display' AS agent, "
+                                        "p.resource ->> '$.reason[0].text' AS reason, "
+                                        "p.resource ->> '$.entity[0].what.display' AS source, "
+                                        "p.id AS provenance "
+                                        "FROM main.fhir_resources p, json_each(p.resource, '$.target') t "
+                                        "WHERE p.resource_type = 'Provenance' AND instr(t.value ->> '$.reference', '/_history/') > 0"))))
           types))
 (define (q s) (string-append "\"" (string-replace s "\"" "\"\"") "\""))
 

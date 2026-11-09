@@ -12,7 +12,7 @@
          racket/port
          racket/contract
          (only-in json jsexpr->string bytes->jsexpr)
-         (only-in fhir/capability/runtime app?)
+         (only-in fhir/capability/runtime app? current-search-strict?)
          (only-in "router.rkt" handle/raw parse-query))
 
 (provide
@@ -60,7 +60,10 @@
            [(and bearer (not (authorized? headers bearer)) (not (metadata-request? method path)))
             (write-response out 401 (oo-json "login" "a valid bearer token is required"))]
            [else
-            (define-values (status bytes ctype) (handle/raw app method path (parse-query query) body))
+            (define prefer (let ([v (assoc "prefer" headers)]) (and v (cdr v))))
+            (define-values (status bytes ctype)
+              (parameterize ([current-search-strict? (and prefer (regexp-match? #rx"handling *= *strict" prefer))])
+                (handle/raw app method path (parse-query query) body)))
             ;; --log: one line per request, as a server log reads (method, target, status)
             (when log? (eprintf "~a ~a ~a\n" method target status) (flush-output (current-error-port)))
             (write-raw-response out status bytes ctype

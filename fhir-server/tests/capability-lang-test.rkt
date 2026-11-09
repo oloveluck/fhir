@@ -150,6 +150,13 @@
   (check-equal? (length (errors-of v2)) 2)
   ;; $validate answers what it found with 200 either way (its result IS an OperationOutcome)
   (check-equal? (list s3 s4) '(200 200))
+  ;; an undeclared search parameter: ignored and reported by default; Prefer: handling=strict refuses it
+  (define-values (s10 _b10) (handle app "GET" "/Patient" '((name . "x")) ""))
+  (check-equal? s10 200)
+  (define-values (s11 o11) (parameterize ([(dynamic-require 'fhir/capability/runtime 'current-search-strict?) #t])
+                             (handle app "GET" "/Patient" '((name . "x")) "")))
+  (check-equal? s11 400)
+  (check-regexp-match #rx"search parameter `name` not supported here" (hash-ref (car (hash-ref o11 'issue)) 'diagnostics))
   (delete-directory/files dir))
 
 ;; ---- an operation's inputs are typed by its declaration, the same over GET and POST
@@ -163,7 +170,9 @@
                      "(define (h in req)\n"
                      "  (define (input k) (car (hash-ref in k)))\n"
                      "  (Parameters (parameter (ParametersParameter (name \"out\") (valueString (format \"~a ~a ~a ~a\" (* 2 (input \"w\")) (+ 1 (input \"n\")) (input \"flag\") (input \"when\")))))))\n"
-                     "(operation $t #:system #:in ([w decimal 1 1] [n integer 1 1] [flag boolean 1 1] [when date 1 1]) #:out ([out string 1 1]) #:handler h)\n")
+                     "(operation $t #:system #:in ([w decimal 1 1] [n integer 1 1] [flag boolean 1 1] [when date 1 1]) #:out ([out string 1 1]) #:handler h)\n"
+                     "(define (g in req) (Parameters (parameter (ParametersParameter (name \"out\") (valueString (car (hash-ref in \"sex\")))))))\n"
+                     "(operation $g #:system #:in ([sex code 1 1 #:binding \"http://hl7.org/fhir/ValueSet/administrative-gender\"]) #:out ([out string 1 1]) #:handler g)\n")
                     o)))
   (define app (dynamic-require src 'app))
   (define handle (dynamic-require 'fhir/http/router 'handle))
@@ -182,6 +191,13 @@
   (define-values (s5 o5) (handle app "GET" "/$t" '((w . "80.5") (n . "41") (flag . "true") (when . "2024-03-01") (wehn . "x")) ""))
   (check-equal? s5 400)
   (check-regexp-match #rx"'wehn' is not an input of [$]t [(]did you mean `when`[?][)]" (hash-ref (car (hash-ref o5 'issue)) 'diagnostics))
+  ;; a code input bound to a value set: a code outside it is refused before the handler runs
+  (define-values (s8 o8) (handle app "GET" "/$g" '((sex . "female")) ""))
+  (check-equal? s8 200)
+  (define-values (s9 o9) (handle app "GET" "/$g" '((sex . "femme")) ""))
+  (check-equal? s9 400)
+  (check-regexp-match #rx"parameter 'sex' must be a code from http://hl7.org/fhir/ValueSet/administrative-gender [(]male, female, other, unknown[)], got \"femme\""
+                      (hash-ref (car (hash-ref o9 'issue)) 'diagnostics))
   ;; the derived OperationDefinition is readable: a client sees what $t takes
   (define-values (s6 od) (handle app "GET" "/OperationDefinition/t" '() ""))
   (check-equal? s6 200)

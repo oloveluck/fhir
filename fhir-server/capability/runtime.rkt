@@ -40,6 +40,7 @@
  ;; while dispatching): validation and operations read it, since the typed node is parsed leniently
  ;; and has dropped whatever it did not know (a misspelt element, a value it could not parse)
  current-request-json
+ current-search-strict?
  (contract-out
   [make-repository (->* () (#:read (or/c procedure? #f) #:vread (or/c procedure? #f)
                             #:create (or/c procedure? #f) #:update (or/c procedure? #f)
@@ -98,6 +99,9 @@
 ;; expression, or an unknown query param, is ignored — FHIR lenient handling).
 (define current-repository-factory (make-parameter #f))
 (define current-request-json (make-parameter #f))
+;; current-search-strict? : (parameter boolean)   the request said `Prefer: handling=strict` (FHIR
+;; search): an unsupported parameter answers 400 instead of being ignored and reported
+(define current-search-strict? (make-parameter #f))
 (define (make-default-repository type interactions sps)
   (define f (current-repository-factory))
   (if f (f type interactions sps) (make-memory-repository type interactions sps)))
@@ -217,7 +221,14 @@
     [(update) (fn (request-id req) (request-body req))]
     [(delete) (begin (fn (request-id req))
                      (operation-outcome "information" "informational" "deleted"))]
-    [(search) (make-searchset (fn (request-params req)))]
+    [(search)
+     (define r (fn (request-params req)))
+     ;; Prefer: handling=strict — a parameter the server cannot apply is an error, not a note
+     (if (and (current-search-strict?) (search-result/ignored? r))
+         (operation-outcome-invalid (format "search parameter~a ~a not supported here (Prefer: handling=strict); this server searches with what /metadata advertises"
+                                            (if (> (length (search-result/ignored-names r)) 1) "s" "")
+                                            (apply string-append (add-between (map (lambda (n) (format "`~a`" n)) (search-result/ignored-names r)) ", "))))
+         (make-searchset r))]
     [(patch)
      ;; JSON Patch (RFC 6902): read, apply atomically, then the repository's own UPDATE — so a patched
      ;; resource is validated exactly like a PUT; a malformed or failing patch is 422
@@ -382,7 +393,7 @@
   (define problems
     (append unknown
             (for*/list ([p (in-list ins)]
-                        [problem (in-value (validate-one p in))]
+                        [problem (in-value (or (validate-one p in) (validate-binding p in)))]
                         #:when problem)
               problem)))
   (and (pair? problems) (operation-outcome-invalid (string-join* problems))))
@@ -397,6 +408,33 @@
     (and (equal? (leaf->string (single (navigate (list p) 'use))) "out")
          (equal? (leaf->string (single (navigate (list p) 'name))) "return")
          (let ([t (single (navigate (list p) 'type))]) (and t (equal? (leaf->string t) "OperationOutcome"))))))
+
+;; validate-binding : parameter inputs -> problem | #f   a value of an input bound (required) to a value
+;; set must be one of its codes: `[sex code 1 1 #:binding ".../administrative-gender"]` refuses
+;; `unknown-sex` before the handler runs. A value set that does not expand here decides nothing.
+(define (validate-binding p in)
+  (define name (leaf->string (single (navigate (list p) 'name))))
+  (define b (single (navigate (list p) 'binding)))
+  (define strength (and b (leaf->string (single (navigate (list b) 'strength)))))
+  (define vs (and b (let ([v (single (navigate (list b) 'valueSet))]) (and v (leaf->string v)))))
+  (define codes (and vs (equal? strength "required") (value-set-codes vs)))
+  (and codes
+       (for/or ([v (in-list (hash-ref in name '()))])
+         (define code (let ([t (raw-text v)]) (and (string? t) t)))
+         (and code (not (member code codes))
+              (format "parameter '~a' must be a code from ~a (~a), got \"~a\"" name vs
+                      (apply string-append (add-between (take codes (min 12 (length codes))) ", ")) code)))))
+
+;; value-set-codes : url -> (listof code) | #f   its expansion's codes ($expand, fhir-tx), once per url
+(define expansions (make-hash))
+(define (value-set-codes url)
+  (hash-ref! expansions url
+             (lambda ()
+               (with-handlers ([exn:fail? (lambda (_) #f)])
+                 (dynamic-require 'fhir/terminology/operations #f)
+                 (define ex ((dynamic-require 'fhir/operation 'apply-operation) "ValueSet/$expand" #:url url))
+                 (define contains (hash-ref (hash-ref ex 'expansion (hasheq)) 'contains '()))
+                 (and (pair? contains) (for/list ([c (in-list contains)]) (hash-ref c 'code)))))))
 
 ;; returns a problem string, or #f if the parameter is satisfied
 (define (validate-one p in)

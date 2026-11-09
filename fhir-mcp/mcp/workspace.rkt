@@ -15,7 +15,7 @@
 ;;; dotted paths that differ from the data's copy, errors the validation errors.
 ;;; Every hub-* procedure answers a jsexpr, or raises: exn:fail:diagnostic (positioned), exn:fail.
 
-(require racket/contract racket/list racket/string racket/file racket/path racket/match racket/set json (only-in net/base64 base64-decode)
+(require racket/contract racket/list racket/string racket/file racket/path racket/match racket/set json (only-in fhir/suggest closest-names) (only-in net/base64 base64-decode)
          (only-in fhir/serialize/json-position json-path-location)
          net/uri-codec
          fhir/lang/workspace
@@ -398,7 +398,7 @@
 ;; elide : jsexpr -> jsexpr   a value too long to preview names its size
 (define (elide v)
   (define s (jsexpr->string v))
-  (if (> (string-length s) max-preview) (format "… ~a characters (read it with describe and offset)" (string-length s)) v))
+  (if (> (string-length s) max-preview) (format "… ~a characters (describe the result to read it whole)" (string-length s)) v))
 (define (preview row) (if (hash? row) (for/hasheq ([(k v) (in-hash row)]) (values k (elide v))) (elide row)))
 
 (define (store! h st)
@@ -948,7 +948,11 @@
       (format "~a: ~a" (let ([e (hash-ref i 'expression (hash-ref i 'location '()))]) (if (pair? e) (car e) "")) (hash-ref i 'diagnostics (hash-ref i 'code ""))))))
 
 (define (hub-stage! h args)
-  (if (string? (hash-ref args 'drop #f)) (drop-stage! h (hash-ref args 'drop)) (stage! h args)))
+  (match (hash-ref args 'drop #f)
+    ["all" (for ([id (in-list (pending-stage-ids h))]) (drop-stage! h id))      ; every stage not committed
+           (hasheq 'dropped "all" 'stages (pending-stage-ids h))]
+    [(? string? id) (drop-stage! h id)]
+    [_ (stage! h args)]))
 
 ;; drop-stage! : hub id -> jsexpr   a stage discarded (one not committed)
 (define (drop-stage! h id)
@@ -1037,9 +1041,19 @@
                               (refs x (if (string=? path "") (symbol->string k) (format "~a.~a" path k))))))]
           [(list? v) (append* (for/list ([x (in-list v)] [i (in-naturals)]) (refs x (format "~a[~a]" path i))))]
           [else '()]))
+  ;; the ids a misspelt one may have meant: the type's stored and staged ids
+  (define (ids-of type)
+    (append (for/list ([k (in-set staged-keys)] #:when (string-prefix? k (string-append type "/"))) (substring k (add1 (string-length type))))
+            (with-handlers ([exn:fail? (lambda (_) '())])
+              (let ([all ((data-source-all (current-data-source)) type)])
+                (for/list ([x (in-list all)] [_ (in-range 5000)] #:when (string? (hash-ref x 'id #f))) (hash-ref x 'id))))))
+  (define (suggestion ref)
+    (define m (regexp-match #px"^([A-Z][A-Za-z]+)/(.+)$" ref))
+    (define near (if m (closest-names (caddr m) (ids-of (cadr m))) '()))
+    (if (null? near) "" (format " (did you mean ~a?)" (string-join (map (lambda (n) (format "`~a/~a`" (cadr m) n)) near) " or "))))
   (for/hash ([r (in-list rs)])
     (values r (for/list ([pr (in-list (refs r ""))])
-                (format "~a: ~a is neither in the data nor in this stage" (car pr) (cdr pr))))))
+                (format "~a: ~a is neither in the data nor in this stage~a" (car pr) (cdr pr) (suggestion (cdr pr)))))))
 
 (define (hub-commit! h id [reason #f])
   (define st (or (stage-of h id)

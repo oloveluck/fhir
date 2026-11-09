@@ -156,8 +156,10 @@
     [else
      (for/list ([p (in-list (syntax->list spec))])
        (syntax-parse p
-         [(pname:id ptype:id pmin:nat pmax)
+         [(pname:id ptype:id pmin:nat pmax (~optional (~seq #:binding vs:str)))
           (define tsym (syntax-e #'ptype))
+          (when (and (attribute vs) (not (memq tsym '(code Coding CodeableConcept string uri))))
+            (raise-syntax-error 'operation "#:binding binds a code (or Coding, CodeableConcept) parameter to a value set" p))
           (unless (or (type-registered? tsym) (primitive-name? tsym))
             (raise-syntax-error 'operation (format "unknown parameter type ~a" tsym) #'ptype))
           (define minv (syntax-e #'pmin))
@@ -170,8 +172,9 @@
                       #,(symbol->string tsym)
                       #,minv
                       #,(if (eq? maxv '*) #'(quote *) maxv)
-                      #,use)]
-         [_ (raise-syntax-error 'operation "parameter must be [name type min max]" p)]))]))
+                      #,use
+                      #,(if (attribute vs) #'vs #f))]
+         [_ (raise-syntax-error 'operation "parameter must be [name type min max] or [name code min max #:binding \"<ValueSet url>\"]" p)]))]))
 
 (module+ test
   (require rackunit (only-in fhir/r6/types))     ; populate the registry at phase 0 for the test
@@ -197,8 +200,8 @@
   (define entries (parsed-operation-entries po))
   (check-equal? (syntax->datum ostx)
                 '(rc-operation "expand" "$expand" (list #f #t #f) (list "ValueSet")
-                               (list (rc-param "url" "uri" 1 1 "in"))
-                               (list (rc-param "return" "ValueSet" 1 1 "out")) #f))
+                               (list (rc-param "url" "uri" 1 1 "in" #f))
+                               (list (rc-param "return" "ValueSet" 1 1 "out" #f)) #f))
   (check-equal? (syntax->datum entries)
                 '(list (operation-entry 'type "expand" "ValueSet" h)))
   ;; an existing operation, by reference or as a value in scope, brings its own definition

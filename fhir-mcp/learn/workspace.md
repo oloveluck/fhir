@@ -149,16 +149,17 @@ Expression: "code.coding.where(system = 'http://loinc.org' and code = '85354-9')
 Invariant: bp-systolic
 Description: "A blood pressure (LOINC 85354-9) has a systolic component (LOINC 8480-6) in mm[Hg]"
 Severity: #error
-Expression: "code.coding.where(system = 'http://loinc.org' and code = '85354-9').exists() implies component.where(code.coding.where(system = 'http://loinc.org' and code = '8480-6').exists()).value.ofType(Quantity).where(system = 'http://unitsofmeasure.org' and code = 'mm[Hg]').exists()"
+Expression: "code.coding.where(system = 'http://loinc.org' and code = '85354-9').exists() implies (component.where(code.coding.where(system = 'http://loinc.org' and code = '8480-6').exists()).exists() and component.where(code.coding.where(system = 'http://loinc.org' and code = '8480-6').exists()).all(value.ofType(Quantity).where(system = 'http://unitsofmeasure.org' and code = 'mm[Hg]').exists()))"
 
 Invariant: bp-diastolic
 Description: "A blood pressure (LOINC 85354-9) has a diastolic component (LOINC 8462-4) in mm[Hg]"
 Severity: #error
-Expression: "code.coding.where(system = 'http://loinc.org' and code = '85354-9').exists() implies component.where(code.coding.where(system = 'http://loinc.org' and code = '8462-4').exists()).value.ofType(Quantity).where(system = 'http://unitsofmeasure.org' and code = 'mm[Hg]').exists()"
+Expression: "code.coding.where(system = 'http://loinc.org' and code = '85354-9').exists() implies (component.where(code.coding.where(system = 'http://loinc.org' and code = '8462-4').exists()).exists() and component.where(code.coding.where(system = 'http://loinc.org' and code = '8462-4').exists()).all(value.ofType(Quantity).where(system = 'http://unitsofmeasure.org' and code = 'mm[Hg]').exists()))"
 ```
 
 Named for `Observation` in `profiles`, it holds every blood pressure to the rule and lets every other
-Observation through. A refusal quotes the rule's `Description` (`bp-systolic: A blood pressure …`),
+Observation through. `X.exists() and X.all(…)` says "there is one, and EVERY one is in mm[Hg]": with
+`X.where(…).exists()` alone, a second systolic in kPa beside one in mm[Hg] would pass. A refusal quotes the rule's `Description` (`bp-systolic: A blood pressure …`),
 not the value it found: write the description as the fix the author needs.
 
 ### Rules cookbook
@@ -220,8 +221,10 @@ too (its outcome, its text). The trail is data like any other:
 - `describe("Provenance/<id>", as: "source")`: the text the data was made from (the FSH, the file),
   decoded;
 - `query("search", "Provenance?target=Observation/a1")`;
-- SQL: `history` (every version of every resource), `Provenance`, `AuditEvent`, e.g. each version
-  with the reason it was written:
+- SQL: `trail` — one row per version a commit wrote (`type, id, versionId, recorded, agent, reason,
+  source, provenance`), so "where did every lab value come from" is
+  `SELECT * FROM trail WHERE type = 'Observation'`; and `history` (every version of every resource),
+  `Provenance`, `AuditEvent` for anything else, e.g. each version with its value and reason:
 
 ```
 SELECT h.versionId, p.resource ->> '$.reason[0].text' AS reason
