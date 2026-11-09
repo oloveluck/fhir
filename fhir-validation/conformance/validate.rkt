@@ -329,15 +329,40 @@
                 (list (issue "error" "required" (child-loc path leaf)
                              (format "slice '~a' requires ~a, found ~a" (hash-ref sl 'sliceName) minv n))) '())]))
        pinned)
-      ;; an entry that matches exactly ONE slice (every slice's pins decidable) is held to that
-      ;; slice's own children too; ambiguous or undecidable matching -> skip (fail-open)
-      (if (andmap cdr pinned)
+      ;; an entry that matches exactly ONE slice is held to that slice's own children too. Every
+      ;; slice must be decidable, except one that constrains nothing at its discriminator paths (no
+      ;; value, required binding or profile there), which claims no entry; an ambiguous match, or a
+      ;; slice whose constraint we cannot read, -> skip (fail-open)
+      (if (for/and ([sp (in-list pinned)]) (or (cdr sp) (slice-unconstrained? idx (car sp) discs)))
           (append-map
            (lambda (inst)
-             (define hits (for/list ([sp (in-list pinned)] #:when (and (hash? inst) (slice-match? (cdr sp) inst))) (car sp)))
+             (define hits (for/list ([sp (in-list pinned)] #:when (cdr sp) #:when (and (hash? inst) (slice-match? (cdr sp) inst))) (car sp)))
              (if (= (length hits) 1) (slice-member-issues idx (car hits) (child-loc path leaf) inst tx) '()))
            instances)
           '()))]))
+
+;; slice-unconstrained? : idx slice (listof disc-path) -> boolean
+;; does the slice leave every discriminator path open — no fixed/pattern value, no required or
+;; extensible binding and no type profile on the slice ($this) or on any element at or below
+;; <slice-id>.<disc-path>? Such a slice cannot be told by its discriminator, so it claims no entry.
+(define (slice-unconstrained? idx sl discs)
+  (define id (hash-ref sl 'id #f))
+  (define (constrains? ce)
+    (or (choice-value ce "fixed") (choice-value ce "pattern")
+        (let ([b (hash-ref ce 'binding #f)])
+          (and (hash? b) (member (hash-ref b 'strength #f) '("required" "extensible")) #t))
+        (for/or ([t (in-list (hash-ref ce 'type '()))])
+          (and (hash? t) (pair? (hash-ref t 'profile '()))))))
+  (and (string? id)
+       (for/and ([dp (in-list discs)])
+         (if (equal? dp "$this")
+             (not (constrains? sl))
+             (let ([at (string-append id "." dp)])
+               (for/and ([ce (in-list (index-elements idx))])
+                 (define cid (hash-ref ce 'id #f))
+                 (not (and (string? cid)
+                           (or (equal? cid at) (string-prefix? cid (string-append at ".")) (string-prefix? cid (string-append at ":")))
+                           (constrains? ce)))))))))
 
 ;; slice-member-issues : idx slice loc entry tx -> issues
 ;; the slice's direct children (ids `<slice-id>.<leaf>`) against the entry: cardinality, fixed /
@@ -642,4 +667,21 @@
   (define idx3 (make-element-index snap3))
   (check-equal? (slice-issues idx3 "DemoR" (car (child-elements idx3 "DemoR"))
                               (hasheq 'item (list (hasheq 'kind "B"))))
-                '()))
+                '())
+  ;; a slice that constrains nothing at the discriminator claims no entry: an entry of "alpha" is
+  ;; still held to alpha's children (value[x] only Quantity); one whose constraint we cannot read
+  ;; (a required binding at kind) leaves the match undecided -> nothing
+  (define (snap4 beta-kind)
+    (append (list (car snap) (cadr snap) (caddr snap) (cadddr snap)
+                  (hasheq 'id "DemoR.item:alpha.value[x]" 'path "DemoR.item.value[x]" 'min 0 'max "1"
+                          'type (list (hasheq 'code "Quantity")))
+                  (hasheq 'id "DemoR.item:beta" 'path "DemoR.item" 'sliceName "beta" 'min 0 'max "*"))
+            beta-kind))
+  (define stray-entry (hasheq 'item (list (hasheq 'kind "A" 'valueString "x"))))
+  (define idx4 (make-element-index (snap4 '())))
+  (check-equal? (map issue-msg (slice-issues idx4 "DemoR" (car (child-elements idx4 "DemoR")) stray-entry))
+                '("valueString is not allowed in slice 'alpha' (value[x]: Quantity)"))
+  (define idx5 (make-element-index
+                (snap4 (list (hasheq 'id "DemoR.item:beta.kind" 'path "DemoR.item.kind"
+                                     'binding (hasheq 'strength "required" 'valueSet "http://example.org/vs"))))))
+  (check-equal? (slice-issues idx5 "DemoR" (car (child-elements idx5 "DemoR")) stray-entry) '()))

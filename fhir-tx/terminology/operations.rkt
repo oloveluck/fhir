@@ -19,7 +19,8 @@
          (only-in fhir/serialize/jsexpr-util drop-false)
          (only-in "service.rkt" packages->resolver resources->resolver packages->code-systems
                   expand/json validate-code/json cs-validate-code/json lookup/json translate/json
-                  subsumes/json find-matches/json closure-relation terminology-capabilities policy-of))
+                  subsumes/json find-matches/json closure-relation terminology-capabilities policy-of
+                  implicit-vcl-valueset))
 
 (provide
  (contract-out
@@ -56,7 +57,10 @@
   ;; what required modules defined (fhir/registry): a #lang vcl value set, an FSH code system
   (define registered (resources->resolver (append-map registered-resources terminology-types)))
   (define packages (packages-resolver))
-  (lambda (url [version #f]) (or (given url version) (local url version) (registered url version) (packages url version))))
+  ;; last, an implicit VCL url (http://fhir.org/VCL?v1=…) is the ValueSet its expression defines
+  (lambda (url [version #f])
+    (or (given url version) (local url version) (registered url version) (packages url version)
+        (implicit-vcl-valueset url))))
 
 ;; current-terminology-capabilities : [#:url] -> TerminologyCapabilities jsexpr   over the packages
 (define (current-terminology-capabilities #:url [url #f])
@@ -235,6 +239,11 @@
       (check-true (result ($validate-code #:url gender #:code "male" #:system "http://hl7.org/fhir/administrative-gender")))
       (check-false (result ($validate-code #:url gender #:code "florp" #:system "http://hl7.org/fhir/administrative-gender")))
       (check-exn #rx"not in the data source or the packages" (lambda () ($expand #:url "http://example.org/nope")))
+      ;; an implicit VCL url needs no registered ValueSet: it is the value set its expression defines
+      (define vcl-url "http://fhir.org/VCL?v1=(http://hl7.org/fhir/administrative-gender)(male;female)")
+      (check-equal? (hash-ref (hash-ref ($expand #:url vcl-url) 'expansion) 'total) 2)
+      (check-true (result ($validate-code #:url vcl-url #:code "male" #:system "http://hl7.org/fhir/administrative-gender")))
+      (check-false (result ($validate-code #:url vcl-url #:code "other" #:system "http://hl7.org/fhir/administrative-gender")))
       (check-true (result ($cs-validate-code #:url "http://hl7.org/fhir/administrative-gender" #:code "male")))
       (check-false (result ($cs-validate-code #:url "http://hl7.org/fhir/administrative-gender" #:code "florp")))
       (check-equal? (hash-ref (car (hash-ref ($subsumes #:system "http://hl7.org/fhir/administrative-gender" #:codeA "male" #:codeB "male") 'parameter)) 'valueCode) "equivalent")

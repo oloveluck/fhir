@@ -56,7 +56,9 @@
   ;; the subsumption relation two codes of a system stand in (for $closure)
   [closure-relation (->* (resolver/c string? string? string?) ((or/c string? #f)) (or/c string? #f))]
   ;; the CodeSystems a package list holds, and what a server publishes about all this
-  [terminology-capabilities (->* ((listof hash?)) (#:url (or/c string? #f)) hash?)])
+  [terminology-capabilities (->* ((listof hash?)) (#:url (or/c string? #f)) hash?)]
+  ;; the ValueSet an implicit VCL url (http://fhir.org/VCL?v1=<expression>) stands for, else #f
+  [implicit-vcl-valueset (-> string? (or/c hash? #f))])
  (struct-out version-policy)
  ;; the index layer (index.rkt): resolvers over packages or resources, and what they hold
  packages->resolver resources->resolver packages->code-systems

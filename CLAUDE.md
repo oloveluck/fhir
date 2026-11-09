@@ -178,9 +178,13 @@ fhir-validation. mCODE checks clean (179 examples, 0 diagnostics, 0 unmet for it
 fsh's `tests/check-r4-test.rkt` pins three planted mistakes to their lines.
 It exposed a validator recall gap: an entry matching exactly ONE slice (pins decidable) is held to
 the slice's own children — cardinality, fixed/pattern, required bindings — recursion stays with the
-unsliced walk. OPEN (found writing fsh's guide, 2026-11-09): a choice variant the slice does not
-allow (`valueString` in a slice whose `value[x] only Quantity`) is NOT reported, by `raco fsh check`
-or `raco fhir-validate`; the note used to claim it was. Gates unchanged: fp=0, 0 over-reported, IG validation 260 clean, published mCODE 283/283.
+unsliced walk. A choice variant the slice does not allow (`valueString` in a slice whose
+`value[x] only Quantity`) is an error. Found writing fsh's guide (2026-11-09): it went unreported
+whenever ANOTHER slice of the element pinned nothing at the discriminator, because one undecidable
+slice switched off every slice's member checks. Now only a slice whose constraint there we cannot
+read does (`slice-unconstrained?`: a slice with no fixed/pattern value, required or extensible
+binding or type profile at or below its discriminator paths claims no entry). Gates unchanged: fp=0,
+0 over-reported, IG validation 260 clean, published mCODE 283/283.
 `raco spec-bench` (the fhir-examples repo) turns a published IG into prose -> FSH tasks (one leaf profile and its examples
 removed; the prompt gives the IG's words about it and names every element it constrains, never the
 constraint values) and scores a candidate four ways: `check` errors; facet fidelity against the
@@ -550,7 +554,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | **FSH real IG** | **IPS 2.0.1's own FSH vs its published package** | `fsh/tests/ig-ips-test.rkt` (fsh repo) | **0 compile errors; 94/114 exact, 108/114 complete; 438/438 differential elements** |
 | **FSH -> package -> server** | **mCODE 4.0.0's FSH compiled and packed here, served by a generated server: its examples vs its profiles** | `tests/fsh-ig-server-r4-test.rkt` | **283/283 validate** (as the published package); 0 unmet requirements |
 | **FSH real IG 2** | **mCODE 4.0.0's own FSH (dependencies US Core 6.1.0 + Genomics Reporting 2.0.0 from sushi-config.yaml) vs its published package** | `fsh/tests/ig-mcode-test.rkt` (fsh repo) | **0 compile errors; 311/349 exact, 339/349 complete; 472/473 differential elements** |
-| **FSH real IG 3** | **Da Vinci PDex Plan-Net 1.2.0's own FSH vs its published package, both fetched from packages.fhir.org (US Core 3.1.1 through its version-alias stub)** | `fsh/tests/ig-plannet-test.rkt` (fsh repo) | **0 compile errors; 78/109 exact, 99/109 complete; 321/321 differential elements** |
+| **FSH real IG 3** | **Da Vinci PDex Plan-Net 1.2.0's own FSH vs its published package, both fetched from packages.fhir.org (US Core 3.1.1 through its version-alias stub)** | `fsh/tests/ig-plannet-test.rkt` (fsh repo) | **0 compile errors; 84/109 exact, 99/109 complete; 321/321 differential elements** |
 | **FSH real IG 4** | **Da Vinci HRex 1.1.0's own FSH vs its published package (three US Core versions in context, version-pinned Parents)** | `fsh/tests/ig-hrex-test.rkt` (fsh repo) | **0 compile errors; 31/46 exact, 46/46 complete; 138/138 differential elements** |
 | **GoFSH (FHIR -> FSH -> FHIR)** | **the published IPS 2.0.1 package decompiled to FSH, compiled back, compared the same way** | `fsh/tests/gofsh-ips-test.rkt` (fsh repo) | **117/117 paired, 117 exact; 438/438 differential elements** |
 | **FSH real IG 5** | **HL7 Genomics Reporting 2.0.0's own FSH (the commit whose ids match the package) vs its published package — OperationDefinitions, ConceptMaps, Bundle examples** | `fsh/tests/ig-genomics-test.rkt` (fsh repo) | **0 compile errors; 121/141 exact, 129/141 complete; 254/259 differential elements** (SUSHI-2 type-slice shape, post-publication drift named) |
