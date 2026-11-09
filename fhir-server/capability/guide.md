@@ -26,17 +26,28 @@ history and search indexes). In a workspace the file is `<name>.capability.rkt`:
   #:handler bmi-handler)                    ; (lambda (in req) …) -> a resource, usually Parameters
 ```
 - Interactions: `read vread update patch delete history-instance history-type create search-type`.
-- A search parameter is `[name type]` (the definition FHIR gives that name) or
-  `[name type "FHIRPath"]` (your own). Types: `token string reference date number quantity uri`.
+- A search parameter is `[name type]` (the definition FHIR gives that name for the type: `birthdate`,
+  `gender`, `patient`, `subject`, `code`, `date`, … — a name FHIR does not define, or a wrong type, is
+  an error when the app loads, naming the nearest) or `[name type "FHIRPath"]` (your own). Types:
+  `token string reference date number quantity uri`. A search with a parameter the server does not
+  have answers its matches without it and says so: an OperationOutcome entry (`search.mode` outcome)
+  in the Bundle.
 - A resource without `#:repository` is kept in the store: the workspace's when the workspace serves
-  it, else `#:store`'s file beside the module, else (no store anywhere) in memory.
+  it, else `#:store`'s file beside the module, else (no store anywhere) in memory. A store-backed
+  create or update is validated as sent (its base type, the profiles it claims): an error refuses it
+  with 422 and every issue, so nothing is stored with fields it could not read. A create answers 201
+  with `Location: Type/id/_history/1`; a body of another type than the endpoint's is a 400.
 - A handler receives `in`, a hash from each input's name to its list of values, typed by the
   declaration and the same over GET (`?weight=80.5`) and POST (a Parameters body): `integer` an exact
   integer, `decimal` a Racket real, `boolean` `#t`/`#f`, `string`/`code`/`uri`/`date`/`dateTime` the
   text as sent, a resource a typed node. A value that is not of its type is answered 400 before the
   handler runs. The handler returns a resource built with the R6 forms
-  (`(Parameters (parameter (ParametersParameter (name "x") (valueString "…"))))`). An exception becomes
-  an OperationOutcome.
+  (`(Parameters (parameter (ParametersParameter (name "x") (valueString "…"))))`). To refuse a request
+  (400), return an OperationOutcome whose issue code is `invalid`:
+  `(OperationOutcome (issue (OperationOutcomeIssue (severity "error") (code "invalid") (diagnostics "…"))))`;
+  `processing` answers 422, `not-found` 404. An exception becomes a 500 OperationOutcome.
+- `$validate` takes the resource in a Parameters (`resource`) or as the bare POST body, and reads it
+  as sent: a misspelt element or a bad date is reported, as `raco fhir-validate` reports it.
 - Existing operations by reference: `"Resource/$validate"`, `"ValueSet/$expand"`,
   `"CodeSystem/$lookup"`, `"ValueSet/$validate-code"`, `"ConceptMap/$translate"`,
   `"StructureMap/$transform"` (FML maps: transformations), `"Measure/$evaluate-measure"` (CQL),

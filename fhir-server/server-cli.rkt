@@ -80,6 +80,7 @@
   (define port (or (and port-str (string->number port-str)) 8080))
   (define stop (serve-app app #:port port))
   (printf "FHIR server on http://localhost:~a  (Ctrl-C to stop)\n" port)
+  (flush-output)                                          ; said at once, even when the output is a file
   (with-handlers ([exn:break? (lambda (_) (stop))]) (sync/enable-break never-evt)))
 
 ;; raco fhir-server load <store.db> <file|dir> — Bundles, single resources and .cql libraries (store/load.rkt)

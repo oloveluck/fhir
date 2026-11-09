@@ -137,6 +137,10 @@
   (check-true (for/or ([m msgs]) (regexp-match? #rx"1965-13-45" m)) (format "~a" msgs))
   (define-values (st2 _o2) (handle app "POST" "/Patient" '() "{\"resourceType\":\"Patient\",\"gender\":\"female\"}"))
   (check-equal? st2 201)
+  ;; a body of another type than the endpoint's: 400, said plainly (it was a 500)
+  (define-values (st5 o5) (handle app "POST" "/Patient" '() "{\"resourceType\":\"Observation\",\"status\":\"final\",\"code\":{\"text\":\"x\"}}"))
+  (check-equal? st5 400)
+  (check-regexp-match #rx"the body is a Observation, POSTed to /Patient" (hash-ref (car (hash-ref o5 'issue)) 'diagnostics))
   ;; $validate on the resource as sent: in Parameters, and as the bare body
   (define (errors-of out) (filter (lambda (i) (equal? (hash-ref i 'severity #f) "error")) (hash-ref out 'issue '())))
   (define-values (_s3 v1) (handle app "POST" "/Patient/$validate" '()

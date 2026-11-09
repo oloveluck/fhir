@@ -94,7 +94,7 @@
     [(entry _ _ "PUT" url (? hash? res))
      (define-values (rtype id) (parse-type/id url))
      (define vid (update-in! c (written-resource e) sps #:rows rows))
-     (hasheq 'response (hasheq 'status "200 OK"
+     (hasheq 'response (hasheq 'status (if (= vid 1) "201 Created" "200 OK")      ; a PUT that creates is a 201
                                'location (format "~a/~a/_history/~a" rtype id vid)))]
     [(entry _ _ "DELETE" url _)
      (define-values (rtype id) (parse-type/id url))

@@ -70,6 +70,16 @@ It compiles to the JSON FHIR exchanges (`"valueQuantity": {"value": 150, "unit":
 Observation.component.where(code.coding.code = '8480-6').value.ofType(Quantity).value
 ```
 
+## FHIR versions here
+| Where | Version | Note |
+|---|---|---|
+| a workspace (`workspace.yaml` `fhirVersion`) | 4.0.1 (default) or 5.0.0 | validation, search and the FHIRPath types follow it |
+| FSH (`raco fsh`, `#lang fsh`) | sushi-config.yaml's `fhirVersion`, else 5.0.0; in a workspace, the workspace's | |
+| CQL (`using FHIR version '4.0.1'`) | 4.0.1 | the model shipped; an R5 workspace is told so at the `using` |
+| FML (`raco fml`, `#lang fml`) | R5 types | reads R4 resources leniently |
+| capability apps (`#lang fhir/capability`) | R6 (6.0.0-ballot) types | data in an R4 store is served leniently: an element R6 renamed is not served |
+| `raco fhir-validate`, `$validate` | the resource's own (R4 or R5 core in context) | |
+
 ## Doing things with FHIR here
 | To | Use |
 |---|---|

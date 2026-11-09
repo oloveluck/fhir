@@ -34,7 +34,7 @@
     (check-equal? (hash-ref (call "write" (hasheq 'path "rules.fsh" 'text rules)) 'problems) '())
     ;; the constraint: an HbA1c in mmol/mol breaks the invariant, so the stage cannot commit
     (define bad (call "stage" (hasheq 'fsh (a1c 64 "mmol/mol"))))
-    (check-equal? (hash-ref (car (hash-ref bad 'changes)) 'errors) '("Observation: a1c-percent: An HbA1c is a percentage"))
+    (check-equal? (hash-ref (car (hash-ref bad 'changes)) 'errors) '("fsh:1: Observation: a1c-percent: An HbA1c is a percentage"))
     (call "commit" (hasheq 'stage (hash-ref bad 'stage)) #:ok? #f)
     ;; a valid one commits, claims the profile, and leaves a Provenance naming the version and the reason
     (define ok1 (call "stage" (hasheq 'fsh (string-append "Instance: ann\nInstanceOf: Patient\n* gender = #female\n\n" (a1c 8.0 "%")))))

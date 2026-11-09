@@ -890,12 +890,17 @@
     (lambda ()
       (define rs (map (lambda (r) (with-profiles h r)) (staged-resources h args)))
       (define source (stage-source h args))
+      ;; FSH written in the stage: each resource's errors name its instance's line in that text
+      (define (at-line r errors)
+        (define fsh (and (equal? (hash-ref source 'kind #f) "fsh") (hash-ref source 'text #f)))
+        (define line (and fsh (hash-ref r 'id #f) (instance-line fsh (hash-ref r 'id))))
+        (if line (map (lambda (e) (format "fsh:~a: ~a" line e)) errors) errors))
       (when (null? rs) (error 'stage "nothing to stage"))
       (define changes
         (for/list ([r (in-list rs)])
           (define current (and (hash-ref r 'id #f) ((data-source-read (current-data-source)) (hash-ref r 'resourceType) (hash-ref r 'id))))
           (define paths (if current (json-diff current r) '()))
-          (change r (cond [(not current) 'create] [(null? paths) 'unchanged] [else 'update]) paths (validation-errors r))))
+          (change r (cond [(not current) 'create] [(null? paths) 'unchanged] [else 'update]) paths (at-line r (validation-errors r)))))
       (define id (format "stage-~a" (next-number h "stages" "stage-" (hub-stages h))))
       (hash-set! (hub-stages h) id (staged changes source))
       (save-state! h "stages" id (lambda () (staged->jsexpr (staged changes source))))
@@ -959,6 +964,18 @@
                                                                (commit-audit (ws-config-fhir-version c) targets (unbox current-agent) (now-instant))))))
   (configure! h (hub-root h))                              ; the data read again
   (hasheq 'stage id 'written (for/list ([w (in-list written)]) (hash-remove w 'version)) 'provenance (if (pair? trail) (car trail) 'null)))
+
+;; instance-line : fsh-text id -> line | #f   where `Instance: <id>` (or an instance with `* id = "<id>"`) starts
+(define (instance-line text id)
+  (define lines (regexp-split #rx"\n" text))
+  (or (for/first ([l (in-list lines)] [i (in-naturals 1)]
+                  #:when (regexp-match? (pregexp (string-append "^Instance:\\s*" (regexp-quote id) "\\s*$")) l))
+        i)
+      (let loop ([ls lines] [i 1] [start #f])
+        (cond [(null? ls) #f]
+              [(regexp-match? #px"^Instance:" (car ls)) (loop (cdr ls) (add1 i) i)]
+              [(and start (regexp-match? (pregexp (string-append "^\\*\\s*id\\s*=\\s*\"" (regexp-quote id) "\"")) (car ls))) start]
+              [else (loop (cdr ls) (add1 i) start)]))))
 
 ;; stage-source : hub args -> Source   what a stage's resources are made from (trail.rkt)
 (define (stage-source h args)

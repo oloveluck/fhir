@@ -4,8 +4,9 @@ You work in a directory of source files. Each file is a program in one of the FH
 resource as JSON. The tools check them, run them against FHIR data, and explain the answers. Every
 problem is one line, at its file, line and column: `Gap.cql:4:1 error: in define "Gap": unknown identifier 'Nope'`.
 
-To start a new workspace from a shell: `fhir-mcp init [dir]` writes `workspace.yaml`, `data/`, a
-`.mcp.json` that registers this server, and a `CLAUDE.md` that points here. It never overwrites a file.
+To start a new workspace from a shell: `raco fhir-mcp init [dir]` writes `workspace.yaml` (with
+`data: fhir.db`, a SQLite FHIR store created on first use), a `.mcp.json` that registers this
+server, a `CLAUDE.md` that points here and a `.gitignore`. It never overwrites a file.
 
 | File | Language | `run` gives | Guide |
 |---|---|---|---|
@@ -123,6 +124,24 @@ stage that breaks it lists the broken rule per resource and cannot be committed.
 holds everything already stored to the rules: how many resources, how many break a rule, the rules
 by how often they are broken, the first problems as lines.
 
+A rule for SOME resources of a type — blood pressures among all Observations — is an invariant that
+applies only to them, written with `implies`:
+
+```fsh
+Profile: BloodPressureRule
+Parent: Observation
+Id: bp-rule
+* obeys bp-components
+
+Invariant: bp-components
+Description: "A blood pressure (LOINC 85354-9) has systolic and diastolic components in mm[Hg]"
+Severity: #error
+Expression: "code.coding.where(system = 'http://loinc.org' and code = '85354-9').exists() implies (component.where(code.coding.code = '8480-6').value.ofType(Quantity).where(code = 'mm[Hg]').exists() and component.where(code.coding.code = '8462-4').value.ofType(Quantity).where(code = 'mm[Hg]').exists())"
+```
+
+Named for `Observation` in `profiles`, it holds every blood pressure to the rule and lets every other
+Observation through.
+
 ## The trail
 Every commit writes, into the data itself, a Provenance — the versions it wrote
 (`Observation/a1/_history/2`), when, the agent (the MCP client), the `reason` given to commit, and
@@ -141,6 +160,15 @@ FROM history h JOIN Provenance p ON EXISTS (SELECT 1 FROM json_each(p.resource, 
   WHERE t.value ->> '$.reference' = h.type || '/' || h.id || '/_history/' || h.versionId)
 WHERE h.type = 'Observation' AND h.id = 'a1'
 ```
+
+A Provenance written by a commit, for SQL (`p.resource ->> '$.<path>'`): `target[n].reference`
+(`Type/id/_history/v`), `recorded`, `agent[0].who.display` (the client: `claude-code … via fhir-mcp`,
+`raco fhir-mcp call`, or `FHIR_MCP_AGENT`), `reason[0].text` (commit's `reason`),
+`activity.coding[0].code` (`CREATE` or `UPDATE` when all are one), `entity[0].what.display` (the source
+in one line, with its SHA-1) and `contained[0]` (a DocumentReference holding the source text:
+`content[0].attachment.data`, base64, and `.hash`). An AuditEvent: `action` (`C`, `U`, `E`),
+`recorded`, `outcome` (`0` success, `8` failure; R5 `outcome.code.code`), `agent[0].who.display`,
+`entity[n].what`.
 
 `describe(result)` names where a result came from: the file or query, its SHA-1, the options, and
 the data as of its latest write.

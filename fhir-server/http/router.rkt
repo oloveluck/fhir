@@ -91,14 +91,14 @@
      (define t (sym type))
      (case method
        [("GET")  (values 'search (dispatch app (search-request t query)))]
-       [("POST") (with-body body (lambda (n) (values 'create (dispatch app (create-request t n)))))]
+       [("POST") (with-body body (lambda (n) (if (same-type? n t) (values 'create (dispatch app (create-request t n))) (wrong-type n t "POST"))))]
        [else (values 'error (operation-outcome-not-supported (format "~a not allowed on /~a" method type)))])]
     ;; instance:  /{Type}/{id}
     [(_ (list (? known-type? type) id))
      (define t (sym type))
      (case method
        [("GET")    (values 'read (dispatch app (read-request t id)))]
-       [("PUT")    (with-body body (lambda (n) (values 'update (dispatch app (update-request t id n)))))]
+       [("PUT")    (with-body body (lambda (n) (if (same-type? n t) (values 'update (dispatch app (update-request t id n))) (wrong-type n t "PUT"))))]
        [("DELETE") (values 'delete (dispatch app (delete-request t id)))]
        ;; JSON Patch (application/json-patch+json): the body is an array of operations
        [("PATCH")
@@ -181,6 +181,12 @@
   (ok-value (from-json (hasheq 'resourceType "Parameters"
                                'parameter (for/list ([p (in-list query)])
                                             (hasheq 'name (symbol->string (car p)) 'valueString (cdr p)))))))
+
+;; a body of another type than the endpoint's is the client's mistake (400), said plainly
+(define (same-type? n t) (eq? (fhir-type n) t))
+(define (wrong-type n t method)
+  (values 'error (operation-outcome-invalid (format "the body is a ~a, ~aed to /~a: send a ~a there, or the ~a to /~a"
+                                                    (fhir-type n) method t t (fhir-type n) (fhir-type n)))))
 
 ;; parse a JSON body into a typed node, or short-circuit with an `invalid` OperationOutcome
 (define (with-body body k)

@@ -56,10 +56,12 @@
 (define (ensure-valid r #:profile [profile #f])
   (define oo (if profile ($validate r #:profile profile) ($validate r)))
   (if (outcome-errors? oo)
+      ;; every error, one per line: a resource missing two required elements says both
       (raise (exn:fail:operation
-              (format "invalid ~a: ~a" (hash-ref r 'resourceType "resource")
-                      (for/first ([i (in-list (hash-ref oo 'issue))] #:when (member (hash-ref i 'severity) '("error" "fatal")))
-                        (format "~a ~a" (car (hash-ref i 'expression '(""))) (hash-ref i 'diagnostics ""))))
+              (format "invalid ~a:~a" (hash-ref r 'resourceType "resource")
+                      (apply string-append
+                             (for/list ([i (in-list (hash-ref oo 'issue))] #:when (member (hash-ref i 'severity) '("error" "fatal")))
+                               (format "\n  ~a ~a" (car (hash-ref i 'expression '(""))) (hash-ref i 'diagnostics "")))))
               (current-continuation-marks) oo))
       r))
 
@@ -72,7 +74,8 @@
   (check-false (outcome-errors? ($validate ok)))
   (check-true (outcome-errors? ($validate bad)))
   (check-equal? (ensure-valid ok) ok)
-  (check-exn #rx"invalid Patient: Patient.nmae" (lambda () (ensure-valid bad)))
+  (check-exn #rx"invalid Patient:\n  Patient.nmae" (lambda () (ensure-valid bad)))
+  (check-exn #rx"nmae.*\n  .*birthDate" (lambda () (ensure-valid (hash-set bad 'birthDate "1965-13-45"))))
   (check-equal? (~> ok (ensure-valid) ($validate) (outcome-errors?)) #f)
   ;; a profile from the data source, by reference
   (define sd (hasheq 'resourceType "StructureDefinition" 'url "http://example.org/StructureDefinition/named"

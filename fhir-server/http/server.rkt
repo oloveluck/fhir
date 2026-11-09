@@ -98,12 +98,20 @@
 (define (write-response out status js)
   (write-raw-response out status
                       (string->bytes/utf-8 (if js (jsexpr->string js) ""))
-                      "application/fhir+json; charset=utf-8"))
+                      "application/fhir+json; charset=utf-8"
+                      #:location (created-location status js)))
+
+;; created-location : status jsexpr -> string | #f   a create's Location: Type/id/_history/version
+(define (created-location status js)
+  (and (= status 201) (hash? js) (string? (hash-ref js 'resourceType #f)) (string? (hash-ref js 'id #f))
+       (let ([v (let ([m (hash-ref js 'meta #f)]) (and (hash? m) (hash-ref m 'versionId #f)))])
+         (format "~a/~a~a" (hash-ref js 'resourceType) (hash-ref js 'id) (if (string? v) (format "/_history/~a" v) "")))))
 
 ;; the general form: any body bytes with their own content type (raw Binary streams use this)
-(define (write-raw-response out status bytes ctype)
+(define (write-raw-response out status bytes ctype #:location [location #f])
   (fprintf out "HTTP/1.1 ~a ~a\r\n" status (reason status))
   (fprintf out "Content-Type: ~a\r\n" ctype)
+  (when location (fprintf out "Location: ~a\r\n" location))
   (fprintf out "Content-Length: ~a\r\n" (bytes-length bytes))
   (fprintf out "Connection: close\r\n\r\n")
   (write-bytes bytes out))

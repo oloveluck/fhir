@@ -29,6 +29,9 @@
                  "data: fhir.db                # a SQLite FHIR store (resources as JSONB); or a directory of JSON, or a FHIR server's url\n"
                  "# packages:                  # FHIR packages in context, by file or name\n"
                  "#   - hl7.fhir.us.core-6.1.0\n"
+                 "# profiles:                  # rules the data keeps: FSH profiles (or an IG's) by type\n"
+                 "#   Observation: http://example.org/fhir/StructureDefinition/my-rule\n"
+                 "# audit: all                  # every run, query and apply leaves an AuditEvent (default: commits)\n"
                  "# parameters:                # CQL parameters, as CQL expressions\n"
                  "#   Measurement Period: Interval[@2025-01-01T00:00:00.000, @2025-12-31T23:59:59.999]\n"))
 

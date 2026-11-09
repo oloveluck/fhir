@@ -8,9 +8,17 @@ description: "Write FHIR programs as Racket modules (the #langs) — resources (
 For using FHIR as a tool (create, search, compute, analyze data through the workspace), start with
 the `fhir` skill; this one is about writing the languages as Racket modules.
 
-Every language validates at **compile time** and builds a typed node that serializes to JSON. A
-`.rkt`/`.fhir6` file with a `#lang fhir/…` header is a normal Racket module — run it with
-`racket <file>`, compile-check it with `raco make <file>`.
+Every language is checked when its module compiles (`raco make <file>`, or `racket <file>`), each
+error at its line:
+- `#lang fhir/r6`, `/r4`, `/sd`, `/capability`: the forms' fields, cardinalities, required codes.
+- `#lang fml`: the map against its structures (`raco fml check`'s static findings: an element the
+  type does not have, a value that cannot go there, an unknown group).
+- `#lang cql`: every definition translated (an unknown identifier or function, a type error).
+- `#lang fsh`: parsing and compiling; its EXAMPLES are validated by `raco fsh check <dir>` (validation
+  needs the whole project and its packages), not by `raco make`.
+A `#lang fsh` module compiles with the nearest `sushi-config.yaml` (canonical, FHIR version,
+dependencies), as `raco fsh` does, and provides `canonical-of` (a profile's url by its name or id).
+Which FHIR version each language uses: `raco fhir-mcp guide fhir`, "FHIR versions here".
 
 ## `#lang fhir/r6` · `#lang fhir/r4` — author a resource
 
@@ -75,7 +83,26 @@ Every `#lang` file is a Racket module, so a program `require`s them side by side
 `"profile.fsh"` provides `compiled` (FHIR JSON), `"intake.fml"` `transform` (FHIR JSON -> FHIR JSON),
 `"codes.vcl"` `valueset`, `"rules.cql"` `evaluate` (a library over a patient's resources, with
 `#:parameters`), `#lang fhir/r6` and `#lang sql-on-fhir` files `->json`. Each is compiled and checked in
-its own language by `raco make`. Worked example: `fhir-examples/screening/` (`racket screening/main.rkt`).
+its own language by `raco make`. Worked examples: `fhir-examples/examples/intake-pipeline/` (below;
+`tests/intake-pipeline-test.rkt` runs it) and `fhir-examples/screening/` (six languages).
+
+```racket
+#lang racket/base
+;; a QuestionnaireResponse -> FML -> a Patient -> validated against an FSH profile -> CQL's answer
+(require json (only-in fhir/conformance/operations ensure-valid)  ; loading it registers $validate
+         (only-in cql/value render)
+         (only-in "intake.fsh" canonical-of)                     ; the profile, registered by canonical
+         (only-in "qr2patient.map" transform)                    ; FHIR JSON in, FHIR JSON out
+         (only-in "Intake.cql" evaluate))                        ; define name -> value, over resources
+(define (intake qr)
+  (define patient (ensure-valid (transform qr) #:profile (canonical-of "IntakePatient")))
+  (values patient (render (hash-ref (evaluate (list patient)) "Is 65 Or Older"))))
+```
+`ensure-valid` returns the resource, or raises `exn:fail:operation` listing every error (one per
+line) with the OperationOutcome in `exn:fail:operation-outcome`. `(apply-operation "$validate" r
+#:profile url)` returns the OperationOutcome itself: `issue` is a list of `{severity, code,
+diagnostics, expression: [path]}`, one `information` "All OK" when clean. A CQL module's `evaluate`
+raises an `exn:fail` (positioned at the define when it can) for a run-time error.
 
 ## FHIR operations as procedures (no server)
 

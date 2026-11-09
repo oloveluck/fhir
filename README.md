@@ -58,12 +58,12 @@ problem (`file:line:col severity: message`, with "did you mean …" when a name 
 a directory up:
 
 ```sh
-fhir-mcp init my-workspace          # or: raco fhir-mcp init my-workspace [--fhir-version 5.0.0]
+raco fhir-mcp init my-workspace     # [--fhir-version 5.0.0]; `fhir-mcp init` with the standalone tools on PATH
 ```
 
-It writes `workspace.yaml` (FHIR version, canonical, `data: data/`), `data/` for the FHIR JSON the
-tools run over, `.mcp.json` (Claude Code starts the server from it) and a three-line `CLAUDE.md`, and
-keeps any of them that already exist. Elsewhere: `claude mcp add fhir -- fhir-mcp --workspace <dir>`.
+It writes `workspace.yaml` (FHIR version, canonical, `data: fhir.db`: a SQLite FHIR store, created on
+first use), `.mcp.json` (Claude Code starts the server from it), a three-line `CLAUDE.md` and a
+`.gitignore`, and keeps any of them that already exist. Elsewhere: `claude mcp add fhir -- fhir-mcp --workspace <dir>`.
 The guides are MCP resources (`learn://fhir`, `learn://workspace`, then one per language:
 `learn://fsh`, `learn://cql`, …) and text at the shell (`fhir-mcp guide [topic]`). The `fhir` skill in
 this repository (`.claude/skills/fhir/SKILL.md`) is where an agent starts: the tools, which language

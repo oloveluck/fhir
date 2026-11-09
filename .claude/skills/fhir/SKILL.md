@@ -13,7 +13,7 @@ one line, `file:line:col severity: message`, with "did you mean …" for a missp
 
 ## Set up
 ```sh
-fhir-mcp init my-workspace        # or: raco fhir-mcp init my-workspace [--fhir-version 5.0.0]
+raco fhir-mcp init my-workspace   # [--fhir-version 5.0.0]; `fhir-mcp init` once the standalone tools are on PATH
 ```
 writes `workspace.yaml` (FHIR 4.0.1, `data: fhir.db`), a `.mcp.json` that registers the server for
 Claude Code, and a `CLAUDE.md`. The data is **`fhir.db`, a SQLite FHIR store**: every resource as

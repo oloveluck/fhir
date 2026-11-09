@@ -876,6 +876,36 @@ constraints on the data as the standard, repeatable way to do complex things.
   two commits with reasons, the history, SQL joining versions to Provenance, search, audit counts,
   `check(data: true)` over the store (the trail's own resources validate).
 
+## New users, tested (2026-11-09)
+Four fresh agents learned the toolkit from the `fhir` skill alone (a cohort query, a constraint
+with SQL and history, a FHIR server with an operation, a Racket pipeline) and logged their friction;
+every finding below has a test that reproduces what the agent did.
+- **Wrong answers and lost data, fixed.** A capability app's store searched with the engine's few
+  built-in parameters, so `[birthdate date]` indexed nothing and `?birthdate=lt1900` answered every
+  patient: store-backed apps now search with the core package's SearchParameters (R6;
+  `core-search-params`), a `[name type]` FHIR does not define (or types otherwise) is an error at load
+  with the nearest name, and a parameter the store cannot apply is reported in the searchset (an
+  OperationOutcome entry, mode outcome — `search-result/ignored`). The HTTP layer keeps the body as
+  sent (`current-request-json`): `$validate` reads it (the lenient node had dropped a misspelt element
+  and a bad date, so the server said "All OK"; a bare resource body is the subject), and store-backed
+  apps and IG servers validate it before writing (`store/validated.rkt`, 422 with every issue — a
+  create used to store `"femme"` and drop unknown fields silently). An inline operation's inputs are
+  typed by its declaration, the same over GET and POST (`typed-inputs`; the guide's `$bmi` broke on
+  POST). `#lang fml` runs `check-map` and `#lang cql` translates every define when the module COMPILES
+  (the readers; a map writing `tgt.gendr` compiled and produced `{"gendr": …}`).
+- **The shell route works.** Stages and results are kept in the workspace (`.fhir-mcp/`), so one
+  `raco fhir-mcp call`'s stage is committed by the next (two agents had written their own JSON-RPC
+  clients); results and stages count apart; `call` takes `key=value`, `key=@file`, `key:=<json>`, `-`.
+- **Docs and messages.** `#lang fsh` compiles with the nearest sushi-config.yaml and provides
+  `canonical-of`; `raco fsh check` on a missing path exits 2; stage errors from FSH name the instance's
+  line; `ensure-valid` lists every error; a CQL module's run-time error is an `exn:fail`; CQL's `render`
+  prints FHIR values as JSON; PUT-creates answer 201, creates carry `Location`, a body of the wrong
+  type is a 400. New: a FHIR-versions table (learn://fhir), recipes (a rule for some resources of a
+  type, the latest value per patient, the Provenance's fields), `fhir-examples/examples/intake-pipeline`
+  (FML + FSH + CQL in one `main.rkt`, tested). `fhir-mcp/tests/docs-commands-test.rkt` runs every
+  `raco <tool> [sub]` the skills, guides, READMEs and CLAUDE.md files name with `--help` (it found
+  `raco fhir fhirpath-tck`, `raco fhir fml-tck`, `raco fhir vcl`, gone for months).
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.
