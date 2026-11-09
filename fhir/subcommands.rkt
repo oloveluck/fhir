@@ -10,7 +10,7 @@
 ;;; usage-error : tool usages command [message] -> exits 2
 ;;; require-files! : tool usages command files -> void   a missing file is a usage error
 
-(require racket/list racket/string)
+(require)
 
 (provide run-subcommands usage-error require-files!)
 

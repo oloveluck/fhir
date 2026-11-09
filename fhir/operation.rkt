@@ -34,7 +34,8 @@
 ;;; and `register-operation!` makes it resolvable by reference (the implementing packages do so when
 ;;; their module loads). `invoke` applies an operation to an Inputs hash (what a server holds).
 
-(require racket/contract racket/list racket/string (for-syntax racket/base))
+(require (only-in fhir/canonical canonical-url)
+         racket/contract racket/string (for-syntax racket/base))
 
 (provide
  ~>
@@ -183,7 +184,7 @@
     [(op? ref) ref]
     [(hash? ref) (operation (or (hash-ref ref 'url #f) (operation-error "invalid" "an OperationDefinition without a url")))]
     [(regexp-match #px"^(?:([A-Z][A-Za-z]+)/)?[$]([A-Za-z-]+)$" ref) => (lambda (m) (by-code (cadr m) (caddr m)))]
-    [(hash-ref registry (car (string-split ref "|")) #f) => values]
+    [(hash-ref registry (canonical-url ref) #f) => values]
     [else (operation-error "not-found" "no implementation is registered for ~a" ref)]))
 
 ;; apply-operation : reference [subject [parameters]] #:name value … -> resource

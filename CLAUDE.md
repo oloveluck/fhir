@@ -409,7 +409,7 @@ turns a snapshot into `child-elements`/`slices-of`/`by-id` lookups + `type-index
 cached; `opaque-type?` guards Resource/Element/…). `conformance/validate.rkt` validates a **raw jsexpr**
 resource (lenient parsing would hide unknown elements — the typed node is used only for invariants)
 against its base type + `meta.profile` + supplied profiles (snapshots generated on demand): a
-`validate-object` recursion applying pure rules — cardinality, unknown-element (lenient on choice
+`walk` recursion applying pure rules — cardinality, unknown-element (lenient on choice
 variants), primitive format (reuses `primitives/` ctors), fixed[x]=/pattern[x]⊆, required binding (via a
 `tx-service`; only fires when the VS demonstrably expands offline), value/pattern-discriminator
 slice `min` (multi-discriminator and `$this` supported; the pinned value is fixed[x]/pattern[x] on
@@ -716,6 +716,47 @@ measure-calculation-service-example --load <dir> --tz-offset -07:00`, `raco fhir
 server's transaction endpoint, `$evaluate-measure` per patient: **60/65** as expected — the five named
 (two cases whose resources reference a bare id / a sibling patient, which a server rightly leaves out
 of the patient's data; the three corpus disagreements the cql package documents).
+
+## Quality and performance pass (2026-11-09)
+Held to a behaviour dump of everything the foundation and fsh produce over the corpora (fsh's IPS,
+mCODE, Genomics and golden projects compiled; `fsh check` on mCODE; the published IPS package
+decompiled; every US Core and IPS example validated against its own profiles AND against every other
+profile of its type; their profiles' snapshots; R4 and R5 core round-tripped; the validator's
+differential corpus): identical before and after, byte for byte. What the profiles showed and what
+changed:
+- **`sd/sd-index.rkt` indexes lazily.** It parsed every StructureDefinition, CodeSystem and ValueSet
+  JSON of every package up front (2-4 s per process; a compile touches tens). `skim-keys` reads a
+  resource's top-level url/name/id from its bytes, skipping nested values by bracket depth; the
+  resource is parsed when a lookup first reaches it. fsh's golden corpus 6.1 -> 2.6 s, US Core's
+  snapshots 3.5 -> 1.9 s. `sd-context` is memoised per package list (it re-normalised every path on
+  every datatype jump).
+- **String-like primitives match in O(1).** `^(?:[\s\S])+$` walked every character of every string
+  (0.5 ms per 5 KB narrative div); `^[\s\S]` is the same set (non-empty). With `from-json`'s field
+  index cached per type schema (it was rebuilt for every node) and `_field` keys memoised, the R5
+  core round trip went 12.7 -> 1.7 s (profiled).
+- **The validator caches what depends only on the profile:** a claimed profile's element index (its
+  snapshot was regenerated for every resource claiming it), the elements that carry checkable
+  invariants (`invariant-sites`; every element of the index was re-split and re-filtered per
+  resource), the primitive constructors by code. US Core's examples against every profile of their
+  type 15.9 -> 8.9 s; the differential corpus 5.2 -> 2.2 s.
+- Bugs found on the way, each with a test that fails without the fix: `read-fhir-json` crashed on a
+  `😀` surrogate pair (legal JSON); `sd/snapshot.rkt`'s base-type cache was keyed by the
+  type code alone, so a process that changed packages got the first context's datatype (R4's
+  Attachment for R5); `model/introspect`'s `full-field-specs` did not climb a constraint type's
+  generated parent (Age, Duration: no fields at all, not even `value`). One helper,
+  `fhir/canonical` (`canonical-url`, `canonical-version`), replaces ten spellings of "drop the
+  `|version`" (the `string-split` ones failed on "" and read "|v" as "v").
+- Quality: the framework's inherited fields are one table (`framework-field`, was four parallel
+  `case`s); `shipped-snapshot` and `opaque-type?` have one definition (`sd/snapshot`); validate.rkt
+  states its data (Issue, ElementDef, Index, Pin, Membership, InvariantSite) and every function has a
+  signature; unused requires dropped across the foundation and fsh (fsh's modules each carried the
+  same 20-line block).
+- **The ceiling is brag.** fsh lexes 140,000 tokens in 0.3 s and parses them in ~10 s: brag's general
+  CFG parser costs ~70 µs a token, and FHIRPath's brag grammar ~1 ms an expression (1,353 distinct
+  SearchParameter expressions: 1.35 s, most of `fsh check --capability`'s server step). Parsing is
+  now 60-70% of an fsh compile (mCODE: RuleSet bodies re-parsed per distinct instantiation are 3.6 s
+  of a 5.2 s compile). A parser derived from the same grammar files (kept as the specification and
+  the error reporter) would remove most of it; not done in this pass.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

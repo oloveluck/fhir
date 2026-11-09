@@ -14,7 +14,8 @@
 ;;; (the same content again, or a redefinition by the same module, is accepted). Ids (`Type/id`,
 ;;; for resources without a url) are not checked: the latest registration wins.
 
-(require racket/contract racket/list)
+(require (only-in fhir/canonical canonical-url)
+         racket/contract racket/list)
 
 (provide (contract-out
           ;; register-resources! : resources [#:source who] -> void   (resources without url or id skipped)
@@ -33,7 +34,7 @@
 ;; kind -> (hash key -> (cons resource source)); a resource sits under its url and its id
 (define by-kind (make-hash))
 
-(define (key-of s) (car (regexp-split #rx"[|]" s)))
+(define (key-of s) (canonical-url s))
 
 (define (register-resources! rs #:source [source #f])
   (for ([r (in-list rs)])

@@ -10,7 +10,8 @@
 ;;; Definitions resolve from the inputs, then the current data source's ValueSets / CodeSystems /
 ;;; ConceptMaps, then `current-sd-packages` (indexed once per package list). Results are FHIR JSON.
 
-(require racket/contract racket/list (only-in fhir/registry registered-resources)
+(require (only-in fhir/canonical canonical-url)
+         racket/contract racket/list (only-in fhir/registry registered-resources)
          (only-in fhir/r5/operations expand-definition ValueSet-validate-code-definition
                   CodeSystem-validate-code-definition lookup-definition translate-definition
                   subsumes-definition find-matches-definition closure-definition)
@@ -50,7 +51,7 @@
     (if search
         ;; a data source that searches (a store) is asked for the url, not scanned
         (lambda (url [version #f])
-          (define base (car (regexp-split #rx"[|]" url)))
+          (define base (canonical-url url))
           ((resources->resolver (append-map (lambda (t) (search t (list (cons "url" base)))) terminology-types))
            url version))
         (resources->resolver (append-map (lambda (t) ((data-source-all ds) t)) terminology-types))))

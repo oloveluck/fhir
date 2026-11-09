@@ -10,7 +10,7 @@
 ;;;
 ;;; A Header is a string "Name: value" (an Authorization header, for instance).
 
-(require racket/contract racket/list racket/string racket/port json
+(require racket/contract racket/string racket/port json
          net/url net/http-client net/uri-codec
          (only-in "data-source.rkt" data-source data-source? patient-reference-of)
          (only-in "data-source.rkt" data-source-all data-source-read data-source-of-patient data-source-search))

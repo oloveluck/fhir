@@ -24,6 +24,10 @@
 (provide
  (contract-out
   [generate-snapshot (-> hash? list?)]      ; an SD jsexpr -> its snapshot elements
+  ;; the snapshot elements an SD carries (#f when it carries none: generate one)
+  [shipped-snapshot  (-> hash? (or/c #f (listof hash?)))]
+  ;; the framework types no snapshot describes usefully (Resource, Element, Extension, …)
+  [opaque-type?      (-> string? boolean?)]
   [snapshot-paths    (-> list? list?)]))    ; elements -> their paths
 
 ;; sd-jsexpr -> (listof element-jsexpr)
@@ -138,13 +142,21 @@
 ;; a complex datatype resolves to an SD whose own snapshot has children (primitives/opaques don't)
 (define (complex-datatype? t)
   (and (regexp-match? #px"^[A-Z]" t)
-       (not (member t '("Resource" "DomainResource" "Element" "BackboneElement" "Extension")))
+       (not (opaque-type? t))
        (pair? (base-type-snapshot t))))
 
-;; a parent's snapshot, generating it recursively if absent
-(define (snapshot-of sd)
-  (define s (elements-of sd 'snapshot))
-  (if (pair? s) s (generate-snapshot sd)))
+;; opaque-type? : type-code -> boolean   a framework type: a jump into it finds nothing to check
+(define opaque-types '("Resource" "DomainResource" "Element" "BackboneElement" "Extension"))
+(define (opaque-type? code) (and (member code opaque-types) #t))
+
+;; shipped-snapshot : SD -> (listof Element) | #f   the snapshot the SD carries, when it has elements
+(define (shipped-snapshot sd)
+  (define s (hash-ref sd 'snapshot #f))
+  (define es (and (hash? s) (hash-ref s 'element #f)))
+  (and (list? es) (pair? es) es))
+
+;; snapshot-of : SD -> (listof Element)   a parent's snapshot, generated (recursively) when it ships none
+(define (snapshot-of sd) (or (shipped-snapshot sd) (generate-snapshot sd)))
 
 ;; elements-of : SD 'snapshot|'differential -> (listof Element)
 (define (elements-of sd key)
@@ -247,9 +259,13 @@
     [(not base-type) '()]
     [else (reroot (cdr (base-type-snapshot base-type)) base-type path)]))   ; cdr drops the root
 
+;; base-type-snapshot : type-code -> elements   the type's snapshot in the current package context
+;; (keyed by the context too: R4 and R5 define the same codes differently, and a process — a server,
+;; fhir-mcp, `fsh check` — can change packages between calls; keyed by the code alone, the first
+;; context's snapshot was served to every later one)
 (define base-type-cache (make-hash))
 (define (base-type-snapshot t)
-  (hash-ref! base-type-cache t
+  (hash-ref! base-type-cache (cons (sd-context) t)
              (lambda ()
                (define sd (resolve-sd-raw t))
                (if sd (snapshot-of sd) '()))))
@@ -342,4 +358,20 @@
   (check-equal? (hash-ref (cadr snap) 'min) 1)                      ; narrowed
   (check-equal? (hash-ref (cadr snap) 'short) "the x")              ; inherited
   (check-equal? (hash-ref (caddr snap) 'sliceName) "s1")
-  (check-equal? (hash-ref (caddr snap) 'short) "the x"))            ; slice inherits the base template
+  (check-equal? (hash-ref (caddr snap) 'short) "the x")             ; slice inherits the base template
+  ;; a datatype a profile dives into is expanded from the CURRENT package context: R5's Attachment
+  ;; has `height`, R4's does not (the cache was keyed by the type code alone, so whichever version
+  ;; came first was served to both)
+  (define r4 ((dynamic-require 'fhir/spec-package 'spec-package-path) "hl7.fhir.r4.core.tgz" #:optional? #t))
+  (define r5 ((dynamic-require 'fhir/spec-package 'spec-package-path) "hl7.fhir.r5.core.tgz" #:optional? #t))
+  (when (and r4 r5)
+    (define dives (hasheq 'resourceType "StructureDefinition" 'type "DocumentReference" 'derivation "constraint"
+                          'baseDefinition "http://hl7.org/fhir/StructureDefinition/DocumentReference"
+                          'differential (hasheq 'element (list (hasheq 'id "DocumentReference.content.attachment.url"
+                                                                       'path "DocumentReference.content.attachment.url" 'min 1)))))
+    (define (has-height? pkg)
+      (parameterize ([current-sd-packages (list pkg)])
+        (and (member "DocumentReference.content.attachment.height" (snapshot-paths (generate-snapshot dives))) #t)))
+    (check-true (has-height? r5))
+    (check-false (has-height? r4))
+    (check-true (has-height? r5))))

@@ -15,11 +15,14 @@
          px:date px:time px:dateTime px:instant)
 
 ;; --- string-like ----------------------------------------------------
-;; string / markdown: any non-empty sequence (length cap enforced separately).
-(define px:string   #px"^(?:[\\s\\S])+$")
-(define px:markdown #px"^(?:[\\s\\S])+$")
+;; string / markdown: any non-empty sequence (length cap enforced separately). The spec writes
+;; ^[\s\S]+$; every character matches [\s\S], so the set is "has a first character", and matching
+;; that alone is the same test in O(1) — the long form walked every character of every value (a
+;; narrative div: 0.5 ms per 5 KB, 13% of validating US Core's examples).
+(define px:string   #px"^[\\s\\S]")
+(define px:markdown #px"^[\\s\\S]")
 ;; xhtml: validated structurally elsewhere; accept any non-empty here.
-(define px:xhtml    #px"^(?:[\\s\\S])+$")
+(define px:xhtml    #px"^[\\s\\S]")
 
 (define px:id        #px"^(?:[A-Za-z0-9\\-\\.]{1,64})$")
 (define px:code      #px"^(?:[^\\s]+(?: [^\\s]+)*)$")
@@ -73,4 +76,10 @@
   (check-true  (ok? px:dateTime "2015-02-07T13:28:17-05:00"))
   (check-false (ok? px:dateTime "2015-02-07T13:28:17"))    ; time REQUIRES a timezone
   (check-true  (ok? px:instant "2015-02-07T13:28:17.239+02:00"))
-  (check-false (ok? px:instant "2015-02-07")))             ; instant requires full precision
+  (check-false (ok? px:instant "2015-02-07"))              ; instant requires full precision
+  ;; string-like: exactly the spec's ^[\s\S]+$ — any non-empty value, whitespace and newlines too
+  (for ([px (list px:string px:markdown px:xhtml)])
+    (check-false (ok? px ""))
+    (for ([s (list "a" " " "\n" "line one\nline two" (make-string 5000 #\x))])
+      (check-true (ok? px s))
+      (check-equal? (ok? px s) (regexp-match? #px"^(?:[\\s\\S])+$" s)))))

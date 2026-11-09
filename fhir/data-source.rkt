@@ -16,7 +16,7 @@
 ;;; beneficiary or individual (the elements CQL's patient context and the core compartment use), and
 ;;; the Patient itself by id.
 
-(require racket/contract racket/list racket/string racket/file
+(require racket/contract racket/list
          (only-in json read-json))
 
 (provide

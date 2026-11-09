@@ -17,7 +17,8 @@
 ;;; primitive; BackboneElement/Element with children -> the nested type; a registered complex type or
 ;;; resource -> #(type Name); Resource -> #(resource); anything else -> #(unknown).
 
-(require racket/contract racket/list racket/string
+(require (only-in fhir/canonical canonical-url)
+         racket/contract racket/list racket/string
          (only-in fhir/model/registry register-type! register-element! type-registered? type-spec-of
                   primitive-name? fhir-spec fhir-spec-url fhir-spec-constraint)
          (only-in fhir/model/schema type-schema schema-field max-of)
@@ -40,7 +41,7 @@
   (and (string? t) (string->symbol (last (string-split t "/")))))
 
 (define (resolve-structure-definition/data url)
-  (define u (car (regexp-split #rx"[|]" url)))
+  (define u (canonical-url url))
   (or (findf (lambda (sd) (equal? (jref sd 'url) u))
              ((data-source-all (current-data-source)) "StructureDefinition"))
       (registered-resource "StructureDefinition" u)            ; what a required module defined

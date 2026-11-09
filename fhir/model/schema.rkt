@@ -9,7 +9,7 @@
 ;;; inside the compile-time form macros (lang-gen/form-syntax.rkt).
 
 (require racket/contract
-         (only-in fhir/contracts discriminator/c ftype/c))
+         (only-in fhir/contracts ftype/c))
 
 (provide (struct-out type-schema)
          (struct-out schema-field)
@@ -148,30 +148,31 @@
 
 (define (inherited-field-names parent) (hash-ref inherited parent '()))
 
-;; default value for an inherited field
-(define (inherited-field-default name)
-  (case name
-    [(extension contained modifierExtension) '()]
-    [else #f]))
+;; The framework's inherited fields as one table, name -> (framework-field ftype max default); every
+;; one is min 0. `id` is a plain string (its FHIRPath type is System.String); Resource.implicitRules
+;; (uri) and Resource.language (code) are FHIR primitives: they can carry `_implicitRules`/`_language`
+;; extensions, and FHIRPath's hasValue() is true on them (the ele-1 invariant on Resource.language
+;; depends on it). The list-valued fields are 0..* and default to '().
+(struct framework-field (ftype max default))
+(define framework-fields
+  (hasheq 'id                (framework-field (vector 'raw)            1  #f)
+          'meta              (framework-field (vector 'type 'Meta)     1  #f)
+          'implicitRules     (framework-field (vector 'prim "uri")     1  #f)
+          'language          (framework-field (vector 'prim "code")    1  #f)
+          'text              (framework-field (vector 'type 'Narrative) 1 #f)
+          'contained         (framework-field (vector 'resource)       '* '())
+          'extension         (framework-field (vector 'type 'Extension) '* '())
+          'modifierExtension (framework-field (vector 'type 'Extension) '* '())))
+;; an unknown name reads as an unknown, optional, single field
+(define unknown-field (framework-field (vector 'unknown) 1 #f))
+(define (framework-field-of name) (hash-ref framework-fields name unknown-field))
 
-;; ftype of an inherited field (for read/write). Only `id` is a plain string (its FHIRPath type is
-;; System.String). Resource.implicitRules (uri) and Resource.language (code) are FHIR primitives:
-;; they can carry `_implicitRules`/`_language` extensions, and FHIRPath's hasValue() is true on them
-;; (the ele-1 invariant on Resource.language depends on it).
-(define (inherited-field-ftype name)
-  (case name
-    [(id)                (vector 'raw)]
-    [(implicitRules)     (vector 'prim "uri")]
-    [(language)          (vector 'prim "code")]
-    [(meta)              (vector 'type 'Meta)]
-    [(text)              (vector 'type 'Narrative)]
-    [(contained)         (vector 'resource)]
-    [(extension modifierExtension) (vector 'type 'Extension)]
-    [else                (vector 'unknown)]))
-
-;; cardinality of an inherited field. All are min 0; list-valued ones are 0..*, the rest 0..1.
-(define (inherited-field-max name)
-  (case name [(extension contained modifierExtension) '*] [else 1]))
+;; inherited-field-default : name -> value   its value when absent
+(define (inherited-field-default name) (framework-field-default (framework-field-of name)))
+;; inherited-field-ftype : name -> Ftype   for read/write
+(define (inherited-field-ftype name) (framework-field-ftype (framework-field-of name)))
+;; inherited-field-max / -min : name -> cardinality bound
+(define (inherited-field-max name) (framework-field-max (framework-field-of name)))
 (define (inherited-field-min name) 0)
 (define (inherited-field-kind name) (card->kind (inherited-field-min name) (inherited-field-max name)))
 

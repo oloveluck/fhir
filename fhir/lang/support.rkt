@@ -28,10 +28,9 @@
 ;;; A Position is (cons line character), 0-based.
 ;;; A hub never lets an adapter's failure escape: diagnose-safely turns one into a diagnostic.
 
-(require racket/contract racket/string racket/list racket/path json
+(require racket/contract racket/string racket/list racket/path
          (only-in fhir/diagnostic diagnostic diagnostic? loc loc-source diagnostic-loc
-                  exn:fail:diagnostic? exn:fail:diagnostic-diagnostic diagnostic->jsexpr diagnostic->string
-                  diagnostic-severity))
+                  exn:fail:diagnostic? exn:fail:diagnostic-diagnostic))
 
 (provide
  (struct-out lang-support) (struct-out entity) (struct-out project)

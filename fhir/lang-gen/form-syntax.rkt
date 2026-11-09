@@ -15,12 +15,11 @@
 ;;; This module is required `for-syntax` by the generated modules; `build-fhir-form` runs in the
 ;;; transformer (phase 1), using the primitive registry for literal validation.
 
-(require racket/list
-         syntax/parse
+(require syntax/parse
          racket/contract
          (only-in fhir/model/schema
                   schema-entry/c
-                  ftype-tag ftype-prim-code ftype-type-name ftype-prim? ftype-raw?
+                  ftype-tag ftype-prim-code ftype-type-name ftype-prim?
                   fs-name fs-kind fs-ftype fs-req fs-extra fs-choice?
                   choice-min choice-max choice-members)
          (only-in fhir/model/registry constructor-of)

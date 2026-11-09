@@ -11,16 +11,17 @@
 ;;; OperationOutcome node. Validate the RAW jsexpr (lenient parsing would hide unknown elements); the
 ;;; typed node is used only for invariants.
 
-(require racket/contract (only-in json jsexpr->string string->jsexpr)
+(require (only-in fhir/canonical canonical-url)
+         racket/contract (only-in json jsexpr->string string->jsexpr)
          racket/string
          racket/list
-         (only-in fhir/sd/sd-index resolve-sd-raw current-sd-packages)
+         (only-in fhir/sd/sd-index resolve-sd-raw current-sd-packages sd-context)
          (only-in fhir/sd/element-index
-                  make-element-index element-index? index-elements index-root child-elements slices-of
+                  make-element-index index-elements index-root child-elements slices-of
                   index-by-id type-index opaque-type?)
          (only-in fhir/model/leaf listify)
          (only-in fhir/model/binding binding-expansion)
-         (only-in fhir/sd/snapshot generate-snapshot)
+         (only-in fhir/sd/snapshot generate-snapshot shipped-snapshot)
          (only-in fhir/serialize/from-json from-json)
          (only-in fhir/serialize/to-json node->jsexpr)
          (only-in fhir/serialize/read-json jnum? jnum-lexeme jnum-value)
@@ -41,6 +42,16 @@
   ;; packages, as rows — what a worker process (fhir/parallel) can be handed and can answer
   [write-errors/rows (-> (list/c string? (listof string?)) (listof (list/c string? string? (or/c string? #f) string?)))]))
 
+;; ---- data -----------------------------------------------------------------------------------
+;; An Issue is (issue severity code path msg): severity "error" | "warning" | "fatal"; code an
+;; OperationOutcome issue-type code ("structure", "required", "value", "invalid", "code-invalid",
+;; "invariant"); path the dotted element path ("Observation.component.value[x]") or #f; msg a sentence.
+;; An ElementDef is a snapshot ElementDefinition as raw jsexpr (path, id, min, max, type, fixed[x],
+;; pattern[x], binding, slicing, constraint, …); an Index is fhir/sd/element-index's element-index
+;; over a snapshot (children by path, slices, by id).
+;; A Pin is (list disc-path kind value): a slice's pinned value for one discriminator, kind 'fixed
+;; or 'pattern (see slice-pins). A Membership is 'yes | 'no | 'unknown (a code in a value set;
+;; 'unknown is fail-open).
 (struct issue (severity code path msg) #:transparent)
 
 ;; write-errors/rows : (list json-text (listof package-path)) -> (listof (list severity code path msg))
@@ -53,14 +64,16 @@
       (list (issue-severity i) (issue-code i) (issue-path i) (issue-msg i)))))
 
 ;; ---- entry -----------------------------------------------------------------------------------
-;; Invariants are OFF by default: our FHIRPath engine (TCK-complete, but not identical to the Java
-;; reference on every real constraint) mis-evaluates some base invariants (ele-1, sdf-8, csd-1) and
-;; would over-report. Structural + binding checks are proven fail-open-clean on valid R5 resources.
+;; validate-json : jsexpr [#:profiles #:terminology #:invariants? #:duplicates] -> OperationOutcome
+;; Invariants are ON by default (since 2026-11-05): each runs at its element with %resource,
+;; %rootResource and %context bound; the universal base keys (ele-1, ext-1, dom-*) and constraints on
+;; slices are left out, and anything that does not evaluate holds (fail-open).
 (define (validate-json json #:profiles [profiles '()] #:terminology [tx #f] #:invariants? [inv? #t] #:duplicates [dups '()])
   (issues->outcome (validate-issues json #:profiles profiles #:terminology tx #:invariants? inv? #:duplicates dups)))
 
 ;; `duplicates` are dotted paths of collapsed duplicate JSON keys (from read-fhir-json/duplicates) —
 ;; a fact the reader observed, so reporting them is never a false positive. Each is one error issue.
+;; validate-issues : jsexpr [#:profiles #:terminology #:invariants? #:duplicates] -> (listof Issue)
 (define (validate-issues json #:profiles [profiles '()] #:terminology [tx #f] #:invariants? [inv? #t] #:duplicates [dups '()])
   ;; keep the jnum-bearing tree: decimals must be validated on their exact lexeme (a stripped number
   ;; loses the precision the FHIR decimal regex is about). Per-check helpers strip where needed.
@@ -87,6 +100,7 @@
 
 ;; element indexes to validate against: the base type via the cached `type-index`, plus meta.profile +
 ;; supplied profiles whose `type` matches (their snapshots generated on demand)
+;; target-indexes : type-code jsexpr (listof SD) -> (listof Index)
 (define (target-indexes rt json profiles)
   (define metaprofs
     (let ([m (hash-ref json 'meta #f)]) (if (hash? m) (let ([p (hash-ref m 'profile '())]) (if (list? p) p '())) '())))
@@ -100,21 +114,27 @@
 ;; resolvable (an IG profile deriving from another IG profile), generation yields little more than
 ;; the differential, and validating against THAT would report every unmentioned element as
 ;; undefined. An index whose root has no children is unusable — discard it.
+;; idx-of : SD -> element-index | #f   memoised per SD (by identity) and package context: a profile
+;; that many resources claim had its snapshot generated again for every one of them
+(define profile-indexes (make-weak-hasheq))
 (define (idx-of sd)
-  (define shipped (let ([s (hash-ref sd 'snapshot #f)]) (and (hash? s) (hash-ref s 'element #f))))
-  (define snap (cond [(and (list? shipped) (pair? shipped)) shipped]
-                     [(hash-ref sd 'differential #f) (generate-snapshot sd)]
-                     [else #f]))
+  (define by-context (hash-ref! profile-indexes sd make-hash))
+  (hash-ref! by-context (sd-context) (lambda () (build-idx sd))))
+;; build-idx : SD -> Index | #f
+(define (build-idx sd)
+  (define snap (or (shipped-snapshot sd) (and (hash-ref sd 'differential #f) (generate-snapshot sd))))
   (define idx (and (list? snap) (pair? snap) (make-element-index snap)))
   (and idx (usable-index? idx) idx))
 
 ;; usable when the root element actually has children to validate against
+;; usable-index? : Index -> boolean
 (define (usable-index? idx)
   (define root (index-root idx))
   (and root (pair? (child-elements idx (hash-ref root 'path "")))))
 
 ;; ---- structural walk -------------------------------------------------------------------------
 ;; walk the JSON object `obj` sitting at snapshot `path`, against element-index `idx`
+;; walk : Index path jsexpr tx -> (listof Issue)
 (define (walk idx path obj tx)
   (cond
     [(not (hash? obj)) '()]
@@ -129,6 +149,7 @@
       (append-map (lambda (ce) (child-issues idx path ce obj tx)) children))]))
 
 (define id-rx #px"^[A-Za-z0-9.-]{1,64}$")
+;; resource-id-issues : path jsexpr -> (listof Issue)   a resource id must match the FHIR id grammar
 (define (resource-id-issues path obj)
   (define id (hash-ref obj 'id #f))
   (if (and (string? id) (not (regexp-match? id-rx id)))
@@ -138,6 +159,7 @@
 ;; every contained resource must have an id, and those ids must be UNIQUE within the container
 ;; (they are the targets of that resource's internal `#id` references). Purely structural — a
 ;; duplicate is unambiguously invalid, so this can never be a false positive.
+;; contained-id-issues : path jsexpr -> (listof Issue)
 (define (contained-id-issues path obj)
   (define contained (let ([c (hash-ref obj 'contained #f)]) (if (list? c) c '())))
   (define ids (for/list ([c (in-list contained)] #:when (hash? c)) (hash-ref c 'id #f)))
@@ -150,6 +172,8 @@
     (issue "error" "invalid" (string-append path ".contained")
            (format "duplicate contained resource id '~a'" id))))
 
+;; child-issues : Index path ElementDef jsexpr tx -> (listof Issue)   one child element of `obj`: its
+;; matched keys (choice variants narrowed), cardinality, empty arrays, values, and the slicing on it
 (define (child-issues idx path ce obj tx)
   (define leaf (elem-leaf ce path))
   ;; keys aimed at this element with an ALLOWED variant (a disallowed choice variant is left for
@@ -178,6 +202,7 @@
    (slice-issues idx path ce obj tx)))
 
 ;; per-instance value checks, against the element's concrete (narrowed) type `tc`
+;; value-issues : Index ElementDef type-code loc value tx -> (listof Issue)
 (define (value-issues idx ce tc loc v tx)
   (append (fixed-pattern-issues ce loc v)
           (primitive-issues tc loc v)
@@ -185,6 +210,7 @@
           (recurse-issues idx ce tc loc v tx)))
 
 ;; recurse into a complex value (of concrete type `tc`): nested resource | backbone | datatype jump
+;; recurse-issues : Index ElementDef type-code loc value tx -> (listof Issue)
 (define (recurse-issues idx ce tc loc v tx)
   (cond
     [(list? v) (append-map (lambda (x) (recurse-issues idx ce tc loc x tx)) v)]
@@ -200,6 +226,7 @@
            [else '()])]))
 
 ;; ---- rule functions --------------------------------------------------------------------------
+;; cardinality-issues : ElementDef path leaf count -> (listof Issue)
 (define (cardinality-issues ce path leaf count)
   (define minv (hash-ref ce 'min 0))
   (define maxv (hash-ref ce 'max "*"))
@@ -211,6 +238,8 @@
        (list (issue "error" "structure" (child-loc path leaf)
                     (format "maximum allowed = ~a, but found ~a" maxv count))) '())))
 
+;; unknown-element-issues : path jsexpr (listof ElementDef) -> (listof Issue)   keys no child
+;; element (nor a `_` sibling of one) accounts for
 (define (unknown-element-issues path obj children)
   (for/list ([k (in-list (hash-keys obj))]
              #:unless (or (eq? k 'resourceType)
@@ -221,6 +250,7 @@
            (format "element '~a' is not defined at ~a" k path))))
 
 ;; fixed[x] must equal; pattern[x] must be contained (recursive subset)
+;; fixed-pattern-issues : ElementDef loc value -> (listof Issue)
 (define (fixed-pattern-issues ce loc v)
   (append
    (cond [(choice-value ce "fixed") => (lambda (fx) (if (equal? (prune fx) (prune v)) '()
@@ -240,11 +270,13 @@
 ;; numbers for the numeric types, a JSON boolean for boolean, a JSON string for everything else.
 ;; A decimal written as "1" (a string) is invalid JSON FHIR however well the lexeme parses — a
 ;; fact about the DOCUMENT, so reporting it can never be a false positive.
+;; json-shape-issue : type-code loc value -> (listof Issue)
 (define (json-shape-issue tc loc v)
   (define expected
-    (cond [(member tc '("decimal" "integer" "integer64" "positiveInt" "unsignedInt")) 'number]
-          [(equal? tc "boolean") 'boolean]
-          [else 'string]))
+    (case tc
+      [("decimal" "integer" "integer64" "positiveInt" "unsignedInt") 'number]
+      [("boolean") 'boolean]
+      [else 'string]))
   (define actual
     (cond [(jnum? v) 'number] [(number? v) 'number] [(boolean? v) 'boolean]
           [(string? v) 'string] [else 'other]))
@@ -253,10 +285,19 @@
       (list (issue "error" "invalid" loc
                    (format "~a must be a JSON ~a, not a ~a" tc expected actual)))))
 
+;; primitive-issues : type-code|#f loc value -> (listof Issue)   a scalar primitive value: its JSON
+;; shape, then its lexical form
 (define (primitive-issues tc loc v)
   (cond
     [(or (not tc) (not (primitive-code? tc)) (hash? v) (list? v)) '()]   ; only scalar primitives
-    [(pair? (json-shape-issue tc loc v)) (json-shape-issue tc loc v)]
+    [else
+     (define shape (json-shape-issue tc loc v))
+     (if (pair? shape) shape (lexical-issues tc loc v))]))
+
+;; lexical-issues : type-code loc value -> (listof issue)   the value against its primitive's
+;; validating constructor (the JSON shape already right)
+(define (lexical-issues tc loc v)
+  (cond
     [else
      ;; decimals validate on a string LEXEME (make-decimal rejects Racket numbers): the exact jnum
      ;; lexeme when available (read-fhir-json), else the plain number's printed form; others on the value
@@ -264,7 +305,7 @@
                          [(and (equal? tc "decimal") (number? v)) (number->string v)]
                          [(jnum? v) (jnum-value v)]
                          [else v]))
-     (define ctor (constructor-of (string->symbol tc)))
+     (define ctor (primitive-constructor tc))
      (cond [(not ctor) '()]
            [(let ([r (with-handlers ([exn:fail? (lambda (_) (err #f))]) (ctor input))]) (and (not (ok? r))))
             (list (issue "error" "invalid" loc (format "'~a' is not a valid ~a" input tc)))]
@@ -273,17 +314,27 @@
             (list (issue "error" "invalid" loc "canonical URL cannot end in '|'"))]
            [else '()])]))
 
+;; primitive-constructor : type-code -> constructor|#f   by code string (interned once per code;
+;; only a found constructor is kept, so a lookup made before a tower registers stays open)
+(define primitive-ctors (make-hash))
+(define (primitive-constructor tc)
+  (or (hash-ref primitive-ctors tc #f)
+      (let ([c (constructor-of (string->symbol tc))])
+        (when c (hash-set! primitive-ctors tc c))
+        c)))
+
 ;; required binding: a bound `code`/coded value must be a member of the ValueSet. Membership comes
 ;; from the tx-service when one is supplied, else from the GENERATED offline expansions
 ;; (model/binding.rkt — populated by the loaded tower's terminology.rkt); both are exact, so a
 ;; 'no is never a false positive, and everything else stays fail-open.
+;; binding-issues : ElementDef loc value tx -> (listof Issue)
 (define (binding-issues ce loc v tx)
   (define b (hash-ref ce 'binding #f))
   (cond
     [(or (not (hash? b)) (not (equal? (hash-ref b 'strength #f) "required"))) '()]
     [else
      ;; the binding valueSet often carries a |version suffix; resolve against the canonical
-     (define vs (let ([u (hash-ref b 'valueSet #f)]) (and (string? u) (car (string-split u "|")))))
+     (define vs (let ([u (hash-ref b 'valueSet #f)]) (and (string? u) (canonical-url u))))
      (define codes (coded-values ce v))               ; (listof (cons system code))
      (cond
        [(or (not vs) (null? codes)) '()]
@@ -292,6 +343,7 @@
        [else '()])]))                                  ; any yes/unknown -> fail-open
 
 ;; -> 'yes | 'no | 'unknown. tx first when present; the offline expansion decides otherwise.
+;; member? : tx|#f value-set-url code system|#f -> Membership
 (define (member? tx vs code system)
   (define via-tx (if tx (tx-member? tx vs code system) 'unknown))
   (cond
@@ -305,6 +357,7 @@
 ;; value/pattern discriminator slicing: each declared slice with min>=1 must have >=min matching
 ;; instances. Fail-open at every step: a slicing whose discriminators aren't all value/pattern, a
 ;; slice whose pinned value can't be resolved, or an undecidable per-instance match -> skip.
+;; slice-issues : Index path ElementDef jsexpr [tx] -> (listof Issue)
 (define (slice-issues idx path ce obj [tx #f])
   (define slices (slices-of idx (hash-ref ce 'path)))
   (define discs (discriminator-paths ce))
@@ -396,6 +449,7 @@
 
 ;; the base element's discriminator paths — (listof path-string), but ONLY when every declared
 ;; discriminator is value/pattern (any other kind makes the whole slicing undecidable for us)
+;; discriminator-paths : ElementDef -> (listof path-string) | #f
 (define (discriminator-paths ce)
   (define slicing (hash-ref ce 'slicing #f))
   (define ds (and (hash? slicing) (hash-ref slicing 'discriminator #f)))
@@ -407,6 +461,7 @@
 
 ;; a slice's pinned value per discriminator: fixed[x]/pattern[x] on the slice element itself
 ;; ("$this") or on its child element at <slice-id>.<disc-path>. #f when any pin is unresolvable.
+;; slice-pins : Index ElementDef (listof path-string) -> (listof Pin) | #f
 (define (slice-pins idx sl discs)
   (define pins
     (for/list ([dp (in-list discs)])
@@ -423,6 +478,7 @@
 
 ;; does the instance match EVERY pinned discriminator? fixed -> equality, pattern -> subset,
 ;; both on pruned values; a dotted path navigates the raw jsexpr (a list step matches any element)
+;; slice-match? : (listof Pin) jsexpr -> boolean
 (define (slice-match? pins inst)
   (for/and ([pin (in-list pins)])
     (define dp (car pin))
@@ -437,6 +493,7 @@
 ;; all values at a dotted path within a raw jsexpr (lists fan out — also at the END of the path: a
 ;; discriminator on a repeating element, `category.coding`, matches when ANY coding does; returning the
 ;; list itself compared the pattern against the list and rejected every valid instance)
+;; json-at : jsexpr (listof string) -> (listof jsexpr)
 (define (json-at v segs)
   (cond [(null? segs) (if (list? v) v (list v))]
         [(list? v) (append-map (lambda (x) (json-at x segs)) v)]
@@ -445,25 +502,43 @@
         [else '()]))
 
 ;; ---- invariants (FHIRPath) -------------------------------------------------------------------
+;; An InvariantSite is (site path rel constraints): an element of an index that carries constraints
+;; worth evaluating — its path, the path relative to the resource ("" = the root) and its
+;; constraints with an expression and not universal. Which elements those are depends only on the
+;; index, so the list is built once per index; a resource then evaluates just those sites (it used
+;; to re-split and re-filter every element of the index for every resource).
+(struct site (path rel constraints))
+(define index-sites (make-weak-hasheq))
+;; invariant-sites : Index -> (listof InvariantSite)
+(define (invariant-sites idx)
+  (hash-ref! index-sites idx
+             (lambda ()
+               (for*/list ([e (in-list (index-elements idx))]
+                           ;; a constraint on a SLICE (id `Organization.identifier:NPI`) binds that
+                           ;; slice's members only; evaluated at the element's path it would hold every
+                           ;; repetition to it (US Core's us-core-16 "NPI must be 10 digits" on every
+                           ;; Organization identifier). Slice membership is not decided here, so slice
+                           ;; constraints are left unchecked — fail-open.
+                           #:unless (regexp-match? #rx":" (hash-ref e 'id ""))
+                           [cs (in-value (filter checked-constraint? (hash-ref e 'constraint '())))]
+                           #:when (pair? cs))
+                 (site (hash-ref e 'path) (rel-path (hash-ref e 'path)) cs)))))
+
+;; checked-constraint? : constraint -> boolean   has an expression and is not a universal invariant
+(define (checked-constraint? c)
+  (and (hash-ref c 'expression #f) (not (member (hash-ref c 'key #f) universal-invariants)) #t))
+
+;; invariant-issues : index type node|#f -> (listof issue)
 (define (invariant-issues idx type node)
   (cond
     [(not node) '()]
     [else
      (append-map
-      (lambda (e)
-        (define cs (hash-ref e 'constraint '()))
-        (cond
-          [(null? cs) '()]
-          ;; a constraint on a SLICE (id `Organization.identifier:NPI`) binds that slice's members
-          ;; only; evaluated at the element's path it would hold every repetition to it (US Core's
-          ;; us-core-16 "NPI must be 10 digits" on every Organization identifier). Slice membership
-          ;; is not decided here, so slice constraints are left unchecked — fail-open.
-          [(regexp-match? #rx":" (hash-ref e 'id "")) '()]
-          [else
-           (define rel (rel-path (hash-ref e 'path)))
-           (define foci (focus-items rel node))
-           (append-map (lambda (c) (append-map (lambda (f) (check-constraint c f (hash-ref e 'path) node)) foci)) cs)]))
-      (index-elements idx))]))
+      (lambda (st)
+        (define foci (focus-items (site-rel st) node))
+        (append-map (lambda (c) (append-map (lambda (f) (check-constraint c f (site-path st) node)) foci))
+                    (site-constraints st)))
+      (invariant-sites idx))]))
 
 ;; the universal base invariants (Element/DomainResource/Extension) — structural, ubiquitous, and
 ;; sensitive to exact children()/hasValue() semantics. Our structural checks approximate them; skip
@@ -473,11 +548,11 @@
 ;; the constraint's FHIRPath runs on the focus with %resource/%rootResource = the resource and
 ;; %context = the focus (sdf-8 compares an element path with %resource.type; without the binding the
 ;; variable fell to the focus and 593 of the core package's own StructureDefinitions "failed")
+;; check-constraint : constraint focus path root -> (listof Issue)
 (define (check-constraint c focus path root)
   (define expr (hash-ref c 'expression #f))
   (cond
     [(not expr) '()]
-    [(member (hash-ref c 'key #f) universal-invariants) '()]
     [else
      (define result (with-handlers ([exn:fail? (lambda (_) 'skip)])
                       (map item->system (eval-fhirpath (parse-fhirpath expr) (list focus)
@@ -491,6 +566,7 @@
          '())]))
 
 ;; the focus node(s) for an element's relative path (""=root)
+;; focus-items : relative-path node -> (listof node)
 (define (focus-items rel node)
   (cond [(equal? rel "") (list node)]
         [else (with-handlers ([exn:fail? (lambda (_) '())]) (eval-fhirpath (parse-fhirpath rel) (list node)))]))
@@ -498,6 +574,7 @@
 ;; ---- terminology helper ----------------------------------------------------------------------
 ;; -> 'yes | 'no | 'unknown. Fail-open: return 'no ONLY when the ValueSet demonstrably expands to a
 ;; non-empty set offline (so we truly know its members) and the code is absent; otherwise 'unknown.
+;; tx-member? : tx value-set-url code system|#f -> Membership
 (define (tx-member? tx vs code system)
   (with-handlers ([exn:fail? (lambda (_) 'unknown)])
     (define exp ((tx-service-expand tx) vs))
@@ -519,13 +596,17 @@
        (cond [(eq? result #t) 'yes] [(eq? result #f) 'no] [else 'unknown])])))
 
 ;; ---- small helpers ---------------------------------------------------------------------------
+;; elem-leaf : ElementDef parent-path -> leaf   the element's own step ("value[x]")
 (define (elem-leaf ce parent)
   (define p (hash-ref ce 'path))
   (if (string-prefix? p (string-append parent ".")) (substring p (add1 (string-length parent))) p))
+;; child-loc : path leaf -> path
 (define (child-loc path leaf) (string-append path "." leaf))
+;; choice-leaf? : leaf -> boolean
 (define (choice-leaf? leaf) (string-suffix? leaf "[x]"))
 ;; does JSON key `key` aim at the element whose leaf is `leaf` (a plain name, or a `value[x]` base +
 ;; any Capitalized suffix)? This is only the NAME match — variant-type checks the suffix is allowed.
+;; key-targets-leaf? : leaf symbol -> boolean
 (define (key-targets-leaf? leaf key)
   (define k (symbol->string key))
   (cond [(choice-leaf? leaf)
@@ -536,6 +617,7 @@
 
 ;; for a choice element, the concrete type behind a matched key -> a type-code string (allowed
 ;; variant), 'any (element declares no types -> accept, fail-open), or #f (suffix not a declared type)
+;; variant-type : leaf ElementDef symbol -> type-code | 'any | #f
 (define (variant-type leaf ce key)
   (define base (substring leaf 0 (- (string-length leaf) 3)))
   (define suffix (substring (symbol->string key) (string-length base)))
@@ -544,24 +626,31 @@
         [else (for/or ([tc (in-list types)]) (and (string=? suffix (capitalize tc)) tc))]))
 
 ;; the concrete type for a matched key (choice -> its variant; non-choice -> the single type), or #f
+;; matched-type : leaf ElementDef symbol -> type-code | #f
 (define (matched-type leaf ce key)
   (cond [(choice-leaf? leaf) (let ([vt (variant-type leaf ce key)]) (and (string? vt) vt))]
         [else (single-type-code ce)]))
 
 ;; a key that aims at a choice element but whose suffix is not a declared type is a disallowed variant
+;; allowed-key? : leaf ElementDef symbol -> boolean
 (define (allowed-key? leaf ce key)
   (and (key-targets-leaf? leaf key) (or (not (choice-leaf? leaf)) (and (variant-type leaf ce key) #t))))
 
+;; capitalize : string -> string   first character upper-cased
 (define (capitalize s)
   (if (= 0 (string-length s)) s (string-append (string-upcase (substring s 0 1)) (substring s 1))))
 (define instances-of listify)   ; a repeating property read -> always a list (model/leaf)
 
 ;; element type codes (from raw SD element.type[].code)
+;; elem-type-codes : ElementDef -> (listof type-code|#f)
 (define (elem-type-codes ce) (for/list ([t (in-list (hash-ref ce 'type '()))]) (hash-ref t 'code #f)))
+;; single-type-code : ElementDef -> type-code | #f   the code when the element declares exactly one
 (define (single-type-code ce) (let ([ts (elem-type-codes ce)]) (and (pair? ts) (null? (cdr ts)) (car ts))))
+;; primitive-code? : any -> boolean   a FHIR primitive type code (lower-case first letter)
 (define (primitive-code? tc) (and (string? tc) (> (string-length tc) 0) (char-lower-case? (string-ref tc 0))))
 
 ;; a fixed[x]/pattern[x] value on an element: scan keys prefixed "fixed"/"pattern"
+;; choice-value : ElementDef prefix -> jsexpr | #f
 (define (choice-value ce prefix)
   (for/or ([(k v) (in-hash ce)])
     (define ks (symbol->string k))
@@ -569,6 +658,7 @@
          (char-upper-case? (string-ref ks (string-length prefix))) v)))
 
 ;; coded values for binding: 'code scalar -> (#f . code); Coding -> (system . code); CodeableConcept -> its codings
+;; coded-values : ElementDef value -> (listof (cons system|#f code))
 (define (coded-values ce v)
   (define tc (single-type-code ce))
   (cond
@@ -580,6 +670,7 @@
     [else '()]))
 
 ;; an element path relative to its resource root ("" = the root itself)
+;; rel-path : path -> path
 (define (rel-path p)
   (define segs (string-split p "."))
   (if (> (length segs) 1) (string-join (cdr segs) ".") ""))
@@ -587,6 +678,7 @@
 ;; strip JSON nulls and empty arrays (and unwrap jnum -> its number) for fixed/pattern comparison.
 ;; JSON `false` is a VALUE and must survive — dropping it would make a fixed/pattern boolean false
 ;; unverifiable.
+;; prune : jsexpr -> jsexpr
 (define (prune v)
   (cond [(jnum? v) (jnum-value v)]
         [(hash? v) (for/hash ([(k x) (in-hash v)]
@@ -595,11 +687,13 @@
         [(list? v) (map prune v)]
         [else v]))
 ;; every key/elt of `pat` present+matching in `v` (recursive subset)
+;; json-contains? : pattern jsexpr -> boolean
 (define (json-contains? pat v)
   (cond [(and (hash? pat) (hash? v)) (for/and ([(k pv) (in-hash pat)]) (and (hash-has-key? v k) (json-contains? pv (hash-ref v k))))]
         [(and (list? pat) (list? v)) (for/and ([p (in-list pat)]) (for/or ([x (in-list v)]) (json-contains? p x)))]
         [else (equal? pat v)]))
 
+;; issues->outcome : (listof Issue) -> OperationOutcome node
 (define (issues->outcome issues)
   (ok-or-raise
    (from-json

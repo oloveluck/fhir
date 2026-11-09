@@ -94,7 +94,10 @@
 ;; a per-field index: name -> (cons ftype kind). Climbs the whole parent chain (own fields win),
 ;; picking up fields from any GENERATED ancestor (e.g. Age -> Quantity, a constraint type with no
 ;; own fields) and, at the framework base, the inherited framework fields (id/extension/…).
-(define (field-index type sch)
+;; It depends only on the schema, so it is built once per schema (it was rebuilt for every node).
+(define field-indexes (make-weak-hasheq))
+(define (field-index type sch) (hash-ref! field-indexes sch (lambda () (build-field-index sch))))
+(define (build-field-index sch)
   (let loop ([sch sch] [acc (hasheq)])
     (define acc2
       (for/fold ([h acc]) ([f (in-list (type-schema-fields sch))])
@@ -114,9 +117,16 @@
 ;; the "_field" siblings of a JSON object: base-name(symbol) -> underscore value
 (define (underscore-map js)
   (for/hasheq ([(k v) (in-hash js)] #:when (underscore-key? k))
-    (values (string->symbol (substring (symbol->string k) 1)) v)))
+    (values (underscore-base k) v)))
 
-(define (underscore-key? k) (string-prefix? (symbol->string k) "_"))
+;; underscore-base : symbol -> symbol|#f   `_birthDate` -> 'birthDate; #f for a key without the `_`.
+;; Memoised per key: every object of every resource asks it of every key.
+(define underscore-bases (make-weak-hasheq))
+(define (underscore-base k)
+  (hash-ref! underscore-bases k
+             (lambda () (let ([s (symbol->string k)])
+                          (and (string-prefix? s "_") (string->symbol (substring s 1)))))))
+(define (underscore-key? k) (and (underscore-base k) #t))
 
 ;; parse a field's value(s), merging in any `_field` sibling(s).
 (define (parse-field ft kind js sib)

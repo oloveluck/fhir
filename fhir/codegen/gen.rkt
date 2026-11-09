@@ -13,7 +13,6 @@
          racket/list
          racket/string
          racket/contract
-         racket/runtime-path
          (only-in json jsexpr->string)
          "load-spec.rkt"
          "structure-definition.rkt"

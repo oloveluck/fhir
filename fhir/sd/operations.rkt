@@ -7,7 +7,8 @@
 ;;; The base definitions resolve through `current-sd-packages` (fhir/sd/sd-index) and the current
 ;;; data source's StructureDefinitions (fhir/data-source), the data source first.
 
-(require (only-in fhir/r5/operations snapshot-definition)
+(require (only-in fhir/canonical canonical-url)
+         (only-in fhir/r5/operations snapshot-definition)
          fhir/operation fhir/data-source
          (only-in fhir/registry registered-resource)
          (only-in fhir/sd/sd-index resolve-sd-raw)
@@ -18,7 +19,7 @@
 ;; resolve-structure-definition : canonical -> SD | #f   the current data source, then the resources
 ;; modules registered (fhir/registry), then the packages
 (define (resolve-structure-definition url)
-  (define u (car (regexp-split #rx"[|]" url)))
+  (define u (canonical-url url))
   (or (findf (lambda (sd) (equal? (hash-ref sd 'url #f) u))
              ((data-source-all (current-data-source)) "StructureDefinition"))
       (registered-resource "StructureDefinition" u)

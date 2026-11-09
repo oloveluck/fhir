@@ -15,7 +15,6 @@
          file/gunzip
          file/untar
          racket/contract
-         racket/list
          "structure-definition.rkt")
 
 (provide

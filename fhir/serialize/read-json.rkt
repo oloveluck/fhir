@@ -129,11 +129,25 @@
        (loop)]
       [else (write-char c out) (loop)])))
 
+;; read-unicode : port -> char   the 4 hex digits after `\u`; a UTF-16 surrogate pair
+;; (`\ud83d\ude00`) is one character, and a lone half is an error, as in racket/json
 (define (read-unicode in)
-  (define hex (list->string (for/list ([_ (in-range 4)]) (read-char in))))
-  (define n (string->number hex 16))
-  (unless n (err in "bad \\u escape"))
-  (integer->char n))
+  (define n (read-hex4 in))
+  (cond
+    [(<= #xD800 n #xDBFF)
+     (unless (and (eqv? (read-char in) #\\) (eqv? (read-char in) #\u))
+       (err in "bad \\u escape, missing second half of a UTF-16 pair"))
+     (define lo (read-hex4 in))
+     (unless (<= #xDC00 lo #xDFFF) (err in "bad \\u escape, missing second half of a UTF-16 pair"))
+     (integer->char (+ #x10000 (arithmetic-shift (- n #xD800) 10) (- lo #xDC00)))]
+    [(<= #xDC00 n #xDFFF) (err in "bad \\u escape, missing first half of a UTF-16 pair")]
+    [else (integer->char n)]))
+;; read-hex4 : port -> integer   four hex digits
+(define (read-hex4 in)
+  (define cs (for/list ([_ (in-range 4)]) (read-char in)))
+  (define n (and (andmap char? cs) (string->number (list->string cs) 16)))
+  (unless (exact-nonnegative-integer? n) (err in "bad \\u escape"))
+  n)
 
 ;; read a JSON number, returning (jnum lexeme) with the verbatim text.
 (define (read-number in)
@@ -189,4 +203,11 @@
   (let-values ([(v dups) (read-fhir-json/duplicates (open-input-string "{\"x\":{\"y\":1,\"y\":2}}"))])
     (check-equal? dups '("x.y")))
   (let-values ([(v dups) (read-fhir-json/duplicates (open-input-string "{\"a\":1,\"b\":2}"))])
-    (check-equal? dups '())))
+    (check-equal? dups '()))
+  ;; \u escapes: a BMP character, a surrogate pair as one character (it used to raise), lone halves refused
+  (check-equal? (string->fhir-jsexpr "\"caf\\u00e9\"") "café")
+  (check-equal? (string->fhir-jsexpr "\"\\ud83d\\ude00\"") "\U1F600")
+  (check-exn #rx"second half" (lambda () (string->fhir-jsexpr "\"\\ud83d\"")))
+  (check-exn #rx"second half" (lambda () (string->fhir-jsexpr "\"\\ud83dx\"")))
+  (check-exn #rx"first half" (lambda () (string->fhir-jsexpr "\"\\ude00\"")))
+  (check-exn #rx"bad \\\\u escape" (lambda () (string->fhir-jsexpr "\"\\uzzzz\""))))

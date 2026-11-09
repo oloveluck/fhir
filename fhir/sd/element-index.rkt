@@ -7,10 +7,8 @@
 ;;; `opaque-types` (Resource/Element/…) are not descended into.
 
 (require racket/contract
-         racket/string
-         racket/list
          (only-in "sd-index.rkt" resolve-sd-raw sd-context)
-         (only-in "snapshot.rkt" generate-snapshot))
+         (only-in "snapshot.rkt" generate-snapshot shipped-snapshot opaque-type?))
 
 (provide
  (contract-out
@@ -24,10 +22,17 @@
   [type-index         (-> string? (or/c element-index? #f))]        ; a type code -> its snapshot index
   [opaque-type?       (-> string? boolean?)]))
 
-(struct element-index (elements by-path by-id children slices) #:transparent)
+;; An ElementIndex is (element-index elements by-id children slices) over one snapshot:
+;;   elements — the snapshot's ElementDefinitions (raw jsexpr), in order
+;;   by-id    — id -> the first element with that id
+;;   children — parent path -> its direct, non-slice child elements, in snapshot order
+;;   slices   — path -> the named slices declared at it, in snapshot order
+;; Elements inside a slice (id `Observation.component:systolic.code`) are in `elements` and `by-id`
+;; only: they constrain that slice's members, which are matched by discriminator, never by path.
+(struct element-index (elements by-id children slices) #:transparent)
 
+;; make-element-index : (listof ElementDefinition) -> ElementIndex
 (define (make-element-index elements)
-  (define by-path (make-hash))       ; path -> first (non-slice) element at that path
   (define by-id (make-hash))
   (define children (make-hash))      ; parent-path -> reversed list of direct non-slice children
   (define slices (make-hash))        ; path -> reversed list of named slices
@@ -43,33 +48,36 @@
       ;; by discriminator (slices-of), never by path.
       [(and (string? id) (regexp-match? #rx":" id)) (void)]
       [p
-       (unless (hash-has-key? by-path p) (hash-set! by-path p e))
        (define dot (for/last ([c (in-string p)] [i (in-naturals)] #:when (char=? c #\.)) i))
        (when dot (hash-update! children (substring p 0 dot) (lambda (l) (cons e l)) '()))]))
   ;; freeze to forward-order immutable lists
-  (element-index elements by-path by-id
+  (element-index elements by-id
                  (for/hash ([(k v) (in-hash children)]) (values k (reverse v)))
                  (for/hash ([(k v) (in-hash slices)]) (values k (reverse v)))))
 
+;; index-elements : ElementIndex -> (listof ElementDefinition)
 (define (index-elements idx) (element-index-elements idx))
+;; index-by-id : ElementIndex id -> ElementDefinition | #f
 (define (index-by-id idx id) (hash-ref (element-index-by-id idx) id #f))
 
 ;; the root element (shortest path — the type itself)
+;; index-root : ElementIndex -> ElementDefinition | #f
 (define (index-root idx)
   (define els (element-index-elements idx))
   (and (pair? els) (car els)))
 
 ;; direct non-slice children of `path`, in snapshot order — O(1) hash lookup
+;; child-elements : ElementIndex path -> (listof ElementDefinition)
 (define (child-elements idx path) (hash-ref (element-index-children idx) path '()))
 
 ;; the named slices declared at `path` — O(1) hash lookup
+;; slices-of : ElementIndex path -> (listof ElementDefinition)
 (define (slices-of idx path) (hash-ref (element-index-slices idx) path '()))
 
 ;; ---- type -> element-index (datatype jump), cached ------------------------------------------
-(define opaque-types '("Resource" "DomainResource" "Element" "BackboneElement" "Extension"))
-(define (opaque-type? code) (and (member code opaque-types) #t))
 
 (define type-index-cache (make-hash))
+;; type-index : type-code -> ElementIndex | #f   per package context
 (define (type-index code)
   (cond
     [(opaque-type? code) #f]
@@ -80,8 +88,7 @@
                   (cond
                     [(not sd) #f]
                     [else
-                     (define shipped (let ([s (hash-ref sd 'snapshot #f)]) (and (hash? s) (hash-ref s 'element #f))))
-                     (define snap (if (and (list? shipped) (pair? shipped)) shipped (generate-snapshot sd)))
+                     (define snap (or (shipped-snapshot sd) (generate-snapshot sd)))
                      (and (list? snap) (pair? snap) (make-element-index snap))])))]))
 
 (module+ test

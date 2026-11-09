@@ -7,7 +7,8 @@
 ;;; of each element (path, cardinality, declared types, base path, content reference) — enough for
 ;;; the codegen to nest, expand, and emit.
 
-(require racket/contract racket/string)
+(require (only-in fhir/canonical canonical-url)
+         racket/contract racket/string)
 
 (provide (struct-out structure-definition)
          (struct-out element-definition)
@@ -62,4 +63,4 @@
   (define strength (and (hash? b) (hash-ref b 'strength #f)))
   (define vs (and (hash? b) (hash-ref b 'valueSet #f)))
   (and (string? strength) (string? vs)
-       (cons strength (car (string-split vs "|")))))
+       (cons strength (canonical-url vs))))
