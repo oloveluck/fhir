@@ -1353,6 +1353,32 @@ things close to defects; each change has a test doing what the agent did:
   script takes the id from `Location`; fml's guide filters gender by its code system (tested);
   fhir-authoring says how a hand-written project gets the FSH-examples gate.
 
+## New users, round 20 (2026-11-10)
+The nineteenth rerun (every task first time, 8–12 calls, right answers, no source read) found three
+slips in round 19's own changes and one older defect; each fix has a test doing what the agent did:
+- **The trail CSV is pure CSV**: round 19's `# source and at are relative to …` line after the rows was
+  a junk row in a CSV tool, and it printed from inside the workspace too — `ws` and `ws/` compared
+  as different directories (`at-root?`, workspace.rkt). History's `paths` note now shows only from
+  elsewhere.
+- **A correction made through a RuleSet** is at its `* insert` line (`insert-line` for updates as for
+  creates); it pointed at the Instance header.
+- **The CSV hint names a person's table**: yes/no flags left out when three other columns remain, a
+  column with "name" in it preferred to the patient id, columns null for every patient kept
+  (`readable-columns`) — for the CQL recipe, `Latest Number,Latest Unit,Latest Date,Above 9,Name`.
+- **fsh: a duplicate id's problems at their own instance** (fsh/CLAUDE.md): both instances' errors went
+  to the later file.
+- **`$validate`'s clean answer names the FHIR it was held to** (`All OK (FHIR R5 (5.0.0))`).
+- **`raco fhir guide [topic]`** prints the guides (the same text as `raco fhir-mcp guide`), for the
+  Racket route; `raco fml … --transform … --indent` prints indented, as `write-fhir-json` does.
+- The template's `tests.rkt` finds the invalid example's line by its text (a copy failed on a
+  hard-coded 3).
+- Docs: the skill's latest-HbA1c row gives the whole table command and says hand-placed workspace files
+  are used; learn://workspace opens with the whole blood-pressure program in order and its correction
+  recipe takes `as=source` for RuleSet-written data; the capability guide's stale `#:date` sentence is
+  fixed, its smoke test stops the server by the banner's pid (`kill %1` needs one shell), and an input
+  options table and the type conversion are stated; the fsh skill says `check` takes every
+  subfolder and `.map` file.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

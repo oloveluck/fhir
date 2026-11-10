@@ -87,13 +87,29 @@
   (printf "~a: the pipeline template (fsh/, fsh-invalid/, qr2patient.map, Intake.cql, main.rkt, qr.json, tests.rkt)\n" dir)
   (printf "next: cd ~a && raco test tests.rkt   (then: racket main.rkt qr.json)\n" dir))
 
+;; raco fhir guide [topic] — a guide (the workspace, a language, FHIR itself) printed: the same text
+;; as `raco fhir-mcp guide`, under the family's own command (the Racket route needs no MCP server;
+;; the guides are kept by fhir-mcp, loaded only when asked for)
+(define (cmd-guide topic)
+  (define (need name)
+    (dynamic-require 'fhir/mcp/resources name
+                     (lambda () (eprintf "guide: the guides come with the fhir-mcp package: raco pkg install fhir-mcp\n") (exit 1))))
+  (define topics (need 'learn-topics))
+  (define text-of (need 'learn-text))
+  (cond
+    [(not topic) (for ([t (in-list topics)]) (printf "~a  ~a\n" (car t) (cdr t)))
+                 (printf "\nraco fhir guide <topic> prints one\n")]
+    [(text-of topic) => display]
+    [else (usage-error "fhir" usages "guide" (format "no guide ~a (topics: ~a)" topic (string-join (map car topics) ", ")))]))
+
 (define usages
   '(("regen"         "raco fhir regen [r6|r4|r5|all]   regenerate the type tower(s) from fhir-spec")
     ("check"         "raco fhir check [r6|r4|r5|all]   committed towers match a fresh regen")
     ("roundtrip"     "raco fhir roundtrip <file.json> [Type]")
     ("roundtrip-tck" "raco fhir roundtrip-tck [r4|r5]")
     ("snapshot"      "raco fhir snapshot <sd.json>")
-    ("new"           "raco fhir new pipeline <dir>   copy the Racket pipeline template (FSH + FML + CQL + main.rkt) to <dir>")))
+    ("new"           "raco fhir new pipeline <dir>   copy the Racket pipeline template (FSH + FML + CQL + main.rkt) to <dir>")
+    ("guide"         "raco fhir guide [topic]   print a guide: workspace, fhir, cql, fsh, fml, fhirpath, vcl, sql-on-fhir, capability, …")))
 
 (module+ main
   (define (arg as n) (and (> (length as) n) (list-ref as n)))
@@ -112,6 +128,7 @@
                  (unless (member v '("r4" "r5")) (usage-error "fhir" usages "roundtrip-tck"))
                  (dynamic-require `(submod ,(string->symbol (string-append "fhir/tests/example-roundtrip-" v)) main) #f)))
           (cmd "snapshot" (lambda (as) (needs-file as) (cmd-snapshot (arg as 0))))
+          (cmd "guide" (lambda (as) (cmd-guide (arg as 0))))
           (cmd "new" (lambda (as)
                        (unless (and (arg as 0) (arg as 1)) (usage-error "fhir" usages "new"))
                        (cmd-new (arg as 0) (arg as 1))))))

@@ -158,6 +158,12 @@
   (path->string (find-relative-path (simplify-path (path->complete-path (current-directory)))
                                     (simplify-path (path->complete-path p)))))
 
+;; at-root? : hub -> boolean   the call is made from the workspace's own directory (`ws` and `ws/`
+;; are one: comparing them as paths said the workspace was elsewhere, and a note printed its full path)
+(define (at-root? h)
+  (define (dir p) (path->directory-path (simplify-path (path->complete-path p))))
+  (equal? (dir (current-directory)) (dir (hub-root h))))
+
 ;; files-by-language : hub -> (hash language -> (listof (cons path text)))
 (define (files-by-language h)
   (for/fold ([acc (hash)]) ([f (in-list (workspace-files (hub-ws h)))])
@@ -555,17 +561,26 @@
       with-more))
 
 ;; readable-columns : columns rows -> (listof string)   the columns to suggest for a table a person reads:
-;; those whose values are text, numbers or booleans in every row and not empty in all (it suggested the
-;; first three, lists and references); at most five, in column order
+;; those whose values are text, numbers or booleans in every row (it suggested the first three, lists
+;; and references); at most five, in column order
 (define (readable-columns cols rows)
   (define (cell row c) (if (hash? row) (hash-ref row (if (symbol? c) c (string->symbol (format "~a" c))) 'null) 'null))
   (define (scalar? v) (or (eq? v 'null) (number? v) (boolean? v)
                           (and (string? v) (not (regexp-match? #px"^[A-Z][A-Za-z]+/[A-Za-z0-9.-]+$" v)))))   ; not a resource
   (define good (for/list ([c (in-list cols)]
-                          #:when (and (for/and ([r (in-list rows)]) (scalar? (cell r c)))
-                                      (for/or ([r (in-list rows)]) (not (eq? (cell r c) 'null)))))
+                          #:when (for/and ([r (in-list rows)]) (scalar? (cell r c))))   ; null in every row too: a value not known yet
                  (format "~a" c)))
-  (define picked (if (null? good) (map (lambda (c) (format "~a" c)) cols) good))
+  ;; what a person reads first: values that are not yes/no flags (when there are a few of them), and
+  ;; a name rather than the patient's id (it suggested `patient,…,Poorly Controlled` and left out
+  ;; `Name` and `Above 9`, the recipe's own table)
+  (define (flag? c) (and (for/and ([r (in-list rows)]) (let ([v (cell r c)]) (or (boolean? v) (eq? v 'null))))
+                         (for/or ([r (in-list rows)]) (boolean? (cell r c)))))
+  (define unflagged (filter (lambda (c) (not (flag? c))) good))
+  (define readable (if (>= (length unflagged) 3) unflagged good))
+  (define named (if (and (member "patient" readable) (ormap (lambda (c) (regexp-match? #px"(?i:name)" c)) readable))
+                    (remove "patient" readable)
+                    readable))
+  (define picked (if (null? named) (map (lambda (c) (format "~a" c)) cols) named))
   (take picked (min 5 (length picked))))
 
 ;; options : hash -> Options   the verbs' arguments as a language's options
@@ -931,13 +946,9 @@
               (define csv (hub-describe h (hash-ref (hub-query h "sql" (apply trail-sql (cdr m)) (hasheq 'name name)) 'result)
                                         (for/hasheq ([k (in-list '(as columns sort limit))] #:when (hash-ref args k #f))
                                           (values k (if (eq? k 'as) "csv" (hash-ref args k))))))
-              ;; `source`/`at` are the trail's own paths, relative to the workspace: from another
-              ;; directory, a last line says so (`../patients.fsh` read as outside the caller's folder)
-              (define here (from-here (hub-root h)))
-              (if (or (member here '("." "./")) (not (text-answer? csv))
-                      (let ([cols (hash-ref args 'columns #f)]) (and (string? cols) (not (regexp-match? #rx"source|at" cols)))))
-                  csv
-                  (text-answer (string-append (text-answer-text csv) (format "\n# source and at are relative to the workspace, ~a" here)))))]
+              ;; CSV only (a `#` note line after it was a junk row in a CSV tool); `source`/`at` are the
+              ;; trail's own paths, relative to the workspace — the skill and history's `paths` say so
+              csv)]
         ;; the source text a stored resource was written from, read through its newest Provenance —
         ;; no id to copy (`describe ref=Observation/a1/_history as=source`, or the resource itself)
         [(and source? (let ([m (regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)(?:/_history)?$" ref)])
@@ -1005,9 +1016,8 @@
         (hash-set e (car kv) (cdr kv)))))
   ;; `source`/`at` are the trail's own paths (relative to the workspace, as SQL's `trail` has them):
   ;; say where that is when the call was made from elsewhere (a rerun's agent, in the folder above)
-  (define here (from-here (hub-root h)))
   (define base (hasheq 'resource (format "~a/~a" type id) 'versions (reverse entries)))
-  (if (member here '("." "./")) base (hash-set base 'paths (format "source and at are relative to the workspace, ~a" here))))
+  (if (at-root? h) base (hash-set base 'paths (format "source and at are relative to the workspace, ~a" (from-here (hub-root h))))))
 
 ;; provenance-display : Provenance -> string|#f   its source's one-line display (`../src/a.fsh sha1:…`)
 (define (provenance-display pv)
@@ -1583,8 +1593,10 @@
     (define line (and text (hash-ref r 'id #f) (instance-line text (hash-ref r 'id))))
     (define changed-path (and line (eq? (change-action ch) 'update)
                               (for/first ([p (in-list (change-paths ch))]) (car (regexp-split #rx":" p)))))
+    ;; a reading written through a RuleSet has its values on its `* insert` line, a create's and a
+    ;; correction's alike (a correction pointed at the Instance header)
     (define at (or (and changed-path (rule-line text line changed-path))
-                   (and line (eq? (change-action ch) 'create) (insert-line text line))
+                   (and line (insert-line text line))
                    line))
     (and at (format "~a:~a" (hash-ref src 'path "fsh") at)))
   (define targets (for/list ([w (in-list written)] [ch (in-list todo)] #:when (hash-ref w 'ok #f))

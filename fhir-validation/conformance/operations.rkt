@@ -29,7 +29,9 @@
 (define (issues->outcome issues)
   (hasheq 'resourceType "OperationOutcome"
           'issue (if (null? issues)
-                     (list (hasheq 'severity "information" 'code "informational" 'diagnostics "All OK"))
+                     (list (hasheq 'severity "information" 'code "informational"
+                                  ;; which FHIR it was held to (an R6 server's "All OK" for data written as R4)
+                                  'diagnostics (let ([v (validated-in)]) (if v (format "All OK (FHIR ~a)" v) "All OK"))))
                      (for/list ([i (in-list issues)])
                        (hasheq 'severity (issue-severity i) 'code (issue-code i)
                                'diagnostics (issue-msg i) 'expression (list (issue-path i)))))))
@@ -95,6 +97,8 @@
   (define ok (hasheq 'resourceType "Patient" 'gender "male"))
   (define bad (hasheq 'resourceType "Patient" 'gender "male" 'nmae "x"))
   (check-false (outcome-errors? ($validate ok)))
+  ;; a clean result says which FHIR it was held to (a server's "All OK" did not)
+  (check-equal? (hash-ref (car (hash-ref ($validate ok) 'issue)) 'diagnostics) "All OK (FHIR R5 (5.0.0))")
   (check-true (outcome-errors? ($validate bad)))
   (check-equal? (ensure-valid ok) ok)
   (check-exn #rx"invalid Patient [(]FHIR R5 [(]5.0.0[)][)]:\n  Patient.nmae" (lambda () (ensure-valid bad)))

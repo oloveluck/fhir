@@ -148,10 +148,17 @@
                                                               "define \"Label\": if exists \"Results\" then 'tested' else 'never tested'\n"
                                                               "define \"Twice\": Count(\"Results\") * 2\n")))
     (define wide (call "run" (hasheq 'path "Wide.cql")))
-    (check-regexp-match #rx"columns=\"patient,Count,Tested,Label,Twice\"" (hash-ref wide 'table))
+    (check-regexp-match #rx"columns=\"patient,Count,Label,Twice\"" (hash-ref wide 'table))   ; the yes/no flag left out
     (define count-tally (hash-ref (hash-ref (hash-ref wide 'summary) 'defines) 'Count))
     (check-true (and (hash-has-key? count-tally 'min) (hash-has-key? count-tally 'max) (hash-has-key? count-tally 'mean)) (format "~s" count-tally))
     (void (call "write" (hasheq 'path "Wide.cql" 'text "")))
+    ;; the CQL guide's latest-value recipe: the hint names the recipe's own table (it left out Name
+    ;; and Above 9 for the patient id and a yes/no flag)
+    (define recipe (cadr (regexp-match #px"```cql\n(library LatestA1c.*?)```" (learn-text "cql"))))
+    (call "write" (hasheq 'path "LatestA1c.cql" 'text recipe))
+    (check-regexp-match #rx"columns=\"Latest Number,Latest Unit,Latest Date,Above 9,Name\""
+                        (hash-ref (call "run" (hasheq 'path "LatestA1c.cql")) 'table))
+    (void (call "write" (hasheq 'path "LatestA1c.cql" 'text "")))
     (void (call "write" (hasheq 'path "Above.cql" 'text "")))))
 
 (delete-directory/files dir)

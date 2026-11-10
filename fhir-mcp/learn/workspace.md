@@ -17,6 +17,13 @@ server, a `CLAUDE.md` that points here and a `.gitignore`. It never overwrites a
 - where each stored value came from: `describe ref=Observation as=trail` ("The trail")
 - from a shell, many steps: `raco fhir-mcp batch -` (one process; "The tools")
 
+A whole program for one measurement, in order (blood pressure, each step a recipe below): the rule
+(`write path=bp-rule.fsh text=@… enforce:=true`), a refused reading (`stage fsh=@bad.fsh`: the reason
+at its line), the data (`stage fsh=@readings.fsh`, `commit stage=latest reason=… agent=…`), the table
+(`write path=bp.view.json …`, then `query language=sql text=@summary.sql as=csv`), a correction
+(`describe ref=Observation/bp-a1 as=source`, edit, `stage`, `commit … reason=…`) and its history
+(`describe ref=Observation/bp-a1/_history as=trail`).
+
 | File | Language | `run` gives | Guide |
 |---|---|---|---|
 | `*.fsh` | FHIR Shorthand: profiles, extensions, value sets, code systems, example instances | the resources the file defines, each example validated | `learn://fsh` |
@@ -281,7 +288,10 @@ Check an expression on stored data before making it a rule: `query("fhirpath", "
 ### Correcting a stored resource
 `describe("Observation/bp-a1", as: "fsh")` answers the resource as an FSH Instance; change the line
 that is wrong and stage the whole text again — the stage shows the change (`… 150 → 140`) and the
-commit writes version 2 with its reason. The file goes beside the workspace, as data files do (a
+commit writes version 2 with its reason. When the data was written through a RuleSet
+(`* insert Reading(bp-a1, a, 2025-01-10, 150, 95)`), take `as: "source"` instead: it answers the
+Instance as it was written, with the RuleSets it inserts, so the change is one argument of its
+`insert` line, and the history's `at` names that line. The file goes beside the workspace, as data files do (a
 `.fsh` file in the workspace is part of its project, checked with the rules). The Instance is
 written from the stored JSON, so its rules come in element-name order with explicit indexes
 (`category[0]`), not as first written: find the line by its path before editing.

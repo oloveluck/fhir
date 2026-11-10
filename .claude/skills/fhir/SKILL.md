@@ -22,7 +22,7 @@ one line, `file:line:col severity: message`, with "did you mean …" for a missp
 **Which call answers which question** (each one a tested recipe):
 | question | where |
 |---|---|
-| is the latest HbA1c above 9 %, per patient (and "never tested") | `raco fhir-mcp guide cql`, "the latest value per patient"; `run path=… as=csv columns=…` for the table |
+| is the latest HbA1c above 9 %, per patient (and "never tested") | `raco fhir-mcp guide cql`, "the latest value per patient" (copy its library as `LatestA1c.cql`); the table: `run path=LatestA1c.cql as=csv columns="Name,Latest Number,Latest Date,Above 9"` |
 | was any result above a threshold | a FHIR search: `query language=search text="Observation?code=…&value-quantity=gt9"`; per patient beside the latest, the CQL guide's `Ever Above 9` |
 | whose mean blood pressure is at or above 140/90 | `raco fhir-mcp guide workspace`, the `bp` view and its summary SQL — read clinically as systolic ≥ 140 OR diastolic ≥ 90 |
 | where did each stored value come from (who, when, why, which file and line) | `describe ref=Observation as=trail` (one resource's versions: `ref=Observation/a1/_history as=trail`) |
@@ -87,8 +87,13 @@ app that `run` serves lives as long as the process that ran it: from the shell, 
 `raco fhir-server serve app.capability.rkt --port 8080 --store fhir.db`.
 Not installed: the README's "Getting the tools" (Racket 9, then `raco pkg install` of the repositories).
 
+Files in the workspace are its files: one you put there yourself is used as it is (`run path=…`
+reads it); `write` saves a file and answers its problems in the same call, `check` answers every
+file's.
+
 ## The guides
-`raco fhir-mcp guide` lists them and `raco fhir-mcp guide <topic>` prints one; an MCP client reads the
+`raco fhir-mcp guide` lists them and `raco fhir-mcp guide <topic>` prints one (`raco fhir guide <topic>`
+is the same, for the Racket route); an MCP client reads the
 same text as `learn://<topic>`. Read `fhir` (resources, codes, quantities, references) and
 `workspace` (the tools) first, then the language you write:
 

@@ -118,7 +118,13 @@
     (define again (call "stage" (hasheq 'fsh (string-replace src-text "142, 91" "141, 91"))))
     (check-equal? (map (lambda (c) (list (hash-ref c 'resource) (hash-ref c 'errors '()))) (hash-ref again 'changes))
                   '(("Observation/bp-r1" ())))
-    (call "stage" (hasheq 'drop "latest"))
+    ;; committed, the correction's `at` is the insert line that changed (it was the Instance header)
+    (call "commit" (hasheq 'stage (hash-ref again 'stage) 'reason "typo"))
+    (define insert-at (for/first ([l (in-list (regexp-split #rx"\n" src-text))] [i (in-naturals 1)]
+                                  #:when (regexp-match? #rx"^[*] insert Reading[(]bp-r1" l))
+                        i))
+    (check-regexp-match (pregexp (format ":~a$" insert-at))
+                        (hash-ref (car (hash-ref (call "describe" (hasheq 'ref "Observation/bp-r1/_history")) 'versions)) 'at))
     ;; a refused stage is listed apart from those that can be committed, with the call that drops them
     (call "stage" (hasheq 'drop "refused"))                ; the earlier refusals of this test
     (call "stage" (hasheq 'fsh (bp "bp-bad" #:dia #f)))

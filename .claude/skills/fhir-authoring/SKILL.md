@@ -51,7 +51,8 @@ compile to a **delegating** form macro; `#:base` may be another profile (multi-l
 ## `#lang fsh` — FHIR Shorthand (bidirectional)
 
 The language repositories sit beside this one (`../fsh`, `../cql`, `../fml`, … from the fhir repo;
-`raco fhir-mcp guide <language>` prints each guide from the installed package, wherever it is).
+`raco fhir guide <language>` — or `raco fhir-mcp guide <language>`, the same text — prints each guide
+from the installed package, wherever it is).
 **The fsh repository's own skill (`fsh/.claude/skills/fsh`) is the guide**, with the language
 guide it points to (`fsh/guide.md`). In brief:
 
@@ -121,7 +122,7 @@ To learn the pieces before putting them together, run each file alone, in the or
 flows (each language's skill has the rest):
 ```sh
 raco fsh check fsh                                         # the profile; its example validated
-raco fml qr2patient.map --transform qr.json > patient.json   # the map alone: the Patient it writes
+raco fml qr2patient.map --transform qr.json > patient.json   # the map alone: the Patient it writes (--indent: as main.rkt prints it)
 raco fml check qr2patient.map --examples qr.json --profile fsh   # its result held to the profile
 raco cql Intake.cql --data patient.json --now 2026-01-01   # the library over that Patient
 ```

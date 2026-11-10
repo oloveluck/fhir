@@ -52,7 +52,7 @@ A whole file — declarations, the handler and how to call it — is the worked 
   One the app does not declare answers 405 on a type it serves (404 for a type it does not).
 - The language is FHIR **R6** (6.0.0-ballot): the CapabilityStatement says so, resources are typed
   by R6, and data written by an R4 workspace is read leniently. `(server #:date "2026-11-09")` sets
-  the statement's date (else a fixed one, so the statement is the same every time it is derived).
+  the statement's date (else the time the server started).
 
 ### Search
 - A search parameter is `[name type]` (the definition FHIR gives that name for the type: `birthdate`,
@@ -84,6 +84,17 @@ A whole file — declarations, the handler and how to call it — is the worked 
   with `Location: Type/id/_history/1`; a body of another type than the endpoint's is a 400.
 
 ### Operations: inputs and outputs
+| an input's option | what it does |
+|---|---|
+| `[name type min max]` | the name, a FHIR type, the count (`1 1` required, `0 1` optional, `0 *` a list) |
+| `#:binding "<ValueSet url or VCL>"` | a `code` input refused outside the value set |
+| `#:min n` / `#:max n` | a number refused outside the range |
+| `#:documentation "…"` | what the input means (its unit), in the OperationDefinition |
+
+Values arrive converted to their declared type, from a GET query or a POSTed Parameters alike: a
+whole decimal (`60.0`) is taken as an `integer` and a number as a `decimal`; text that does not read
+as the type (`60.5` for an integer, `abc` for a decimal) is refused with a 400.
+
 - An input or output is `[name type min max]`, `max` a number or `*`. Its type is a FHIR primitive —
   `integer`, `decimal`, `boolean`, `string`, `code`, `date`, `dateTime`, `uri` (also `positiveInt`,
   `unsignedInt`, `instant`, `time`, `id`, `markdown`, …) — or a datatype or resource: `Quantity`,
@@ -213,7 +224,7 @@ curl -s -X POST $BASE/Patient -H 'Content-Type: application/fhir+json' \
      -d '{"resourceType":"Patient","gender":"female","name":[{"family":"Ng"}]}'
 curl -s "$BASE/Patient?gender=female"
 curl -s "$BASE/\$bmi?weight=80&height=180"
-kill %1
+kill $(sed -n 's/.*kill \([0-9]*\).*/\1/p' serve.log)     # the pid the banner names (works from any shell)
 ```
 The banner's `search:` line says how a search with a parameter the app does not declare is answered
 (strict here). The store is SQLite in WAL mode: `fhir.db-wal` and `fhir.db-shm` beside `fhir.db` after

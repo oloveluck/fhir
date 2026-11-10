@@ -175,6 +175,10 @@
       (call e "stage" (hasheq 'fsh "Instance: gus\nInstanceOf: Patient\n* gender = #male\n" 'files (hasheq 'fsh "gus.fsh")))
       (call e "commit" (hasheq 'stage "latest" 'reason "gender corrected"))
       (check-regexp-match #rx"gus[.]fsh:3$" (hash-ref (car (hash-ref (call e "describe" (hasheq 'ref "Patient/gus/_history")) 'versions)) 'at))
+      ;; from the workspace's own directory there is no note on what paths are relative to (`ws` and
+      ;; `ws/` were compared as different directories, and the note printed the full path)
+      (check-false (hash-ref (parameterize ([current-directory (path->directory-path dir)]) (call e "describe" (hasheq 'ref "Patient/gus/_history"))) 'paths #f))
+      (check-false (hash-ref (parameterize ([current-directory dir]) (call e "describe" (hasheq 'ref "Patient/gus/_history"))) 'paths #f))
       ;; the source of what is stored, from the resource's own reference (the Provenance's id was a lookup away)
       (check-regexp-match #rx"[*] gender = #male" (call e "describe" (hasheq 'ref "Patient/gus" 'as "source")))
       (check-regexp-match #rx"[*] gender = #male" (call e "describe" (hasheq 'ref "Patient/gus/_history" 'as "source")))
@@ -214,8 +218,8 @@
     ;; where each stored value came from, for a type, in one call (it was a join from the guide)
     (define tr (call e "describe" (hasheq 'ref "Patient" 'as "trail")))
     (check-regexp-match #rx"^id,name,value,date,versionId,recorded,agent,reason,source,at,provenance\n" tr)
-    ;; called from another directory, it says what its paths are relative to
-    (check-regexp-match #rx"\n# source and at are relative to the workspace, [^\n]+$" tr)
+    ;; pure CSV: no note line after the rows (a CSV tool read it as a row)
+    (check-false (regexp-match? #rx"\n#" tr))
     (check-regexp-match #rx"\ngus,,,,2,[^,]+,[^,]+,gender corrected,[.][.]/[^,]+-src/gus[.]fsh,[.][.]/[^,]+-src/gus[.]fsh:3,Provenance/" tr)
     ;; a refused commit lists the errors it refuses for (a count sent the reader back to the stage)
     (define bad-stage (hash-ref (with-handlers ([exn:fail? (lambda (_) (hasheq 'stage "?"))])
