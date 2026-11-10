@@ -1177,6 +1177,28 @@ a test doing what the agent did:
   (a Racket number already); learn://workspace's `trail` column types, `at`, and a view-history ⋈ trail
   join (tested); the CQL recipe adapted to another lab and a yes/no table (run against a workspace).
 
+## New users, round 13 (2026-11-10)
+The twelfth rerun (every task first time, 9–17 calls, no source read, no wrong answer); each fix has a
+test doing what the agent did:
+- **FML: a primitive element takes a primitive** (fml/CLAUDE.md): a Coding assigned to `gender` is an
+  error at the rule naming the part that fits (`(a.value.code)`); it was written as an object and
+  validation blamed `code.code` with no line.
+- **Refusal evidence for a value that is there**: a typed selection (`value.ofType(Quantity)`) that
+  fails its condition shows what it holds (`found component[0].valueQuantity = 120 (no unit)`), at the
+  rule that wrote it; "no component matching '8462-4'" stays for a list none of whose items match.
+- **Capability inputs**: every problem with a request's inputs at once (unknown, missing, mistyped,
+  outside a binding or a range: `input-problems`, `typed-inputs/problems`); `#:min`/`#:max` on a
+  number (FHIR's minValue/maxValue extensions on the OperationDefinition parameter, `range-problems`);
+  a handler that raises answers 500 naming the handler and how to refuse instead; strict search's
+  refusal lists what the type does search on (`advertised-search-names`).
+- **Messages**: the validator's required-binding error quotes the code (`code `femme` not in required
+  value set …`); HTTP answers write `resourceType` first (`fhir-json->string`).
+- **The trail**: SQL's `trail` has `source` (the file) and `sha1` apart.
+- Docs: the correction recipe writes its file beside the workspace; `init`'s CLAUDE.md and output name
+  the shell commands for the guides and tools; fhir-authoring says what `evaluate` returns (`#t`, a
+  hash of defines) and that `render` is for printing; `apply url=` needs no workspace; the capability
+  guide's ranges and all-at-once input errors.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

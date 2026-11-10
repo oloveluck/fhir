@@ -179,10 +179,14 @@
      (for/list ([p (in-list (syntax->list spec))])
        (syntax-parse p
          [(pname:id ptype:id pmin:nat pmax (~alt (~optional (~seq #:binding vs:str))
-                                                 (~optional (~seq #:documentation doc:str))) ...)
+                                                 (~optional (~seq #:documentation doc:str))
+                                                 (~optional (~seq #:min lo:number))
+                                                 (~optional (~seq #:max hi:number))) ...)
           (define tsym (syntax-e #'ptype))
           (when (and (attribute vs) (not (memq tsym '(code Coding CodeableConcept string uri))))
             (decl-error 'operation "#:binding binds a code (or Coding, CodeableConcept) parameter to a value set" p))
+          (when (and (or (attribute lo) (attribute hi)) (not (memq tsym '(integer decimal positiveInt unsignedInt))))
+            (decl-error 'operation "#:min and #:max bound a number (an integer or decimal parameter)" p))
           (unless (or (type-registered? tsym) (primitive-name? tsym))
             (decl-error 'operation (format "unknown parameter type ~a" tsym) #'ptype))
           (define minv (syntax-e #'pmin))
@@ -197,8 +201,10 @@
                       #,(if (eq? maxv '*) #'(quote *) maxv)
                       #,use
                       #,(if (attribute vs) (binding-url (syntax-e #'vs) #'vs) #f)
-                      #,(if (attribute doc) #'doc #f))]
-         [_ (decl-error 'operation "parameter must be [name type min max], with #:binding \"<ValueSet url>\" (a code) and #:documentation \"…\" (what it is, its unit) when wanted" p)]))]))
+                      #,(if (attribute doc) #'doc #f)
+                      #,(if (attribute lo) #'lo #f)
+                      #,(if (attribute hi) #'hi #f))]
+         [_ (decl-error 'operation "parameter must be [name type min max], with #:binding \"<ValueSet url or VCL>\" (a code), #:documentation \"…\" (what it is, its unit) and #:min/#:max (a number's range) when wanted" p)]))]))
 
 ;; binding-url : string syntax -> string
 ;; `#:binding` names a ValueSet by url, or says the codes inline as VCL — `"(http://hl7.org/fhir/
@@ -245,8 +251,8 @@
   (define entries (parsed-operation-entries po))
   (check-equal? (syntax->datum ostx)
                 '(rc-operation "expand" "$expand" (list #f #t #f) (list "ValueSet")
-                               (list (rc-param "url" "uri" 1 1 "in" #f #f))
-                               (list (rc-param "return" "ValueSet" 1 1 "out" #f #f)) #f))
+                               (list (rc-param "url" "uri" 1 1 "in" #f #f #f #f))
+                               (list (rc-param "return" "ValueSet" 1 1 "out" #f #f #f #f)) #f))
   (check-equal? (syntax->datum entries)
                 '(list (operation-entry 'type "expand" "ValueSet" h)))
   ;; an existing operation, by reference or as a value in scope, brings its own definition

@@ -274,7 +274,8 @@ languages. `write` checks it (problems at their lines), `run` serves it on a fre
 workspace's `fhir.db` — what the workspace commits, the server serves, and what the server writes,
 the workspace's search and SQL see — and `apply("$yourOperation", inputs)` calls the running server.
 From the shell each call is its own process, so a server `run` started is gone with it: serve it
-yourself and give `apply` its url.
+yourself and give `apply` its url (`apply … url=` needs no workspace: it only POSTs to the server).
+After editing the app, stop the server (the pid it printed) and serve it again.
 ```
 raco fhir-server serve study.capability.rkt 8080 --store fhir.db &       # check it first: racket study.capability.rkt
 raco fhir-mcp call apply operation='$egfr' url=http://localhost:8080 inputs:='{"creatinine": 1.1, "age": 60, "sex": "female"}'

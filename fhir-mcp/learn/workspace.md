@@ -234,10 +234,11 @@ Check an expression on stored data before making it a rule: `query("fhirpath", "
 ### Correcting a stored resource
 `describe("Observation/bp-a1", as: "fsh")` answers the resource as an FSH Instance; change the line
 that is wrong and stage the whole text again — the stage shows the change (`… 150 → 140`) and the
-commit writes version 2 with its reason:
+commit writes version 2 with its reason. The file goes beside the workspace, as data files do (a
+`.fsh` file in the workspace is part of its project, checked with the rules):
 ```
-raco fhir-mcp call describe ref=Observation/bp-a1 as=fsh > bp-a1.fsh     # edit it
-raco fhir-mcp call stage fsh=@bp-a1.fsh
+raco fhir-mcp call describe ref=Observation/bp-a1 as=fsh > ../bp-a1.fsh     # edit it
+raco fhir-mcp call stage fsh=@../bp-a1.fsh
 raco fhir-mcp call commit stage=latest reason="typo: systolic 150 should have been 140"
 ```
 
@@ -255,7 +256,8 @@ too (its outcome, its text). The trail is data like any other:
   decoded;
 - `query("search", "Provenance?target=Observation/a1")`;
 - SQL: `trail` — one row per version a commit wrote (`type, id, versionId, recorded, agent, reason,
-  source, at, provenance`; `versionId` an integer, the rest text; `at` the file and line the version
+  source, sha1, at, provenance`; `versionId` an integer, the rest text; `recorded` is when the commit
+  wrote it, not when the fact happened; `source` the file and `sha1` its text's hash; `at` the file and line the version
   was written from, `../src/a1c.fsh:12`, file names relative to the workspace), so "where did every
   lab value come from" is
   `SELECT * FROM trail WHERE type = 'Observation'`; and `history` (every version of every resource),

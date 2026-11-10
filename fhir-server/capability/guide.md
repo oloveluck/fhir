@@ -64,7 +64,11 @@ history and search indexes). In a workspace the file is `<name>.capability.rkt`:
   and refuses `other` (it is FHIR's implicit value set `http://fhir.org/VCL?v1=…`; learn://vcl).
   Otherwise check the value in the handler and return an `invalid` OperationOutcome. Any input or output may say what it means:
   `[creatinine decimal 1 1 #:documentation "Serum creatinine, mg/dL"]` is the parameter's
-  `documentation` in the derived OperationDefinition (a client reads the unit there).
+  `documentation` in the derived OperationDefinition (a client reads the unit there). A number may
+  declare its range: `[creatinine decimal 1 1 #:min 0.1 #:max 20]` refuses `0` with a 400 before the
+  handler runs (FHIR's minValue/maxValue extensions on the parameter). Every problem with a request's
+  inputs is answered at once, one line each; a handler that raises answers 500 naming the handler and
+  how to refuse an input instead.
 - A handler receives `in`, a hash from each input's name to its list of values, typed by the
   declaration and the same over GET (`?weight=80.5`) and POST (a Parameters body): `integer` an exact
   integer, `decimal` a Racket real, `boolean` `#t`/`#f`, `string`/`code`/`uri`/`date`/`dateTime` the

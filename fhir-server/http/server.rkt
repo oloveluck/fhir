@@ -12,6 +12,7 @@
          racket/port
          racket/contract
          (only-in json jsexpr->string bytes->jsexpr)
+         (only-in fhir/serialize/fhir-json fhir-json->string)
          (only-in fhir/capability/runtime app? current-search-strict?)
          (only-in "router.rkt" handle/raw parse-query))
 
@@ -108,7 +109,7 @@
 ;; ---- response ------------------------------------------------------------------------------
 (define (write-response out status js)
   (write-raw-response out status
-                      (string->bytes/utf-8 (if js (jsexpr->string js) ""))
+                      (string->bytes/utf-8 (if js (fhir-json->string js) ""))
                       "application/fhir+json; charset=utf-8"
                       #:location (created-location status js)))
 
@@ -131,7 +132,7 @@
      (define js (with-handlers ([exn:fail? (lambda (_) #f)]) (bytes->jsexpr bs)))
      (if (and (hash? js) (equal? (hash-ref js 'resourceType #f) "Bundle")
               (member (hash-ref js 'type #f) '("searchset" "history")))
-         (string->bytes/utf-8 (jsexpr->string (bundle-with-urls js base target)))
+         (string->bytes/utf-8 (fhir-json->string (bundle-with-urls js base target)))
          bs)]))
 
 ;; bundle-with-urls : Bundle-jsexpr string string -> Bundle-jsexpr

@@ -31,7 +31,7 @@ fhir-server serve-ig hl7.fhir.us.core --port 8080
 
 ```
 $ fhir-validate bad-patient.json --format text
-bad-patient.json: error code-invalid at Patient.gender: code not in required value set http://hl7.org/fhir/ValueSet/administrative-gender
+bad-patient.json: error code-invalid at Patient.gender: code `femme` not in required value set http://hl7.org/fhir/ValueSet/administrative-gender
 bad-patient.json: error invalid at Patient.birthDate: '1974-13-40' is not a valid date
 ```
 

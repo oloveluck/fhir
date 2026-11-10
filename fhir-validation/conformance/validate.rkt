@@ -390,7 +390,10 @@
      (cond
        [(or (not vs) (null? codes)) '()]
        [(for/and ([c (in-list codes)]) (eq? (member? tx vs (cdr c) (car c)) 'no))
-        (list (issue "error" "code-invalid" loc (format "code not in required value set ~a~a" vs (code-hint vs codes))))]
+        ;; the code found, quoted (`femme`): the message named the value set, never the value
+        (list (issue "error" "code-invalid" loc (format "code ~a not in required value set ~a~a"
+                                                        (string-join (map (lambda (c) (format "`~a`" (cdr c))) codes) ", ")
+                                                        vs (code-hint vs codes))))]
        [else '()])]))                                  ; any yes/unknown -> fail-open
 
 ;; code-hint : value-set-url (listof (cons system code)) -> string   what the value set does hold, from
@@ -706,11 +709,17 @@
   (define (none x c)
     (define xs (ev x))
     (cond [(and (pair? xs) (leafy? xs)) (list (values-of x xs))]
+          ;; there, but not what c asks: what it holds, not "no X" (a Quantity without its unit was
+          ;; reported as missing, at the instance's header rather than at the rule that wrote it)
+          [(and (pair? xs) (typed-value? x)) (list (values-of x xs))]
           [else (list (format "no ~a~a~a" prefix (label x)
                               (if c (let ([ls (literals c)])
                                       (if (null? ls) (format " matching ~a" (fhirpath->string c))
                                           (format " matching ~a" (string-join (map (lambda (l) (format "'~a'" l)) ls) ", "))))
                                   "")))]))
+  ;; typed-value? : a selection of one typed value (`value.ofType(Quantity)`), not a list of elements
+  ;; (`component`), whose items not matching are best said as "no component matching …"
+  (define (typed-value? x) (and (fp-call? x) (memq (fp-call-name x) '(ofType as)) #t))
   (cond
     [(and (fp-binop? a) (eq? (fp-binop-op a) 'implies)) (evidence (fp-binop-rhs a) focus root prefix)]
     [(and (fp-binop? a) (eq? (fp-binop-op a) 'and))
@@ -784,6 +793,9 @@
      (cond
        [(and (has 'value) (or (has 'unit) (has 'code)) (not (has 'coding)) (number-ish? (has 'value)))
         (format "~a '~a'" (compact-json (has 'value)) (or (has 'code) (has 'unit)))]
+       ;; a Quantity that is only a number: said so (`{value: 120}` read as nothing in particular)
+       [(and (has 'value) (number-ish? (has 'value)) (= (hash-count j) 1))
+        (format "~a (no unit)" (compact-json (has 'value)))]
        [(and (has 'code) (string? (has 'code)) (or (has 'system) (has 'display)) (not (has 'value)))
         (format "~a#~a" (or (has 'system) "") (has 'code))]
        [(list? (has 'coding)) (string-join (map compact-json (has 'coding)) ", ")]

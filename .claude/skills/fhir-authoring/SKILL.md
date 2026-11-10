@@ -130,9 +130,12 @@ validates any resource the same way, naming the element but not the rule; it nee
 `$validate`, which `transform #:validate` loads by itself).
 For a resource that R4 and R5 write alike (a Patient with name, gender and birthDate; most
 Observations), the defaults just work and no `sushi-config.yaml` is needed. `render` (`cql/value`)
-answers a string: `"true"`, or a FHIR value's JSON text — and `"null"` when CQL has no answer (a
+answers a string for printing: `"true"`, or a FHIR value's JSON text — and `"null"` when CQL has no answer (a
 Patient without a birthDate is neither 65 nor not): decide it in the library
-(`Coalesce(AgeInYears() >= 65, false)`) or test for `"null"` in Racket.
+(`Coalesce(AgeInYears() >= 65, false)`) or test for `"null"` in Racket. To compute with the answer,
+use `evaluate`'s value itself, not `render`'s text: `(evaluate (list p) #:define "Is 65 Or Older")`
+is `#t`/`#f` (a CQL null is `cql-null`, `cql/value`), a number a Racket number; without `#:define`
+it is a hash from each define's name to its value.
 
 Each step reads its own FHIR version, which matters when they meet:
 

@@ -193,6 +193,8 @@
   (define-values (s1 o1) (handle app "GET" "/Observation" '((subject . "Patient/x")) ""))
   (check-equal? s1 400)
   (check-regexp-match #rx"search parameter `subject` not supported here" (hash-ref (car (hash-ref o1 'issue)) 'diagnostics))
+  ;; … and says what the type does search on
+  (check-regexp-match #rx"[(]Observation: patient[)]" (hash-ref (car (hash-ref o1 'issue)) 'diagnostics))
   ;; no store declared: a temporary one, searched as a stored app is (the in-memory search matched
   ;; `patient=Patient/x` by string equality against a Reference, so every Observation or none)
   (for ([p '("x" "y")])
@@ -221,7 +223,9 @@
                      "(operation $t #:system #:in ([w decimal 1 1] [n integer 1 1] [flag boolean 1 1] [when date 1 1]) #:out ([out string 1 1]) #:handler h)\n"
                      "(define (g in req) (Parameters (parameter (ParametersParameter (name \"out\") (valueString (car (hash-ref in \"sex\")))))))\n"
                      "(operation $g #:system #:in ([sex code 1 1 #:binding \"http://hl7.org/fhir/ValueSet/administrative-gender\"]) #:out ([out string 1 1]) #:handler g)\n"
-                     "(operation $g2 #:system #:in ([sex code 1 1 #:binding \"(http://hl7.org/fhir/administrative-gender)(female;male)\"]) #:out ([out string 1 1]) #:handler g)\n")
+                     "(operation $g2 #:system #:in ([sex code 1 1 #:binding \"(http://hl7.org/fhir/administrative-gender)(female;male)\"]) #:out ([out string 1 1]) #:handler g)\n"
+                     "(define (crash in req) (expt (car (hash-ref in \"x\")) -0.241))\n"
+                     "(operation $r #:system #:in ([x decimal 1 1 #:min 0 #:max 10] [n integer 0 1 #:max 120]) #:out ([out decimal 1 1]) #:handler crash)\n")
                     o)))
   (define app (dynamic-require src 'app))
   (define handle (dynamic-require 'fhir/http/router 'handle))
@@ -259,6 +263,25 @@
   (let-values ([(st od) (handle app "GET" "/OperationDefinition/g2" '() "")])
     (check-equal? (hash-ref (hash-ref (car (hash-ref od 'parameter)) 'binding) 'valueSet)
                   "http://fhir.org/VCL?v1=%28http%3A%2F%2Fhl7.org%2Ffhir%2Fadministrative-gender%29%28female%3Bmale%29"))
+  ;; a declared range (#:min/#:max) refuses a number outside it before the handler runs, and the
+  ;; OperationDefinition carries it (FHIR's minValue/maxValue extensions)
+  (define-values (s12 o12) (handle app "GET" "/$r" '((x . "11")) ""))
+  (check-equal? s12 400)
+  (check-regexp-match #rx"parameter 'x' must be at most 10, got 11" (hash-ref (car (hash-ref o12 'issue)) 'diagnostics))
+  (let-values ([(st od) (handle app "GET" "/OperationDefinition/r" '() "")])
+    (check-equal? (hash-ref (car (hash-ref (car (hash-ref od 'parameter)) 'extension)) 'url) "http://hl7.org/fhir/StructureDefinition/minValue"))
+  ;; every problem at once: two mistyped inputs are two lines (one was reported)
+  (define-values (s13 o13) (handle app "GET" "/$r" '((x . "abc") (n . "60.5")) ""))
+  (check-equal? s13 400)
+  (define d13 (hash-ref (car (hash-ref o13 'issue)) 'diagnostics))
+  (check-regexp-match #rx"parameter 'x' must be a decimal, got \"abc\"" d13)
+  (check-regexp-match #rx"parameter 'n' must be an integer, got \"60[.]5\"" d13)
+  ;; a handler that raises: a 500 that says which handler and how to refuse instead
+  (define-values (s14 o14) (handle app "GET" "/$r" '((x . "0")) ""))
+  (check-equal? s14 500)
+  (check-regexp-match #rx"the [$]r handler raised: .*return an OperationOutcome whose issue code is `invalid`" (hash-ref (car (hash-ref o14 'issue)) 'diagnostics))
+  (check-exn #rx"#:min and #:max bound a number"
+             (lambda () (compile-capability '(server) '(operation $x #:system #:in ([s string 1 1 #:min 0]) #:handler h))))
   ;; a binding that is neither a url nor VCL is an error at the declaration
   (check-exn #rx"#:binding \"[(]female;\" is neither a ValueSet url nor a VCL expression"
              (lambda () (compile-capability '(server) '(operation $x #:system #:in ([s code 1 1 #:binding "(female;"]) #:handler h))))

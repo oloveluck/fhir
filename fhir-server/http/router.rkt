@@ -17,6 +17,7 @@
          racket/match
          net/base64
          (only-in json read-json jsexpr->string)
+         (only-in fhir/serialize/fhir-json fhir-json->string)
          (only-in fhir/serialize/jsexpr-util drop-false)
          (only-in fhir/model/node fhir fhir? fhir-type fhir-ref fhir-has? fhir-fields)
          (only-in racket/list append-map)
@@ -74,7 +75,7 @@
              (hash-ref js 'contentType "application/octet-stream"))]
     [else
      (values status
-             (string->bytes/utf-8 (if node (jsexpr->string (node->jsexpr node)) ""))
+             (string->bytes/utf-8 (if node (fhir-json->string (node->jsexpr node)) ""))   ; resourceType first
              fhir-json-type)]))
 
 ;; route : app method (listof segment) query body -> (values kind node)

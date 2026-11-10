@@ -63,6 +63,14 @@
     ;; EVERY systolic in mm[Hg]: a second one in kPa beside a good one is refused (a rerun found the gap)
     (check-equal? (errors-of (string-append (bp "mixed") "* component[2].code = http://loinc.org#8480-6\n* component[2].valueQuantity = 20 'kPa'\n"))
                   '("fsh:11: Observation: bp-systolic: A blood pressure (LOINC 85354-9) has a systolic component (LOINC 8480-6) in mm[Hg] (found component[2].valueQuantity = 20 'kPa')"))
+    ;; a systolic with no unit is there, not missing: its value, at the rule that wrote it (it read
+    ;; "found no component[0].valueQuantity matching 'mm[Hg]'", at the instance's header)
+    (check-equal? (errors-of (string-append
+                              "Instance: nounit\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#85354-9\n"
+                              "* subject = Reference(Patient/a)\n* component[0].code = http://loinc.org#8480-6\n"
+                              "* component[0].valueQuantity.value = 120\n"
+                              "* component[1].code = http://loinc.org#8462-4\n* component[1].valueQuantity = 80 'mm[Hg]'\n"))
+                  '("fsh:7: Observation: bp-systolic: A blood pressure (LOINC 85354-9) has a systolic component (LOINC 8480-6) in mm[Hg] (found component[0].valueQuantity = 120 (no unit))"))
     ;; another Observation is not a blood pressure: the rule does not apply
     (check-equal? (errors-of "Instance: a1c\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#4548-4\n* valueQuantity = 6.1 '%'\n") '())
     ;; correcting a stored reading: its FSH, one line changed, staged again

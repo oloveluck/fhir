@@ -11,7 +11,7 @@
 
 (require racket/contract
          racket/match
-         racket/list (only-in racket/string string-join) (only-in net/uri-codec uri-decode)
+         racket/list (only-in racket/string string-join string-append*) (only-in net/uri-codec uri-decode)
          (only-in fhir/suggest did-you-mean)
          (only-in fhir/model/node fhir? fhir-type fhir-ref fhir-field-names)
          (only-in fhir/serialize/from-json from-json)
@@ -216,6 +216,15 @@
        [else (parameterize ([current-search-strict? (or (current-search-strict?) (strict-search-app? a))])
                (guarded (lambda () (run-interaction (request-kind req) fn req))))])]))
 
+;; advertised-search-names : app|#f type -> (listof string)   the search parameters /metadata lists
+(define (advertised-search-names a type)
+  (if (not a) '()
+      (for*/list ([rest (in-list (navigate (list (app-capability-statement a)) 'rest))]
+                  [res (in-list (navigate (list rest) 'resource))]
+                  #:when (equal? (leaf->string (single (navigate (list res) 'type))) (format "~a" type))
+                  [sp (in-list (navigate (list res) 'searchParam))])
+        (leaf->string (single (navigate (list sp) 'name))))))
+
 ;; strict-search-app? : app -> boolean   `(server #:search-handling "strict")`: every search is strict,
 ;; whatever the client prefers — a filter the server cannot apply (`subject` where only `patient` is
 ;; declared) is refused, never answered with every resource
@@ -242,9 +251,14 @@
      (define r (fn (request-params req)))
      ;; Prefer: handling=strict — a parameter the server cannot apply is an error, not a note
      (if (and (current-search-strict?) (search-result/ignored? r))
-         (operation-outcome-invalid (format "search parameter~a ~a not supported here (strict search handling); this server searches with what /metadata advertises"
-                                            (if (> (length (search-result/ignored-names r)) 1) "s" "")
-                                            (apply string-append (add-between (map (lambda (n) (format "`~a`" n)) (search-result/ignored-names r)) ", "))))
+         (let* ([names (search-result/ignored-names r)]
+                [declared (advertised-search-names (current-app) (request-type req))]
+                [near (string-append* (for/list ([n (in-list names)]) (did-you-mean n declared)))])
+           (operation-outcome-invalid (format "search parameter~a ~a not supported here (strict search handling)~a; this server searches with what /metadata advertises~a"
+                                              (if (> (length names) 1) "s" "")
+                                              (apply string-append (add-between (map (lambda (n) (format "`~a`" n)) names) ", "))
+                                              near
+                                              (if (pair? declared) (format " (~a: ~a)" (request-type req) (string-join declared ", ")) ""))))
          (make-searchset r))]
     [(patch)
      ;; JSON Patch (RFC 6902): read, apply atomically, then the repository's own UPDATE — so a patched
@@ -323,13 +337,21 @@
               (served-at a (request-code req))))]
     [else
      (define in0 (parameters->hash (request-body req)))
-     (define bad (and (operation-handler-op-def h) (validate-inputs (operation-handler-op-def h) in0)))
-     (define in (if (and (not bad) (operation-handler-op-def h)) (typed-inputs (operation-handler-op-def h) in0) in0))
+     (define od (operation-handler-op-def h))
+     ;; every problem with the inputs at once — unknown, missing, mistyped, outside a binding or a
+     ;; range — one line each (a request with two mistyped inputs was told of one)
+     (define-values (in type-problems) (if od (typed-inputs/problems od in0) (values in0 '())))
+     (define problems (if od (append (input-problems od in0) type-problems (range-problems od in)) '()))
      (cond
-       [bad bad]
-       [(string? in) (operation-outcome-invalid in)]
+       [(pair? problems) (operation-outcome-invalid (string-join* problems))]
        [else
-        (define r (guarded (lambda () ((operation-handler-proc h) in req))))
+        ;; a handler that raises is a 500 saying what raised and how to refuse instead (a client
+        ;; got `expt: undefined for 0 and -0.241`, the handler's author no hint)
+        (define r (with-handlers ([exn:fail? (lambda (e)
+                                               (operation-outcome-exception
+                                                (format "the $~a handler raised: ~a — to refuse an input, return an OperationOutcome whose issue code is `invalid` (a 400), or declare the input's range (#:min, #:max)"
+                                                        (request-code req) (exn-message e))))])
+                    ((operation-handler-proc h) in req)))
         (when (and (fhir? r) (eq? (fhir-type r) 'OperationOutcome) (operation-handler-op-def h)
                    (returns-outcome? (operation-handler-op-def h))
                    (not (member (outcome-code r) '("exception" "not-found")))
@@ -346,19 +368,52 @@
 ;; everything else (string, code, uri, date, dateTime, …) -> the text as sent; resources stay nodes.
 ;; A value that is not of its type is a problem naming the input.
 (define (typed-inputs od in)
+  (define-values (typed problems) (typed-inputs/problems od in))
+  (if (pair? problems) (car problems) typed))
+;; typed-inputs/problems : OperationDefinition inputs -> (values inputs (listof problem-string))
+;; every input typed, and every one that is not of its type said (a value that is not keeps its text)
+(define (typed-inputs/problems od in)
   (define types (for/hash ([p (in-list (navigate (list od) 'parameter))]
                            #:when (equal? (leaf->string (single (navigate (list p) 'use))) "in"))
                   (values (leaf->string (single (navigate (list p) 'name)))
                           (let ([t (single (navigate (list p) 'type))]) (and t (leaf->string t))))))
-  (let/ec return
+  (define problems '())
+  (define typed
     (for/hash ([(name vs) (in-hash in)])
       (define type (hash-ref types name #f))
       (values name
               (for/list ([v (in-list vs)])
                 (define c (typed-value type v))
-                (when (eq? c 'bad)
-                  (return (format "parameter '~a' must be ~a ~a, got ~a" name (if (regexp-match? #rx"^[aeiou]" (format "~a" type)) "an" "a") type (shown v))))
-                c)))))
+                (cond [(eq? c 'bad)
+                       (set! problems (cons (format "parameter '~a' must be ~a ~a, got ~a" name (if (regexp-match? #rx"^[aeiou]" (format "~a" type)) "an" "a") type (shown v)) problems))
+                       (raw-text v)]
+                      [else c])))))
+  (values typed (sort problems string<?)))
+
+;; range-problems : OperationDefinition typed-inputs -> (listof problem-string)   a number outside
+;; the range its parameter declares (`#:min`/`#:max`, the core minValue/maxValue extensions)
+(define min-url "http://hl7.org/fhir/StructureDefinition/minValue")
+(define max-url "http://hl7.org/fhir/StructureDefinition/maxValue")
+(define (range-problems od in)
+  (for*/list ([p (in-list (navigate (list od) 'parameter))]
+              #:when (equal? (leaf->string (single (navigate (list p) 'use))) "in")
+              [name (in-value (leaf->string (single (navigate (list p) 'name))))]
+              [bound (in-list (param-bounds p))]
+              [v (in-list (hash-ref in name '()))]
+              #:when (real? v)
+              #:unless ((car bound) v (cdr bound)))
+    (format "parameter '~a' must be ~a ~a, got ~a" name (if (eq? (car bound) >=) "at least" "at most") (number-text (cdr bound)) (number-text v))))
+;; number-text : real -> string   10 for 10.0, as the declaration wrote it
+(define (number-text n) (number->string (if (and (inexact? n) (integer? n)) (inexact->exact n) n)))
+;; param-bounds : parameter -> (listof (cons comparison number))
+(define (param-bounds p)
+  (for*/list ([e (in-list (navigate (list p) 'extension))]
+              [url (in-value (let ([u (single (navigate (list e) 'url))]) (and u (leaf->string u))))]
+              #:when (member url (list min-url max-url))
+              [v (in-value (let ([x (single (navigate (list e) 'value))]) (and x (item->system x))))]
+              #:when v)
+    (cons (if (equal? url min-url) >= <=)
+          (if (fp-decimal? v) (exact->inexact (decimal->exact v)) v))))
 (define (raw-text v)
   (cond [(string? v) v]
         [(fp-decimal? v) (decimal->string v)]
@@ -405,6 +460,11 @@
 
 ;; validate the input hash against the OperationDefinition contract; #f = ok, else an OperationOutcome
 (define (validate-inputs op-def in)
+  (define problems (input-problems op-def in))
+  (and (pair? problems) (operation-outcome-invalid (string-join* problems))))
+;; input-problems : OperationDefinition inputs -> (listof problem-string)   unknown, missing, too
+;; many, outside a required binding
+(define (input-problems op-def in)
   (define ins (for/list ([p (in-list (navigate (list op-def) 'parameter))]
                          #:when (equal? (leaf->string (single (navigate (list p) 'use))) "in"))
                 p))
@@ -428,7 +488,7 @@
                         [problem (in-value (or (validate-one p in) (validate-binding p in)))]
                         #:when problem)
               problem)))
-  (and (pair? problems) (operation-outcome-invalid (string-join* problems))))
+  problems)
 
 ;; operation-result? : node -> boolean   an OperationOutcome an operation answers AS ITS RESULT (its
 ;; definition's `return` is an OperationOutcome: $validate) — the HTTP layer answers it 200 whatever

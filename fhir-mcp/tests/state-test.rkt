@@ -150,8 +150,10 @@
       ;; file relative to the workspace (`../<dir>-src/gus.fsh`), so SQL names it the same from anywhere
       (check-equal? (hash-ref v 'at) "gus.fsh:1")
       (check-regexp-match #rx"^gus[.]fsh sha1:" (hash-ref v 'source))
-      (define row (car (hash-ref (call e "query" (hasheq 'language "sql" 'text "SELECT source, at FROM trail WHERE id = 'gus'")) 'rows)))
-      (check-regexp-match #rx"^[.][.]/[^/]+-src/gus[.]fsh sha1:" (hash-ref row 'source))
+      (define row (car (hash-ref (call e "query" (hasheq 'language "sql" 'text "SELECT source, sha1, at FROM trail WHERE id = 'gus'")) 'rows)))
+      ;; the file and its SHA-1 apart, so a query filters by file without string surgery
+      (check-regexp-match #rx"^[.][.]/[^/]+-src/gus[.]fsh$" (hash-ref row 'source))
+      (check-regexp-match #rx"^[0-9a-f]+$" (hash-ref row 'sha1))
       (check-regexp-match #rx"^[.][.]/[^/]+-src/gus[.]fsh:1$" (hash-ref row 'at))
       ;; an agent written as a reference is one (an audit can follow it)
       (check-equal? (hash-ref v 'by) "Practitioner/dr-ng")
