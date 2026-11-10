@@ -253,7 +253,7 @@
   (check-equal? s8 200)
   (define-values (s9 o9) (handle app "GET" "/$g" '((sex . "femme")) ""))
   (check-equal? s9 400)
-  (check-regexp-match #rx"parameter 'sex' must be a code from http://hl7.org/fhir/ValueSet/administrative-gender [(]male, female, other, unknown[)], got \"femme\""
+  (check-regexp-match #rx"parameter 'sex' must be one of male, female, other, unknown, got \"femme\" [(]value set http://hl7.org/fhir/ValueSet/administrative-gender[)]"
                       (hash-ref (car (hash-ref o9 'issue)) 'diagnostics))
   ;; a subset written inline as VCL: `other` is in administrative-gender but not in (female;male)
   ;; (a new user's $egfr had to refuse `other`/`unknown` in its handler)
@@ -261,7 +261,7 @@
   (check-equal? s10 200)
   (define-values (s11 o11) (handle app "GET" "/$g2" '((sex . "other")) ""))
   (check-equal? s11 400)
-  (check-regexp-match #rx"must be a code from [(]http://hl7.org/fhir/administrative-gender[)][(]female;male[)] [(]female, male[)], got \"other\""
+  (check-regexp-match #rx"must be female or male, got \"other\" [(]value set [(]http://hl7.org/fhir/administrative-gender[)][(]female;male[)][)]"
                       (hash-ref (car (hash-ref o11 'issue)) 'diagnostics))
   ;; the OperationDefinition carries the url percent-encoded, as the VCL specification requires
   (let-values ([(st od) (handle app "GET" "/OperationDefinition/g2" '() "")])
@@ -281,6 +281,10 @@
   (define is13 (hash-ref o13 'issue))
   (check-equal? (length is13) 2)
   (define (issue-of n) (findf (lambda (i) (equal? (hash-ref i 'expression #f) (list n))) is13))
+  ;; in the order the inputs are declared, whatever order the request gave them
+  (check-equal? (map (lambda (i) (car (hash-ref i 'expression))) is13)
+                (let-values ([(_s od) (handle app "GET" "/OperationDefinition/r" '() "")])
+                  (filter (lambda (n) (member n '("x" "n"))) (map (lambda (p) (hash-ref p 'name)) (hash-ref od 'parameter)))))
   (check-regexp-match #rx"parameter 'x' must be a decimal, got \"abc\"" (hash-ref (issue-of "x") 'diagnostics))
   (check-regexp-match #rx"parameter 'n' must be an integer, got \"60[.]5\"" (hash-ref (issue-of "n") 'diagnostics))
   ;; a handler that raises: a 500 that says which handler and how to refuse instead

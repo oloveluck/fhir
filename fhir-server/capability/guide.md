@@ -113,7 +113,7 @@ operation of its own.
 #lang fhir/capability
 (require (only-in fhir/conformance/operations $validate) (only-in fml/operations))
 
-(server #:url "http://example.org/clinic")
+(server #:url "http://example.org/clinic" #:search-handling "strict")   ; patient data: refuse a filter it cannot apply
 
 (resource Patient #:interactions (read create update search-type)
           #:search-params ([gender token] [family string "name.family"]))
@@ -161,16 +161,22 @@ store as CSV, read-only: a view per stored type (`id, versionId, lastUpdated, re
 (every type: `type, id, versionId, lastUpdated, resource`) and `history` (every version, the same
 columns); `resource` is the JSON (`resource ->> '$.birthDate'`).
 
-A server needs no workspace: the file, `raco fhir-server serve`, and any HTTP client. A smoke test:
+A server needs no workspace: the file, `raco fhir-server serve`, and any HTTP client. A smoke test
+on a free port — start it, wait for its first line, read the url from it:
 ```sh
-raco fhir-server serve clinic.capability.rkt 8080 --store fhir.db --log &
-curl -s localhost:8080/metadata | head -c 200
-curl -s -X POST localhost:8080/Patient -H 'Content-Type: application/fhir+json' \
+raco fhir-server serve clinic.capability.rkt --port 0 --store fhir.db --log > serve.log 2>&1 &
+until grep -q '^FHIR server on' serve.log; do sleep 0.5; done
+BASE=$(sed -n 's/^FHIR server on \(http[^ ]*\).*/\1/p' serve.log)
+curl -s $BASE/metadata | head -c 200
+curl -s -X POST $BASE/Patient -H 'Content-Type: application/fhir+json' \
      -d '{"resourceType":"Patient","gender":"female","name":[{"family":"Ng"}]}'
-curl -s 'localhost:8080/Patient?gender=female'
-curl -s 'localhost:8080/$bmi?weight=80&height=180'
+curl -s "$BASE/Patient?gender=female"
+curl -s "$BASE/\$bmi?weight=80&height=180"
 kill %1
 ```
+The banner's `search:` line says how a search with a parameter the app does not declare is answered
+(strict here). The store is SQLite in WAL mode: `fhir.db-wal` and `fhir.db-shm` beside `fhir.db` after
+a `kill` are normal — the next open (or `raco fhir-server sql`) reads them, and nothing is lost.
 
 ## An output with a unit
 A clinical result is a Quantity, its unit in UCUM: declare the output `Quantity` and build one.

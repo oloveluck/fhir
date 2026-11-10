@@ -91,7 +91,7 @@ example meant to fail), `qr2patient.map`, `Intake.cql`, `main.rkt`, `qr.json` �
 ```sh
 cp -r "$(dirname "$(racket -e '(display (collection-file-path "main.rkt" "fhir-examples" "examples" "intake-pipeline"))')")" my-pipeline
 rm -rf my-pipeline/compiled my-pipeline/*/compiled
-cd my-pipeline && racket main.rkt qr.json      # the Patient, then "65 or older: true"
+cd my-pipeline && racket main.rkt qr.json      # the Patient, then "65 or older: true" (--now 2014-01-01: false)
 raco fsh check fsh && raco fsh check fsh-invalid --context fsh   # clean; then the bad example, at its line
 ```
 To learn the pieces before putting them together, run each file alone, in the order the data
@@ -119,10 +119,12 @@ then `main.rkt` is those three calls as functions, with a command line — the w
   (define patient (transform qr #:validate (canonical-of "IntakePatient")))
   ;; #:define answers one define; #:now fixes Today() (else the answer moves with the clock)
   (values patient (render (evaluate (list patient) #:define "Is 65 Or Older" #:now now))))
-(module+ main                                                    ; racket main.rkt qr.json
+(module+ main                                            ; racket main.rkt [--now 2026-01-01] qr.json
   (require racket/cmdline)
-  (define file (command-line #:args (questionnaire-response.json) questionnaire-response.json))
-  (define-values (patient old?) (intake (call-with-input-file file read-json)))
+  (define now (make-parameter #f))                              ; --now 2026-01-01 fixes "today"
+  (define file (command-line #:once-each [("--now") date "the day the answer is for" (now date)]
+                             #:args (questionnaire-response.json) questionnaire-response.json))
+  (define-values (patient old?) (intake (call-with-input-file file read-json) #:now (now)))
   (write-fhir-json patient #:indent 2) (newline)
   (printf "65 or older: ~a\n" old?))
 ```
@@ -134,8 +136,9 @@ tools (`raco fml`, `raco cql`, `raco fsh`) read a file with or without that line
 them is required as soon as the line is added. `--examples` (raco fml check) takes a file or a
 directory of them; `--now` (raco cql) a date (`2026-01-01`) or a DateTime.
 `main.rkt` prints the Patient with `(write-fhir-json patient #:indent 2)` (`fhir/serialize/fhir-json`;
-`fhir-json->string` gives the text): `resourceType` first, then `id` and `meta`, as FHIR writes them —
-`write-json` puts a hash's keys in no order.
+`fhir-json->string` gives the text): `resourceType` first, then `id` and `meta`, as FHIR writes them,
+and the other elements by name (`birthDate`, `gender`, `name` — not the order the specification lists
+them; JSON readers do not care) — `write-json` puts a hash's keys in no order at all.
 Without a birth date the map's Patient breaks the profile, and the error is at the map's rule:
 `the map's Patient is invalid against IntakePatient (…) (FHIR R5 (5.0.0)): … qr2patient.map:14:25: fml validate error: Patient.birthDate: minimum
 required = 1, but found 0 (the rule here wrote nothing: its source matched nothing in the input)` —

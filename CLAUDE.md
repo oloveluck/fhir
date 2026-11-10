@@ -1223,6 +1223,27 @@ doing what the agent did:
   otherwise); `raco cql --now` takes a date; the capability guide on `--port 0`, the banner as the
   ready signal and issues per input.
 
+## New users, round 15 (2026-11-10)
+The fourteenth rerun (every task first time, 11–16 calls, no source read) found one real defect;
+each change has a test doing what the agent did:
+- **A bare reference's suggestion names the patient it names**: `Reference(pat-a)` with `Patient/pat-a`
+  stored suggested `Patient/pat-b` (`closest-names` leaves the exact name out); an id equal to the
+  name now comes first, alone (`bare-suggestion`).
+- **The trail**: `describe ref=Type/id as=source` answers the resource's own Instance
+  (`instance-block`), the Provenance the whole file; the SHA-1 is all 40 digits; history names its
+  fields as SQL's `trail` does (`agent`, not `by`); a change refused for its errors no longer lists
+  its dangling references; `stage drop=latest`.
+- **Servers**: the banner says the search handling (`search: strict …` / `lenient …`); the guide's
+  worked example is strict and its smoke test runs on `--port 0`, reading the url from the banner
+  (`capability-guide-test` runs it as written); the WAL files are explained; a value-set error names
+  the codes once (`must be female or male, got "other" (value set …)`); input problems come in the
+  order the inputs are declared (`in-declared-order`).
+- **The Racket route**: the template's `main.rkt` takes `--now`; `raco fml check` names each example
+  by its file and says what the results were held to; `raco fsh check` on a folder whose InstanceOf a
+  sibling folder defines says `check with --context <dir>` (fsh `with-context-hint`); a CQL error
+  about a name is positioned at the name (cql `at-the-name`, in `raco cql`, the `#lang cql` build, the
+  editor and the workspace); fhir-authoring says `write-fhir-json` orders the other elements by name.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

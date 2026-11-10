@@ -235,7 +235,11 @@ Check an expression on stored data before making it a rule: `query("fhirpath", "
 `describe("Observation/bp-a1", as: "fsh")` answers the resource as an FSH Instance; change the line
 that is wrong and stage the whole text again — the stage shows the change (`… 150 → 140`) and the
 commit writes version 2 with its reason. The file goes beside the workspace, as data files do (a
-`.fsh` file in the workspace is part of its project, checked with the rules):
+`.fsh` file in the workspace is part of its project, checked with the rules). The Instance is
+written from the stored JSON, so its rules come in element-name order with explicit indexes
+(`category[0]`), not as first written: find the line by its path before editing.
+`describe("Observation/bp-a1", as: "source")` gives the Instance as it was written, if you would
+rather edit that:
 ```
 raco fhir-mcp call describe ref=Observation/bp-a1 as=fsh > ../bp-a1.fsh     # edit it
 raco fhir-mcp call stage fsh=@../bp-a1.fsh
@@ -250,14 +254,17 @@ the source the data came from (the FSH, the file, or the run, with its text and 
 AuditEvent of the transaction. With `audit: all`, every run, query and apply leaves an AuditEvent
 too (its outcome, its text). The trail is data like any other:
 - `describe("Observation/a1/_history")`: every version, newest first, what changed since the one
-  before (`valueQuantity.value: 8.0 → 8.4`), and who wrote it, why, from what — the file and the line
-  its Instance begins at (`"at": "patients.fsh:33"`);
-- `describe("Provenance/<id>", as: "source")`: the text the data was made from (the FSH, the file),
-  decoded;
+  before (`valueQuantity.value: 8.0 → 8.4`), and who wrote it (`agent`), when (`recorded`), why
+  (`reason`), from what (`source`, `sha1`) and where (`at`) — the same names as SQL's `trail`. `at` is
+  the line that made the version: for a create, the line its Instance begins at
+  (`"at": "patients.fsh:33"`); for a correction, the rule it changed (`"at": "../bp-a1.fsh:6"`);
+- `describe("Observation/a1", as: "source")`: the FSH Instance that wrote the resource's newest version,
+  alone; `describe("Provenance/<id>", as: "source")`: the whole text the commit was made from (the
+  FSH file), decoded;
 - `query("search", "Provenance?target=Observation/a1")`;
 - SQL: `trail` — one row per version a commit wrote (`type, id, versionId, recorded, agent, reason,
   source, sha1, at, provenance`; `versionId` an integer, the rest text; `recorded` is when the commit
-  wrote it, not when the fact happened; `source` the file and `sha1` its text's hash; `at` the file and line the version
+  wrote it, not when the fact happened; `source` the file and `sha1` its text's SHA-1 (all 40 hex digits, as `sha1sum` prints it); `at` the file and line the version
   was written from, `../src/a1c.fsh:12`, file names relative to the workspace), so "where did every
   lab value come from" is
   `SELECT * FROM trail WHERE type = 'Observation'`; and `history` (every version of every resource),

@@ -54,10 +54,14 @@
     (let-values ([(text err?) ((tool-run (hash-ref tools "describe")) (hasheq 'ref (hash-ref c1 'provenance) 'as "source"))])
       (check-false err? text)
       (check-regexp-match #rx"^Instance: ann\n" text))
+    ;; a resource's own source is its Instance alone, not the file's others
+    (let-values ([(own err?) ((tool-run (hash-ref tools "describe")) (hasheq 'ref "Observation/a1" 'as "source"))])
+      (check-regexp-match #rx"^Instance: a1\n" own)
+      (check-false (regexp-match? #rx"Instance: ann" own)))
     ;; a correction: version 2, its own Provenance
     (call "commit" (hasheq 'stage (hash-ref (call "stage" (hasheq 'fsh (a1c 8.4 "%"))) 'stage) 'reason "lab corrected the value"))
     (define hist (call "describe" (hasheq 'ref "Observation/a1/_history")))
-    (check-equal? (map (lambda (v) (list (hash-ref v 'version) (hash-ref v 'changed) (hash-ref v 'reason) (hash-ref v 'by))) (hash-ref hist 'versions))
+    (check-equal? (map (lambda (v) (list (hash-ref v 'version) (hash-ref v 'changed) (hash-ref v 'reason) (hash-ref v 'agent))) (hash-ref hist 'versions))
                   '(("2" ("valueQuantity.value: 8.0 → 8.4") "lab corrected the value" "claude-code 2.0 via fhir-mcp")
                     ("1" "created" "intake: ann's first HbA1c" "claude-code 2.0 via fhir-mcp")))
     ;; each version names the line of its source that made it: a create the Instance's first line, a

@@ -62,7 +62,7 @@
 
 ;; source-label : Source -> string   one line: what the data was made from
 (define (source-label src)
-  (define sha (let ([t (hash-ref src 'text #f)]) (if (string? t) (string-append " sha1:" (substring (text-sha1 t) 0 12)) "")))
+  (define sha (let ([t (hash-ref src 'text #f)]) (if (string? t) (string-append " sha1:" (text-sha1 t)) "")))
   (case (hash-ref src 'kind "resources")
     [("fsh") (if (hash-ref src 'path #f) (format "~a~a" (hash-ref src 'path) sha) (string-append "FSH written in the stage" sha))]
     [("file") (format "~a~a" (hash-ref src 'path "a file") sha)]

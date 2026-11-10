@@ -84,6 +84,11 @@
   ;; `(server #:store …)` (beside it), else a temporary store; the pid, so a script can stop it
   (define stores ((dynamic-require 'fhir/capability/store 'opened-store-files)))
   (printf "FHIR server on http://localhost:~a  (Ctrl-C, or kill ~a, to stop)\n" port (getpid))
+  ;; how a search with a parameter the app does not declare is answered — on a server of patient data,
+  ;; lenient answers every patient's resources (said in a warning entry); strict refuses it
+  (printf "search: ~a\n" (if ((dynamic-require 'fhir/capability/runtime 'strict-search-app?) app)
+                              "strict (a parameter the app does not declare is refused, 400)"
+                              "lenient (a parameter the app does not declare is ignored, and said in the Bundle; (server #:search-handling \"strict\") refuses it)"))
   (printf "store: ~a\n" (if (null? stores) "a temporary SQLite file, removed when the server stops (--store keeps one)"
                              (string-join (map path->string stores) ", ")))
   (flush-output)                                          ; said at once, even when the output is a file

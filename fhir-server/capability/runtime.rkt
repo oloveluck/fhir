@@ -38,6 +38,7 @@
  (struct-out search-result)
  (struct-out search-result/ignored)
  current-app
+ strict-search-app?
  ;; current-request-json : (parameter jsexpr|#f)   the request body AS SENT (the HTTP layer sets it
  ;; while dispatching): validation and operations read it, since the typed node is parsed leniently
  ;; and has dropped whatever it did not know (a misspelt element, a value it could not parse)
@@ -341,7 +342,7 @@
      ;; every problem with the inputs at once — unknown, missing, mistyped, outside a binding or a
      ;; range — one line each (a request with two mistyped inputs was told of one)
      (define-values (in type-problems) (if od (typed-inputs/problems od in0) (values in0 '())))
-     (define problems (if od (append (input-problems od in0) type-problems (range-problems od in)) '()))
+     (define problems (if od (in-declared-order od (append (input-problems od in0) type-problems (range-problems od in))) '()))
      (cond
        [(pair? problems) (inputs-outcome problems)]
        [else
@@ -389,6 +390,15 @@
                        (raw-text v)]
                       [else c])))))
   (values typed (sort problems string<?)))
+
+;; in-declared-order : OperationDefinition (listof problem-string) -> (listof problem-string)   the
+;; problems in the order the inputs are declared (`creatinine`, `age`, `sex`), unknown inputs last
+(define (in-declared-order od problems)
+  (define names (for/list ([p (in-list (navigate (list od) 'parameter))]) (leaf->string (single (navigate (list p) 'name)))))
+  (define (rank p)
+    (define m (regexp-match #rx"^parameter '([^']+)'" p))
+    (or (and m (index-of names (cadr m))) (length names)))
+  (sort problems < #:key rank))
 
 ;; range-problems : OperationDefinition typed-inputs -> (listof problem-string)   a number outside
 ;; the range its parameter declares (`#:min`/`#:max`, the core minValue/maxValue extensions)
@@ -518,8 +528,16 @@
        (for/or ([v (in-list (hash-ref in name '()))])
          (define code (let ([t (raw-text v)]) (and (string? t) t)))
          (and code (not (member code codes))
-              (format "parameter '~a' must be a code from ~a (~a), got \"~a\"" name (shown-value-set vs)
-                      (apply string-append (add-between (take codes (min 12 (length codes))) ", ")) code)))))
+              ;; the codes once, then where they come from (the inline VCL listed them twice)
+              (format "parameter '~a' must be ~a, got \"~a\" (value set ~a)" name (codes-text codes) code (shown-value-set vs))))))
+
+;; codes-text : (listof code) -> string   `female or male`, `one of a, b, c`, at most 12 named
+(define (codes-text codes)
+  (match codes
+    [(list a) a]
+    [(list a b) (format "~a or ~a" a b)]
+    [_ (format "one of ~a~a" (apply string-append (add-between (take codes (min 12 (length codes))) ", "))
+               (if (> (length codes) 12) ", …" ""))]))
 
 ;; shown-value-set : url -> string   a value set as a message names it: an implicit VCL value set by
 ;; its expression, decoded (`(http://hl7.org/fhir/administrative-gender)(female;male)`)

@@ -80,6 +80,16 @@
     (check-regexp-match #rx"^subject: `anm` names no resource: .*[(]did you mean `Patient/ann`[?][)]$"
                         (car (hash-ref (car (hash-ref st3 'changes)) 'warnings)))
     (call d "stage" (hasheq 'drop (hash-ref st3 'stage)))
+    ;; the name of a stored patient: that patient, not the nearest other (`pat-b` for `pat-a` filed a
+    ;; reading under the wrong patient)
+    (define st3b (call d "stage" (hasheq 'fsh "Instance: o4b\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#4548-4\n* subject = Reference(ann)\n")))
+    (check-regexp-match #rx"[(]did you mean `Patient/ann`[?][)]$" (car (hash-ref (car (hash-ref st3b 'changes)) 'warnings)))
+    (call d "stage" (hasheq 'drop (hash-ref st3b 'stage)))
+    ;; a change refused for its errors says those alone, not its dangling references too
+    (let-values ([(text err?) ((tool-run (hash-ref (tools-of d) "stage")) (hasheq 'fsh "Instance: o4c\nInstanceOf: Observation\n* status = #fnal\n* code = http://loinc.org#4548-4\n* subject = Reference(Patient/nobody)\n"))])
+      (check-regexp-match #rx"\"errors\":[1-9]" text)
+      (check-false (regexp-match? #rx"Patient/nobody is neither" text) text))
+    (call d "stage" (hasheq 'drop "latest"))
     ;; two ids as near as each other: both named (naming one was a guess)
     (call d "commit" (hasheq 'stage (hash-ref (call d "stage" (hasheq 'fsh "Instance: anb\nInstanceOf: Patient\n")) 'stage)))
     (define st4 (call d "stage" (hasheq 'fsh "Instance: o5\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#4548-4\n* subject = Reference(anc)\n")))
@@ -132,7 +142,7 @@
     (check-equal? (hash-ref (car (hash-ref cf 'written)) 'resource) "Patient/fay")
     (check-equal? (hash-ref (car (hash-ref cf 'written)) 'version) "Patient/fay/_history/1")
     (check-equal? (hash-ref cf 'agent) "intake desk")
-    (check-equal? (hash-ref (car (hash-ref (call e "describe" (hasheq 'ref "Patient/fay/_history")) 'versions)) 'by) "intake desk")
+    (check-equal? (hash-ref (car (hash-ref (call e "describe" (hasheq 'ref "Patient/fay/_history")) 'versions)) 'agent) "intake desk")
     ;; a file is named in messages as the user wrote it (`bad.fsh:8:`, not a 150-character path) …
     (let-values ([(text err?) ((tool-run (hash-ref (tools-of e) "stage")) (hasheq 'fsh "Instance: x\nInstanceOf: Patiet\n" 'files (hasheq 'fsh "../src/bad.fsh")))])
       (check-true err?)
@@ -151,13 +161,14 @@
       (check-regexp-match #rx"^[.][.]/[^/]+-src/gus[.]fsh:1$" (hash-ref v 'at))
       (check-regexp-match #rx"^[.][.]/[^/]+-src/gus[.]fsh$" (hash-ref v 'source))
       (check-regexp-match #rx"^[0-9a-f]+$" (hash-ref v 'sha1))
+      (check-equal? (string-length (hash-ref v 'sha1)) 40)                ; the whole SHA-1, as sha1sum prints it
       (define row (car (hash-ref (call e "query" (hasheq 'language "sql" 'text "SELECT source, sha1, at FROM trail WHERE id = 'gus'")) 'rows)))
       ;; the file and its SHA-1 apart, so a query filters by file without string surgery
       (check-regexp-match #rx"^[.][.]/[^/]+-src/gus[.]fsh$" (hash-ref row 'source))
       (check-regexp-match #rx"^[0-9a-f]+$" (hash-ref row 'sha1))
       (check-regexp-match #rx"^[.][.]/[^/]+-src/gus[.]fsh:1$" (hash-ref row 'at))
       ;; an agent written as a reference is one (an audit can follow it)
-      (check-equal? (hash-ref v 'by) "Practitioner/dr-ng")
+      (check-equal? (hash-ref v 'agent) "Practitioner/dr-ng")
       (check-equal? (hash-ref (car (hash-ref (call e "query" (hasheq 'language "sql" 'text "SELECT agent FROM trail WHERE id = 'gus'")) 'rows)) 'agent)
                     "Practitioner/dr-ng")
       ;; a correction's `at` is the rule it changed, not the instance's header

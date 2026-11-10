@@ -886,7 +886,11 @@
               (define pv (let ([vs (hash-ref (describe-history h (cadr m) (caddr m)) 'versions '())])
                            (for/first ([v (in-list vs)] #:when (hash-ref v 'provenance #f)) (hash-ref v 'provenance))))
               (unless pv (error 'describe (format "~a was not written by a commit: no Provenance holds its source" ref)))
-              (as-source ((data-source-read (current-data-source)) "Provenance" (cadr (regexp-match #rx"^Provenance/(.+)$" pv)))))]
+              (define whole (as-source ((data-source-read (current-data-source)) "Provenance" (cadr (regexp-match #rx"^Provenance/(.+)$" pv)))))
+              ;; this resource's own Instance, not the whole file it came in (six instances answered
+              ;; for one); `describe ref=<the Provenance> as=source` gives the whole text
+              (define block (instance-block (text-answer-text whole) (caddr m)))
+              (if block (text-answer block) whole))]
         [(regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)/_history$" ref)
          => (lambda (m) (describe-history h (cadr m) (caddr m)))]
         [(regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)$" ref)
@@ -928,7 +932,7 @@
                                   (list (cons 'provenance (format "Provenance/~a" (hash-ref pv 'id "?")))
                                         ;; the commit's time, as the trail and the Provenance say it
                                         (cons 'recorded (hash-ref pv 'recorded #f))
-                                        (cons 'by (let ([a (hash-ref pv 'agent '())]) (and (pair? a) (let ([w (hash-ref (car a) 'who (hasheq))]) (or (hash-ref w 'display #f) (hash-ref w 'reference #f))))))
+                                        (cons 'agent (let ([a (hash-ref pv 'agent '())]) (and (pair? a) (let ([w (hash-ref (car a) 'who (hasheq))]) (or (hash-ref w 'display #f) (hash-ref w 'reference #f))))))
                                         (cons 'reason (let ([r (hash-ref pv 'reason '())]) (and (pair? r) (hash-ref (car r) 'text #f))))
                                         ;; the source as the trail keeps it (relative to the workspace), its
                                         ;; SHA-1 apart, and where in it this version was written — the same
@@ -1195,6 +1199,8 @@
   (match (hash-ref args 'drop #f)
     ["all" (for ([id (in-list (pending-stage-ids h))]) (drop-stage! h id))      ; every stage not committed
            (hasheq 'dropped "all" 'stages (pending-stage-ids h))]
+    ["latest" (let ([ids (pending-stage-ids h)])                                ; as commit takes it
+                (if (null? ids) (error 'stage "no stage to drop") (drop-stage! h (last ids))))]
     [(? string? id) (drop-stage! h id)]
     [_ (stage! h args)]))
 
@@ -1270,7 +1276,10 @@
                          ;; what an update changes; a create's `action` says it all (`changed: "created"` repeated it)
                          (define base (if (eq? (change-action c) 'create) base1
                                           (hash-set base1 'changed (take (change-paths c) (min 30 (length (change-paths c)))))))
-                         (define ws (append (hash-ref warned (change-resource c) '()) (hash-ref dangling (change-resource c) '())))
+                         ;; a change refused for its errors says those alone: its references are
+                         ;; checked again when it is staged clean (a refusal demo read as noise)
+                         (define ws (append (hash-ref warned (change-resource c) '())
+                                            (if (null? (change-errors c)) (hash-ref dangling (change-resource c) '()) '())))
                          (if (null? ws) base (hash-set base 'warnings ws)))
               'errors errors
               'next (cond [nothing? (format "nothing to commit: the ~a resource(s) are stored as they are" (length changes))]
@@ -1316,7 +1325,10 @@
   ;; a bare name's nearest: among this stage's resources and the stored Patients, as Type/id
   (define (bare-suggestion name)
     (define keys (append (set->list staged-keys) (map (lambda (i) (string-append "Patient/" i)) (ids-of "Patient"))))
-    (define near (closest-names name (map (lambda (k) (regexp-replace #rx"^[^/]*/" k "")) keys)))
+    ;; an id that IS the name comes first, alone: `Reference(pat-a)` with Patient/pat-a stored meant it
+    ;; (the nearest OTHER id, `pat-b`, was suggested — following it filed the reading under another patient)
+    (define exact (filter (lambda (k) (string-suffix? k (string-append "/" name))) keys))
+    (define near (if (pair? exact) (list name) (closest-names name (map (lambda (k) (regexp-replace #rx"^[^/]*/" k "")) keys))))
     (define full (for*/list ([n (in-list near)] [k (in-list keys)] #:when (string-suffix? k (string-append "/" n))) k))
     ;; every near one (`pat-c` is as near `pat-a` as `pat-b`: naming one of them was a guess)
     (define shown (let ([u (remove-duplicates full)]) (take u (min 3 (length u)))))
@@ -1406,6 +1418,18 @@
       answer))
 
 ;; instance-line : fsh-text id -> line | #f   where `Instance: <id>` (or an instance with `* id = "<id>"`) starts
+;; instance-block : fsh-text id -> string | #f   the lines of the Instance with this id, from its header to
+;; the next entity (or the end), trailing blank lines left out
+(define (instance-block text id)
+  (define start (instance-line text id))
+  (and start
+       (let* ([lines (list-tail (regexp-split #rx"\n" text) (sub1 start))]
+              [body (cons (car lines)
+                          (for/list ([l (in-list (cdr lines))]
+                                     #:break (regexp-match? #px"^(Instance|Profile|Extension|Logical|Resource|ValueSet|CodeSystem|Invariant|RuleSet|Mapping|Alias)\\s*:" l))
+                            l))])
+         (string-append (string-join (reverse (dropf (reverse body) (lambda (l) (string=? (string-trim l) "")))) "\n") "\n"))))
+
 (define (instance-line text id)
   (define lines (regexp-split #rx"\n" text))
   (or (for/first ([l (in-list lines)] [i (in-naturals 1)]

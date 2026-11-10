@@ -187,6 +187,10 @@ run {"path": "Diabetes.cql"}
 {"result": "result://r2", "name": "result://Diabetes", "summary": {"patients": 2, "defines": {"Poor Control": {"true": 1, "false": 1}}},
  "rows": [{"patient": "ann", "Poor Control": true}, {"patient": "bob", "Poor Control": false}]}
 ```
+This is the short form of learn://cql's latest-value recipe, which spells the same library out in
+full (`"Latest Value"`, `"Poorly Controlled"`, a number and a unit to print, "never tested"): start
+from the recipe for a real question, and set its threshold (here 8 %, there 9 %) to the one asked.
+A run's preview lists every define per patient; `explain(ref, subject, entry: "<define>")` answers one.
 
 A table of every HbA1c result, as a ViewDefinition:
 
