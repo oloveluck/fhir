@@ -27,7 +27,30 @@
                   [exn:fail:operation? (lambda (e) (values (jsexpr->string (exn:fail:operation-outcome e)) #t))]
                   [exn:fail? (lambda (e) (values (jsexpr->string (hasheq 'error (strip-who (exn-message e)))) #t))])
     (define v (thunk))
-    (values (if (text-answer? v) (text-answer-text v) (jsexpr->string v)) #f)))
+    (values (if (text-answer? v) (text-answer-text v) (answer-json v)) #f)))
+
+;; answer-json : jsexpr -> string   JSON text in which a table's rows list their keys in the table's
+;; column order (`rows` beside `columns`), as the CSV does: a hash's keys come out in no order, and a
+;; reader of `{"mean_diastolic": …, "mean_systolic": …, "patient": …}` reads the columns backwards
+(define (answer-json v)
+  (let loop ([v v] [order #f])
+    (cond
+      [(hash? v)
+       (define cols (let ([c (hash-ref v 'columns #f)]) (and (list? c) (andmap string? c) (map string->symbol c))))
+       (define ks (hash-keys v))
+       (define keys (if order
+                        (append (filter (lambda (k) (hash-has-key? v k)) order)
+                                (sort (filter (lambda (k) (not (memq k order))) ks) symbol<?))
+                        (sort ks symbol<?)))
+       (string-append
+        "{"
+        (string-join (for/list ([k (in-list keys)])
+                       (string-append (jsexpr->string (symbol->string k)) ":"
+                                      (loop (hash-ref v k) (and (eq? k 'rows) cols))))
+                     ",")
+        "}")]
+      [(list? v) (string-append "[" (string-join (for/list ([x (in-list v)]) (loop x order)) ",") "]")]
+      [else (jsexpr->string v)])))
 (define (strip-who m) (regexp-replace #px"^[a-z-]+: " m ""))
 
 (define (str args k) (let ([v (hash-ref args k #f)]) (and (string? v) v)))

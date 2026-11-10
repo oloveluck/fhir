@@ -125,7 +125,15 @@
 (define (node-with-id n id) (ok-or-raise (from-json (hash-set (node->jsexpr n) 'id id) #:lenient? #t)))
 
 (define (store-search store sps params)
-  (for/list ([r (in-list (hash-values store))] #:when (matches-params? r sps params)) r))
+  (define matches (for/list ([r (in-list (hash-values store))] #:when (matches-params? r sps params)) r))
+  ;; what it could not apply is said, as the store-backed search does (the searchset reports it;
+  ;; strict handling refuses it) — an in-memory app answered `?subject=…` with every resource
+  (define ignored
+    (remove-duplicates
+     (for/list ([p (in-list params)]
+                #:unless (let ([sp (findf (lambda (s) (eq? (car s) (car p))) sps)]) (and sp (caddr sp))))
+       (symbol->string (car p)))))
+  (if (null? ignored) matches (search-result/ignored matches '() ignored)))
 (define (matches-params? r sps params)
   (for/and ([p (in-list params)])
     (define sp (findf (lambda (s) (eq? (car s) (car p))) sps))
@@ -203,7 +211,13 @@
        [(not fn)
         (operation-outcome-not-supported
          (format "interaction ~a is not supported on ~a" (request-kind req) (request-type req)))]
-       [else (guarded (lambda () (run-interaction (request-kind req) fn req)))])]))
+       [else (parameterize ([current-search-strict? (or (current-search-strict?) (strict-search-app? a))])
+               (guarded (lambda () (run-interaction (request-kind req) fn req))))])]))
+
+;; strict-search-app? : app -> boolean   `(server #:search-handling "strict")`: every search is strict,
+;; whatever the client prefers — a filter the server cannot apply (`subject` where only `patient` is
+;; declared) is refused, never answered with every resource
+(define (strict-search-app? a) (equal? (hash-ref (app-metadata a) 'search-handling #f) "strict"))
 
 (define (interaction-proc repo kind)
   (case kind
@@ -226,7 +240,7 @@
      (define r (fn (request-params req)))
      ;; Prefer: handling=strict — a parameter the server cannot apply is an error, not a note
      (if (and (current-search-strict?) (search-result/ignored? r))
-         (operation-outcome-invalid (format "search parameter~a ~a not supported here (Prefer: handling=strict); this server searches with what /metadata advertises"
+         (operation-outcome-invalid (format "search parameter~a ~a not supported here (strict search handling); this server searches with what /metadata advertises"
                                             (if (> (length (search-result/ignored-names r)) 1) "s" "")
                                             (apply string-append (add-between (map (lambda (n) (format "`~a`" n)) (search-result/ignored-names r)) ", "))))
          (make-searchset r))]

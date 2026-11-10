@@ -69,6 +69,7 @@
   (define arguments (call-arguments (cdr rest)))
   ;; who the trail names: the shell, unless FHIR_MCP_AGENT says who is at it
   (set-box! current-agent (or (getenv "FHIR_MCP_AGENT") "raco fhir-mcp call"))
+  (set-box! call-style 'shell)
   (with-workspace o
     (lambda (h tools)
       (define t (findf (lambda (x) (equal? (tool-name x) name)) tools))
@@ -89,6 +90,7 @@
                            #:unless (regexp-match? #px"^\\s*(#|$)" l))
                   (string-trim l)))
   (set-box! current-agent (or (getenv "FHIR_MCP_AGENT") "raco fhir-mcp batch"))
+  (set-box! call-style 'shell)
   (with-workspace o
     (lambda (h tools)
       (define failed

@@ -86,6 +86,12 @@
     (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text (cadr (regexp-match #px"```\n(SELECT t.versionId.*?)```" (learn-text "workspace"))))) 'rows)
                   (list (hasheq 'versionId 1 'value 8 'reason "intake: ann's first HbA1c" 'agent "claude-code 2.0 via fhir-mcp" 'recorded (hash-ref (car (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT recorded FROM trail WHERE id = 'a1' AND versionId = 1")) 'rows)) 'recorded))
                         (hasheq 'versionId 2 'value 8.4 'reason "lab corrected the value" 'agent "claude-code 2.0 via fhir-mcp" 'recorded (hash-ref (car (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT recorded FROM trail WHERE id = 'a1' AND versionId = 2")) 'rows)) 'recorded))))
+    ;; the guide's "each stored value with where it came from": the current version joined to its trail row
+    (let ([rows (hash-ref (call "query" (hasheq 'language "sql" 'text (cadr (regexp-match #px"```\n(SELECT o.id.*?)```" (learn-text "workspace"))))) 'rows)])
+      (define a1 (findf (lambda (r) (equal? (hash-ref r 'id) "a1")) rows))
+      (check-equal? (hash-ref a1 'value) 8.4)
+      (check-equal? (hash-ref a1 'reason) "lab corrected the value")
+      (check-equal? (hash-ref a1 'agent) "claude-code 2.0 via fhir-mcp"))
     ;; a view over every version (`<view>_history`): a corrected value is a column, no json_each
     (call "write" (hasheq 'path "a1c.view.json"
                           'text (jsexpr->string (hasheq 'resourceType "ViewDefinition" 'name "a1c" 'status "active" 'resource "Observation"

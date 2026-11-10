@@ -21,7 +21,8 @@ raco fhir-server serve clinic.rkt 8080 --store fhir.db   # resources without a #
 
 A resource declared without `#:repository` is kept in a SQLite FHIR store when there is one — the
 `--store` file, `(server #:store "fhir.db")` (beside the module), or a workspace's `fhir.db` when the
-workspace runs the app (`<name>.capability.rkt`, learn://capability) — and in memory otherwise. The
+workspace runs the app (`<name>.capability.rkt`, learn://capability) — and in a temporary one,
+removed when the server stops, otherwise. The
 store keeps each resource as SQLite JSONB (`resource ->> '$.gender'` in SQL), with its history and
 search indexes.
 

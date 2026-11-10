@@ -1118,6 +1118,39 @@ The ninth rerun (every task first time); each fix has a test doing what the agen
   stage ids are not reused; fhir-authoring runs the intake pipeline's pieces one at a time before
   `main.rkt`, whose template lost requires it did not need (`transform #:validate` loads `$validate`).
 
+## New users, round 11 (2026-11-10)
+The tenth rerun (every task first time, 10–16 calls, no source read) found two real defects and a
+half-right fix; each change has a test doing what the agent did:
+- **A search answers valid FHIR**: a searchset (and history) Bundle carries each entry's `fullUrl`
+  (`[base]/Type/id`, a urn:uuid for an OperationOutcome entry) and a `self` link — http/server.rkt's
+  `bundle-with-urls`, from the request's Host (the router has no base); it failed bdl-15/bdl-18 under
+  the toolkit's own validator. `derived-valid-test` validates a searchset now.
+- **No store means a temporary store, not memory** (capability/store.rkt `temporary-store-factory`, the
+  module's fallback): the in-memory repository matched parameters by string equality, so
+  `patient=Patient/x`, `birthdate=lt1980` and every parameter declared without an expression matched
+  every resource or none; it now reports what it cannot apply too (`store-search`). The file is removed
+  when the process ends (the default plumber).
+- **`(server #:search-handling "strict")`**: every search strict, whatever the client prefers (the app's
+  metadata, `strict-search-app?`) — an undeclared `subject` on a research server answered every
+  patient's Observations.
+- **Inline code subsets**: `#:binding "(http://hl7.org/fhir/administrative-gender)(female;male)"` is
+  VCL, turned into FHIR's implicit value set url at compile time (`binding-url`, a VCL that does not
+  parse is a declaration error); fhir-server depends on vcl.
+- **Paths as given, trail resolvable**: a message names a file as the user wrote it (`argument-file`);
+  the Provenance keeps it relative to the workspace or absolute, resolved where the call was made
+  (`argument-source`: a bare name relative to the shell's directory was kept bare); history's `at` and a
+  result's `file` are shown relative to the current directory when shorter (`shown-path`).
+- **Answers for the shell**: hints are written as the shell takes them (`commit stage=stage-2`, not
+  `commit("stage-2")`; `call-style`, `call-text`); a table's rows list their keys in column order
+  (verbs.rkt `answer-json`); a stage's create no longer repeats `changed: "created"`; `agent=` may be a
+  reference (`Practitioner/dr-ng` -> `who.reference`; `trail.agent` reads either).
+- **One error for an invalid result**: fml's `transform #:validate` raises `exn:fail:operation` (with an
+  OperationOutcome), as `ensure-valid` does, so fhir-authoring's one handler catches both.
+- Docs: learn://workspace's "each stored value with where it came from" (a type joined to `trail`,
+  tested) and the correction reason reworded; learn://fhir's common UCUM codes (each checked with
+  `ucum-valid?`); fhir-authoring's FHIR-version table and what `render` gives for a CQL null; the
+  capability guide's strict handling, VCL bindings, temporary store and `urn:` operation canonicals.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

@@ -20,6 +20,8 @@
          syntax/parse
          racket/list
          (only-in fhir/model/registry type-registered? primitive-name?)
+         (only-in fhir/result/result ok? ok-value err-error invalid-encoding? invalid-encoding-value)
+         (only-in vcl/compile vcl->valueset)
          (only-in fhir/r6/fhir-version fhir-version)
          (only-in "interaction-codes.rkt"
                   type-interaction? system-interaction? search-param-type?))
@@ -60,11 +62,14 @@
               (~optional (~seq #:name name:str))
               (~optional (~seq #:description description:str))
               (~optional (~seq #:store store:str))         ; read by module-begin (server-store)
+              (~optional (~seq #:search-handling sh:str))  ; read by module-begin (the app's metadata)
               (~optional (~seq #:format fmt:str ...))) ...)
      (define mode-v (if (attribute mode) (syntax-e #'mode) "server"))
      (unless (member mode-v '("server" "client"))
        (decl-error 'server (format "#:mode must be \"server\" or \"client\", got ~s" mode-v)
                            (or (attribute mode) stx)))
+     (when (and (attribute sh) (not (member (syntax-e #'sh) '("strict" "lenient"))))
+       (decl-error 'server (format "#:search-handling must be \"strict\" or \"lenient\", got ~s" (syntax-e #'sh)) #'sh))
      (define fmts (if (attribute fmt) (syntax->datum #'(fmt ...)) '("application/fhir+json")))
      #`(rc-server #,mode-v
                   #,(if (attribute status) (syntax-e #'status) "active")
@@ -190,9 +195,26 @@
                       #,minv
                       #,(if (eq? maxv '*) #'(quote *) maxv)
                       #,use
-                      #,(if (attribute vs) #'vs #f)
+                      #,(if (attribute vs) (binding-url (syntax-e #'vs) #'vs) #f)
                       #,(if (attribute doc) #'doc #f))]
          [_ (decl-error 'operation "parameter must be [name type min max], with #:binding \"<ValueSet url>\" (a code) and #:documentation \"…\" (what it is, its unit) when wanted" p)]))]))
+
+;; binding-url : string syntax -> string
+;; `#:binding` names a ValueSet by url, or says the codes inline as VCL — `"(http://hl7.org/fhir/
+;; administrative-gender)(female;male)"` is FHIR's implicit VCL value set
+;; (http://fhir.org/VCL?v1=…), which $expand compiles; a VCL expression that does not parse is an
+;; error here, at the binding
+(define (binding-url s stx)
+  (cond
+    [(regexp-match? #rx"^(https?://|urn:)" s) s]
+    [else
+     (define r (vcl->valueset s))
+     (if (ok? r)
+         (hash-ref (ok-value r) 'url)
+         (decl-error 'operation
+                     (format "#:binding ~s is neither a ValueSet url nor a VCL expression (~a); a code subset is written \"(<system>)(code1;code2)\""
+                             s (let ([e (err-error r)]) (if (invalid-encoding? e) (invalid-encoding-value e) e)))
+                     stx))]))
 
 (module+ test
   (require rackunit (only-in fhir/r6/types))     ; populate the registry at phase 0 for the test

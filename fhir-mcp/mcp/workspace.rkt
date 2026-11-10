@@ -37,6 +37,7 @@
 
 (provide
  (struct-out text-answer)
+ call-style call-text
  (contract-out
   [hub?            (-> any/c boolean?)]
   ;; open-hub : dir [#:data override] [#:packages extra] -> hub
@@ -519,8 +520,8 @@
           'summary (run-result-summary r)
           'rows (if resources? (map (lambda (row) (if (hash? row) (hash-remove row 'json) row)) shown) (map preview shown))
           'more (cond [(> (length rows) preview-rows)
-                       (format "describe(\"~a\", offset: ~a) for the next rows~a" uri preview-rows (if resources? ", with each resource's JSON" ""))]
-                      [resources? (format "describe(\"~a\") for each resource's JSON, or describe(\"Type/id\") for one" uri)]
+                       (format "~a for the next rows~a" (call-text "describe" (list (cons 'ref uri) (cons 'offset preview-rows))) (if resources? ", with each resource's JSON" ""))]
+                      [resources? (format "~a for each resource's JSON, or ~a for one" (call-text "describe" (list (cons 'ref uri))) (call-text "describe" (list (cons 'ref "Type/id"))))]
                       [else 'null])))
 
 ;; options : hash -> Options   the verbs' arguments as a language's options
@@ -575,7 +576,7 @@
   ;; for SQL, the earlier results it reads (`r1`), so a derived table's trail is complete too
   (define opts
     (let* ([o (named (options args) #f)]
-           [f (argument-file args 'text h)]
+           [f (argument-source args 'text h)]
            [o (if f (hash-set o 'textFile f) o)]
            [reads (if (equal? lang "sql")
                       ;; by number (`r3`) and by name (`diabetes`): the result each one is NOW
@@ -764,27 +765,62 @@
   (define r* (cond [(not meta) r] [(zero? (hash-count meta)) (hash-remove r 'meta)] [else (hash-set r 'meta meta)]))
   (text-answer (regexp-replace #rx"\nUsage: #example(?=\n|$)" (fhir->fsh r*) "")))
 
-;; argument-file : args key -> string | #f   the file an argument's text was read from (`files`, which
-;; `raco fhir-mcp call key=@file` fills; a client may pass it too)
+;; call-style : (box 'mcp | 'shell)   how an answer's hints write the next call: as an MCP client
+;; calls a tool (`commit("stage-2")`), or as `raco fhir-mcp call`/`batch` takes it (`commit
+;; stage=stage-2`) — a shell user was told MCP syntax
+(define call-style (box 'mcp))
+
+;; call-text : tool (listof (cons key value)) -> string   a call as the user would write it next;
+;; the first pair is the tool's positional argument (its key unwritten in MCP style)
+(define (call-text tool kvs)
+  (define (val v) (if (number? v) (number->string v) v))
+  (case (unbox call-style)
+    [(shell)
+     (string-join (cons tool (for/list ([kv (in-list kvs)])
+                               (define v (val (cdr kv)))
+                               (format "~a=~a" (car kv) (if (regexp-match? #px"[\\s\"'$`;&|()<>]" v) (format "~s" v) v))))
+                  " ")]
+    [else
+     (define args (for/list ([kv (in-list kvs)] [i (in-naturals)])
+                    (define v (if (number? (cdr kv)) (val (cdr kv)) (format "~s" (cdr kv))))
+                    (if (zero? i) v (format "~a: ~a" (car kv) v))))
+     (format "~a(~a)" tool (string-join args ", "))]))
+
+;; argument-file : args key [hub] -> string | #f   the file an argument's text was read from, as the
+;; user wrote it (`files`, which `raco fhir-mcp call key=@file` fills; a client may pass it too): what
+;; a message shows (`bad.fsh:8: …`, not a 150-character absolute path)
 (define (argument-file args k [h #f])
   (define fs (hash-ref args 'files #f))
   (define f (and (hash? fs) (hash-ref fs k #f)))
-  (and (string? f) (file-label f h)))
+  (and (string? f) f))
 
-;; file-label : path-string hub|#f -> string   how the trail names a file: as given when it is a plain
-;; relative name, relative to the workspace when inside it, else absolute (`../readings.fsh` meant
-;; nothing once the shell had moved)
+;; argument-source : args key hub -> string | #f   the same file as the trail keeps it: relative to the
+;; workspace when inside it, else absolute — resolved where the call was made, so a name that was
+;; relative to the shell's directory (`patients.fsh` beside the workspace) still names the file later
+(define (argument-source args k h)
+  (define f (argument-file args k))
+  (and f (file-label f h)))
+
+;; file-label : path-string hub|#f -> string   how the trail names a file: relative to the workspace
+;; when inside it, else absolute
 (define (file-label f h)
-  (cond [(not (regexp-match? #rx"^[.][.]|^/|^~" f)) f]
-        [else
-         (define full (simplify-path (path->complete-path f)))
-         (define root (and h (simplify-path (path->complete-path (hub-root h)))))
-         (define inside (and root (let ([r (path->string (find-relative-path root full))]) (and (not (regexp-match? #rx"^[.][.]" r)) r))))
-         (or inside (path->string full))]))
+  (define full (simplify-path (path->complete-path (expand-user-path f))))
+  (define root (and h (simplify-path (path->complete-path (hub-root h)))))
+  (define inside (and root (let ([r (path->string (find-relative-path root full))]) (and (not (regexp-match? #rx"^[.][.]|^/" r)) r))))
+  (or inside (path->string full)))
+
+;; shown-path : hub string -> string   a path the trail keeps (workspace-relative or absolute) as a
+;; message shows it: relative to the current directory when that is shorter
+(define (shown-path h stored)
+  (with-handlers ([exn:fail? (lambda (_) stored)])
+    (define full (if (absolute-path? stored) (string->path stored) (build-path (hub-root h) stored)))
+    (define here (path->string (find-relative-path (simplify-path (path->complete-path (current-directory)))
+                                                   (simplify-path (path->complete-path full)))))
+    (if (< (string-length here) (string-length stored)) here stored)))
 
 ;; source-line : Provenance id -> "file:line" | #f   the line of the FSH a commit's source holds where
 ;; the Instance with this id begins (a batch file of many resources: which lines made this one)
-(define (source-line pv id)
+(define (source-line pv id [h #f])
   (with-handlers ([exn:fail? (lambda (_) #f)])
     (define text (text-answer-text (as-source pv)))
     (define line (instance-line text id))
@@ -792,7 +828,7 @@
                                [d (in-list (hash-ref c 'content '()))]
                                [t (in-value (hash-ref (hash-ref d 'attachment (hasheq)) 'title #f))] #:when (string? t))
                     t))
-    (and line (format "~a:~a" (if (and title (not (equal? title "fsh"))) title "fsh") line))))
+    (and line (format "~a:~a" (if (and title (not (equal? title "fsh"))) (if h (shown-path h title) title) "fsh") line))))
 
 ;; as-source : resource -> text-answer   the text a resource carries as an attachment: the source a
 ;; commit's Provenance holds (a contained DocumentReference, base64), a DocumentReference's, a Binary's
@@ -866,11 +902,11 @@
                                   (list (cons 'provenance (format "Provenance/~a" (hash-ref pv 'id "?")))
                                         ;; the commit's time, as the trail and the Provenance say it
                                         (cons 'recorded (hash-ref pv 'recorded #f))
-                                        (cons 'by (let ([a (hash-ref pv 'agent '())]) (and (pair? a) (hash-ref (hash-ref (car a) 'who (hasheq)) 'display #f))))
+                                        (cons 'by (let ([a (hash-ref pv 'agent '())]) (and (pair? a) (let ([w (hash-ref (car a) 'who (hasheq))]) (or (hash-ref w 'display #f) (hash-ref w 'reference #f))))))
                                         (cons 'reason (let ([r (hash-ref pv 'reason '())]) (and (pair? r) (hash-ref (car r) 'text #f))))
                                         (cons 'source (let ([en (hash-ref pv 'entity '())]) (and (pair? en) (hash-ref (hash-ref (car en) 'what (hasheq)) 'display #f))))
                                         ;; where in that source this resource was written: an FSH Instance's line
-                                        (cons 'at (source-line pv id)))
+                                        (cons 'at (source-line pv id h)))
                                   '()))]
                  #:when (cdr kv))
         (hash-set e (car kv) (cdr kv)))))
@@ -881,7 +917,7 @@
 (define (trim-definition r)
   (define r1 (hash-remove r 'text))
   (if (and (equal? (hash-ref r 'resourceType #f) "StructureDefinition") (hash-has-key? r 'snapshot))
-      (hash-set (hash-remove r1 'snapshot) 'snapshot (format "~a elements: describe(\"~a.<path>\")" (length (hash-ref (hash-ref r 'snapshot) 'element '())) (hash-ref r 'type "Type")))
+      (hash-set (hash-remove r1 'snapshot) 'snapshot (format "~a elements: ~a" (length (hash-ref (hash-ref r 'snapshot) 'element '())) (call-text "describe" (list (cons 'ref (format "~a.<path>" (hash-ref r 'type "Type")))))))
       r1))
 
 (define (describe-element type path ref)
@@ -922,7 +958,7 @@
                          (line (for/list ([c (in-list cols)]) (if (hash? row) (hash-ref row (string->symbol c) 'null) row)))))
                  "\n")
     (let ([next (+ offset (length page))])
-      (if (< next (length rows)) (format "\n… ~a more rows: describe(\"~a\", as: \"csv\", offset: ~a)" (- (length rows) next) uri next) "")))))
+      (if (< next (length rows)) (format "\n… ~a more rows: ~a" (- (length rows) next) (call-text "describe" (list (cons 'ref uri) (cons 'as "csv") (cons 'offset next)))) "")))))
 ;; csv-cell : jsexpr -> string   RFC 4180: quoted when it holds a comma, quote or line break; null empty
 (define (csv-cell v)
   (define s (cond [(eq? v 'null) ""] [(string? v) v] [(boolean? v) (if v "true" "false")]
@@ -949,7 +985,7 @@
 (define (result-source h st)
   (for/fold ([src (hasheq 'language (stored-language st) 'sha1 (text-sha1 (stored-text st)))])
             ([kv (in-list (list (cons 'file (or (and (stored-path st) (rel h (stored-path st)))
-                                                (hash-ref (stored-options st) 'textFile #f)))
+                                                (let ([f (hash-ref (stored-options st) 'textFile #f)]) (and f (shown-path h f)))))
                                 (cons 'reads (hash-ref (stored-options st) 'reads #f))
                                 (cons 'entry (hash-ref (stored-options st) 'entry #f))
                                 (cons 'over (hash-ref (stored-options st) 'over #f))
@@ -1161,7 +1197,7 @@
         ;; at the rule that wrote the element the error is about, when the instance has one; else at
         ;; the instance's header (a missing element has no rule to point at)
         (if line
-            (map (lambda (e) (format "~a:~a: ~a" (hash-ref source 'path "fsh")
+            (map (lambda (e) (format "~a:~a: ~a" (or (argument-file args 'fsh) "fsh")   ; the file as the user named it
                                      (or (rule-line fsh line (error-element e)) line) e))
                  (remove-duplicates errors))
             (remove-duplicates errors)))
@@ -1183,15 +1219,18 @@
         (save-state! h "stages" id (lambda () (staged->jsexpr (staged changes source)))))
       (hasheq 'stage id
               'changes (for/list ([c (in-list changes)])
-                         (define base (hasheq 'resource (format "~a/~a" (hash-ref (change-resource c) 'resourceType) (hash-ref (change-resource c) 'id "(new id)"))
+                         (define base0 (hasheq 'resource (format "~a/~a" (hash-ref (change-resource c) 'resourceType) (hash-ref (change-resource c) 'id "(new id)"))
                                               'action (symbol->string (change-action c))
-                                              'changed (if (eq? (change-action c) 'create) "created" (take (change-paths c) (min 30 (length (change-paths c)))))
                                               'errors (change-errors c)))
+                         ;; what an update changes; a create's `action` says it all (`changed: "created"` repeated it)
+                         (define base (if (eq? (change-action c) 'create) base0
+                                          (hash-set base0 'changed (take (change-paths c) (min 30 (length (change-paths c)))))))
                          (define ws (append (hash-ref warned (change-resource c) '()) (hash-ref dangling (change-resource c) '())))
                          (if (null? ws) base (hash-set base 'warnings ws)))
               'errors errors
               'next (cond [nothing? (format "nothing to commit: the ~a resource(s) are stored as they are" (length changes))]
-                          [(zero? errors) (format "commit(\"~a\") writes the ~a change(s) to ~a" id (count (lambda (c) (not (eq? (change-action c) 'unchanged))) changes) (hub-data-label h))]
+                          [(zero? errors) (format "~a writes the ~a change(s) to ~a" (call-text "commit" (list (cons 'stage id))) (count (lambda (c) (not (eq? (change-action c) 'unchanged))) changes)
+                                                  (let ([p (data-store-path h)]) (if p (format "the store ~a" (shown-path h (path->string (path->complete-path p)))) (hub-data-label h))))]
                           [else "fix the errors, then stage again: a stage with errors is not committed"])))))
 
 ;; dangling-references : hub (listof resource) -> (hash resource -> (listof string))   each literal
@@ -1358,7 +1397,7 @@
   (define result (hash-ref args 'result #f))
   (cond
     [(string? fsh) (let ([src (hasheq 'kind "fsh" 'language "fsh" 'text fsh)]
-                         [from (argument-file args 'fsh h)])
+                         [from (argument-source args 'fsh h)])
                      (if from (hash-set src 'path from) src))]
     [(string? result)
      (define st (result-of h result))

@@ -48,7 +48,9 @@
     (define st (call c "describe" (hasheq 'ref "stages")))
     (check-equal? (map (lambda (s) (hash-ref s 'stage)) (hash-ref st 'stages)) '("stage-2"))
     (check-equal? (hash-ref (car (hash-ref st 'stages)) 'resources) '("create Patient/bob"))
-    (check-equal? (hash-ref (car (hash-ref (call c "stage" (hasheq 'fsh "Instance: cy\nInstanceOf: Patient\n")) 'changes)) 'changed) "created")
+    (let ([ch (car (hash-ref (call c "stage" (hasheq 'fsh "Instance: cy\nInstanceOf: Patient\n")) 'changes))])
+      (check-equal? (hash-ref ch 'action) "create")
+      (check-false (hash-ref ch 'changed #f)))   ; `changed: "created"` only repeated the action
     (check-equal? (hash-ref (call c "stage" (hasheq 'drop "stage-2")) 'stages) '("stage-3"))
     (check-equal? (map (lambda (s) (hash-ref s 'stage)) (hash-ref (call c "describe" (hasheq 'ref "stages")) 'stages)) '("stage-3"))
     ;; a dropped stage's number is not handed out again
@@ -125,13 +127,40 @@
     (check-equal? (hash-ref (car (hash-ref cf 'written)) 'version) "Patient/fay/_history/1")
     (check-equal? (hash-ref cf 'agent) "intake desk")
     (check-equal? (hash-ref (car (hash-ref (call e "describe" (hasheq 'ref "Patient/fay/_history")) 'versions)) 'by) "intake desk")
-    ;; a file read from outside the workspace is named in full; one inside it, relative to it
-    (define inside (path->string (build-path dir "data-in.fsh")))
-    (let-values ([(text err?) ((tool-run (hash-ref (tools-of e) "stage")) (hasheq 'fsh "Instance: x\nInstanceOf: Patiet\n" 'files (hasheq 'fsh inside)))])
+    ;; a file is named in messages as the user wrote it (`bad.fsh:8:`, not a 150-character path) …
+    (let-values ([(text err?) ((tool-run (hash-ref (tools-of e) "stage")) (hasheq 'fsh "Instance: x\nInstanceOf: Patiet\n" 'files (hasheq 'fsh "../src/bad.fsh")))])
       (check-true err?)
-      (check-regexp-match #rx"\"data-in[.]fsh:1:1 error" text))
-    (let-values ([(text err?) ((tool-run (hash-ref (tools-of e) "stage")) (hasheq 'fsh "Instance: x\nInstanceOf: Patiet\n" 'files (hasheq 'fsh "../elsewhere/p.fsh")))])
-      (check-regexp-match (regexp (regexp-quote (path->string (simplify-path (path->complete-path "../elsewhere/p.fsh"))))) text))))
+      (check-regexp-match #rx"\"[.][.]/src/bad[.]fsh:1:1 error" text))
+    ;; … and kept in the trail so it can be opened later: relative to the workspace when inside it,
+    ;; else absolute, resolved where the call was made (a name relative to the shell's directory
+    ;; beside the workspace was kept bare, naming no file in the workspace)
+    (define outside (simplify-path (build-path dir 'up (format "~a-src" (let-values ([(b n d) (split-path dir)]) n)))))
+    (make-directory* outside)
+    (parameterize ([current-directory outside])
+      (call e "stage" (hasheq 'fsh "Instance: gus\nInstanceOf: Patient\n" 'files (hasheq 'fsh "gus.fsh")))
+      (call e "commit" (hasheq 'stage "latest" 'agent "Practitioner/dr-ng"))
+      (define v (car (hash-ref (call e "describe" (hasheq 'ref "Patient/gus/_history")) 'versions)))
+      ;; history's `at` as the current directory reads it; the source keeps the full path
+      (check-equal? (hash-ref v 'at) "gus.fsh:1")
+      (check-regexp-match (regexp (regexp-quote (path->string (build-path outside "gus.fsh")))) (hash-ref v 'source))
+      ;; an agent written as a reference is one (an audit can follow it)
+      (check-equal? (hash-ref v 'by) "Practitioner/dr-ng")
+      (check-equal? (hash-ref (car (hash-ref (call e "query" (hasheq 'language "sql" 'text "SELECT agent FROM trail WHERE id = 'gus'")) 'rows)) 'agent)
+                    "Practitioner/dr-ng"))
+    (define inside (path->string (build-path dir "data-in.fsh")))
+    (parameterize ([current-directory outside])
+      (call e "stage" (hasheq 'fsh "Instance: hal\nInstanceOf: Patient\n" 'files (hasheq 'fsh inside)))
+      (call e "commit" (hasheq 'stage "latest"))
+      (check-regexp-match #rx"^data-in[.]fsh" (hash-ref (car (hash-ref (call e "query" (hasheq 'language "sql" 'text "SELECT source FROM trail WHERE id = 'hal'")) 'rows)) 'source)))
+    (delete-directory/files outside)
+    ;; from the shell, the next call is written as the shell takes it
+    (set-box! call-style 'shell)
+    (check-regexp-match #rx"^commit stage=stage-[0-9]+ writes" (hash-ref (call e "stage" (hasheq 'fsh "Instance: ida\nInstanceOf: Patient\n")) 'next))
+    (set-box! call-style 'mcp)
+    (check-regexp-match #rx"^commit[(]\"stage-[0-9]+\"[)] writes" (hash-ref (call e "stage" (hasheq 'fsh "Instance: ida\nInstanceOf: Patient\n")) 'next))
+    ;; a table's rows list their keys in its column order, as the CSV does
+    (let-values ([(text err?) ((tool-run (hash-ref (tools-of e) "query")) (hasheq 'language "sql" 'text "SELECT id AS zeta, 1 AS alpha FROM Patient LIMIT 1"))])
+      (check-regexp-match #rx"\"rows\":[[][{]\"zeta\":\"[^\"]+\",\"alpha\":1[}]" text))))
 ;; the shell: a call whose answer counts errors exits 1
 (define (shell . words)
   (define out (open-output-string))

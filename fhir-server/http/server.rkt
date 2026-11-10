@@ -16,6 +16,7 @@
          (only-in "router.rkt" handle/raw parse-query))
 
 (provide
+ bundle-with-urls
  (contract-out
   ;; #:bearer token — require `Authorization: Bearer <token>` on every request except GET /metadata
   ;; (a static token: enough for test kits that take a manually supplied access token; NOT SMART)
@@ -61,9 +62,10 @@
             (write-response out 401 (oo-json "login" "a valid bearer token is required"))]
            [else
             (define prefer (let ([v (assoc "prefer" headers)]) (and v (cdr v))))
-            (define-values (status bytes ctype)
+            (define-values (status bytes0 ctype)
               (parameterize ([current-search-strict? (and prefer (regexp-match? #rx"handling *= *strict" prefer))])
                 (handle/raw app method path (parse-query query) body)))
+            (define bytes (with-bundle-urls bytes0 (base-of headers) target))
             ;; --log: one line per request, as a server log reads (method, target, status)
             (when log? (eprintf "~a ~a ~a\n" method target status) (flush-output (current-error-port)))
             (write-raw-response out status bytes ctype
@@ -117,6 +119,41 @@
   (and h (not (string=? (cdr h) "")) (format "http://~a" (cdr h))))
 (define (absolute base location)
   (and location (if base (string-append base "/" location) location)))
+
+;; with-bundle-urls : bytes (string|#f) string -> bytes
+;; A searchset or history Bundle as FHIR requires it (bdl-15, bdl-18 …): each entry's `fullUrl`
+;; ([base]/Type/id, a urn:uuid for an entry without an id) and a `self` link ([base] + the request
+;; target). The router answers without the base, which only the request's Host header gives.
+(define (with-bundle-urls bs base target)
+  (cond
+    [(not (and base (regexp-match? #rx#"\"(searchset|history)\"" bs))) bs]
+    [else
+     (define js (with-handlers ([exn:fail? (lambda (_) #f)]) (bytes->jsexpr bs)))
+     (if (and (hash? js) (equal? (hash-ref js 'resourceType #f) "Bundle")
+              (member (hash-ref js 'type #f) '("searchset" "history")))
+         (string->bytes/utf-8 (jsexpr->string (bundle-with-urls js base target)))
+         bs)]))
+
+;; bundle-with-urls : Bundle-jsexpr string string -> Bundle-jsexpr
+(define (bundle-with-urls js base target)
+  (define (full-url r)
+    (if (and (hash? r) (string? (hash-ref r 'resourceType #f)) (string? (hash-ref r 'id #f)))
+        (format "~a/~a/~a" base (hash-ref r 'resourceType) (hash-ref r 'id))
+        (format "urn:uuid:~a" (random-uuid))))
+  (define entries
+    (for/list ([e (in-list (hash-ref js 'entry '()))])
+      (if (and (hash? e) (not (hash-ref e 'fullUrl #f)))
+          (hash-set e 'fullUrl (full-url (hash-ref e 'resource #f)))
+          e)))
+  (define with-entries (if (null? entries) js (hash-set js 'entry entries)))
+  (if (pair? (hash-ref js 'link '()))
+      with-entries
+      (hash-set with-entries 'link (list (hasheq 'relation "self" 'url (string-append base target))))))
+
+;; random-uuid : -> string   a version-4 UUID
+(define (random-uuid)
+  (define (hex n) (apply string-append (for/list ([_ (in-range n)]) (number->string (random 16) 16))))
+  (format "~a-~a-4~a-~a~a-~a" (hex 8) (hex 4) (hex 3) (string-ref "89ab" (random 4)) (hex 3) (hex 12)))
 
 ;; created-location : status jsexpr -> string | #f   a create's Location: Type/id/_history/version
 (define (created-location status js)

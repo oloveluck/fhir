@@ -25,7 +25,7 @@
          (only-in "../store/validated.rkt" validated-writes)
          (only-in fhir/spec-package spec-package-path)
          (only-in fhir/suggest did-you-mean)
-         racket/string racket/list)
+         racket/string racket/list (only-in racket/file make-temporary-file))
 
 (provide
  (contract-out
@@ -33,6 +33,8 @@
   [store-repository-factory (->* (fhir-store?) (#:search-params hash? #:validate? boolean?) procedure?)]
   ;; store-file-factory : path -> factory   the store in that file (opened once per path)
   [store-file-factory (-> path-string? procedure?)]
+  ;; temporary-store-factory : -> factory   a store in a temporary file, removed when the process ends
+  [temporary-store-factory (-> procedure?)]
   ;; with-declared : catalog type sps -> catalog   the declaration's search parameters added
   [with-declared (-> hash? symbol? (listof list?) hash?)]
   ;; core-search-params : -> catalog   the core package's SearchParameters over the engine's own
@@ -83,6 +85,23 @@
                                    [(search-result? result)
                                     (search-result/ignored (search-result-matches result) (search-result-includes result) dropped-names)]
                                    [else (search-result/ignored result '() dropped-names)]))])))
+
+;; temporary-store-factory : -> factory
+;; An app with no store anywhere keeps its resources in a temporary SQLite file (one per process,
+;; removed at exit): the same search, versions and validation as a stored app, nothing kept. The
+;; in-memory repository it replaces matched parameters by string equality, so `birthdate=lt1980`,
+;; `patient=Patient/x` or a parameter declared without an expression matched every resource.
+(define temporary #f)
+(define (temporary-store-factory)
+  (unless temporary
+    (define f (make-temporary-file "fhir-app-~a.db"))
+    (delete-file f)
+    (define (remove!) (for ([x (list f (path-add-extension f #"-wal") (path-add-extension f #"-shm"))])
+                        (with-handlers ([exn:fail? void]) (when (file-exists? x) (delete-file x)))))
+    ;; the default plumber is flushed as the process ends (as capability/workspace stops its servers)
+    (void (plumber-add-flush! (current-plumber) (lambda (_) (remove!))))
+    (set! temporary (store-repository-factory (open-fhir-store f))))
+  temporary)
 
 (define opened (make-hash))
 (define (store-file-factory p)

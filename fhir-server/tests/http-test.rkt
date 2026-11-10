@@ -34,14 +34,17 @@
     (check-true (regexp-match? #rx"searchParam" b)))          ; declared search params are advertised
 
   ;; create + read a resource
-  (let-values ([(s b) (req "POST" "/Patient" "{\"resourceType\":\"Patient\",\"gender\":\"male\"}")])
-    (check-equal? s 201)
-    (check-true (regexp-match? #rx"\"resourceType\":\"Patient\"" b)))
+  ;; the server's id (an app with no store keeps its resources in a temporary one, which assigns them)
+  (define first-id
+    (let-values ([(s b) (req "POST" "/Patient" "{\"resourceType\":\"Patient\",\"gender\":\"male\"}")])
+      (check-equal? s 201)
+      (check-true (regexp-match? #rx"\"resourceType\":\"Patient\"" b))
+      (cadr (regexp-match #rx"\"id\":\"([^\"]+)\"" b))))
   (let-values ([(s b) (req "POST" "/Patient" "{\"resourceType\":\"Patient\",\"gender\":\"female\"}")])
     (check-equal? s 201))
-  (let-values ([(s b) (req "GET" "/Patient/1")])
+  (let-values ([(s b) (req "GET" (string-append "/Patient/" first-id))])
     (check-equal? s 200)
-    (check-true (regexp-match? #rx"\"id\":\"1\"" b)))
+    (check-true (regexp-match? (regexp (format "\"id\":\"~a\"" first-id)) b)))
 
   ;; search parameter actually filters (gender token -> Patient.gender)
   (let-values ([(s b) (req "GET" "/Patient?gender=male")])

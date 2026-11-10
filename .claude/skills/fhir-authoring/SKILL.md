@@ -127,11 +127,20 @@ validates any resource the same way, naming the element but not the rule; it nee
 `$validate`, which `transform #:validate` loads by itself).
 For a resource that R4 and R5 write alike (a Patient with name, gender and birthDate; most
 Observations), the defaults just work and no `sushi-config.yaml` is needed. `render` (`cql/value`)
-answers a string: `"true"`, or a FHIR value's JSON text. Each step reads its own FHIR version, which matters when they meet: FSH compiles for the nearest
-`sushi-config.yaml`'s `fhirVersion` (else 5.0.0); FML builds R5 types (an R4 source is read leniently,
-and a value it cannot read is warned about, `fml warning: … not read`); `$validate`/`ensure-valid`
-validate in the core package of `current-sd-packages` (R5 unless you set it, and the error names it:
-`invalid Patient against … (FHIR R5 (5.0.0))`); CQL's model is FHIR 4.0.1. For an R4 pipeline, give
+answers a string: `"true"`, or a FHIR value's JSON text — and `"null"` when CQL has no answer (a
+Patient without a birthDate is neither 65 nor not): decide it in the library
+(`Coalesce(AgeInYears() >= 65, false)`) or test for `"null"` in Racket.
+
+Each step reads its own FHIR version, which matters when they meet:
+
+| step | FHIR version | how to change it |
+|---|---|---|
+| FSH (`#lang fsh`, `raco fsh`) | the nearest `sushi-config.yaml`'s `fhirVersion`, else 5.0.0 | `fhirVersion: 4.0.1` in sushi-config.yaml |
+| FML (`#lang fml`, `transform`) | R5 types; an R4 source is read leniently (`fml warning: … not read`) | — |
+| `$validate`, `ensure-valid`, `#:validate` | the core package of `current-sd-packages`, else R5; the error names it | `(parameterize ([current-sd-packages …]) …)` |
+| CQL (`#lang cql`) | FHIR 4.0.1 (`using FHIR version '4.0.1'`) | — |
+
+The error names the version it validated in: `invalid Patient against … (FHIR R5 (5.0.0))`. For an R4 pipeline, give
 FSH a `sushi-config.yaml` with `fhirVersion: 4.0.1`, require the R4 tower (`fhir/r4/schemas`: its
 required bindings back the code checks) and validate with
 `(parameterize ([current-sd-packages (list (spec-package-path "hl7.fhir.r4.core.tgz"))]) …)`
@@ -142,7 +151,9 @@ not in required value set …`.
 the predicate and `exn:fail:operation-outcome`) naming the profiles it was held to and listing every
 error, one per line, with the OperationOutcome in `exn:fail:operation-outcome`. Uncaught, it prints
 that message alone (no stack trace); to answer it yourself:
-`(with-handlers ([exn:fail:operation? (lambda (e) (eprintf "~a\n" (exn-message e)) (exit 1))]) (intake qr))`.
+`(with-handlers ([exn:fail:operation? (lambda (e) (eprintf "~a\n" (exn-message e)) (exit 1))]) (intake qr))`
+— `transform #:validate` raises the same `exn:fail:operation`, so this one handler catches an invalid
+result from the map or from `ensure-valid`.
 A `#lang fsh` profile that constrains an element its base lacks (`* birthdate 1..1`) fails `raco make`
 at that rule, as a misspelt element does in `#lang fml` and `#lang cql`; the examples' validation
 needs the whole project, so it is `raco fsh check` (or the fsh skill's `raco test` snippet). `(apply-operation "$validate" r

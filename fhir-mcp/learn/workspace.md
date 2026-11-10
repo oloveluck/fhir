@@ -238,7 +238,7 @@ commit writes version 2 with its reason:
 ```
 raco fhir-mcp call describe ref=Observation/bp-a1 as=fsh > bp-a1.fsh     # edit it
 raco fhir-mcp call stage fsh=@bp-a1.fsh
-raco fhir-mcp call commit stage=stage-4 reason="typo: systolic 150 was 140"
+raco fhir-mcp call commit stage=latest reason="typo: systolic 150 should have been 140"
 ```
 
 ## The trail
@@ -266,6 +266,16 @@ FROM trail t JOIN history h ON h.type = t.type AND h.id = t.id AND h.versionId =
 WHERE t.type = 'Observation' AND t.id = 'a1' ORDER BY t.versionId
 ```
 
+Each stored value with where it came from — the question an audit asks — is the type's table joined
+to `trail` on its current version (the line in the source file is history's `at`):
+
+```
+SELECT o.id, o.resource ->> '$.valueQuantity.value' AS value, o.resource ->> '$.effectiveDateTime' AS taken,
+       t.recorded, t.agent, t.reason, t.source
+FROM Observation o JOIN trail t ON t.type = 'Observation' AND t.id = o.id AND t.versionId = o.versionId
+ORDER BY o.id
+```
+
 The trail says when and by whom the DATA was written, not the clinical facts: a lab value's own time
 is its `effectiveDateTime` (and `issued`), and who produced it is its own `performer` — write them
 in the FSH (`* performer = Reference(Organization/city-lab)`, `* issued = "2025-06-02T10:00:00Z"`),
@@ -274,7 +284,8 @@ where search, CQL and views see them. The trail's `source` is the file the data 
 
 A Provenance written by a commit, for SQL (`p.resource ->> '$.<path>'`): `target[n].reference`
 (`Type/id/_history/v`), `recorded`, `agent[0].who.display` (the client: `claude-code … via fhir-mcp`,
-`raco fhir-mcp call`, or `FHIR_MCP_AGENT`), `reason[0].text` (commit's `reason`),
+`raco fhir-mcp call`, `FHIR_MCP_AGENT`, or commit's `agent`; an agent written as a reference —
+`agent="Practitioner/dr-ng"` — is `agent[0].who.reference`, and `trail.agent` reads either), `reason[0].text` (commit's `reason`),
 `activity.coding[0].code` (`CREATE` or `UPDATE` when all are one), `entity[0].what.display` (the source
 in one line, with its SHA-1) and `contained[0]` (a DocumentReference holding the source text:
 `content[0].attachment.data`, base64, and `.hash`). An AuditEvent: `action` (`C`, `U`, `E`),

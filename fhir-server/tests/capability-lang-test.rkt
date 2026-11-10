@@ -175,6 +175,38 @@
   (check-regexp-match #rx"search parameter `name` not supported here" (hash-ref (car (hash-ref o11 'issue)) 'diagnostics))
   (delete-directory/files dir))
 
+;; ---- (server #:search-handling "strict"): every search is strict, whatever the client prefers — a
+;; new user's research server answered `?subject=Patient/x` (only `patient` declared) with every
+;; patient's Observations
+(let ()
+  (define dir (make-temporary-directory "cap-strict-~a"))
+  (define src (build-path dir "s.rkt"))
+  (void (call-with-output-file src
+          (lambda (o)
+            (write-string (string-append
+                           "#lang fhir/capability\n"
+                           "(server #:search-handling \"strict\")\n"
+                           "(resource Observation #:interactions (read create search-type) #:search-params ([patient reference]))\n")
+                          o))))
+  (define app (dynamic-require src 'app))
+  (define handle (dynamic-require 'fhir/http/router 'handle))
+  (define-values (s1 o1) (handle app "GET" "/Observation" '((subject . "Patient/x")) ""))
+  (check-equal? s1 400)
+  (check-regexp-match #rx"search parameter `subject` not supported here" (hash-ref (car (hash-ref o1 'issue)) 'diagnostics))
+  ;; no store declared: a temporary one, searched as a stored app is (the in-memory search matched
+  ;; `patient=Patient/x` by string equality against a Reference, so every Observation or none)
+  (for ([p '("x" "y")])
+    (define-values (sc _b) (handle app "POST" "/Observation" '()
+                                   (format "{\"resourceType\":\"Observation\",\"status\":\"final\",\"code\":{\"text\":\"c\"},\"subject\":{\"reference\":\"Patient/~a\"}}" p)))
+    (check-equal? sc 201))
+  (define-values (s2 b2) (handle app "GET" "/Observation" '((patient . "Patient/x")) ""))
+  (check-equal? s2 200)
+  (check-equal? (hash-ref b2 'total) 1)
+  ;; only "strict" or "lenient"
+  (check-exn #rx"#:search-handling must be \"strict\" or \"lenient\""
+             (lambda () (compile-capability '(server #:search-handling "loose") '(define x 1))))
+  (delete-directory/files dir))
+
 ;; ---- an operation's inputs are typed by its declaration, the same over GET and POST
 (let ()
   (define dir (make-temporary-directory "cap-ops-~a"))
@@ -188,7 +220,8 @@
                      "  (Parameters (parameter (ParametersParameter (name \"out\") (valueString (format \"~a ~a ~a ~a\" (* 2 (input \"w\")) (+ 1 (input \"n\")) (input \"flag\") (input \"when\")))))))\n"
                      "(operation $t #:system #:in ([w decimal 1 1] [n integer 1 1] [flag boolean 1 1] [when date 1 1]) #:out ([out string 1 1]) #:handler h)\n"
                      "(define (g in req) (Parameters (parameter (ParametersParameter (name \"out\") (valueString (car (hash-ref in \"sex\")))))))\n"
-                     "(operation $g #:system #:in ([sex code 1 1 #:binding \"http://hl7.org/fhir/ValueSet/administrative-gender\"]) #:out ([out string 1 1]) #:handler g)\n")
+                     "(operation $g #:system #:in ([sex code 1 1 #:binding \"http://hl7.org/fhir/ValueSet/administrative-gender\"]) #:out ([out string 1 1]) #:handler g)\n"
+                     "(operation $g2 #:system #:in ([sex code 1 1 #:binding \"(http://hl7.org/fhir/administrative-gender)(female;male)\"]) #:out ([out string 1 1]) #:handler g)\n")
                     o)))
   (define app (dynamic-require src 'app))
   (define handle (dynamic-require 'fhir/http/router 'handle))
@@ -214,6 +247,17 @@
   (check-equal? s9 400)
   (check-regexp-match #rx"parameter 'sex' must be a code from http://hl7.org/fhir/ValueSet/administrative-gender [(]male, female, other, unknown[)], got \"femme\""
                       (hash-ref (car (hash-ref o9 'issue)) 'diagnostics))
+  ;; a subset written inline as VCL: `other` is in administrative-gender but not in (female;male)
+  ;; (a new user's $egfr had to refuse `other`/`unknown` in its handler)
+  (define-values (s10 _o10) (handle app "GET" "/$g2" '((sex . "male")) ""))
+  (check-equal? s10 200)
+  (define-values (s11 o11) (handle app "GET" "/$g2" '((sex . "other")) ""))
+  (check-equal? s11 400)
+  (check-regexp-match #rx"must be a code from http://fhir.org/VCL[?]v1=[(]http://hl7.org/fhir/administrative-gender[)][(]female;male[)] [(]female, male[)], got \"other\""
+                      (hash-ref (car (hash-ref o11 'issue)) 'diagnostics))
+  ;; a binding that is neither a url nor VCL is an error at the declaration
+  (check-exn #rx"#:binding \"[(]female;\" is neither a ValueSet url nor a VCL expression"
+             (lambda () (compile-capability '(server) '(operation $x #:system #:in ([s code 1 1 #:binding "(female;"]) #:handler h))))
   ;; the derived OperationDefinition is readable: a client sees what $t takes
   (define-values (s6 od) (handle app "GET" "/OperationDefinition/t" '() ""))
   (check-equal? s6 200)

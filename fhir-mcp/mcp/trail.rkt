@@ -79,6 +79,13 @@
        (hasheq 'coding (list (hasheq 'system "http://terminology.hl7.org/CodeSystem/v3-DataOperation"
                                      'code (if (eq? (car actions) 'create) "CREATE" "UPDATE"))))))
 
+;; agent-who : string -> Reference   who wrote: a reference when the agent is one (`Practitioner/dr-ng`,
+;; `Device/intake-kiosk` — an audit can follow it), else a display (`intake desk`)
+(define (agent-who agent)
+  (if (regexp-match? #px"^[A-Z][A-Za-z]+/[A-Za-z0-9.-]{1,64}$" agent)
+      (hasheq 'reference agent)
+      (hasheq 'display agent)))
+
 (define (provenance targets src reason agent now)
   (define doc (source-document src))
   (define act (activity targets))
@@ -86,7 +93,7 @@
                         'target (for/list ([t (in-list targets)]) (hasheq 'reference (car t)))
                         'recorded now
                         'agent (list (hasheq 'type (hasheq 'coding (list (hasheq 'system "http://terminology.hl7.org/CodeSystem/provenance-participant-type" 'code "author")))
-                                             'who (hasheq 'display agent))))])
+                                             'who (agent-who agent))))])
             ([kv (in-list (list (cons 'contained (and doc (list doc)))
                                 (cons 'activity act)
                                 (cons 'reason (and reason (list (hasheq 'text reason))))
@@ -108,14 +115,14 @@
                 'subtype (list (hasheq 'system "http://hl7.org/fhir/restful-interaction" 'code subtype))
                 'action action 'recorded now
                 'outcome (if outcome-ok? "0" "8")
-                'agent (list (hasheq 'who (hasheq 'display agent) 'requestor #t))
+                'agent (list (hasheq 'who (agent-who agent) 'requestor #t))
                 'source (hasheq 'observer (hasheq 'display "fhir-mcp"))
                 'entity entities)
         (hasheq 'resourceType "AuditEvent"
                 'code (hasheq 'coding (list (hasheq 'system "http://hl7.org/fhir/restful-interaction" 'code subtype)))
                 'action action 'recorded now
                 'outcome (hasheq 'code (hasheq 'system "http://terminology.hl7.org/CodeSystem/audit-event-outcome" 'code (if outcome-ok? "0" "8")))
-                'agent (list (hasheq 'who (hasheq 'display agent) 'requestor #t))
+                'agent (list (hasheq 'who (agent-who agent) 'requestor #t))
                 'source (hasheq 'observer (hasheq 'display "fhir-mcp"))
                 'entity entities)))
   (if (and (not outcome-ok?) outcome-text)

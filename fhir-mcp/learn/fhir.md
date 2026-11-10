@@ -36,7 +36,12 @@ workspace works in R4 (4.0.1, what most systems exchange) or R5 (5.0.0), as `wor
   (conditions, procedures, findings), RxNorm `http://www.nlm.nih.gov/research/umls/rxnorm`
   (medications), ICD-10-CM `http://hl7.org/fhir/sid/icd-10-cm`, UCUM `http://unitsofmeasure.org` (units).
 - **A quantity** is `{value, unit, system: "http://unitsofmeasure.org", code}`: `code` is the UCUM
-  unit (`mm[Hg]`, `%`, `kg`, `mg/dL`), `unit` how it is shown.
+  unit (`mm[Hg]`, `%`, `kg`, `mg/dL`), `unit` how it is shown. Common UCUM codes (a code that is not
+  UCUM is a validation warning naming the nearest): blood pressure `mm[Hg]`; HbA1c `%` or `mmol/mol`;
+  glucose and cholesterol `mg/dL` or `mmol/L`; creatinine `mg/dL` or `umol/L`; hemoglobin `g/dL`;
+  eGFR `mL/min/{1.73_m2}`; BMI `kg/m2`; heart and respiratory rate `/min`; temperature `Cel` or
+  `[degF]`; weight `kg` or `[lb_av]`; height `cm` or `[in_i]`; cell counts `10*3/uL`; enzymes `U/L`
+  or `[IU]/L`; hormones `ng/mL`.
 - **A reference** is `{"reference": "Patient/ann"}`: the type and id of another resource.
 - **A choice element** `value[x]` is written with its type in the name: `valueQuantity`,
   `valueCodeableConcept`, `valueString`; `effective[x]` is `effectiveDateTime` or `effectivePeriod`.

@@ -14,7 +14,7 @@
 (define pkg-desc "FHIR servers generated from specs: #lang fhir/capability, an HTTP server, a SQLite FHIR store, IG-generated servers with validation, search, $expand and $evaluate-measure; raco fhir-server")
 (define pkg-authors '(oloveluck))
 (define license 'MIT)
-(define deps '("base" "fhir" "fhir-spec" "fhirpath" "fhir-tx" "fhir-validation" "cql" "db-lib"))
+(define deps '("base" "fhir" "fhir-spec" "fhirpath" "fhir-tx" "fhir-validation" "cql" "vcl" "db-lib"))
 ;; fsh: the FSH -> package -> server test compiles mCODE's sources
 (define build-deps '("rackunit-lib" "fsh" "scribble-lib" "racket-doc"))
 (define scribblings '(("scribblings/fhir-server.scrbl" ())))

@@ -42,3 +42,24 @@
                 (system*/exit-code (find-exe) "-l-" "raco" "fhir-validate" (path->string f) "--format" "text"))
               0 (get-output-string out))
 (delete-file f)
+
+;; a search answers a searchset Bundle FHIR accepts: each entry's fullUrl and a self link (bdl-15,
+;; bdl-18 …), which only the server knows (the request's Host) — a new user validated one and found
+;; neither. The router's Bundle plus what http/server adds, an ignored parameter's outcome included.
+(require (only-in fhir/http/router handle) (only-in fhir/http/server bundle-with-urls))
+(define sdir (make-temporary-directory "search-app-~a"))
+(define sapp-file (build-path sdir "study.rkt"))
+(void (call-with-output-file sapp-file
+  (lambda (o) (write-string "#lang fhir/capability\n(server #:url \"http://example.org/fhir\")\n(resource Patient #:interactions (read create search-type) #:search-params ([gender token]))\n" o))))
+(define sapp (dynamic-require sapp-file 'app))
+(define-values (cst _c) (handle sapp "POST" "/Patient" '() "{\"resourceType\":\"Patient\",\"gender\":\"female\"}"))
+(check-equal? cst 201)
+(define-values (sst sjs) (handle sapp "GET" "/Patient" '((gender . "female") (bogus . "1")) ""))
+(check-equal? sst 200)
+(define bundle (bundle-with-urls sjs "http://localhost:8080" "/Patient?gender=female&bogus=1"))
+(check-equal? (problems bundle) '())
+(check-regexp-match #rx"^http://localhost:8080/Patient/" (hash-ref (car (hash-ref bundle 'entry)) 'fullUrl))
+(check-equal? (hash-ref (car (hash-ref bundle 'link)) 'url) "http://localhost:8080/Patient?gender=female&bogus=1")
+;; the router's Bundle alone is what the validator refused
+(check-not-equal? (problems sjs) '())
+(delete-directory/files sdir)

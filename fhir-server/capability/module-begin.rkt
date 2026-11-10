@@ -19,7 +19,7 @@
          ;; runtime bindings the emitted template references (resolve at the user module's phase 0)
          (only-in "derive.rkt" derive-capability-statement derive-operation-definition)
          (only-in "runtime.rkt" build-app current-repository-factory)
-         (only-in "store.rkt" store-file-factory)
+         (only-in "store.rkt" store-file-factory temporary-store-factory)
          (only-in json jsexpr->string)
          (only-in fhir/serialize/to-json node->jsexpr))
 
@@ -33,12 +33,14 @@
       [((~datum operation) . _) 'operation]
       [_ #f])))
 
-;; server-store : (server …) syntax -> string | #f   its #:store file
-(define-for-syntax (server-store stx)
+;; server-option : (server …) syntax keyword -> string | #f   a string option the module reads itself
+(define-for-syntax (server-option stx kw)
   (let loop ([xs (cdr (syntax->list stx))])
     (cond [(or (null? xs) (null? (cdr xs))) #f]
-          [(and (eq? (syntax-e (car xs)) '#:store) (string? (syntax-e (cadr xs)))) (syntax-e (cadr xs))]
+          [(and (eq? (syntax-e (car xs)) kw) (string? (syntax-e (cadr xs)))) (syntax-e (cadr xs))]
           [else (loop (cdr xs))])))
+;; server-store : (server …) syntax -> string | #f   its #:store file
+(define-for-syntax (server-store stx) (server-option stx '#:store))
 
 (define-syntax (app-module-begin stx)
   (syntax-parse stx
@@ -90,11 +92,14 @@
                                          (if (path? src)
                                              (let-values ([(dir name dir?) (split-path src)]) (build-path dir #,store-file))
                                              #,store-file)))
-                                    #'#f))])
+                                    ;; no store anywhere: a temporary one, removed when the process ends
+                                    #'(temporary-store-factory)))])
             (build-app #:capability capability-statement
                        #:operation-definitions operation-definitions
                        #:repositories (list #,@repo-pair-stxs)
-                       #:operations (append #,@entry-list-stxs))))
+                       #:operations (append #,@entry-list-stxs)
+                       #:metadata #,(let ([h (server-option (car servers) '#:search-handling)])
+                                      (if h #`(hasheq 'search-handling #,h) #'(hash))))))
         (provide app capability-statement operation-definitions #,@op-names)
         (module+ main
           (displayln (jsexpr->string (node->jsexpr capability-statement)))))]))

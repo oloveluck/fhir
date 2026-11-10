@@ -16,7 +16,8 @@ history and search indexes). In a workspace the file is `<name>.capability.rkt`:
 ## Cheat sheet
 ```
 (server #:url "http://example.org/clinic" #:store "fhir.db"      ; one per app; also #:name, #:description,
-        #:description "The clinic's FHIR server")                 ;   #:status, #:date, #:mode, #:format, #:fhir-version
+        #:description "The clinic's FHIR server"                  ;   #:status, #:date, #:mode, #:format, #:fhir-version
+        #:search-handling "strict")                               ; refuse a filter it cannot apply (default lenient)
 (resource Patient #:interactions (read create update delete search-type history-instance)
           #:search-params ([gender token] [family string "name.family"]))
 (operation "StructureMap/$transform")       ; an existing operation, by reference
@@ -38,21 +39,27 @@ history and search indexes). In a workspace the file is `<name>.capability.rkt`:
   declares (what `/metadata` advertises, plus `_id`, `_lastUpdated`, `_count`, `_sort`): a search with
   any other parameter — even one FHIR defines, like `name` when only `gender` is declared — answers its
   matches without it and says so: an OperationOutcome entry (`search.mode` outcome) in the Bundle. A
-  client that sends `Prefer: handling=strict` gets a 400 naming the parameter instead. A store-backed
-  type also answers `_include=Observation:subject` (and `_revinclude`) over its declared reference
+  client that sends `Prefer: handling=strict` gets a 400 naming the parameter instead, and
+  `(server #:search-handling "strict")` makes every search strict, whatever the client prefers — for
+  a server where a misspelt or undeclared patient filter (`subject` where `patient` is declared) must
+  never answer every patient's data. A searchset carries each entry's `fullUrl` and a `self` link
+  (from the request's Host), so it validates as FHIR. A stored type also answers `_include=Observation:subject` (and `_revinclude`) over its declared reference
   parameters, the included resources marked `search.mode` include; the statement does not list them
-  (`searchInclude`), as an in-memory app has none. A reference parameter takes FHIR's type modifier:
+  (`searchInclude`). A reference parameter takes FHIR's type modifier:
   `subject:Patient=123` is `subject=Patient/123`.
 - A resource without `#:repository` is kept in the store: the workspace's when the workspace serves
-  it, else `#:store`'s file beside the module, else (no store anywhere) in memory. A store-backed
+  it, else `#:store`'s file beside the module, else (no store anywhere) a temporary SQLite file
+  removed when the server stops — searched, versioned and validated the same way. A
   create or update is validated as sent (its base type, the profiles it claims): an error refuses it
   with 422 and every issue, so nothing is stored with fields it could not read. A create answers 201
   with `Location: Type/id/_history/1`; a body of another type than the endpoint's is a 400.
 - A `code` input may be bound to a value set: `[sex code 1 1 #:binding
   "http://hl7.org/fhir/ValueSet/administrative-gender"]` refuses any other code with a 400 naming the
   codes it takes, before the handler runs (the value set is expanded from the packages or the
-  registered ones; one that does not expand checks nothing). Without a binding, check the value in
-  the handler and return an `invalid` OperationOutcome. Any input or output may say what it means:
+  registered ones; one that does not expand checks nothing). A subset is written inline as VCL:
+  `#:binding "(http://hl7.org/fhir/administrative-gender)(female;male)"` takes `female` and `male`
+  and refuses `other` (it is FHIR's implicit value set `http://fhir.org/VCL?v1=…`; learn://vcl).
+  Otherwise check the value in the handler and return an `invalid` OperationOutcome. Any input or output may say what it means:
   `[creatinine decimal 1 1 #:documentation "Serum creatinine, mg/dL"]` is the parameter's
   `documentation` in the derived OperationDefinition (a client reads the unit there).
 - A handler receives `in`, a hash from each input's name to its list of values, typed by the
@@ -61,7 +68,9 @@ history and search indexes). In a workspace the file is `<name>.capability.rkt`:
   text as sent, a resource a typed node. A value that is not of its type, or an input the declaration
   does not name (`weigth`: "did you mean `weight`?"), is answered 400 before the handler runs. Each
   operation's derived OperationDefinition is served at `GET /OperationDefinition/<code>` (and all of
-  them at `GET /OperationDefinition`), so a client can read what `$bmi` takes. The handler returns a resource built with the R6 forms
+  them at `GET /OperationDefinition`), so a client can read what `$bmi` takes. Its url is
+`urn:fhir-capability:operation:<code>` (the app's operations are found in-process by it), not under
+the server's `#:url`. The handler returns a resource built with the R6 forms
   (`(Parameters (parameter (ParametersParameter (name "x") (valueString "…"))))`). A repeating field
   takes all its values in ONE form — two outputs are
   `(Parameters (parameter (ParametersParameter (name "egfr") (valueDecimal "57.5")) (ParametersParameter (name "stage") (valueString "G3a"))))`,
@@ -133,7 +142,8 @@ On the command line: `racket clinic.capability.rkt` prints the CapabilityStateme
 `FHIR server on http://localhost:8080  (Ctrl-C, or kill <pid>, to stop)` and `store: <file>` when it
 is listening (a script waits for `GET /metadata`, then stops it with that pid); `--log` prints one
 line per request (`GET /Patient?gender=female 200`) on stderr. `--store` wins over the module's own
-`(server #:store …)`, which is beside the module; with neither, resources live in memory.
+`(server #:store …)`, which is beside the module; with neither, resources live in a temporary SQLite
+file removed when the server stops.
 `raco fhir-server sql fhir.db "SELECT id, resource ->> '$.gender' AS gender FROM Patient"` reads the
 store as CSV, read-only: a view per stored type (`id, versionId, lastUpdated, resource`), `resources`
 (every type: `type, id, versionId, lastUpdated, resource`) and `history` (every version, the same

@@ -112,7 +112,7 @@
                                         "  instr(t.value ->> '$.reference', '/_history/') - instr(t.value ->> '$.reference', '/') - 1) AS id, "
                                         "CAST(substr(t.value ->> '$.reference', instr(t.value ->> '$.reference', '/_history/') + 10) AS INTEGER) AS versionId, "
                                         "p.resource ->> '$.recorded' AS recorded, "
-                                        "p.resource ->> '$.agent[0].who.display' AS agent, "
+                                        "coalesce(p.resource ->> '$.agent[0].who.display', p.resource ->> '$.agent[0].who.reference') AS agent, "
                                         "p.resource ->> '$.reason[0].text' AS reason, "
                                         "p.resource ->> '$.entity[0].what.display' AS source, "
                                         "'Provenance/' || p.id AS provenance "
