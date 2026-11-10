@@ -450,8 +450,10 @@
   (cond
     [(fhir? v) v]
     [(member type '("integer" "positiveInt" "unsignedInt" "integer64"))
-     (define n (cond [(exact-integer? v) v] [(string? v) (string->number v 10)] [else #f]))
-     (if (exact-integer? n) n 'bad)]
+     ;; a whole number written as a decimal (`60.0`, as JSON clients write numbers) is that integer
+     (define n (cond [(exact-integer? v) v] [(fp-decimal? v) (decimal->exact v)] [(real? v) v]
+                     [(string? v) (string->number v 10)] [else #f]))
+     (if (and (real? n) (integer? n)) (inexact->exact n) 'bad)]
     [(equal? type "decimal")
      (define n (cond [(fp-decimal? v) (exact->inexact (decimal->exact v))] [(real? v) v] [(string? v) (string->number v 10)] [else #f]))
      (if (real? n) n 'bad)]
@@ -580,6 +582,13 @@
   (define present (hash-ref in name '()))
   (define n (length present))
   (cond
+    [(and (integer? minv) (= n 0) (>= minv 1))
+     ;; required and absent: said so, with the misspelt input it probably was (`creatinin`)
+     (define near (for/first ([k (in-list (sort (hash-keys in) string<?))]
+                              #:unless (equal? k name)
+                              #:when (not (string=? (did-you-mean k (list name)) "")))
+                    k))
+     (format "parameter '~a' is required~a" name (if near (format " (`~a` was given: a misspelling of it?)" near) ""))]
     [(and (integer? minv) (< n minv))
      (format "parameter '~a' requires at least ~a value(s), got ~a" name minv n)]
     [(and (equal? maxv "1") (> n 1))

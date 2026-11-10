@@ -1326,6 +1326,33 @@ each change has a test doing what the agent did:
   the capability guide builds a decimal output from a Racket real and documents a bare-id reference
   search; cql's guide has `Ever Above 9`; `raco fsh check`'s default canonical note is one word.
 
+## New users, round 19 (2026-11-10)
+The eighteenth rerun (every task first time, 6–12 calls, right answers, no source read) found two
+things close to defects; each change has a test doing what the agent did:
+- **FML says which part wrote nothing** (fml/CLAUDE.md): when the rule's source matched but its value
+  expression gave nothing (`(a.value.code)` over an answer written as `valueString`), the message
+  says so with the value read; it said "its source matched nothing in the input".
+- **A correction's source stages again**: `describe ref=Observation/x as=source` of a reading written
+  through a parameterized RuleSet answered `* insert Reading(…)` alone, and staging it failed (RuleSet
+  not found); the Instance comes with the RuleSets it inserts (transitively) and the Aliases it names
+  (`used-definitions`). A create's `at` is its first `* insert` line when it has one (`insert-line`),
+  where the values are.
+- **Stages**: `describe ref=stages` lists refused stages apart (`refused`, with the call that drops
+  them); `stage drop=refused` drops every one with errors.
+- **Tables**: a wide run's CSV hint suggests the columns a person reads — text, numbers, booleans, not
+  lists or `Type/id` references (`readable-columns`); cql's run summary gives a number define its
+  `numbers`, `min`, `max`, `mean` (it read `{"other": 2}`); `describe ref=<Type> as=trail` called from
+  another directory ends with a line saying its `source`/`at` are relative to the workspace.
+- **Capability inputs**: an `integer` input written as a whole decimal (`60.0`) is that integer; a
+  required input absent is `parameter 'x' is required`, naming a misspelt input given in its place
+  (`` (`xx` was given: a misspelling of it?) ``).
+- **cql**: a null prints as `#<cql:null>` (a REPL showed `(cql-null-type)` in `evaluate`'s hash).
+- Docs: the fhir skill has a Racket-in-brief box under its route table (`raco fhir new pipeline`), given
+  names in its FSH, rows for "ever above" and 140/90 (systolic OR diastolic), and how `#:store` and
+  `--store` relate; the capability guide builds its Quantity output from a rounded real and shows how a
+  script takes the id from `Location`; fml's guide filters gender by its code system (tested);
+  fhir-authoring says how a hand-written project gets the FSH-examples gate.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

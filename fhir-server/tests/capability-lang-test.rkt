@@ -288,6 +288,15 @@
                   (filter (lambda (n) (member n '("x" "n"))) (map (lambda (p) (hash-ref p 'name)) (hash-ref od 'parameter)))))
   (check-regexp-match #rx"parameter 'x' must be a decimal, got \"abc\"" (hash-ref (issue-of "x") 'diagnostics))
   (check-regexp-match #rx"parameter 'n' must be an integer, got \"60[.]5\"" (hash-ref (issue-of "n") 'diagnostics))
+  ;; a whole number written as a decimal is that integer (a client sending 60.0 was refused)
+  (define-values (s13b o13b) (handle app "GET" "/$r" '((x . "0") (n . "60.0")) ""))
+  (check-equal? s13b 500 (format "~s" o13b))                ; past the inputs, to the handler (which raises)
+  ;; a required input absent is "required", with the misspelt input given in its place
+  (define-values (s13c o13c) (handle app "GET" "/$r" '((xx . "5")) ""))
+  (check-equal? s13c 400)
+  (check-true (for/or ([i (in-list (hash-ref o13c 'issue))])
+                (regexp-match? #rx"^parameter 'x' is required [(]`xx` was given: a misspelling of it[?][)]$" (hash-ref i 'diagnostics)))
+              (format "~s" o13c))
   ;; a handler that raises: a 500 that says which handler and how to refuse instead
   (define-values (s14 o14) (handle app "GET" "/$r" '((x . "0")) ""))
   (check-equal? s14 500)

@@ -214,6 +214,8 @@
     ;; where each stored value came from, for a type, in one call (it was a join from the guide)
     (define tr (call e "describe" (hasheq 'ref "Patient" 'as "trail")))
     (check-regexp-match #rx"^id,name,value,date,versionId,recorded,agent,reason,source,at,provenance\n" tr)
+    ;; called from another directory, it says what its paths are relative to
+    (check-regexp-match #rx"\n# source and at are relative to the workspace, [^\n]+$" tr)
     (check-regexp-match #rx"\ngus,,,,2,[^,]+,[^,]+,gender corrected,[.][.]/[^,]+-src/gus[.]fsh,[.][.]/[^,]+-src/gus[.]fsh:3,Provenance/" tr)
     ;; a refused commit lists the errors it refuses for (a count sent the reader back to the stage)
     (define bad-stage (hash-ref (with-handlers ([exn:fail? (lambda (_) (hasheq 'stage "?"))])

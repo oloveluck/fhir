@@ -23,7 +23,8 @@ one line, `file:line:col severity: message`, with "did you mean …" for a missp
 | question | where |
 |---|---|
 | is the latest HbA1c above 9 %, per patient (and "never tested") | `raco fhir-mcp guide cql`, "the latest value per patient"; `run path=… as=csv columns=…` for the table |
-| was any result above a threshold | a FHIR search: `query language=search text="Observation?code=…&value-quantity=gt9"` |
+| was any result above a threshold | a FHIR search: `query language=search text="Observation?code=…&value-quantity=gt9"`; per patient beside the latest, the CQL guide's `Ever Above 9` |
+| whose mean blood pressure is at or above 140/90 | `raco fhir-mcp guide workspace`, the `bp` view and its summary SQL — read clinically as systolic ≥ 140 OR diastolic ≥ 90 |
 | where did each stored value come from (who, when, why, which file and line) | `describe ref=Observation as=trail` (one resource's versions: `ref=Observation/a1/_history as=trail`) |
 | what changed in a resource, version by version | `describe ref=Observation/a1/_history` |
 | a rule every resource of a type must meet | "Constraints and the trail" below; the rules cookbook in `raco fhir-mcp guide workspace` |
@@ -31,6 +32,11 @@ one line, `file:line:col severity: message`, with "did you mean …" for a missp
 | a table of values to join or chart | a ViewDefinition (`raco fhir-mcp guide sql-on-fhir`), then `query language=sql` |
 | a FHIR server with an operation of your own | "Build a FHIR server" below |
 | a Racket program: map, validate, decide | "A Racket program" at the end |
+
+**A Racket program, in brief** (the workspace below is not needed): `raco fhir new pipeline my-pipeline`
+copies a working template (an FSH profile, an FML map, a CQL library, `main.rkt`, a sample input and
+`tests.rkt`); `cd my-pipeline && raco test tests.rkt` checks it all, `racket main.rkt qr.json` runs it;
+then change the files — "A Racket program" at the end and the `fhir-authoring` skill say how.
 
 ## Set up
 ```sh
@@ -122,12 +128,14 @@ the instance `ann` written in the same text:
 ```fsh
 Instance: ann
 InstanceOf: Patient
+* name.given = "Ann"
 * name.family = "Ng"
 * gender = #female
 * birthDate = "1961-04-12"
 
 Instance: bob
 InstanceOf: Patient
+* name.given = "Bob"
 * name.family = "Okafor"
 * gender = #male
 * birthDate = "1988-09-30"
@@ -295,7 +303,9 @@ workspace's `fhir.db` — what the workspace commits, the server serves, and wha
 the workspace's search and SQL see — and `apply("$yourOperation", inputs)` calls the running server.
 From the shell each call is its own process, so a server `run` started is gone with it: serve it
 yourself and give `apply` its url (`apply … url=` needs no workspace: it only POSTs to the server).
-After editing the app, stop the server (the pid it printed) and serve it again.
+After editing the app, stop the server (the pid it printed) and serve it again. The store: `(server
+#:store "study.db")` in the file names one beside it; `--store fhir.db` on the command line overrides
+it (here, the workspace's own store, so the workspace sees what the server writes).
 ```
 raco fhir-server serve study.capability.rkt --port 8080 --store fhir.db &       # check it first: racket study.capability.rkt
 raco fhir-mcp call apply operation='$egfr' url=http://localhost:8080 inputs:='{"creatinine": 1.1, "age": 60, "sex": "female"}'

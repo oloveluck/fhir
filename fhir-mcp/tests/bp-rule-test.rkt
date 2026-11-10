@@ -108,9 +108,26 @@
     (call "commit" (hasheq 'stage (hash-ref rst 'stage) 'reason "readings"))
     (define-values (trail-csv _e1) ((tool-run (hash-ref tools "describe")) (hasheq 'ref "Observation/bp-r1/_history" 'as "trail")))
     (check-regexp-match #rx"^id,subject,name,value,date,versionId,recorded,agent,reason,source,at,provenance\n" trail-csv)
-    (check-regexp-match #rx"\nbp-r1,Patient/a,,142 mm\\[Hg\\] / 91 mm\\[Hg\\],2025-01-10,1,[^,]+,[^,]*,readings,[^,]*readings[.]fsh,[^,]*readings[.]fsh:11," trail-csv)
+    (check-regexp-match #rx"\nbp-r1,Patient/a,,142 mm\\[Hg\\] / 91 mm\\[Hg\\],2025-01-10,1,[^,]+,[^,]*,readings,[^,]*readings[.]fsh,[^,]*readings[.]fsh:13," trail-csv)   ; its insert line, where the values are
     (define-values (cols-csv _e2) ((tool-run (hash-ref tools "describe")) (hasheq 'ref "Observation" 'as "trail" 'columns "id,value,at" 'sort "-id")))
-    (check-regexp-match #rx"^id,value,at\nbp-r2,128 mm\\[Hg\\] / 82 mm\\[Hg\\],[^,\n]*readings[.]fsh:15\n" cols-csv)
+    (check-regexp-match #rx"^id,value,at\nbp-r2,128 mm\\[Hg\\] / 82 mm\\[Hg\\],[^,\n]*readings[.]fsh:17\n" cols-csv)
+    ;; the reading's source text stages again: its RuleSet comes with it (it failed: RuleSet not found)
+    (define-values (src-text _e3) ((tool-run (hash-ref tools "describe")) (hasheq 'ref "Observation/bp-r1" 'as "source")))
+    (check-regexp-match #rx"^RuleSet: Reading[(]" src-text)
+    (check-regexp-match #rx"\nInstance: bp-r1\nInstanceOf: Observation\n[*] insert Reading[(]bp-r1, a, 2025-01-10, 142, 91[)]" src-text)
+    (define again (call "stage" (hasheq 'fsh (string-replace src-text "142, 91" "141, 91"))))
+    (check-equal? (map (lambda (c) (list (hash-ref c 'resource) (hash-ref c 'errors '()))) (hash-ref again 'changes))
+                  '(("Observation/bp-r1" ())))
+    (call "stage" (hasheq 'drop "latest"))
+    ;; a refused stage is listed apart from those that can be committed, with the call that drops them
+    (call "stage" (hasheq 'drop "refused"))                ; the earlier refusals of this test
+    (call "stage" (hasheq 'fsh (bp "bp-bad" #:dia #f)))
+    (define stages (call "describe" (hasheq 'ref "stages")))
+    (check-false (for/or ([st (in-list (hash-ref stages 'stages))]) (member "create Observation/bp-bad" (hash-ref st 'resources))))
+    (check-equal? (map (lambda (st) (hash-ref st 'resources)) (hash-ref stages 'refused)) '(("create Observation/bp-bad")))
+    (check-regexp-match #rx"drop" (hash-ref stages 'next))
+    (check-equal? (length (hash-ref (call "stage" (hasheq 'drop "refused")) 'dropped)) 1)
+    (check-false (hash-ref (call "describe" (hasheq 'ref "stages")) 'refused #f))
     (void (call "write" (hasheq 'path "bp.view.json" 'text "")))))
 (delete-directory/files dir)
 

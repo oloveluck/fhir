@@ -551,8 +551,22 @@
   (define with-more (if more (hash-set answer 'more more) answer))
   (if (and (not resources?) (> (length cols) 6))
       (hash-set with-more 'table (format "~a as=csv columns=\"~a\": the rows as CSV, the columns you choose"
-                                         (call-text "describe" (list (cons 'ref uri))) (string-join (map (lambda (c) (format "~a" c)) (take cols 3)) ",")))
+                                         (call-text "describe" (list (cons 'ref uri))) (string-join (readable-columns cols rows) ",")))
       with-more))
+
+;; readable-columns : columns rows -> (listof string)   the columns to suggest for a table a person reads:
+;; those whose values are text, numbers or booleans in every row and not empty in all (it suggested the
+;; first three, lists and references); at most five, in column order
+(define (readable-columns cols rows)
+  (define (cell row c) (if (hash? row) (hash-ref row (if (symbol? c) c (string->symbol (format "~a" c))) 'null) 'null))
+  (define (scalar? v) (or (eq? v 'null) (number? v) (boolean? v)
+                          (and (string? v) (not (regexp-match? #px"^[A-Z][A-Za-z]+/[A-Za-z0-9.-]+$" v)))))   ; not a resource
+  (define good (for/list ([c (in-list cols)]
+                          #:when (and (for/and ([r (in-list rows)]) (scalar? (cell r c)))
+                                      (for/or ([r (in-list rows)]) (not (eq? (cell r c) 'null)))))
+                 (format "~a" c)))
+  (define picked (if (null? good) (map (lambda (c) (format "~a" c)) cols) good))
+  (take picked (min 5 (length picked))))
 
 ;; options : hash -> Options   the verbs' arguments as a language's options
 (define (options args)
@@ -914,9 +928,16 @@
               (define name (if (pair? (cddr m))
                                (string-append (string-downcase (cadr m)) "_" (string-replace (caddr m) "-" "_") "_history")
                                (string-append (string-downcase (cadr m)) "_trail")))
-              (hub-describe h (hash-ref (hub-query h "sql" (apply trail-sql (cdr m)) (hasheq 'name name)) 'result)
-                            (for/hasheq ([k (in-list '(as columns sort limit))] #:when (hash-ref args k #f))
-                              (values k (if (eq? k 'as) "csv" (hash-ref args k))))))]
+              (define csv (hub-describe h (hash-ref (hub-query h "sql" (apply trail-sql (cdr m)) (hasheq 'name name)) 'result)
+                                        (for/hasheq ([k (in-list '(as columns sort limit))] #:when (hash-ref args k #f))
+                                          (values k (if (eq? k 'as) "csv" (hash-ref args k))))))
+              ;; `source`/`at` are the trail's own paths, relative to the workspace: from another
+              ;; directory, a last line says so (`../patients.fsh` read as outside the caller's folder)
+              (define here (from-here (hub-root h)))
+              (if (or (member here '("." "./")) (not (text-answer? csv))
+                      (let ([cols (hash-ref args 'columns #f)]) (and (string? cols) (not (regexp-match? #rx"source|at" cols)))))
+                  csv
+                  (text-answer (string-append (text-answer-text csv) (format "\n# source and at are relative to the workspace, ~a" here)))))]
         ;; the source text a stored resource was written from, read through its newest Provenance —
         ;; no id to copy (`describe ref=Observation/a1/_history as=source`, or the resource itself)
         [(and source? (let ([m (regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)(?:/_history)?$" ref)])
@@ -1314,6 +1335,12 @@
            (hasheq 'dropped "all" 'stages (pending-stage-ids h))]
     ["latest" (let ([ids (pending-stage-ids h)])                                ; as commit takes it
                 (if (null? ids) (error 'stage "no stage to drop") (drop-stage! h (last ids))))]
+    ["refused" (let ([ids (for/list ([id (in-list (pending-stage-ids h))]           ; the ones with errors
+                                    #:when (let ([st (stage-of h id)])
+                                             (and st (for/or ([c (in-list (staged-changes st))]) (pair? (change-errors c))))))
+                           id)])
+                 (for ([id (in-list ids)]) (drop-stage! h id))
+                 (hasheq 'dropped ids 'stages (pending-stage-ids h)))]
     [(? string? id) (drop-stage! h id)]
     [_ (stage! h args)]))
 
@@ -1336,16 +1363,24 @@
 
 ;; describe-stages : hub -> jsexpr   each stage not committed: its changes, errors and source
 (define (describe-stages h)
-  (hasheq 'stages
-          (for/list ([id (in-list (pending-stage-ids h))] #:when (stage-of h id))
-            (define st (stage-of h id))
-            (define cs (staged-changes st))
-            (hasheq 'stage id
-                    'changes (length cs)
-                    'errors (for/sum ([c (in-list cs)]) (length (change-errors c)))
-                    'resources (for/list ([c (in-list cs)])
-                                 (format "~a ~a/~a" (change-action c) (hash-ref (change-resource c) 'resourceType "?") (hash-ref (change-resource c) 'id "(new id)")))
-                    'source (let ([src (staged-source st)]) (or (hash-ref src 'path #f) (hash-ref src 'kind "resources")))))))
+  (define all
+    (for/list ([id (in-list (pending-stage-ids h))] #:when (stage-of h id))
+      (define st (stage-of h id))
+      (define cs (staged-changes st))
+      (hasheq 'stage id
+              'changes (length cs)
+              'errors (for/sum ([c (in-list cs)]) (length (change-errors c)))
+              'resources (for/list ([c (in-list cs)])
+                           (format "~a ~a/~a" (change-action c) (hash-ref (change-resource c) 'resourceType "?") (hash-ref (change-resource c) 'id "(new id)")))
+              'source (let ([src (staged-source st)]) (or (hash-ref src 'path #f) (hash-ref src 'kind "resources"))))))
+  ;; a stage with errors can never be committed: listed apart, with the call that discards them
+  ;; (a rerun's agent found its refused stage among the ones waiting to be committed)
+  (define-values (refused open) (partition (lambda (s) (positive? (hash-ref s 'errors))) all))
+  (define base (hasheq 'stages open))
+  (if (null? refused)
+      base
+      (hash-set* base 'refused refused
+                 'next (call-text "stage" (list (cons 'drop (if (= 1 (length refused)) (hash-ref (car refused) 'stage) "refused")))))))
 
 (define (stage! h args)
   (refresh! h)
@@ -1548,7 +1583,9 @@
     (define line (and text (hash-ref r 'id #f) (instance-line text (hash-ref r 'id))))
     (define changed-path (and line (eq? (change-action ch) 'update)
                               (for/first ([p (in-list (change-paths ch))]) (car (regexp-split #rx":" p)))))
-    (define at (or (and changed-path (rule-line text line changed-path)) line))
+    (define at (or (and changed-path (rule-line text line changed-path))
+                   (and line (eq? (change-action ch) 'create) (insert-line text line))
+                   line))
     (and at (format "~a:~a" (hash-ref src 'path "fsh") at)))
   (define targets (for/list ([w (in-list written)] [ch (in-list todo)] #:when (hash-ref w 'ok #f))
                     (list (hash-ref w 'version (hash-ref w 'resource)) (if (eq? (change-action ch) 'create) 'create 'update)
@@ -1571,12 +1608,53 @@
 (define (instance-block text id)
   (define start (instance-line text id))
   (and start
-       (let* ([lines (list-tail (regexp-split #rx"\n" text) (sub1 start))]
-              [body (cons (car lines)
-                          (for/list ([l (in-list (cdr lines))]
-                                     #:break (regexp-match? #px"^(Instance|Profile|Extension|Logical|Resource|ValueSet|CodeSystem|Invariant|RuleSet|Mapping|Alias)\\s*:" l))
-                            l))])
-         (string-append (string-join (reverse (dropf (reverse body) (lambda (l) (string=? (string-trim l) "")))) "\n") "\n"))))
+       (let ([block (entity-lines text start)])
+         ;; the RuleSets it inserts and the Aliases it names come along, so the text stages again
+         ;; (a correction from `as=source` of a RuleSet-written reading failed: RuleSet not found)
+         (string-append (string-join (append (used-definitions text block) (list block)) "\n")))))
+
+;; entity-lines : fsh-text line -> string   the entity starting at that line, to the next entity header
+(define (entity-lines text start)
+  (let* ([lines (list-tail (regexp-split #rx"\n" text) (sub1 start))]
+         [body (cons (car lines)
+                     (for/list ([l (in-list (cdr lines))]
+                                #:break (regexp-match? #px"^(Instance|Profile|Extension|Logical|Resource|ValueSet|CodeSystem|Invariant|RuleSet|Mapping|Alias)\\s*:" l))
+                       l))])
+    (string-append (string-join (reverse (dropf (reverse body) (lambda (l) (string=? (string-trim l) "")))) "\n") "\n")))
+
+;; insert-line : fsh-text instance-line -> line | #f   the instance's first `* insert` rule: a reading
+;; written by a RuleSet (`* insert Reading(bp-a1, a, 2025-01-10, 142, 91)`) has its values there,
+;; not at its header
+(define (insert-line text start)
+  (define block-lines (regexp-split #rx"\n" (entity-lines text start)))
+  (for/first ([l (in-list block-lines)] [i (in-naturals start)]
+              #:when (regexp-match? #px"^\\s*\\*\\s*insert\\s" l))
+    i))
+
+;; used-definitions : fsh-text block -> (listof string)   the Alias lines and RuleSet entities the block
+;; uses (RuleSets that insert others, transitively), in the order the text defines them
+(define (used-definitions text block)
+  (define lines (regexp-split #rx"\n" text))
+  (define (ruleset-start name)
+    (for/first ([l (in-list lines)] [i (in-naturals 1)]
+                #:when (regexp-match? (pregexp (string-append "^RuleSet:\\s*" (regexp-quote name) "\\s*(\\(|$)")) l))
+      i))
+  (define (inserted b) (map cadr (regexp-match* #px"(?m:^\\s*\\*[^\n]*?\\binsert\\s+([A-Za-z0-9_.-]+))" b #:match-select values)))
+  (define starts
+    (let loop ([todo (inserted block)] [seen '()])
+      (cond [(null? todo) seen]
+            [(assoc (car todo) seen) (loop (cdr todo) seen)]
+            [else (define st (ruleset-start (car todo)))
+                  (if st
+                      (loop (append (cdr todo) (inserted (entity-lines text st))) (cons (cons (car todo) st) seen))
+                      (loop (cdr todo) seen))])))
+  (define rulesets (map (lambda (p) (entity-lines text (cdr p))) (sort starts < #:key cdr)))
+  (define all-text (string-join (cons block rulesets) "\n"))
+  (define aliases (for/list ([l (in-list lines)]
+                             #:when (let ([m (regexp-match #px"^Alias:\\s*(\\S+)\\s*=" l)])
+                                      (and m (regexp-match? (regexp (regexp-quote (cadr m))) all-text))))
+                    l))
+  (append (if (null? aliases) '() (list (string-append (string-join aliases "\n") "\n"))) rulesets))
 
 (define (instance-line text id)
   (define lines (regexp-split #rx"\n" text))

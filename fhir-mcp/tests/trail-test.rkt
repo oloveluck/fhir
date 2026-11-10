@@ -138,6 +138,20 @@
     (check-false (hash-has-key? (hash-ref (hash-ref (hash-ref ab 'summary) 'defines) 'Above) 'other))
     (define pts (map (lambda (r) (hash-ref r 'patient)) (hash-ref ab 'rows)))
     (check-equal? pts (sort pts string<?))
+    ;; a wide run: the CSV hint suggests the columns a person reads (it named the first three: lists and
+    ;; references), and a define answering numbers is summarised by its range and mean ({"other": 2})
+    (call "write" (hasheq 'path "Wide.cql" 'text (string-append "library Wide version '1'\nusing FHIR version '4.0.1'\ninclude FHIRHelpers version '4.0.1'\ncontext Patient\n"
+                                                              "define \"Results\": [Observation]\n"
+                                                              "define \"Latest\": Last(\"Results\")\n"
+                                                              "define \"Count\": Count(\"Results\")\n"
+                                                              "define \"Tested\": exists \"Results\"\n"
+                                                              "define \"Label\": if exists \"Results\" then 'tested' else 'never tested'\n"
+                                                              "define \"Twice\": Count(\"Results\") * 2\n")))
+    (define wide (call "run" (hasheq 'path "Wide.cql")))
+    (check-regexp-match #rx"columns=\"patient,Count,Tested,Label,Twice\"" (hash-ref wide 'table))
+    (define count-tally (hash-ref (hash-ref (hash-ref wide 'summary) 'defines) 'Count))
+    (check-true (and (hash-has-key? count-tally 'min) (hash-has-key? count-tally 'max) (hash-has-key? count-tally 'mean)) (format "~s" count-tally))
+    (void (call "write" (hasheq 'path "Wide.cql" 'text "")))
     (void (call "write" (hasheq 'path "Above.cql" 'text "")))))
 
 (delete-directory/files dir)

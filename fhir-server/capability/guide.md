@@ -137,7 +137,8 @@ the server's `#:url`. The handler returns a resource built with the R6 forms
 ### Creates and existing operations
 - A create answers 201 with an absolute `Location` (`http://host:port/Patient/<id>/_history/1`). The
   id is the server's: one sent with `POST` is ignored, as FHIR says. To choose it, `PUT /Patient/ann`
-  (with `update` declared) creates `Patient/ann`.
+  (with `update` declared) creates `Patient/ann`. From a script, the id is the `Location` header's
+  path after the type: `curl -si -X POST … | sed -n 's|^Location: .*/Patient/\([^/]*\)/_history.*|\1|p'`.
 - Existing operations by reference: `"Resource/$validate"`, `"ValueSet/$expand"`,
   `"CodeSystem/$lookup"`, `"ValueSet/$validate-code"`, `"ConceptMap/$translate"`,
   `"StructureMap/$transform"` (FML maps: transformations), `"Measure/$evaluate-measure"` (CQL),
@@ -225,7 +226,7 @@ Here, serum creatinine in mg/dL converted to µmol/L (× 88.4):
 (define (creatinine-si-handler in req)
   (define mg/dl (car (hash-ref in "creatinine")))     ; a decimal arrives as a Racket number (1.1)
   (Parameters (parameter (ParametersParameter (name "creatinine")
-                           (valueQuantity (Quantity (value (real->decimal-string (* 88.4 mg/dl) 1))
+                           (valueQuantity (Quantity (value (/ (round (* 88.4 mg/dl 10)) 10.0))   ; 97.2
                                                     (unit "µmol/L")
                                                     (system "http://unitsofmeasure.org")
                                                     (code "umol/L")))))))

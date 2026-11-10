@@ -98,7 +98,10 @@ needs none, and `evaluate` takes the list of the patient's resources as they are
 in the map AND in the CQL shows the map's first); its last lines, `compilation context...:`, name
 the chain of files that required the failing one. To see every language's problems at once, run the
 checks (`raco fsh check fsh`, `raco fml check qr2patient.map …`, `raco cql Intake.cql`), or the
-template's `raco test tests.rkt`.
+template's `raco test tests.rkt`. `raco make` does not validate the FSH examples (that needs the whole
+project): a project written by hand gets that gate by copying the template's `tests.rkt` beside its
+files (`raco fhir new pipeline tmp` and take `tmp/tests.rkt`), or the fsh skill's `raco test` snippet.
+`evaluate` without `#:define` is a hash of every define; a CQL null in it prints as `#<cql:null>`.
 
 Every `#lang` file is a Racket module, so a program `require`s them side by side and uses their values:
 `"profile.fsh"` provides `compiled` (FHIR JSON), `"intake.fml"` `transform` (FHIR JSON -> FHIR JSON),
