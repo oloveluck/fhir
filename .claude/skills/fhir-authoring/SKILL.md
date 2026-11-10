@@ -102,9 +102,12 @@ its own language by `raco make`. Worked examples: `fhir-examples/examples/intake
 ```
 Without a birth date the map's Patient breaks the profile, and the error is at the map's rule:
 `the map's Patient is invalid: … qr2patient.map:14:25: fml validate error: Patient.birthDate: minimum
-required = 1, but found 0`. `(ensure-valid patient #:profile url)` (`fhir/conformance/operations`)
+required = 1, but found 0 (the rule here wrote nothing: its source matched nothing in the input)` —
+the birthDate rule is there, but the QuestionnaireResponse had no `birthDate` item for it to read. `(ensure-valid patient #:profile url)` (`fhir/conformance/operations`)
 validates any resource the same way, naming the element but not the rule.
-Each step reads its own FHIR version, which matters when they meet: FSH compiles for the nearest
+For a resource that R4 and R5 write alike (a Patient with name, gender and birthDate; most
+Observations), the defaults just work and no `sushi-config.yaml` is needed. `render` (`cql/value`)
+answers a string: `"true"`, or a FHIR value's JSON text. Each step reads its own FHIR version, which matters when they meet: FSH compiles for the nearest
 `sushi-config.yaml`'s `fhirVersion` (else 5.0.0); FML builds R5 types (an R4 source is read leniently,
 and a value it cannot read is warned about, `fml warning: … not read`); `$validate`/`ensure-valid`
 validate in the core package of `current-sd-packages` (R5 unless you set it, and the error names it:

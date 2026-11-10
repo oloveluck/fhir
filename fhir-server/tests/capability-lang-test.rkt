@@ -146,6 +146,13 @@
   (check-true (for/or ([m msgs]) (regexp-match? #rx"1965-13-45" m)) (format "~a" msgs))
   (define-values (st2 _o2) (handle app "POST" "/Patient" '() "{\"resourceType\":\"Patient\",\"gender\":\"female\"}"))
   (check-equal? st2 201)
+  ;; a create's id is the server's: the same id POSTed twice is two resources (the second was a 500
+  ;; naming fhir-create!); PUT creates with a chosen id where `update` is declared
+  (define-values (sd1 d1) (handle app "POST" "/Patient" '() "{\"resourceType\":\"Patient\",\"id\":\"dup\",\"gender\":\"male\"}"))
+  (define-values (sd2 d2) (handle app "POST" "/Patient" '() "{\"resourceType\":\"Patient\",\"id\":\"dup\",\"gender\":\"male\"}"))
+  (check-equal? (list sd1 sd2) '(201 201))
+  (check-false (equal? (hash-ref d1 'id) (hash-ref d2 'id)))
+  (check-false (member "dup" (list (hash-ref d1 'id) (hash-ref d2 'id))))
   ;; a body of another type than the endpoint's: 400, said plainly (it was a 500)
   (define-values (st5 o5) (handle app "POST" "/Patient" '() "{\"resourceType\":\"Observation\",\"status\":\"final\",\"code\":{\"text\":\"x\"}}"))
   (check-equal? st5 400)

@@ -1031,6 +1031,39 @@ The sixth rerun (every task first time) named what still cost a step; each fix h
   `retrieves`/`uses`; "must be an integer"; the guide's `bp` view shown and the trail ⋈ history join
   tested from the guide's text.
 
+## New users, round 8 (2026-11-10)
+The seventh rerun (every task first time, 11–20 calls) named these; each has a test doing it:
+- **A create's id is the server's** (http/router.rkt `without-id`): an id POSTed is ignored, as FHIR
+  says; the same id POSTed twice answered a 500 naming `fhir-create!`. PUT creates with a chosen id.
+  `POST /$validate` says where `$validate` is served (`served-at`, runtime.rkt).
+- **`apply` takes a server's `url`** (fhir-mcp): from the shell each call is a process, so an app `run`
+  served is gone with it; `apply(operation, url: …)` POSTs to a server started with `raco fhir-server
+  serve`, and an operation found nowhere says so.
+- **Refusal evidence follows the rule's structure** (validate.rkt `evidence`, replacing the flat
+  selections): `implies` -> its consequent, `and` -> its false parts, `X.where(c).exists()` -> X's
+  values when they are values, else `no component matching '8462-4'` (the condition's literals),
+  `X[.where(c)].all(p)` -> p's evidence on each failing item by index (`component[0].valueQuantity =
+  20 'kPa'`). Selections are named as the JSON names them (`valueQuantity`, `effectiveDateTime`).
+  The stage's `rule-line` and fsh's check match a whole path (`component[0].valueQuantity`, or the
+  validator's `component.value[x].code` against `* component[0].valueQuantity`), shortening it until
+  a rule writes it; "found no …" stays at the instance's header.
+- **A Quantity coded in UCUM carries a UCUM code** (validate.rkt `ucum-issues`, through fhirpath's
+  `ucum-valid?`): `130 'mmHg'` is a WARNING `` `mmHg` is not a UCUM unit (mercury is written mm[Hg]) ``,
+  with the nearest common clinical unit otherwise; a stage lists validation warnings beside its
+  errors, at their rules. A warning, because the gate caught it as an error: mCODE's published
+  body-surface-area example writes `m^2` (283 -> 282/283 until it was one). Gates unchanged: IG
+  validation 260 clean, validator fp 0 / recall 18, published mCODE 283/283.
+- **Why nothing was written**: fml's `validate-result` says `(the rule here wrote nothing: its source
+  matched nothing in the input)` when the traced rule's element is absent from the result; `raco fsh
+  check` says `(no rule of <instance> writes `birthDate`)` for a required element nothing wrote.
+- **Results and the trail**: a result name is matched as asked or as kept and in any case
+  (`result://a1c-table` reads `a1c_table`, and the answer notes the change); a missing result lists the
+  results with their names; `commit stage=latest`; `describe(Type/id/_history)` gives each version's
+  `recorded`; `trail.provenance` is `Provenance/<id>`; `check(data: true)` counts `byType`.
+- Docs: a route table at the top of the fhir skill; the shell example uses names and `latest`; a
+  served app from the shell; `render`'s type; when FHIR versions matter in a pipeline; 140/90 read as
+  systolic OR diastolic; why a view's paths use `.first()`.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

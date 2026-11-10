@@ -49,7 +49,7 @@
   [hub-query       (-> hub? string? string? hash? jsexpr?)]
   [hub-explain     (-> hub? string? string? hash? jsexpr?)]
   [hub-describe    (-> hub? string? hash? (or/c jsexpr? text-answer?))]   ; text when `as` is "fsh"
-  [hub-apply       (-> hub? string? hash? (or/c hash? #f) jsexpr?)]
+  [hub-apply       (->* (hub? string? hash? (or/c hash? #f)) ((or/c string? #f)) jsexpr?)]
   [hub-stage!      (-> hub? hash? jsexpr?)]
   [hub-commit!     (->* (hub? string?) ((or/c string? #f)) jsexpr?)]
   [hub-result-uris (-> hub? (listof string?))]
@@ -321,8 +321,14 @@
                 [e (in-list (validation-errors (with-profiles h r)))])
       (cons (format "~a/~a" (hash-ref r 'resourceType "?") (hash-ref r 'id "?")) e)))
   (define by-rule (for/fold ([acc (hash)]) ([f (in-list found)]) (hash-update acc (cdr f) add1 0)))
+  (define bad (remove-duplicates (map car found)))
   (hasheq 'checked (length resources)
-          'invalid (length (remove-duplicates (map car found)))
+          'invalid (length bad)
+          ;; per type: the trail's Provenances and AuditEvents are stored resources too
+          'byType (for/hasheq ([t (in-list (remove-duplicates (map (lambda (r) (hash-ref r 'resourceType "?")) resources)))])
+                    (values (string->symbol t)
+                            (hasheq 'checked (count (lambda (r) (equal? (hash-ref r 'resourceType "?") t)) resources)
+                                    'invalid (count (lambda (k) (string-prefix? k (string-append t "/"))) bad))))
           'profiles (for/hasheq ([(t us) (in-hash (ws-config-profiles (workspace-config (hub-ws h))))]) (values (string->symbol t) us))
           'byRule (for/list ([kv (in-list (sort (hash->list by-rule) > #:key cdr))] [_ (in-range 20)])
                     (hasheq 'rule (car kv) 'count (cdr kv)))
@@ -399,9 +405,22 @@
   (define m (and (string? uri) (regexp-match #px"^result://(.+)$" uri)))
   (cond [(not m) #f]
         [(regexp-match? #px"^r[0-9]+$" (cadr m)) (and (or (hash-ref (hub-results h) uri #f) (load-state h "results" (cadr m))) uri)]
-        [else (for/last ([u (in-list (hub-result-uris h))]
-                         #:when (let ([st (result-of* h u)]) (and st (equal? (hash-ref (stored-options st) 'name #f) (cadr m)))))
+        ;; a name as it was asked (`a1c-table`) or as it was kept (`a1c_table`), in any case, as SQL reads it
+        [else (define want (string-downcase (or (result-name (cadr m)) (cadr m))))
+              (for/last ([u (in-list (hub-result-uris h))]
+                         #:when (let* ([st (result-of* h u)] [n (and st (hash-ref (stored-options st) 'name #f))])
+                                  (and (string? n) (equal? (string-downcase n) want))))
                 u)]))
+
+;; result-listing : hub -> string   the results by number, each with its name ("r1 (diabetes), r2")
+(define (result-listing h)
+  (define us (hub-result-uris h))
+  (if (null? us) "none yet"
+      (string-join (for/list ([u (in-list us)])
+                     (define st (result-of* h u))
+                     (define n (and st (hash-ref (stored-options st) 'name #f)))
+                     (string-append (regexp-replace #rx"^result://" u "") (if (string? n) (format " (~a)" n) "")))
+                   ", ")))
 
 ;; result-of : hub uri -> stored | #f ; stage-of : hub id -> staged | #f   memory, else the workspace
 (define (result-of h uri0)
@@ -538,7 +557,11 @@
       (if (pair? reads) (hash-set o 'reads reads) o)))
   (define r (audited h (string-append "query " language) (hasheq 'kind "query" 'language language 'text text)
                      (lambda () (if (equal? lang "sql") (run-sql h text) (execute h lang #f text opts)))))
-  (result-json (store! h (stored lang #f text opts r)) r (hash-ref opts 'name #f)))
+  (define answer (result-json (store! h (stored lang #f text opts r)) r (hash-ref opts 'name #f)))
+  (define asked (hash-ref args 'name #f))
+  (if (and (string? asked) (not (equal? asked (hash-ref opts 'name #f))))
+      (hash-set answer 'note (format "named ~a: a result's name is a SQL table's (letters, digits and _); result://~a reads it too" (hash-ref opts 'name) asked))
+      answer))
 
 ;; run-sql : hub sql -> run-result   SQL over the workspace's tables (sql.rkt): each ViewDefinition
 ;; file's rows, named by its file (`patients.view.json` is `patients`) and by its `name`, and every
@@ -654,7 +677,7 @@
       [(result-of h ref)
        => (lambda (st) (values (stored-language st) (stored-path st) (stored-text st)
                                (for/fold ([o (stored-options st)]) ([(k v) (in-hash (options args))]) (hash-set o k v))))]
-      [(regexp-match? #rx"^result://" ref) (error 'explain (format "no result ~a (results: ~a)" ref (string-join (hub-result-uris h) ", ")))]
+      [(regexp-match? #rx"^result://" ref) (error 'explain (format "no result ~a (results: ~a)" ref (result-listing h)))]
       [else (define full (inside h ref))
             (unless (file-exists? full) (error 'explain (format "no file ~a in the workspace" ref)))
             (values (workspace-language-of full) full (file->string full) (options args))]))
@@ -772,7 +795,7 @@
     (for/list ([cur (in-list versions)] [prev (in-list (cons #f versions))])
       (define pv (hash-ref provs (vid cur) #f))
       (for/fold ([e (hasheq 'version (vid cur)
-                            'at (hash-ref (hash-ref cur 'meta (hasheq)) 'lastUpdated "?")
+                            'recorded (hash-ref (hash-ref cur 'meta (hasheq)) 'lastUpdated "?")
                             'changed (if prev (json-diff prev cur) "created"))])
                 ([kv (in-list (if pv
                                   (list (cons 'provenance (format "Provenance/~a" (hash-ref pv 'id "?")))
@@ -819,7 +842,7 @@
 ;; result-csv : hub uri offset limit -> text-answer   a result's rows as CSV, a header line first: the
 ;; compact form of a table (JSON rows repeat every column name); a last line says what is left
 (define (result-csv h uri offset limit)
-  (define st (or (result-of h uri) (error 'describe (format "no result ~a (results: ~a)" uri (string-join (hub-result-uris h) ", ")))))
+  (define st (or (result-of h uri) (error 'describe (format "no result ~a (results: ~a)" uri (result-listing h)))))
   (define r (stored-result st))
   (define cols (map (lambda (c) (format "~a" c)) (run-result-columns r)))
   (define rows (run-result-rows r))
@@ -841,7 +864,7 @@
   (if (regexp-match? #rx"[,\"\n\r]" s) (string-append "\"" (string-replace s "\"" "\"\"") "\"") s))
 
 (define (describe-result h uri offset limit against)
-  (define st (or (result-of h uri) (error 'describe (format "no result ~a (results: ~a)" uri (string-join (hub-result-uris h) ", ")))))
+  (define st (or (result-of h uri) (error 'describe (format "no result ~a (results: ~a)" uri (result-listing h)))))
   (define r (stored-result st))
   (cond
     [against
@@ -891,24 +914,31 @@
                      (hasheq 'key k 'column (symbol->string c) 'before (elide (hash-ref (hash-ref b k) c 'null)) 'after (elide v)))))
 
 ;; ---- apply ----------------------------------------------------------------------------------------
-(define (hub-apply h ref inputs resource)
+(define (hub-apply h ref inputs resource [url #f])
   (refresh! h)
   (with-hub h
     (lambda ()
-      (define o (with-handlers ([exn:fail? (lambda (e) e)]) (operation ref)))
+      (define o (if url #f (with-handlers ([exn:fail? (lambda (e) e)]) (operation ref))))
       (audited h "apply" (hasheq 'kind "operation" 'operation ref 'text (jsexpr->string inputs))
                (lambda ()
                  (cond
+                   ;; a server named by `url` (any FHIR server: a capability app served with
+                   ;; `raco fhir-server serve`, which a shell call's process does not know of)
+                   [url (or (apply-on-servers ref inputs resource (list (cons 'given (regexp-replace #rx"/+$" url ""))))
+                            (error 'apply (format "~a answered no ~a" url ref)))]
                    [(not (exn? o)) (apply-json o inputs resource)]
                    [(apply-on-servers ref inputs resource) => values]
-                   [else (error 'apply (format "no operation ~a: ~a" ref (exn-message o)))]))))))
+                   [else (error 'apply (format "no operation ~a: ~a~a" ref (exn-message o)
+                                               "; an operation of a served capability app is applied with its url: apply(operation, url: \"http://localhost:8080\", inputs: …) (a server `run` started in another call has stopped with it)"))]))))))
 
 ;; apply-on-servers : ref inputs resource -> jsexpr | #f   an operation of a capability app the
 ;; workspace serves (capability/workspace's running servers), POSTed as a Parameters resource to
 ;; `<base>/[Type/][id/]$code`; #f when no running app has it
-(define (apply-on-servers ref inputs resource)
-  (define running (with-handlers ([exn:fail? (lambda (_) (lambda () '()))])
-                    (dynamic-require 'fhir/capability/workspace 'running-servers)))
+(define (apply-on-servers ref inputs resource [given #f])
+  (define running (if given
+                      (lambda () given)
+                      (with-handlers ([exn:fail? (lambda (_) (lambda () '()))])
+                        (dynamic-require 'fhir/capability/workspace 'running-servers))))
   (define m (regexp-match #px"^(?:([A-Z][A-Za-z]+)/)?(?:([A-Za-z0-9.-]+)/)?[$]([A-Za-z0-9-]+)$" ref))
   (and m (pair? (running))
        (let* ([type (cadr m)] [id (caddr m)] [code (cadddr m)]
@@ -1004,11 +1034,14 @@
                      [(eq? b 'null) (format "~a: removed ~a" where (shown a))]
                      [else (format "~a: ~a → ~a" where (shown a) (shown b))]))]))
 
-(define (validation-errors r)
-  (with-handlers ([exn:fail:operation? (lambda (e) (list (format "~a" (exn-message e))))]
+(define (validation-errors r) (validation-issues r '("error" "fatal")))
+;; validation-issues : resource severities -> (listof string)   "path: message" for each issue of those
+;; severities (a stage's warnings: a unit that is not UCUM, said without refusing the change)
+(define (validation-issues r severities)
+  (with-handlers ([exn:fail:operation? (lambda (e) (if (member "error" severities) (list (format "~a" (exn-message e))) '()))]
                   [exn:fail? (lambda (_) '())])
     (for/list ([i (in-list (hash-ref (apply-operation "$validate" r) 'issue '()))]
-               #:when (member (hash-ref i 'severity #f) '("error" "fatal")))
+               #:when (member (hash-ref i 'severity #f) severities))
       (format "~a: ~a" (let ([e (hash-ref i 'expression (hash-ref i 'location '()))]) (if (pair? e) (car e) "")) (hash-ref i 'diagnostics (hash-ref i 'code ""))))))
 
 (define (hub-stage! h args)
@@ -1066,10 +1099,12 @@
                  (remove-duplicates errors))
             (remove-duplicates errors)))
       (when (null? rs) (error 'stage "nothing to stage"))
+      (define warned (make-hasheq))                   ; resource -> its validation warnings, at their lines
       (define changes
         (for/list ([r (in-list rs)])
           (define current (and (hash-ref r 'id #f) ((data-source-read (current-data-source)) (hash-ref r 'resourceType) (hash-ref r 'id))))
           (define paths (if current (json-diff current r) '()))
+          (hash-set! warned r (at-line r (validation-issues r '("warning"))))
           (change r (cond [(not current) 'create] [(null? paths) 'unchanged] [else 'update]) paths (at-line r (validation-errors r)))))
       (define id (format "stage-~a" (next-number h "stages" "stage-" (hub-stages h))))
       (hash-set! (hub-stages h) id (staged changes source))
@@ -1083,7 +1118,7 @@
                                               'action (symbol->string (change-action c))
                                               'changed (if (eq? (change-action c) 'create) "created" (take (change-paths c) (min 30 (length (change-paths c)))))
                                               'errors (change-errors c)))
-                         (define ws (hash-ref dangling (change-resource c) '()))
+                         (define ws (append (hash-ref warned (change-resource c) '()) (hash-ref dangling (change-resource c) '())))
                          (if (null? ws) base (hash-set base 'warnings ws)))
               'errors errors
               'next (if (zero? errors) (format "commit(\"~a\") writes the ~a change(s)" id (count (lambda (c) (not (eq? (change-action c) 'unchanged))) changes))
@@ -1125,7 +1160,11 @@
     (values r (for/list ([pr (in-list (refs r ""))])
                 (format "~a: ~a is neither in the data nor in this stage~a" (car pr) (cdr pr) (suggestion (cdr pr)))))))
 
-(define (hub-commit! h id [reason #f])
+(define (hub-commit! h id0 [reason #f])
+  ;; `latest`: the newest stage not committed (from the shell, a stage's id is in its own answer)
+  (define id (if (equal? id0 "latest")
+                 (let ([ids (pending-stage-ids h)]) (if (null? ids) (error 'commit "no stage to commit (stage something first)") (last ids)))
+                 id0))
   (define st (or (stage-of h id)
                  (error 'commit (format "no stage ~a~a" id
                                         (let ([ids (filter (lambda (n) (regexp-match? #rx"^stage-" n)) (saved-names h "stages"))])
@@ -1195,24 +1234,39 @@
               [(and start (regexp-match? (pregexp (string-append "^\\*\\s*id\\s*=\\s*\"" (regexp-quote id) "\"")) (car ls))) start]
               [else (loop (cdr ls) (add1 i) start)]))))
 
-;; error-element : error-text -> name|#f   the element an error is about: what an invariant found
-;; (`… (found value.ofType(Quantity) = 300 '/min')` -> value), else the path's first step
+;; error-element : error-text -> path|#f   the element an error is about: what an invariant found
+;; (`… (found component[0].valueQuantity = 20 'kPa')` -> component[0].valueQuantity; "found no …" is
+;; about what is missing, so no rule wrote it), else the path's first step
 ;; (`Observation.component[1].value[x]: …` -> component)
 (define (error-element e)
-  (cond [(regexp-match #px"[(]found ([A-Za-z]+)" e) => cadr]
-        [(regexp-match #px"^[A-Z][A-Za-z]*[.]([a-z][A-Za-z]*)" e) => cadr]
+  (cond [(regexp-match #px"[(]found (?!no )([A-Za-z][A-Za-z0-9_.\\[\\]]*)" e) => cadr]
+        [(regexp-match? #px"[(]found no " e) #f]
+        [(regexp-match #px"^[A-Z][A-Za-z]*[.]([a-z][A-Za-z0-9_.\\[\\]]*):" e) => cadr]
         [else #f]))
 
-;; rule-line : fsh-text instance-line name|#f -> line|#f   the first rule of that instance writing the
-;; element (`* valueQuantity = …` for `value`, `* component[0].code` for `component`)
+;; rule-line : fsh-text instance-line path|#f -> line|#f   the first rule of that instance writing the
+;; element: the whole path (`* component[0].valueQuantity = …`), else ever shorter prefixes of it
+;; (`* component[0]…`, `* component…`); `value` also matches its choice keys (`* valueQuantity`)
 (define (rule-line text start element)
+  (define lines (drop (regexp-split #rx"\n" text) start))
+  ;; a step as an FSH rule may write it: `component` as `component[0]` (an index or a slice name),
+  ;; `value[x]` (the validator's) or `value` (FHIRPath's) as `valueQuantity`; an index given stays
+  (define (step-rx st)
+    (cond [(regexp-match #px"^(.*)\\[x\\]$" st) => (lambda (m) (string-append (regexp-quote (cadr m)) "[A-Za-z]*(?:\\[[^\\]]*\\])?"))]
+          [(regexp-match? #px"\\[[0-9]+\\]$" st) (regexp-quote st)]
+          [else (string-append (regexp-quote st) "(?:[A-Z][A-Za-z]*)?(?:\\[[^\\]]*\\])?")]))
+  (define (line-of path)
+    (define rx (pregexp (string-append "^\\s*\\*\\s+" (string-join (map step-rx (regexp-split #rx"[.]" path)) "[.]") "(?:[.\\s=]|$)")))
+    (for/first ([l (in-list lines)]
+                [i (in-naturals (add1 start))]
+                #:break (regexp-match? #px"^(?:Instance|Profile|Extension|ValueSet|CodeSystem|Logical|Resource|RuleSet|Invariant|Mapping|Alias):" l)
+                #:when (regexp-match? rx l))
+      i))
   (and element
-       (let ([rx (pregexp (string-append "^\\s*\\*\\s+" (regexp-quote element) "(?:[.\\[\\s=]|[A-Z]|$)"))])
-         (for/first ([l (in-list (drop (regexp-split #rx"\n" text) start))]
-                     [i (in-naturals (add1 start))]
-                     #:break (regexp-match? #px"^(?:Instance|Profile|Extension|ValueSet|CodeSystem|Logical|Resource|RuleSet|Invariant|Mapping|Alias):" l)
-                     #:when (regexp-match? rx l))
-           i))))
+       (let loop ([path element])
+         (or (line-of path)
+             (let ([shorter (regexp-replace #px"(?:[.][^.]+|\\[[0-9]+\\])$" path "")])
+               (and (not (equal? shorter path)) (loop shorter)))))))
 
 ;; stage-source : hub args -> Source   what a stage's resources are made from (trail.rkt)
 (define (stage-source h args)

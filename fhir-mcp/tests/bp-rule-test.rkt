@@ -41,12 +41,20 @@
                         (car (hash-ref w2 'notes)))
     (call "write" (hasheq 'path "intake.fsh" 'text ""))
     (check-equal? (errors-of (bp "ok")) '())
-    (check-regexp-match #rx"bp-systolic: A blood pressure" (string-join (errors-of (bp "kpa" #:sys "20 'kPa'")) "\n"))
-    (check-regexp-match #rx"bp-diastolic" (string-join (errors-of (bp "nodia" #:dia #f)) "\n"))
-    (check-regexp-match #rx"bp-subject" (string-join (errors-of (bp "nosubj" #:subject #f)) "\n"))
+    ;; each refusal says what it found, at the line that wrote it — the failing item by its index, or
+    ;; what is missing (a rerun's agent got every component, cut off, at the component's code line)
+    (check-equal? (errors-of (bp "kpa" #:sys "20 'kPa'"))
+                  '("fsh:7: Observation: bp-systolic: A blood pressure (LOINC 85354-9) has a systolic component (LOINC 8480-6) in mm[Hg] (found component[0].valueQuantity = 20 'kPa')"))
+    (check-equal? (errors-of (bp "nodia" #:dia #f))
+                  '("fsh:1: Observation: bp-diastolic: A blood pressure (LOINC 85354-9) has a diastolic component (LOINC 8462-4) in mm[Hg] (found no component matching '8462-4')"))
+    (check-equal? (errors-of (bp "nosubj" #:subject #f))
+                  '("fsh:1: Observation: bp-subject: A blood pressure (LOINC 85354-9) has a subject (found no subject)"))
+    ;; `'mmHg'` is not UCUM: a warning at its line (it was refused by the rule alone, unexplained)
+    (check-equal? (car (hash-ref (car (hash-ref (call "stage" (hasheq 'fsh (bp "mmhg" #:sys "130 'mmHg'"))) 'changes)) 'warnings))
+                  "fsh:7: Observation.component.value[x].code: `mmHg` is not a UCUM unit (mercury is written mm[Hg])")
     ;; EVERY systolic in mm[Hg]: a second one in kPa beside a good one is refused (a rerun found the gap)
-    (check-regexp-match #rx"bp-systolic"
-                        (string-join (errors-of (string-append (bp "mixed") "* component[2].code = http://loinc.org#8480-6\n* component[2].valueQuantity = 20 'kPa'\n")) "\n"))
+    (check-equal? (errors-of (string-append (bp "mixed") "* component[2].code = http://loinc.org#8480-6\n* component[2].valueQuantity = 20 'kPa'\n"))
+                  '("fsh:11: Observation: bp-systolic: A blood pressure (LOINC 85354-9) has a systolic component (LOINC 8480-6) in mm[Hg] (found component[2].valueQuantity = 20 'kPa')"))
     ;; another Observation is not a blood pressure: the rule does not apply
     (check-equal? (errors-of "Instance: a1c\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#4548-4\n* valueQuantity = 6.1 '%'\n") '())
     ;; correcting a stored reading: its FSH, one line changed, staged again
@@ -81,8 +89,8 @@
     ;; a refusal quotes what it found, at the rule that wrote it (a rerun's agent had to find the value
     ;; itself, and the line was the instance's header), once (it was listed twice)
     (check-equal? (errors2 (hr "fast" 300 "/min" "2025-03-01"))
-                  "fsh:7: Observation: hr-range: A heart rate (LOINC 8867-4) is between 20 and 250 /min (found value.ofType(Quantity) = 300 '/min')")
-    (check-regexp-match #rx"^fsh:6: .*not-future.*[(]found effective.ofType[(]dateTime[)] = @2999-01-01[)]$"
+                  "fsh:7: Observation: hr-range: A heart rate (LOINC 8867-4) is between 20 and 250 /min (found valueQuantity = 300 '/min')")
+    (check-regexp-match #rx"^fsh:6: .*not-future.*[(]found effectiveDateTime = @2999-01-01[)]$"
                         (errors2 (hr "later2" 72 "/min" "2999-01-01")))
     (check-regexp-match #rx"hr-unit" (errors2 (hr "hz" 1.2 "Hz" "2025-03-01")))
     (check-regexp-match #rx"not-future" (errors2 (hr "later" 72 "/min" "2999-01-01")))))

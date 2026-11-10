@@ -66,6 +66,10 @@
                             (hash-set patient 'gender "femme"))])
   (check-equal? st 200)
   (check-regexp-match #rx"femme|gender" (hash-ref (car (hash-ref oo 'issue)) 'diagnostics)))
+;; POST /$validate is not FHIR's (it is defined on resources): the answer says where it is served
+(let-values ([(st oo) (post app "/$validate" patient)])
+  (check-equal? st 404)
+  (check-regexp-match #rx"it is served at /Patient/[$]validate" (hash-ref (car (hash-ref oo 'issue)) 'diagnostics)))
 ;; an Observation POSTed to Patient/$validate was "All OK": the endpoint names the type it takes
 (define obs (hasheq 'resourceType "Observation" 'status "final" 'code (hasheq 'text "x")))
 (let-values ([(st oo) (post app "/Patient/$validate" obs)])

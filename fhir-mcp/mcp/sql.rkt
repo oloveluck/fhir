@@ -105,7 +105,7 @@
                                         "p.resource ->> '$.agent[0].who.display' AS agent, "
                                         "p.resource ->> '$.reason[0].text' AS reason, "
                                         "p.resource ->> '$.entity[0].what.display' AS source, "
-                                        "p.id AS provenance "
+                                        "'Provenance/' || p.id AS provenance "
                                         "FROM main.fhir_resources p, json_each(p.resource, '$.target') t "
                                         "WHERE p.resource_type = 'Provenance' AND instr(t.value ->> '$.reference', '/_history/') > 0"))))
           types))

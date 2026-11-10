@@ -18,7 +18,7 @@
          net/base64
          (only-in json read-json jsexpr->string)
          (only-in fhir/serialize/jsexpr-util drop-false)
-         (only-in fhir/model/node fhir? fhir-type fhir-ref)
+         (only-in fhir/model/node fhir fhir? fhir-type fhir-ref fhir-has? fhir-fields)
          (only-in racket/list append-map)
          (only-in fhir/model/registry type-registered?)
          (only-in fhir/serialize/from-json from-json)
@@ -113,7 +113,9 @@
      (define t (sym type))
      (case method
        [("GET")  (values 'search (dispatch app (search-request t query)))]
-       [("POST") (with-body body (lambda (n) (if (same-type? n t) (values 'create (dispatch app (create-request t n))) (wrong-type n t "POST"))))]
+       ;; FHIR: a create's id is the server's; one sent is ignored (an id already in use answered a 500
+       ;; naming the store's function). PUT /Type/id creates with a chosen id.
+       [("POST") (with-body body (lambda (n) (if (same-type? n t) (values 'create (dispatch app (create-request t (without-id n)))) (wrong-type n t "POST"))))]
        [else (values 'error (operation-outcome-not-supported (format "~a not allowed on /~a" method type)))])]
     ;; instance:  /{Type}/{id}
     [(_ (list (? known-type? type) id))
@@ -210,6 +212,9 @@
   (ok-value (from-json (hasheq 'resourceType "Parameters"
                                'parameter (for/list ([p (in-list query)])
                                             (hasheq 'name (symbol->string (car p)) 'valueString (cdr p)))))))
+
+;; without-id : node -> node   a resource without its id (what a create stores under the server's)
+(define (without-id n) (if (fhir-has? n 'id) (fhir (fhir-type n) (hash-remove (fhir-fields n) 'id)) n))
 
 ;; a body of another type than the endpoint's is the client's mistake (400), said plainly
 (define (same-type? n t) (eq? (fhir-type n) t))

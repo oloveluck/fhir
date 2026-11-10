@@ -30,12 +30,13 @@
          (only-in fhir/model/registry constructor-of all-types type-registered?)
          (only-in fhirpath/eval eval-fhirpath)
          (only-in fhirpath/parser/parse parse-fhirpath)
-         (only-in fhirpath/parser/ast fp-invoke fp-invoke? fp-invoke-target fp-call fp-call? fp-call-target
+         (only-in fhirpath/parser/ast fp-invoke fp-invoke? fp-invoke-target fp-invoke-name fp-call fp-call? fp-call-target fp-lit? fp-lit-value
                   fp-call-name fp-call-args fp-binop? fp-binop-op fp-binop-lhs fp-binop-rhs fp-unop? fp-unop-operand
                   fp-typeop? fp-typeop-operand fp-index? fp-index-target fp-var?)
          (only-in fhirpath/print fhirpath->string)
          (only-in fhir/model/node fhir?)
          (only-in fhirpath/value item->system)
+         (only-in fhirpath/ucum ucum-valid?)
          (only-in fhir/serialize/jsexpr-util drop-false)
          (only-in fhirpath/terminology tx-service-validate tx-service-expand))
 
@@ -226,8 +227,36 @@
 (define (value-issues idx ce tc loc v tx)
   (append (fixed-pattern-issues ce loc v)
           (primitive-issues tc loc v)
+          (ucum-issues tc loc v)
           (binding-issues ce loc v tx)
           (recurse-issues idx ce tc loc v tx)))
+
+;; ucum-issues : type-code loc value -> (listof Issue)   a Quantity coded in UCUM must carry a UCUM
+;; code: `mmHg` is not one (`mm[Hg]` is), and a unit nobody can convert breaks every comparison made
+;; on it. A warning, not an error: HL7's own published examples write `m^2` (mCODE's body surface
+;; area), and they must validate; the nearest common clinical unit is suggested.
+(define quantity-types '("Quantity" "SimpleQuantity" "Age" "Duration" "Distance" "Count" "MoneyQuantity"))
+(define common-units
+  '("mm[Hg]" "kg" "g" "mg" "ug" "mg/dL" "g/dL" "g/L" "mmol/L" "umol/L" "mmol/mol" "%" "/min" "cm" "m" "mm"
+    "kg/m2" "[in_i]" "[lb_av]" "Cel" "[degF]" "mL" "L" "h" "min" "s" "d" "wk" "mo" "a" "10*3/uL" "10*9/L"
+    "U/L" "[IU]/L" "mL/min/{1.73_m2}" "mL/min" "/[HPF]" "{beats}/min" "{breaths}/min" "kPa" "mosm/kg" "ng/mL" "pg/mL"))
+(define (ucum-issues tc loc v)
+  (cond
+    [(and (member tc quantity-types) (hash? v)
+          (equal? (hash-ref v 'system #f) "http://unitsofmeasure.org")
+          (string? (hash-ref v 'code #f))
+          (not (ucum-valid? (hash-ref v 'code))))
+     (define code (hash-ref v 'code))
+     (define near (did-you-mean code (filter ucum-valid? common-units)))
+     ;; a warning: published examples write `m^2` (mCODE), and the never-over-report gate holds
+     (list (issue "warning" "code-invalid" (string-append loc ".code")
+                  (format "`~a` is not a UCUM unit~a" code
+                          (if (equal? near "") (string-append " (" (ucum-hint code) ")") near))))]
+    [else '()]))
+;; ucum-hint : code -> string   what UCUM writes differently, when the nearest name does not say it
+(define (ucum-hint code)
+  (cond [(regexp-match? #rx"(?i:hg)" code) "mercury is written mm[Hg]"]
+        [else "see https://ucum.org/ucum for its syntax"]))
 
 ;; recurse into a complex value (of concrete type `tc`): nested resource | backbone | datatype jump
 ;; recurse-issues : Index ElementDef type-code loc value tx -> (listof Issue)
@@ -602,56 +631,133 @@
 
 ;; ---- what a broken invariant found ---------------------------------------------------------
 ;; A refusal that quotes only the rule ("A heart rate is between 20 and 250 /min") leaves the reader
-;; to find the value. `found-text` names it: the paths the rule tests (the consequent of a top-level
-;; `implies`, else the whole expression), each without its final test — `value.ofType(Quantity)
-;; .where(value >= 20 …).exists()` is read as `value.ofType(Quantity)` — evaluated on the focus and
-;; shown compactly: " (found value.ofType(Quantity) = 300 '/min')". Nothing is said when nothing
-;; is found or the expression does not parse (the rule's own words stand alone).
+;; to find the value. `found-text` says what the rule found, following the rule's own structure
+;; (structural recursion over the FHIRPath AST, `evidence`), on the parts that are FALSE:
+;;   A implies B           -> B's evidence (A held, or the rule would hold)
+;;   A and B               -> the evidence of each part that is false
+;;   A or B                -> both
+;;   X.where(c).exists()   -> X's values when they are values (`valueQuantity = 300 '/min'`), else
+;;   X.exists(c)              "no component matching '8462-4'" (the condition's literals)
+;;   X.exists()            -> "no subject"
+;;   X[.where(c)].all(p)   -> p's evidence on each item it fails, named by its index when X is an
+;;                            element (`component[0].valueQuantity = 20 'kPa'`)
+;;   anything else         -> the focus-rooted selections it compares, with their values
+;; A selection is named as the JSON names it (`value.ofType(Quantity)` is `valueQuantity`), so the
+;; reader — and the stage, tracing the line — finds the rule that wrote it. Nothing is said when
+;; nothing is found or the expression does not parse: the rule's own words stand alone.
+
+;; Evidence is a string: "valueQuantity = 300 '/min'" | "no component matching '8462-4'"
 
 ;; tests : the calls that test a collection rather than select from it
 (define tests '(exists empty all allTrue anyTrue allFalse anyFalse count not hasValue))
 
-;; evidence-paths : AST -> (listof AST)   the focus-rooted selections the rule tests, at most three
-(define (evidence-paths ast)
-  (define (rooted? a)
-    (cond [(fp-invoke? a) (or (not (fp-invoke-target a)) (rooted? (fp-invoke-target a)))]
-          [(fp-call? a) (and (fp-call-target a) (rooted? (fp-call-target a)))]
-          [(fp-index? a) (rooted? (fp-index-target a))]
-          [(fp-var? a) #t]
-          [else #f]))
-  ;; selection : AST -> AST   a rooted chain without its trailing tests (and the where they test)
-  (define (selection a)
-    (cond [(and (fp-call? a) (memq (fp-call-name a) tests) (fp-call-target a))
-           (define t (fp-call-target a))
-           (if (and (memq (fp-call-name a) '(exists empty)) (null? (fp-call-args a))
-                    (fp-call? t) (eq? (fp-call-name t) 'where) (fp-call-target t))
-               (selection (fp-call-target t))
-               (selection t))]
-          [else a]))
-  (define (paths a)
-    (cond [(and (rooted? a) (not (fp-var? a))) (list (selection a))]
-          [(fp-binop? a) (append (paths (fp-binop-lhs a)) (paths (fp-binop-rhs a)))]
-          [(fp-unop? a) (paths (fp-unop-operand a))]
-          [(fp-typeop? a) (paths (fp-typeop-operand a))]
-          [(and (fp-call? a) (fp-call-target a)) (paths (fp-call-target a))]
-          [else '()]))
-  (define body (if (and (fp-binop? ast) (eq? (fp-binop-op ast) 'implies)) (fp-binop-rhs ast) ast))
-  (define ps (remove-duplicates (filter (lambda (p) (not (fp-var? p))) (paths body))))
-  (take ps (min 3 (length ps))))
+;; rooted? : AST -> boolean   a selection from the focus (a chain of steps, calls and indexes)
+(define (rooted? a)
+  (cond [(fp-invoke? a) (or (not (fp-invoke-target a)) (rooted? (fp-invoke-target a)))]
+        [(fp-call? a) (and (fp-call-target a) (rooted? (fp-call-target a)))]
+        [(fp-index? a) (rooted? (fp-index-target a))]
+        [else #f]))
 
-;; found-text : expression focus root -> string   "" or " (found p = v; q = w)"
+;; selection : AST -> AST   a rooted chain without its trailing tests (and the where they test)
+(define (selection a)
+  (cond [(and (fp-call? a) (memq (fp-call-name a) tests) (fp-call-target a))
+         (define t (fp-call-target a))
+         (if (and (memq (fp-call-name a) '(exists empty)) (null? (fp-call-args a))
+                  (fp-call? t) (eq? (fp-call-name t) 'where) (fp-call-target t))
+             (selection (fp-call-target t))
+             (selection t))]
+        [else a]))
+
+;; label : AST -> string   a selection as JSON names it: `value.ofType(Quantity)` -> valueQuantity,
+;; `name.family` -> name.family; anything else as FHIRPath prints it
+(define (label a)
+  (define (step-name a)
+    (cond [(and (fp-invoke? a) (not (fp-invoke-target a))) (symbol->string (fp-invoke-name a))]
+          [(fp-invoke? a) (let ([t (step-name (fp-invoke-target a))]) (and t (string-append t "." (symbol->string (fp-invoke-name a)))))]
+          [(and (fp-call? a) (eq? (fp-call-name a) 'ofType) (= 1 (length (fp-call-args a))))
+           (define t (step-name (fp-call-target a)))
+           (define ty (let ([x (car (fp-call-args a))]) (and (fp-invoke? x) (not (fp-invoke-target x)) (symbol->string (fp-invoke-name x)))))
+           (and t ty (string-append t (string-upcase (substring ty 0 1)) (substring ty 1)))]
+          [else #f]))
+  (or (step-name a) (fhirpath->string a)))
+
+;; literals : AST -> (listof string)   the string literals of a condition, urls left out when others remain
+(define (literals a)
+  (define all
+    (let walk ([a a])
+      (cond [(and (fp-lit? a) (string? (fp-lit-value a))) (list (fp-lit-value a))]
+            [(fp-binop? a) (append (walk (fp-binop-lhs a)) (walk (fp-binop-rhs a)))]
+            [(fp-unop? a) (walk (fp-unop-operand a))]
+            [(fp-call? a) (append (if (fp-call-target a) (walk (fp-call-target a)) '()) (append-map walk (fp-call-args a)))]
+            [(fp-invoke? a) (if (fp-invoke-target a) (walk (fp-invoke-target a)) '())]
+            [else '()])))
+  (define plain (filter (lambda (s) (not (regexp-match? #rx"://" s))) all))
+  (remove-duplicates (if (null? plain) all plain)))
+
+;; evidence : AST focus root prefix -> (listof Evidence)
+(define (evidence a focus root prefix)
+  (define (ev x [f focus]) (eval-fhirpath x (list f) #:externals (hash "resource" (list root) "rootResource" (list root) "context" (list f))))
+  (define (false? x [f focus]) (equal? (map item->system (ev x f)) (list #f)))
+  (define (values-of x vs)
+    (format "~a~a = ~a" prefix (label x)
+            (clip (string-join (map compact-item (take vs (min 3 (length vs)))) ", ") (if (> (length vs) 3) ", …" ""))))
+  (define (leafy? vs) (andmap (lambda (v) (not (regexp-match? #rx"^{" (compact-item v)))) vs))
+  ;; X matching c found nothing: X's values when they are values, else "no X matching …"
+  (define (none x c)
+    (define xs (ev x))
+    (cond [(and (pair? xs) (leafy? xs)) (list (values-of x xs))]
+          [else (list (format "no ~a~a~a" prefix (label x)
+                              (if c (let ([ls (literals c)])
+                                      (if (null? ls) (format " matching ~a" (fhirpath->string c))
+                                          (format " matching ~a" (string-join (map (lambda (l) (format "'~a'" l)) ls) ", "))))
+                                  "")))]))
+  (cond
+    [(and (fp-binop? a) (eq? (fp-binop-op a) 'implies)) (evidence (fp-binop-rhs a) focus root prefix)]
+    [(and (fp-binop? a) (eq? (fp-binop-op a) 'and))
+     (define parts (filter (lambda (x) (false? x)) (list (fp-binop-lhs a) (fp-binop-rhs a))))
+     (append-map (lambda (x) (evidence x focus root prefix)) (if (null? parts) (list (fp-binop-lhs a) (fp-binop-rhs a)) parts))]
+    [(and (fp-binop? a) (eq? (fp-binop-op a) 'or))
+     (append (evidence (fp-binop-lhs a) focus root prefix) (evidence (fp-binop-rhs a) focus root prefix))]
+    ;; X.where(c).exists(), X.exists(c), X.exists()
+    [(and (fp-call? a) (eq? (fp-call-name a) 'exists) (fp-call-target a) (rooted? (fp-call-target a)))
+     (define t (fp-call-target a))
+     (cond [(pair? (fp-call-args a)) (none t (car (fp-call-args a)))]
+           [(and (fp-call? t) (eq? (fp-call-name t) 'where) (fp-call-target t) (pair? (fp-call-args t)))
+            (none (fp-call-target t) (car (fp-call-args t)))]
+           [else (none t #f)])]
+    ;; X[.where(c)].all(p): p's evidence on each item that fails it
+    [(and (fp-call? a) (eq? (fp-call-name a) 'all) (fp-call-target a) (= 1 (length (fp-call-args a))) (rooted? (fp-call-target a)))
+     (define t (fp-call-target a))
+     (define-values (base c)
+       (if (and (fp-call? t) (eq? (fp-call-name t) 'where) (fp-call-target t) (pair? (fp-call-args t)))
+           (values (fp-call-target t) (car (fp-call-args t)))
+           (values t #f)))
+     (define p (car (fp-call-args a)))
+     ;; an element of the focus (`component`) names its items by index, as the JSON does
+     (define element? (and (fp-invoke? base) (not (fp-invoke-target base))))
+     (define items (ev base))
+     (append*
+      (for/list ([it (in-list items)] [i (in-naturals)]
+                 #:when (or (not c) (equal? (map item->system (ev c it)) (list #t)))
+                 #:when (false? p it))
+        (evidence p it root (if element? (format "~a~a[~a]." prefix (label base) i) (format "~a~a." prefix (label base))))))]
+    [else
+     ;; the selections it compares, with what they hold
+     (define (paths a)
+       (cond [(rooted? a) (list (selection a))]
+             [(fp-binop? a) (append (paths (fp-binop-lhs a)) (paths (fp-binop-rhs a)))]
+             [(fp-unop? a) (paths (fp-unop-operand a))]
+             [(fp-typeop? a) (paths (fp-typeop-operand a))]
+             [(and (fp-call? a) (fp-call-target a)) (paths (fp-call-target a))]
+             [else '()]))
+     (for*/list ([x (in-list (remove-duplicates (paths a)))] [vs (in-value (ev x))] #:when (pair? vs))
+       (values-of x vs))]))
+
+;; found-text : expression focus root -> string   "" or " (found p = v; no q matching 'c')"
 (define (found-text expr focus root)
   (with-handlers ([exn:fail? (lambda (_) "")])
-    (define parts
-      (for*/list ([p (in-list (evidence-paths (parse-fhirpath expr)))]
-                  [vs (in-value (eval-fhirpath p (list focus)
-                                               #:externals (hash "resource" (list root) "rootResource" (list root)
-                                                                 "context" (list focus))))]
-                  #:when (pair? vs))
-        (format "~a = ~a" (fhirpath->string p)
-                (clip (string-join (map compact-item (take vs (min 3 (length vs)))) ", ")
-                      (if (> (length vs) 3) ", …" "")))))
-    (if (null? parts) "" (format " (found ~a)" (string-join parts "; ")))))
+    (define parts (remove-duplicates (evidence (parse-fhirpath expr) focus root "")))
+    (if (null? parts) "" (format " (found ~a)" (string-join (take parts (min 4 (length parts))) "; ")))))
 
 ;; clip : string suffix -> string   at most 100 characters
 (define (clip s more) (if (> (string-length s) 100) (string-append (substring s 0 99) "…") (string-append s more)))

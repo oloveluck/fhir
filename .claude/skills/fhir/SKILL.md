@@ -11,9 +11,13 @@ FHIR views) and one to declare FHIR servers (capability apps). Every resource is
 as JSONB. The `fhir-mcp` server gives an agent nine tools over it; every problem comes back as
 one line, `file:line:col severity: message`, with "did you mean …" for a misspelt name.
 
-Writing a Racket program instead (the languages as modules: an FML map, an FSH profile and a CQL
-library required side by side, operations applied as procedures)? The `fhir-authoring` skill, and
-each language's own skill (`cql`, `fsh`, `fml`, `fhirpath`, `vcl`, `sql-on-fhir`) for its command line.
+**Which route?**
+| you are … | start with |
+|---|---|
+| asking questions of health data, storing it under rules, keeping its trail | this skill: the workspace (MCP tools, or `raco fhir-mcp call` from the shell) |
+| writing a Racket program (an FML map, an FSH profile and a CQL library required side by side) | the `fhir-authoring` skill — its "languages together" example is a whole pipeline |
+| building a FHIR server with your own operations | "Build a FHIR server" below, and `raco fhir-mcp guide capability` |
+| using one language from the command line | its own skill: `cql`, `fsh`, `fml`, `fhirpath`, `vcl`, `sql-on-fhir` |
 
 ## Set up
 ```sh
@@ -32,11 +36,15 @@ is described or joined in SQL later. Arguments are a JSON object and/or `key=val
 
 ```sh
 raco fhir-mcp call stage fsh=@patients.fsh --workspace ws
-raco fhir-mcp call commit stage=stage-1 reason="intake" --workspace ws
+raco fhir-mcp call commit stage=latest reason="intake" --workspace ws        # or stage=stage-1
 raco fhir-mcp call write path=Diabetes.cql text=@Diabetes.cql --workspace ws
-raco fhir-mcp call query language=sql text=@summary.sql --workspace ws
-raco fhir-mcp call describe ref=result://r1 as=csv --workspace ws
+raco fhir-mcp call run path=Diabetes.cql --workspace ws                      # result://Diabetes
+raco fhir-mcp call query language=sql text=@summary.sql name=summary --workspace ws
+raco fhir-mcp call describe ref=result://summary as=csv --workspace ws
 ```
+A run is named by its file and a query by its `name` (as a SQL table: letters, digits, `_`); the
+name means the latest result of it, in SQL (`FROM Diabetes`) and in `result://`, in any case.
+`write text=@file` copies the file into the workspace: edit the workspace's copy, or write it again.
 `--workspace` defaults to the current directory. A call prints the tool's answer (JSON, or text) and exits 0; 1 when the tool failed or its answer
 counts errors (`"errors": 2`: a stage that cannot be committed, a check with errors); 2 for a usage
 error. `describe ref=stages` lists the stages not committed; `stage drop=stage-3` discards one
@@ -252,6 +260,12 @@ reference (`(operation "StructureMap/$transform")` serves FML transformations, `
 languages. `write` checks it (problems at their lines), `run` serves it on a free port over the
 workspace's `fhir.db` — what the workspace commits, the server serves, and what the server writes,
 the workspace's search and SQL see — and `apply("$yourOperation", inputs)` calls the running server.
+From the shell each call is its own process, so a server `run` started is gone with it: serve it
+yourself and give `apply` its url.
+```
+raco fhir-server serve study.capability.rkt 8080 --store fhir.db &       # check it first: racket study.capability.rkt
+raco fhir-mcp call apply operation='$egfr' url=http://localhost:8080 inputs:='{"creatinine": 1.1, "age": 60, "sex": "female"}'
+```
 `raco fhir-mcp guide capability` has the cheat sheet and a worked example (a clinic server with a
 `$bmi` operation), tested as written.
 

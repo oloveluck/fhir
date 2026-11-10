@@ -75,7 +75,9 @@ history and search indexes). In a workspace the file is `<name>.capability.rkt`:
 - `$validate` takes the resource in a Parameters (`resource`) or as the bare POST body, and reads it
   as sent: a misspelt element or a bad date is reported, as `raco fhir-validate` reports it. It
   answers 200 either way, its findings in the OperationOutcome (its result IS an OperationOutcome).
-- A create answers 201 with an absolute `Location` (`http://host:port/Patient/<id>/_history/1`).
+- A create answers 201 with an absolute `Location` (`http://host:port/Patient/<id>/_history/1`). The
+  id is the server's: one sent with `POST` is ignored, as FHIR says. To choose it, `PUT /Patient/ann`
+  (with `update` declared) creates `Patient/ann`.
 - Existing operations by reference: `"Resource/$validate"`, `"ValueSet/$expand"`,
   `"CodeSystem/$lookup"`, `"ValueSet/$validate-code"`, `"ConceptMap/$translate"`,
   `"StructureMap/$transform"` (FML maps: transformations), `"Measure/$evaluate-measure"` (CQL),
@@ -117,7 +119,10 @@ In a workspace, as `clinic.capability.rkt`:
 - `run` serves it and answers its url and what it serves; the server reads and writes the
   workspace's `fhir.db`, so `stage`/`commit`, search, CQL and SQL see the same data.
 - `apply("$bmi", {"weight": 80, "height": 180})` calls the running app: `{"bmi": 24.7}` in a
-  Parameters resource. Any HTTP client works too: `curl <url>/metadata`, `POST <url>/Patient`.
+  Parameters resource. Any HTTP client works too: `curl <url>/metadata`, `POST <url>/Patient`. From
+  the shell (`raco fhir-mcp call`), each call is a process of its own and the app `run` served ends
+  with it: serve the app with `raco fhir-server serve` and pass its url,
+  `apply(operation: "$bmi", url: "http://localhost:8080", inputs: …)`.
 - `explain(ref: "clinic.capability.rkt", subject: "Patient")` shows what it declares for a type.
 
 On the command line: `racket clinic.capability.rkt` prints the CapabilityStatement;

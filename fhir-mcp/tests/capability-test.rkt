@@ -48,6 +48,13 @@
     ;; the app's own operation, through apply
     (check-equal? (call "apply" (hasheq 'operation "$bmi" 'inputs (hasheq 'weight 80 'height 180)))
                   (hasheq 'resourceType "Parameters" 'parameter (list (hasheq 'name "bmi" 'valueDecimal 24.7))))
+    ;; by its url, as a shell call must (a server `raco fhir-server serve` started is not this process's)
+    (check-equal? (call "apply" (hasheq 'operation "$bmi" 'url (string-append url "/") 'inputs (hasheq 'weight 80 'height 180)))
+                  (hasheq 'resourceType "Parameters" 'parameter (list (hasheq 'name "bmi" 'valueDecimal 24.7))))
+    ;; an operation nothing here has: the answer says how to reach a served app
+    (let-values ([(text err?) ((tool-run (hash-ref tools "apply")) (hasheq 'operation "$egfr"))])
+      (check-true err?)
+      (check-regexp-match #rx"apply[(]operation, url:" text))
     (check-equal? (hash-ref (call "explain" (hasheq 'ref "clinic.capability.rkt" 'subject "Patient")) 'type) "Patient")))
 
 (delete-directory/files dir)

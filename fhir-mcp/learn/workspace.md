@@ -92,7 +92,10 @@ SELECT p.gender, count(*) AS n, round(avg(b.systolic), 1) AS mean_systolic
 FROM bp b JOIN patients p ON p.id = b.patient GROUP BY p.gender
 ```
 and a classification by a patient's mean (`HAVING avg(b.systolic) >= 140` keeps those whose mean is
-high, not those with one high reading).
+high, not those with one high reading). "At or above 140/90" is read clinically as systolic ≥ 140
+OR diastolic ≥ 90 (`CASE WHEN avg(b.systolic) >= 140 OR avg(b.diastolic) >= 90 THEN 'yes' ELSE
+'no' END`). The view's `.first()` makes each column one value: a column whose path finds two
+(two systolic components) is an error when the view runs, and `.first()` says which to keep.
 
 ## Which language for which question
 - A value inside one resource: FHIRPath.
@@ -144,7 +147,7 @@ profiles:
 Every staged resource of that type is validated against it and claims it in `meta.profile`; a
 stage that breaks it lists the broken rule per resource and cannot be committed. `check` holds the
 workspace's FSH examples to it too, and `check(data: true)` everything already stored: how many
-resources, how many break a rule, the rules by how often they are broken, the first problems as lines.
+resources (`byType`, the trail's own Provenances and AuditEvents among them), how many break a rule, the rules by how often they are broken, the first problems as lines.
 
 Keep DATA out of the workspace's `.fsh` files: they are the project (profiles, value sets, a few
 examples), and every one of them is compiled and checked together, so a patient written there twice
@@ -181,8 +184,10 @@ Named for `Observation` in `profiles`, it holds every blood pressure to the rule
 Observation through. `X.exists() and X.all(…)` says "there is one, and EVERY one is in mm[Hg]": with
 `X.where(…).exists()` alone, a second systolic in kPa beside one in mm[Hg] would pass. A refusal quotes the rule's `Description` and what the rule found, at the rule that wrote it:
 `fsh:7: Observation: hr-range: A heart rate (LOINC 8867-4) is between 20 and 250 /min (found
-value.ofType(Quantity) = 300 '/min')` — line 7 is the instance's `* valueQuantity = 300 '/min'`.
-"Found" is what the rule tests (the part after `implies`, without its final `where`/`exists`);
+valueQuantity = 300 '/min')` — line 7 is the instance's `* valueQuantity = 300 '/min'`. "Found"
+follows the rule: what the part after `implies` tests, the item of an `all(…)` that fails it by
+its index (`found component[0].valueQuantity = 20 'kPa'`), or what is missing (`found no
+component matching '8462-4'`, at the instance's first line);
 write the description as the fix the author needs.
 
 ### Rules cookbook

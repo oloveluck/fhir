@@ -11,7 +11,7 @@
 
 (require racket/contract
          racket/match
-         racket/list
+         racket/list (only-in racket/string string-join)
          (only-in fhir/suggest did-you-mean)
          (only-in fhir/model/node fhir? fhir-type fhir-ref fhir-field-names)
          (only-in fhir/serialize/from-json from-json)
@@ -279,6 +279,19 @@
 
 (define (drop-false-hash h) (for/hasheq ([(k v) (in-hash h)] #:when v) (values k v)))
 
+;; served-at : app code -> string   where the app does serve an operation it was asked for elsewhere
+;; (`POST /$validate` on an app serving it per type: "; it is served at POST /Patient/$validate, …")
+(define (served-at a code)
+  (define types (sort (remove-duplicates (filter values (for/list ([k (in-hash-keys (app-operations a))] #:when (equal? (cadr k) code))
+                                                          (and (eq? (car k) 'type) (caddr k)))))
+                      string<?))
+  (define declared (sort (map symbol->string (hash-keys (app-repositories a))) string<?))
+  (define paths (for/list ([t (in-list (if (member "Resource" types) declared types))]) (format "/~a/$~a" t code)))
+  (define system? (for/or ([k (in-hash-keys (app-operations a))]) (and (equal? (cadr k) code) (eq? (car k) 'system))))
+  (cond [(pair? paths) (format "; it is served at ~a" (string-join (take paths (min 4 (length paths))) ", "))]
+        [system? (format "; it is served at /$~a" code)]
+        [else ""]))
+
 (define (dispatch-operation a req)
   (define key (list (request-level req) (request-code req) (target-of req)))
   ;; an operation defined on Resource answers for every type
@@ -288,9 +301,10 @@
   (cond
     [(not h)
      (operation-outcome-not-supported
-      (format "operation $~a is not supported at ~a level~a"
+      (format "operation $~a is not supported at ~a level~a~a"
               (request-code req) (request-level req)
-              (if (target-of req) (format " on ~a" (target-of req)) "")))]
+              (if (target-of req) (format " on ~a" (target-of req)) "")
+              (served-at a (request-code req))))]
     [else
      (define in0 (parameters->hash (request-body req)))
      (define bad (and (operation-handler-op-def h) (validate-inputs (operation-handler-op-def h) in0)))

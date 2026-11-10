@@ -34,11 +34,11 @@
     (check-equal? (hash-ref (call "write" (hasheq 'path "rules.fsh" 'text rules)) 'problems) '())
     ;; the constraint: an HbA1c in mmol/mol breaks the invariant, so the stage cannot commit
     (define bad (call "stage" (hasheq 'fsh (a1c 64 "mmol/mol"))))
-    (check-equal? (hash-ref (car (hash-ref bad 'changes)) 'errors) '("fsh:6: Observation: a1c-percent: An HbA1c is a percentage (found value.ofType(Quantity).code = mmol/mol)"))
+    (check-equal? (hash-ref (car (hash-ref bad 'changes)) 'errors) '("fsh:6: Observation: a1c-percent: An HbA1c is a percentage (found valueQuantity.code = mmol/mol)"))
     (call "commit" (hasheq 'stage (hash-ref bad 'stage)) #:ok? #f)
     ;; FSH read from a file (`fsh=@a1c.fsh` on the command line) is named by the file
     (check-equal? (hash-ref (car (hash-ref (call "stage" (hasheq 'fsh (a1c 64 "mmol/mol") 'files (hasheq 'fsh "a1c.fsh"))) 'changes)) 'errors)
-                  '("a1c.fsh:6: Observation: a1c-percent: An HbA1c is a percentage (found value.ofType(Quantity).code = mmol/mol)"))
+                  '("a1c.fsh:6: Observation: a1c-percent: An HbA1c is a percentage (found valueQuantity.code = mmol/mol)"))
     ;; a valid one commits, claims the profile, and leaves a Provenance naming the version and the reason
     (define ok1 (call "stage" (hasheq 'fsh (string-append "Instance: ann\nInstanceOf: Patient\n* gender = #female\n\n" (a1c 8.0 "%")))))
     (define c1 (call "commit" (hasheq 'stage (hash-ref ok1 'stage) 'reason "intake: ann's first HbA1c")))
@@ -62,6 +62,8 @@
                     ("1" "created" "intake: ann's first HbA1c" "claude-code 2.0 via fhir-mcp")))
     ;; each version names the line of its source where its Instance begins
     (check-equal? (map (lambda (v) (hash-ref v 'at #f)) (hash-ref hist 'versions)) '("fsh:1" "fsh:5"))
+    ;; and when it was written (an agent needed SQL for the time)
+    (check-true (andmap (lambda (v) (regexp-match? #px"^\\d{4}-\\d\\d-\\d\\dT" (hash-ref v 'recorded))) (hash-ref hist 'versions)))
     ;; computing over the trail: every version with the reason it was written, in SQL
     (define q (call "query" (hasheq 'language "sql" 'text (string-append
                                                          "SELECT h.versionId, h.resource ->> '$.valueQuantity.value' AS value, p.resource ->> '$.reason[0].text' AS reason "
@@ -76,6 +78,7 @@
     (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT resource ->> '$.action' AS action, count(*) AS n FROM AuditEvent GROUP BY 1 ORDER BY 1")) 'rows)
                   (list (hasheq 'action "C" 'n 1) (hasheq 'action "E" 'n 2) (hasheq 'action "U" 'n 1)))
     ;; the same, from the `trail` view: one row per version a commit wrote, no json_each to write
+    (check-regexp-match #rx"^Provenance/" (hash-ref (car (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT provenance FROM trail LIMIT 1")) 'rows)) 'provenance))
     (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT versionId, reason, agent FROM trail WHERE type = 'Observation' AND id = 'a1' ORDER BY versionId")) 'rows)
                   (list (hasheq 'versionId 1 'reason "intake: ann's first HbA1c" 'agent "claude-code 2.0 via fhir-mcp")
                         (hasheq 'versionId 2 'reason "lab corrected the value" 'agent "claude-code 2.0 via fhir-mcp")))

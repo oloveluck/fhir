@@ -85,11 +85,13 @@
          "Apply a FHIR operation ($validate, $expand, $lookup, $validate-code, $translate, $subsumes, $snapshot, $transform, $evaluate-measure, $sql-run, …) in the workspace's context. describe(\"$code\") lists its inputs."
          (schema (hasheq 'operation (s "$code, Type/$code, or the OperationDefinition's url")
                          'inputs (hasheq 'type "object" 'description "the operation's input parameters by name")
-                         'resource (hasheq 'type "object" 'description "the resource the operation applies to, as JSON"))
+                         'resource (hasheq 'type "object" 'description "the resource the operation applies to, as JSON")
+                         'url (s "a FHIR server's base url to apply it on (a capability app served with raco fhir-server serve)"))
                  '("operation"))
          (lambda (args) (answer (lambda () (hub-apply h (need args 'operation)
                                                       (let ([i (hash-ref args 'inputs (hasheq))]) (if (hash? i) i (hasheq)))
-                                                      (let ([r (hash-ref args 'resource #f)]) (and (hash? r) r)))))))
+                                                      (let ([r (hash-ref args 'resource #f)]) (and (hash? r) r))
+                                                      (let ([u (hash-ref args 'url #f)]) (and (string? u) u)))))))
    (tool "stage"
          "Prepare a write to the data: resources given as JSON or as FSH Instances (`fsh`), the resources of a run (result://rN, an FML transform), an FSH file's example instances, or a JSON file. Each is validated and compared with the data's copy (create, update with what changed as `path: old → new`, unchanged); a resource with an id the data holds is an update. Nothing is written until commit. `drop` discards a stage."
          (schema (hasheq 'resources (hasheq 'type "array" 'items (hasheq 'type "object") 'description "FHIR resources (or Bundles)")

@@ -91,7 +91,21 @@
     (check-equal? (hash-ref (car (hash-ref (call e "query" (hasheq 'language "sql" 'text "SELECT n FROM gender_count")) 'rows)) 'n) (add1 n1))
     (let-values ([(text err?) ((tool-run (hash-ref (tools-of e) "query")) (hasheq 'language "sql" 'text "SELECT 1" 'name "r7"))])
       (check-true err?)
-      (check-regexp-match #rx"cannot name a result" text))))
+      (check-regexp-match #rx"cannot name a result" text))
+    ;; a name that is not an SQL identifier is kept as one and said so; read back as asked, in any case
+    (define t (call e "query" (hasheq 'language "sql" 'text "SELECT count(*) AS one FROM Patient" 'name "a1c-table")))
+    (check-equal? (hash-ref t 'name) "result://a1c_table")
+    (check-regexp-match #rx"^named a1c_table" (hash-ref t 'note))
+    (check-equal? (hash-ref (call e "describe" (hasheq 'ref "result://a1c-table")) 'total) 1)
+    (check-equal? (hash-ref (call e "describe" (hasheq 'ref "result://A1C_Table")) 'total) 1)
+    (check-equal? (hash-ref (call e "describe" (hasheq 'ref "result://Genders")) 'total) (hash-ref r2 'total))
+    ;; a missing one lists the results with their names
+    (let-values ([(text err?) ((tool-run (hash-ref (tools-of e) "describe")) (hasheq 'ref "result://a1c"))])
+      (check-true err?)
+      (check-regexp-match #rx"r[0-9]+ [(]genders[)].*r[0-9]+ [(]a1c_table[)]" text))
+    ;; commit the newest stage without reading its id
+    (call e "stage" (hasheq 'fsh "Instance: fay\nInstanceOf: Patient\n"))
+    (check-equal? (hash-ref (car (hash-ref (call e "commit" (hasheq 'stage "latest")) 'written)) 'resource) "Patient/fay")))
 ;; the shell: a call whose answer counts errors exits 1
 (define (shell . words)
   (define out (open-output-string))

@@ -146,3 +146,15 @@
               '(("code-invalid" . "Patient.gender")) "offline expansion catches a bad required-bound code")
 (check-equal? (errs (hasheq 'resourceType "Patient" 'gender "male"))
               '() "a valid code passes offline")
+
+;; ---- a Quantity coded in UCUM carries a UCUM code ------------------------------------------
+;; (a new user wrote `130 'mmHg'`: nothing said it is not UCUM, only their own rule refused it)
+(define (bp-with unit) (hasheq 'resourceType "Observation" 'status "final" 'code (hasheq 'text "x")
+                               'valueQuantity (hasheq 'value 130 'system "http://unitsofmeasure.org" 'code unit)))
+(check-equal? (errs (bp-with "mmHg")) '() "a warning: HL7's published examples write m^2")
+(check-equal? (map issue-severity (validate-issues (bp-with "mmHg"))) '("warning"))
+(check-equal? (errs (bp-with "mm[Hg]")) '())
+(check-equal? (map issue-msg (validate-issues (bp-with "mmHg"))) '("`mmHg` is not a UCUM unit (mercury is written mm[Hg])"))
+(check-equal? (errs (hasheq 'resourceType "Observation" 'status "final" 'code (hasheq 'text "x")
+                            'valueQuantity (hasheq 'value 130 'unit "mmHg")))
+              '() "no system: the unit is free text")
