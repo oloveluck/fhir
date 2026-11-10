@@ -48,8 +48,8 @@
   #:transparent)
 ;; an operation parameter: name/type strings, min (nat), max (nat or '*), use ("in"/"out"), and the
 ;; value set a `code` input is bound to (required), or #f — `[sex code 1 1 #:binding "<ValueSet url>"]`
-(struct rc-param (name type min max use binding) #:transparent #:name rc-param-struct #:constructor-name rc-param*)
-(define (rc-param name type min max use [binding #f]) (rc-param* name type min max use binding))
+(struct rc-param (name type min max use binding documentation) #:transparent #:name rc-param-struct #:constructor-name rc-param*)
+(define (rc-param name type min max use [binding #f] [documentation #f]) (rc-param* name type min max use binding documentation))
 
 ;; ---- the join key linking CapabilityStatement.rest…operation.definition -> OperationDefinition.url
 (define (op-code->canonical code) (string-append "urn:fhir-capability:operation:" code))
@@ -156,6 +156,7 @@
           'min (rc-param-min p)                              ; unsignedInt -> a JSON number
           'max (let ([m (rc-param-max p)]) (if (eq? m '*) "*" (number->string m)))   ; string
           'type (rc-param-type p)
+          'documentation (rc-param-documentation p)
           'binding (and (rc-param-binding p) (hasheq 'strength "required" 'valueSet (rc-param-binding p))))))
 
 ;; drop keys whose value is #f or '() so from-json doesn't build empty/absent fields

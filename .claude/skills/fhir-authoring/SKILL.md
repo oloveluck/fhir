@@ -94,11 +94,20 @@ rm -rf my-pipeline/compiled my-pipeline/*/compiled
 cd my-pipeline && racket main.rkt qr.json      # the Patient, then "65 or older: true"
 raco fsh check fsh && raco fsh check fsh-invalid --context fsh   # clean; then the bad example, at its line
 ```
+To learn the pieces before putting them together, run each file alone, in the order the data
+flows (each language's skill has the rest):
+```sh
+raco fsh check fsh                                         # the profile; its example validated
+raco fml qr2patient.map --transform qr.json > patient.json   # the map alone: the Patient it writes
+raco fml check qr2patient.map --examples qr.json --profile fsh   # its result held to the profile
+raco cql Intake.cql --data patient.json --now 2026-01-01   # the library over that Patient
+```
+then `main.rkt` (below) is those three calls as functions.
 
 ```racket
 #lang racket/base
 ;; a QuestionnaireResponse -> FML -> a Patient -> validated against an FSH profile -> CQL's answer
-(require json (only-in fhir/conformance/operations)              ; loading it registers $validate
+(require json
          (only-in cql/value render)
          (only-in "fsh/intake.fsh" canonical-of)                 ; the profile, registered by canonical
          (only-in "qr2patient.map" transform)                    ; FHIR JSON in, FHIR JSON out
@@ -113,7 +122,9 @@ Without a birth date the map's Patient breaks the profile, and the error is at t
 `the map's Patient is invalid against IntakePatient (…) (FHIR R5 (5.0.0)): … qr2patient.map:14:25: fml validate error: Patient.birthDate: minimum
 required = 1, but found 0 (the rule here wrote nothing: its source matched nothing in the input)` —
 the birthDate rule is there, but the QuestionnaireResponse had no `birthDate` item for it to read. `(ensure-valid patient #:profile url)` (`fhir/conformance/operations`)
-validates any resource the same way, naming the element but not the rule.
+validates any resource the same way, naming the element but not the rule; it needs
+`(require (only-in fhir/conformance/operations ensure-valid))` (loading that module registers
+`$validate`, which `transform #:validate` loads by itself).
 For a resource that R4 and R5 write alike (a Patient with name, gender and birthDate; most
 Observations), the defaults just work and no `sushi-config.yaml` is needed. `render` (`cql/value`)
 answers a string: `"true"`, or a FHIR value's JSON text. Each step reads its own FHIR version, which matters when they meet: FSH compiles for the nearest

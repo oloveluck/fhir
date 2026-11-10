@@ -55,9 +55,9 @@
            [(operation) (values sv rs (cons f op) pt)]
            [else        (values sv rs op (cons f pt))])))
      ;; 2. exactly one server
-     (when (null? servers) (raise-syntax-error 'capability "a (server …) declaration is required" stx))
+     (when (null? servers) (decl-error 'capability "a (server …) declaration is required" stx))
      (unless (null? (cdr servers))
-       (raise-syntax-error 'capability "only one (server …) declaration is allowed" (cadr servers)))
+       (decl-error 'capability "only one (server …) declaration is allowed" (cadr servers)))
      ;; 3. parse + validate declarations -> runtime construction syntax
      (define server-stx (parse-server (car servers)))
      ;; (server #:store "fhir.db"): the resources without a repository live in that SQLite file,

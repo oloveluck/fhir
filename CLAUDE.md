@@ -1092,6 +1092,32 @@ The eighth rerun (every task first time, 12–19 calls); each fix has a test doi
   sort by Y desc, 2)` reads `2` as a second sort item (as cql.g4 does), and `Take` with one argument was
   a `cadr` error; it now says to parenthesize the query.
 
+## New users, round 10 (2026-11-10)
+The ninth rerun (every task first time); each fix has a test doing what the agent did:
+- **The trail answers what it wrote**: `commit` gives each resource's `version`
+  (`Patient/fay/_history/1`) and takes `agent` (`commit … agent="intake desk"`, over
+  FHIR_MCP_AGENT and the client's name; the note asking for one shows from `batch` too). A source
+  file is named relative to the workspace when inside it, else by its absolute path (`file-label`:
+  `../a1c.fsh` named nothing anyone could open). learn://workspace says when a fact happened
+  (`effectiveDateTime`, `issued`) versus when it was recorded (the Provenance).
+- **Querying**: a search's preview rows are `Type/id` and the columns, no JSON (`describe` gives it);
+  CQL explain names a code filter (`code ~ http://loinc.org|4548-4`); every view is also
+  `<view>_history` in SQL (the view over every stored version, `history-resources` in mcp/sql.rkt).
+- **Errors at the cause**: a capability declaration error is one line at the form
+  (`clinic.capability.rkt:7:2: operation: unknown parameter type …`, `decl-error` in declare.rkt; it
+  was a syntax error printing the whole form), a lone declaration in a module says the module needs
+  its `(server …)`; fsh's `canonical-of` with an unknown name suggests the nearest and lists the
+  names; `raco fsh check` names profile rules relative to the current directory; FML's "wrote
+  nothing" names the source values the lenient read dropped when that is why.
+- **Operation parameters say what they mean**: `[creatinine decimal 1 1 #:documentation "Serum
+  creatinine, mg/dL"]` is the derived OperationDefinition's `parameter.documentation` (`rc-param`
+  keeps its 5-argument constructor). The capability guide's Quantity output is a real conversion
+  (creatinine mg/dL -> µmol/L), tested with the documentation it declares.
+- Docs: each language guide shows a `#lang` file and the error Racket gives without the line; a
+  `batch -` example with `--workspace`; the store views' columns in the capability guide; dropped
+  stage ids are not reused; fhir-authoring runs the intake pipeline's pieces one at a time before
+  `main.rkt`, whose template lost requires it did not need (`transform #:validate` loads `$validate`).
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

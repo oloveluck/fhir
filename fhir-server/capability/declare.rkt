@@ -26,6 +26,7 @@
 
 (provide
  (struct-out parsed-operation)
+ decl-error
  ;; the three declaration forms, each read at expansion time into the runtime expressions the
  ;; module body emits (contracts here run at phase 1, when the module is expanded)
  (contract-out
@@ -35,6 +36,17 @@
   [parse-resource (-> syntax? (values syntax? syntax?))]
   ;; (operation …) -> a ParsedOperation of expressions
   [parse-operation (-> syntax? parsed-operation?)]))
+
+;; decl-error : who message form [sub-form] -> raises   a declaration's mistake as one line,
+;; `file:line:col: who: message`, positioned at the sub-form when given (as raise-syntax-error is)
+;; but raised as a user error: `racket app.rkt` and `raco make` print the line, not a stack of
+;; this module's frames (`context...: declare.rkt:157 parse-params` was what a new user saw)
+(define (decl-error who msg form [sub #f])
+  (define at (or sub form))
+  (define where (and (syntax-source at)
+                     (srcloc->string (srcloc (syntax-source at) (syntax-line at) (syntax-column at) (syntax-position at) (syntax-span at)))))
+  (raise (exn:fail:user (if where (format "~a: ~a: ~a" where who msg) (format "~a: ~a" who msg))
+                        (current-continuation-marks))))
 
 ;; ---- (server …) -----------------------------------------------------------------------------
 ;; -> syntax constructing an rc-server value
@@ -51,7 +63,7 @@
               (~optional (~seq #:format fmt:str ...))) ...)
      (define mode-v (if (attribute mode) (syntax-e #'mode) "server"))
      (unless (member mode-v '("server" "client"))
-       (raise-syntax-error 'server (format "#:mode must be \"server\" or \"client\", got ~s" mode-v)
+       (decl-error 'server (format "#:mode must be \"server\" or \"client\", got ~s" mode-v)
                            (or (attribute mode) stx)))
      (define fmts (if (attribute fmt) (syntax->datum #'(fmt ...)) '("application/fhir+json")))
      #`(rc-server #,mode-v
@@ -74,21 +86,21 @@
               (~optional (~seq #:profile profile:str))) ...)
      (define tsym (syntax-e #'type))
      (unless (type-registered? tsym)
-       (raise-syntax-error 'resource (format "unknown resource type ~a" tsym) #'type))
+       (decl-error 'resource (format "unknown resource type ~a" tsym) #'type))
      (define interactions (syntax->list #'(i ...)))
      (for ([ix (in-list interactions)])
        (define code (syntax-e ix))
        (unless (or (type-interaction? code) (system-interaction? code))
-         (raise-syntax-error 'resource (format "unknown restful interaction ~a" code) ix)))
+         (decl-error 'resource (format "unknown restful interaction ~a" code) ix)))
      ;; each search-param is [name type] or [name type "fhirpath-expression"]
      (define sp-triples
        (for/list ([s (in-list (if (attribute sp) (syntax->list #'(sp ...)) '()))])
          (syntax-parse s
            [(sp-name:id sp-type:id (~optional sp-expr:str))
             (unless (search-param-type? (syntax-e #'sp-type))
-              (raise-syntax-error 'resource (format "unknown search-param type ~a" (syntax-e #'sp-type)) #'sp-type))
+              (decl-error 'resource (format "unknown search-param type ~a" (syntax-e #'sp-type)) #'sp-type))
             #`(list '#,#'sp-name '#,#'sp-type #,(if (attribute sp-expr) (syntax-e #'sp-expr) #f))]
-           [_ (raise-syntax-error 'resource "search-param must be [name type] or [name type \"expr\"]" s)])))
+           [_ (decl-error 'resource "search-param must be [name type] or [name type \"expr\"]" s)])))
      (define interactions-stx #`(list #,@(for/list ([ix (in-list interactions)]) #`'#,ix)))
      (define sps-stx #`(list #,@sp-triples))
      ;; #:repository is optional — default to a generic in-memory repository built from the declaration
@@ -128,7 +140,7 @@
      (define display (string-append "$" code))
      (define on-type (and (attribute on) (syntax-e #'on)))
      (when (and on-type (not (type-registered? on-type)))
-       (raise-syntax-error 'operation (format "unknown resource type ~a" on-type) #'on))
+       (decl-error 'operation (format "unknown resource type ~a" on-type) #'on))
      ;; resolve invocation levels
      (define declared-levels (and (attribute lvl) (map syntax-e (syntax->list #'(lvl ...)))))
      (define system? (or (and (attribute sysflag) #t)
@@ -137,7 +149,7 @@
                          [on-type #t] [else #f]))
      (define instance? (and declared-levels (and (memq 'instance declared-levels) #t)))
      (unless (or system? type? instance?)
-       (raise-syntax-error 'operation "no invocation level (need #:on, #:system, or #:level)" stx))
+       (decl-error 'operation "no invocation level (need #:on, #:system, or #:level)" stx))
      (define resource-types (if on-type (list (symbol->string on-type)) '()))
      (define in-params  (parse-params (attribute in-spec) "in"))
      (define out-params (parse-params (attribute out-spec) "out"))
@@ -160,25 +172,27 @@
     [else
      (for/list ([p (in-list (syntax->list spec))])
        (syntax-parse p
-         [(pname:id ptype:id pmin:nat pmax (~optional (~seq #:binding vs:str)))
+         [(pname:id ptype:id pmin:nat pmax (~alt (~optional (~seq #:binding vs:str))
+                                                 (~optional (~seq #:documentation doc:str))) ...)
           (define tsym (syntax-e #'ptype))
           (when (and (attribute vs) (not (memq tsym '(code Coding CodeableConcept string uri))))
-            (raise-syntax-error 'operation "#:binding binds a code (or Coding, CodeableConcept) parameter to a value set" p))
+            (decl-error 'operation "#:binding binds a code (or Coding, CodeableConcept) parameter to a value set" p))
           (unless (or (type-registered? tsym) (primitive-name? tsym))
-            (raise-syntax-error 'operation (format "unknown parameter type ~a" tsym) #'ptype))
+            (decl-error 'operation (format "unknown parameter type ~a" tsym) #'ptype))
           (define minv (syntax-e #'pmin))
           (define maxv (syntax-parse #'pmax [n:nat (syntax-e #'n)] [(~datum *) '*] [_ #f]))
           (unless maxv
-            (raise-syntax-error 'operation "parameter max must be a nonneg integer or *" #'pmax))
+            (decl-error 'operation "parameter max must be a nonneg integer or *" #'pmax))
           (when (and (number? maxv) (< maxv minv))
-            (raise-syntax-error 'operation (format "parameter max ~a < min ~a" maxv minv) p))
+            (decl-error 'operation (format "parameter max ~a < min ~a" maxv minv) p))
           #`(rc-param #,(symbol->string (syntax-e #'pname))
                       #,(symbol->string tsym)
                       #,minv
                       #,(if (eq? maxv '*) #'(quote *) maxv)
                       #,use
-                      #,(if (attribute vs) #'vs #f))]
-         [_ (raise-syntax-error 'operation "parameter must be [name type min max] or [name code min max #:binding \"<ValueSet url>\"]" p)]))]))
+                      #,(if (attribute vs) #'vs #f)
+                      #,(if (attribute doc) #'doc #f))]
+         [_ (decl-error 'operation "parameter must be [name type min max], with #:binding \"<ValueSet url>\" (a code) and #:documentation \"…\" (what it is, its unit) when wanted" p)]))]))
 
 (module+ test
   (require rackunit (only-in fhir/r6/types))     ; populate the registry at phase 0 for the test
@@ -195,9 +209,9 @@
   (check-equal? (syntax->datum rstx)
                 '(rc-resource 'Patient (list 'read 'create) (list) #f))
   (check-equal? (syntax->datum pstx) '(cons 'Patient repo))
-  (check-exn exn:fail:syntax? (lambda () (parse-resource #'(resource Bogus #:interactions (read)
+  (check-exn exn:fail:user? (lambda () (parse-resource #'(resource Bogus #:interactions (read)
                                                                      #:repository r))))
-  (check-exn exn:fail:syntax? (lambda () (parse-resource #'(resource Patient #:interactions (frob)
+  (check-exn exn:fail:user? (lambda () (parse-resource #'(resource Patient #:interactions (frob)
                                                                      #:repository r))))
   ;; parse-operation yields rc-operation + its OperationDefinition + entries; strips the $;
   ;; validates param types
@@ -207,8 +221,8 @@
   (define entries (parsed-operation-entries po))
   (check-equal? (syntax->datum ostx)
                 '(rc-operation "expand" "$expand" (list #f #t #f) (list "ValueSet")
-                               (list (rc-param "url" "uri" 1 1 "in" #f))
-                               (list (rc-param "return" "ValueSet" 1 1 "out" #f)) #f))
+                               (list (rc-param "url" "uri" 1 1 "in" #f #f))
+                               (list (rc-param "return" "ValueSet" 1 1 "out" #f #f)) #f))
   (check-equal? (syntax->datum entries)
                 '(list (operation-entry 'type "expand" "ValueSet" h)))
   ;; an existing operation, by reference or as a value in scope, brings its own definition
@@ -219,5 +233,5 @@
   (check-equal? (syntax->datum rentries) '(operation->entries (operation "ValueSet/$expand")))
   (define ventries (parsed-operation-entries (parse-operation #'(operation $validate))))
   (check-equal? (syntax->datum ventries) '(operation->entries $validate))
-  (check-exn exn:fail:syntax? (lambda () (parse-operation #'(operation $x #:in ([p NoSuch 1 1])
+  (check-exn exn:fail:user? (lambda () (parse-operation #'(operation $x #:in ([p NoSuch 1 1])
                                                                        #:handler h)))))

@@ -72,20 +72,20 @@
                       '(server)
                       '(resource Patient #:interactions (read) #:repository r))))
 ;; unknown resource type
-(check-exn exn:fail:syntax?
+(check-exn exn:fail:user?
   (lambda () (compile-capability '(server) '(resource Bogus #:interactions (read) #:repository r))))
 ;; unknown interaction code
-(check-exn exn:fail:syntax?
+(check-exn exn:fail:user?
   (lambda () (compile-capability '(server) '(resource Patient #:interactions (frob) #:repository r))))
 ;; unknown operation parameter type
-(check-exn exn:fail:syntax?
+(check-exn exn:fail:user?
   (lambda () (compile-capability '(server)
                                  '(operation $x #:system #:in ([p NoSuchType 1 1]) #:handler h))))
 ;; two server declarations
-(check-exn exn:fail:syntax?
+(check-exn exn:fail:user?
   (lambda () (compile-capability '(server) '(server))))
 ;; missing server
-(check-exn exn:fail:syntax?
+(check-exn exn:fail:user?
   (lambda () (compile-capability '(resource Patient #:interactions (read) #:repository r))))
 
 (printf "capability-lang-test: all checks passed\n")

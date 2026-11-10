@@ -52,7 +52,9 @@ history and search indexes). In a workspace the file is `<name>.capability.rkt`:
   "http://hl7.org/fhir/ValueSet/administrative-gender"]` refuses any other code with a 400 naming the
   codes it takes, before the handler runs (the value set is expanded from the packages or the
   registered ones; one that does not expand checks nothing). Without a binding, check the value in
-  the handler and return an `invalid` OperationOutcome.
+  the handler and return an `invalid` OperationOutcome. Any input or output may say what it means:
+  `[creatinine decimal 1 1 #:documentation "Serum creatinine, mg/dL"]` is the parameter's
+  `documentation` in the derived OperationDefinition (a client reads the unit there).
 - A handler receives `in`, a hash from each input's name to its list of values, typed by the
   declaration and the same over GET (`?weight=80.5`) and POST (a Parameters body): `integer` an exact
   integer, `decimal` a Racket real, `boolean` `#t`/`#f`, `string`/`code`/`uri`/`date`/`dateTime` the
@@ -134,7 +136,8 @@ line per request (`GET /Patient?gender=female 200`) on stderr. `--store` wins ov
 `(server #:store …)`, which is beside the module; with neither, resources live in memory.
 `raco fhir-server sql fhir.db "SELECT id, resource ->> '$.gender' AS gender FROM Patient"` reads the
 store as CSV, read-only: a view per stored type (`id, versionId, lastUpdated, resource`), `resources`
-(every type) and `history` (every version).
+(every type: `type, id, versionId, lastUpdated, resource`) and `history` (every version, the same
+columns); `resource` is the JSON (`resource ->> '$.birthDate'`).
 
 A server needs no workspace: the file, `raco fhir-server serve`, and any HTTP client. A smoke test:
 ```sh
@@ -149,22 +152,23 @@ kill %1
 
 ## An output with a unit
 A clinical result is a Quantity, its unit in UCUM: declare the output `Quantity` and build one.
+Here, serum creatinine in mg/dL converted to µmol/L (× 88.4):
 ```racket
-(define (egfr-handler in req)
-  (define v (* 1.0 (car (hash-ref in "creatinine"))))
-  (Parameters (parameter (ParametersParameter (name "egfr")
-                           (valueQuantity (Quantity (value (real->decimal-string (* 52.3 v) 1))
-                                                    (unit "mL/min/1.73m2")
+(define (creatinine-si-handler in req)
+  (define mg/dl (* 1.0 (car (hash-ref in "creatinine"))))
+  (Parameters (parameter (ParametersParameter (name "creatinine")
+                           (valueQuantity (Quantity (value (real->decimal-string (* 88.4 mg/dl) 1))
+                                                    (unit "µmol/L")
                                                     (system "http://unitsofmeasure.org")
-                                                    (code "mL/min/{1.73_m2}")))))))
-(operation $egfr #:system
-  #:in ([creatinine decimal 1 1])
-  #:out ([egfr Quantity 1 1])
-  #:handler egfr-handler)
+                                                    (code "umol/L")))))))
+(operation $creatinine-si #:system
+  #:in ([creatinine decimal 1 1 #:documentation "Serum creatinine, mg/dL"])
+  #:out ([creatinine Quantity 1 1 #:documentation "The same value in µmol/L"])
+  #:handler creatinine-si-handler)
 ```
-`GET /$egfr?creatinine=1.1` answers `{"name": "egfr", "valueQuantity": {"value": 57.5, "unit":
-"mL/min/1.73m2", "system": "http://unitsofmeasure.org", "code": "mL/min/{1.73_m2}"}}` (the formula
-here is a stand-in; the decimal is a string, as FHIR keeps its digits).
+`GET /$creatinine-si?creatinine=1.1` answers `{"name": "creatinine", "valueQuantity": {"value": 97.2,
+"unit": "µmol/L", "system": "http://unitsofmeasure.org", "code": "umol/L"}}` (the decimal is built
+as a string, as FHIR keeps its digits; the unit is the display, the code is UCUM's).
 
 ## The languages inside a server
 A handler is Racket, and every language of the workspace is a library in it:

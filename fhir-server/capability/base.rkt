@@ -7,7 +7,7 @@
 ;;; build/return typed nodes), the runtime (repository/request/dispatch/…), the derive-spec
 ;;; constructors the generated code calls, and json/serializer helpers for the /metadata `main`.
 
-(require (for-syntax racket/base)
+(require (for-syntax racket/base (only-in fhir/capability/declare decl-error))
          "module-begin.rkt"
          "runtime.rkt"
          "derive.rkt"
@@ -23,8 +23,11 @@
          jsexpr->string node->jsexpr
          server resource operation)
 
-;; Stub bindings so a misplaced declaration (used in expression position, not at the module top
-;; level where #%module-begin consumes it) yields a clear error instead of "unbound identifier".
-(define-syntax (server s)    (raise-syntax-error 'server    "only valid at capability top level" s))
-(define-syntax (resource s)  (raise-syntax-error 'resource  "only valid at capability top level" s))
-(define-syntax (operation s) (raise-syntax-error 'operation "only valid at capability top level" s))
+;; Stub bindings so a misplaced declaration (in expression position, not at the module top level
+;; where #%module-begin consumes it — or the lone form of a module, which the expander expands
+;; before #%module-begin sees it) is a one-line error instead of "unbound identifier".
+(define-for-syntax (stray-declaration who s)
+  (decl-error who "a declaration of a #lang fhir/capability module, which needs exactly one (server …) declaration at its top level" s))
+(define-syntax (server s)    (stray-declaration 'server s))
+(define-syntax (resource s)  (stray-declaration 'resource s))
+(define-syntax (operation s) (stray-declaration 'operation s))

@@ -45,7 +45,11 @@ raco fhir-mcp call describe ref=result://summary as=csv --workspace ws
 Each call is a process of its own (1–4 s of startup). For a series, `raco fhir-mcp batch calls.txt`
 (or `-` for stdin) runs one call per line — `stage fsh=@patients.fsh`, `commit stage=latest
 reason="intake"`, quoted as a shell would — in one process, each answer under a `### <line>`
-header, every line run (exit 1 if any failed).
+header, every line run (exit 1 if any failed). Its `--workspace` applies to every line:
+```sh
+printf '%s\n' 'stage fsh=@patients.fsh' 'commit stage=latest reason="intake"' \
+  'query language=sql text="SELECT count(*) AS n FROM Patient"' | raco fhir-mcp batch - --workspace ws
+```
 
 A run is named by its file and a query by its `name` (as a SQL table: letters, digits, `_`); the
 name means the latest result of it, in SQL (`FROM Diabetes`) and in `result://`, in any case.
@@ -53,12 +57,12 @@ name means the latest result of it, in SQL (`FROM Diabetes`) and in `result://`,
 `--workspace` defaults to the current directory. A call prints the tool's answer (JSON, or text) and exits 0; 1 when the tool failed or its answer
 counts errors (`"errors": 2`: a stage that cannot be committed, a check with errors); 2 for a usage
 error. `describe ref=stages` lists the stages not committed; `stage drop=stage-3` discards one
-(`drop=all`, every one). A tool answering text (`describe … as=fsh`, `as=csv`, `as=source`) prints
+(`drop=all`, every one); a dropped stage's id is never given to a new one. A tool answering text (`describe … as=fsh`, `as=csv`, `as=source`) prints
 the text itself, not a JSON string.
 
 Keep data files like `patients.fsh` outside the workspace directory: the workspace's own `.fsh`
 files are its project (profiles, value sets, a few examples), compiled and checked together, so a
-patient written there and staged too is a duplicate id. The trail names the agent `raco fhir-mcp call` (set `FHIR_MCP_AGENT` to name yourself). A capability
+patient written there and staged too is a duplicate id. The trail names the agent `raco fhir-mcp call` unless `commit … agent="intake desk"` (or `FHIR_MCP_AGENT`) names who is writing. A capability
 app that `run` serves lives as long as the process that ran it: from the shell, serve it with
 `raco fhir-server serve app.capability.rkt 8080 --store fhir.db`.
 Not installed: the README's "Getting the tools" (Racket 9, then `raco pkg install` of the repositories).

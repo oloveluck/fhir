@@ -70,7 +70,10 @@ by its file name or `name`, and each earlier result by its name and its number, 
 answer per patient joins with a view's columns. A run is named by its file (`diabetes.cql` ->
 `diabetes`), a query by the `name` it is given; a name is the LATEST result of that name, so SQL
 kept in a file (`FROM diabetes`) reads the newest run, where `r3` is always the same result
-(`describe("result://diabetes")` reads it too). A view's name wins over a result's. One reading statement; a column holding a list or
+(`describe("result://diabetes")` reads it too). A view's name wins over a result's. A view is
+computed when a statement names it (no `run` first), from the current data; `<view>_history` (`bp_history`)
+is the same view over EVERY stored version, so a corrected value is a row of its own — give the view a
+`{"name": "version", "path": "meta.versionId"}` column to tell them apart. One reading statement; a column holding a list or
 an object (a CQL Quantity, a Coding) is its JSON text — `json_each` walks a list, `->>` reads a value
 (`r3."Latest Value" ->> '$.value'`); a boolean is 1/0 in SQL (a CQL result's own CSV says
 true/false); a name with a space is quoted (`r3."Poor Control"`); null is NULL.
@@ -240,7 +243,8 @@ raco fhir-mcp call commit stage=stage-4 reason="typo: systolic 150 was 140"
 
 ## The trail
 Every commit writes, into the data itself, a Provenance — the versions it wrote
-(`Observation/a1/_history/2`), when, the agent (the MCP client), the `reason` given to commit, and
+(`Observation/a1/_history/2`, also in commit's answer), when, the agent (the MCP client, or
+commit's `agent`), the `reason` given to commit, and
 the source the data came from (the FSH, the file, or the run, with its text and SHA-1) — and an
 AuditEvent of the transaction. With `audit: all`, every run, query and apply leaves an AuditEvent
 too (its outcome, its text). The trail is data like any other:
@@ -261,6 +265,12 @@ SELECT t.versionId, h.resource ->> '$.valueQuantity.value' AS value, t.reason, t
 FROM trail t JOIN history h ON h.type = t.type AND h.id = t.id AND h.versionId = t.versionId
 WHERE t.type = 'Observation' AND t.id = 'a1' ORDER BY t.versionId
 ```
+
+The trail says when and by whom the DATA was written, not the clinical facts: a lab value's own time
+is its `effectiveDateTime` (and `issued`), and who produced it is its own `performer` — write them
+in the FSH (`* performer = Reference(Organization/city-lab)`, `* issued = "2025-06-02T10:00:00Z"`),
+where search, CQL and views see them. The trail's `source` is the file the data was written from
+(named relative to the workspace, or in full when outside it).
 
 A Provenance written by a commit, for SQL (`p.resource ->> '$.<path>'`): `target[n].reference`
 (`Type/id/_history/v`), `recorded`, `agent[0].who.display` (the client: `claude-code … via fhir-mcp`,

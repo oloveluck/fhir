@@ -86,6 +86,17 @@
     (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text (cadr (regexp-match #px"```\n(SELECT t.versionId.*?)```" (learn-text "workspace"))))) 'rows)
                   (list (hasheq 'versionId 1 'value 8 'reason "intake: ann's first HbA1c" 'agent "claude-code 2.0 via fhir-mcp" 'recorded (hash-ref (car (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT recorded FROM trail WHERE id = 'a1' AND versionId = 1")) 'rows)) 'recorded))
                         (hasheq 'versionId 2 'value 8.4 'reason "lab corrected the value" 'agent "claude-code 2.0 via fhir-mcp" 'recorded (hash-ref (car (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT recorded FROM trail WHERE id = 'a1' AND versionId = 2")) 'rows)) 'recorded))))
+    ;; a view over every version (`<view>_history`): a corrected value is a column, no json_each
+    (call "write" (hasheq 'path "a1c.view.json"
+                          'text (jsexpr->string (hasheq 'resourceType "ViewDefinition" 'name "a1c" 'status "active" 'resource "Observation"
+                                                        'select (list (hasheq 'column (list (hasheq 'name "id" 'path "id")
+                                                                                            (hasheq 'name "version" 'path "meta.versionId")
+                                                                                            (hasheq 'name "value" 'path "value.ofType(Quantity).value"))))))))
+    (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT version, value FROM a1c_history WHERE id = 'a1' ORDER BY version")) 'rows)
+                  (list (hasheq 'version "1" 'value 8) (hasheq 'version "2" 'value 8.4)))
+    (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT version, value FROM a1c WHERE id = 'a1'")) 'rows)
+                  (list (hasheq 'version "2" 'value 8.4)))
+    (call "write" (hasheq 'path "a1c.view.json" 'text ""))
     ;; a result says where it came from
     (check-equal? (hash-ref (hash-ref (call "describe" (hasheq 'ref (hash-ref q 'result))) 'source) 'language) "sql")
     ;; the stored data, held to the rules: all of it holds (the trail's own resources included)

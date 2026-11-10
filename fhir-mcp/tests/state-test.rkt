@@ -31,6 +31,11 @@
     (define q2 (call b "query" (hasheq 'language "sql" 'text "SELECT count(*) AS n FROM Patient")))
     (check-equal? (hash-ref q2 'result) "result://r2")             ; numbers continue from what is saved
     (check-equal? (hash-ref q2 'rows) (list (hasheq 'n 1)))
+    ;; a search answers the resources by reference; their JSON is a describe away (it was in every row)
+    (define s1 (call b "query" (hasheq 'language "search" 'text "Patient")))
+    (check-equal? (hash-ref s1 'rows) (list (hasheq 'resource "Patient/ann")))
+    (check-regexp-match #rx"for each resource's JSON" (hash-ref s1 'more))
+    (check-equal? (hash-ref (hash-ref (car (hash-ref (call b "describe" (hasheq 'ref (hash-ref s1 'result))) 'rows)) 'json) 'gender) "female")
     (check-equal? (hash-ref (call b "stage" (hasheq 'fsh "Instance: bob\nInstanceOf: Patient\n")) 'stage) "stage-2")))  ; a committed stage's number is not reused
 ;; a committed stage is gone for everyone
 (define-values (t err?) ((tool-run (hash-ref (tools-of a) "commit")) (hasheq 'stage "stage-9")))
@@ -114,7 +119,19 @@
     (check-regexp-match #rx"^nothing to commit" (hash-ref same 'next))
     ;; commit the newest stage without reading its id
     (call e "stage" (hasheq 'fsh "Instance: fay\nInstanceOf: Patient\n"))
-    (check-equal? (hash-ref (car (hash-ref (call e "commit" (hasheq 'stage "latest")) 'written)) 'resource) "Patient/fay")))
+    ;; the answer names the version written, and the agent given for this commit
+    (define cf (call e "commit" (hasheq 'stage "latest" 'agent "intake desk")))
+    (check-equal? (hash-ref (car (hash-ref cf 'written)) 'resource) "Patient/fay")
+    (check-equal? (hash-ref (car (hash-ref cf 'written)) 'version) "Patient/fay/_history/1")
+    (check-equal? (hash-ref cf 'agent) "intake desk")
+    (check-equal? (hash-ref (car (hash-ref (call e "describe" (hasheq 'ref "Patient/fay/_history")) 'versions)) 'by) "intake desk")
+    ;; a file read from outside the workspace is named in full; one inside it, relative to it
+    (define inside (path->string (build-path dir "data-in.fsh")))
+    (let-values ([(text err?) ((tool-run (hash-ref (tools-of e) "stage")) (hasheq 'fsh "Instance: x\nInstanceOf: Patiet\n" 'files (hasheq 'fsh inside)))])
+      (check-true err?)
+      (check-regexp-match #rx"\"data-in[.]fsh:1:1 error" text))
+    (let-values ([(text err?) ((tool-run (hash-ref (tools-of e) "stage")) (hasheq 'fsh "Instance: x\nInstanceOf: Patiet\n" 'files (hasheq 'fsh "../elsewhere/p.fsh")))])
+      (check-regexp-match (regexp (regexp-quote (path->string (simplify-path (path->complete-path "../elsewhere/p.fsh"))))) text))))
 ;; the shell: a call whose answer counts errors exits 1
 (define (shell . words)
   (define out (open-output-string))

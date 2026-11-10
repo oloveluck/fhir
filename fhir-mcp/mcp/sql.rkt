@@ -23,7 +23,17 @@
   ;; sql-query : sql (hash name -> (-> table)) [#:database store-file] -> table   the statement's answer
   [sql-query (->* (string? (hash/c string? procedure?)) (#:database (or/c path-string? #f)) table?)]
   ;; tables-named : sql (listof name) -> (listof name)   the names the statement mentions
-  [tables-named (-> string? (listof string?) (listof string?))]))
+  [tables-named (-> string? (listof string?) (listof string?))]
+  ;; history-resources : store-file type -> (listof jsexpr)   every version of every resource of the
+  ;; type, oldest first (meta.versionId says which), read-only
+  [history-resources (-> path-string? string? (listof hash?))]))
+
+(define (history-resources store type)
+  (define c (sqlite3-connect #:database store #:mode 'read-only))
+  (dynamic-wind void
+                (lambda () (for/list ([t (in-list (query-list c "SELECT json(resource) FROM fhir_history WHERE resource_type = ? ORDER BY id, version_id" type))])
+                             (string->jsexpr t)))
+                (lambda () (disconnect c))))
 
 (struct table (columns rows) #:transparent)
 

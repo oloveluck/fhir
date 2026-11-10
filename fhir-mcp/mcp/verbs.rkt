@@ -106,7 +106,9 @@
          (lambda (args) (answer (lambda () (hub-stage! h args)))))
    (tool "commit"
          "Write a stage to the data: the workspace's SQLite store (one transaction), a directory, or a FHIR server when workspace.yaml allows writes. A stage with validation errors is refused. It leaves a Provenance (the versions written, the agent, the reason, the source text with its hash) and an AuditEvent in the data."
-         (schema (hasheq 'stage (s "the stage id from stage")
-                         'reason (s "why: recorded in the Provenance (Provenance.reason)"))
+         (schema (hasheq 'stage (s "the stage id from stage, or latest")
+                         'reason (s "why: recorded in the Provenance (Provenance.reason)")
+                         'agent (s "who is writing, for the Provenance and AuditEvent (default: the MCP client, or FHIR_MCP_AGENT)"))
                  '("stage"))
-         (lambda (args) (answer (lambda () (hub-commit! h (need args 'stage) (let ([r (hash-ref args 'reason #f)]) (and (string? r) r)))))))))
+         (lambda (args) (answer (lambda () (hub-commit! h (need args 'stage) (let ([r (hash-ref args 'reason #f)]) (and (string? r) r))
+                                                       #:agent (let ([a (hash-ref args 'agent #f)]) (and (string? a) a)))))))))

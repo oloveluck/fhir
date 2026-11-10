@@ -51,7 +51,7 @@
   [hub-describe    (-> hub? string? hash? (or/c jsexpr? text-answer?))]   ; text when `as` is "fsh"
   [hub-apply       (->* (hub? string? hash? (or/c hash? #f)) ((or/c string? #f)) jsexpr?)]
   [hub-stage!      (-> hub? hash? jsexpr?)]
-  [hub-commit!     (->* (hub? string?) ((or/c string? #f)) jsexpr?)]
+  [hub-commit!     (->* (hub? string?) ((or/c string? #f) #:agent (or/c string? #f)) jsexpr?)]
   [hub-result-uris (-> hub? (listof string?))]
   [hub-read-result (-> hub? string? (or/c jsexpr? #f))]))
 
@@ -508,15 +508,20 @@
   (define base (result-json* uri r rows))
   (if name (hash-set base 'name (string-append "result://" name)) base))
 (define (result-json* uri r rows)
+  ;; a search's preview names the resources; their JSON (kept in the result: describe it, stage from
+  ;; it) would be most of the answer's tokens
+  (define resources? (equal? (run-result-kind r) "resources"))
+  (define shown (take rows (min preview-rows (length rows))))
   (hasheq 'result uri
           'kind (run-result-kind r)
-          'columns (run-result-columns r)
+          'columns (if resources? (remove "json" (run-result-columns r)) (run-result-columns r))
           'total (length rows)
           'summary (run-result-summary r)
-          'rows (map preview (take rows (min preview-rows (length rows))))
-          'more (if (> (length rows) preview-rows)
-                    (format "describe(\"~a\", offset: ~a) for the next rows" uri preview-rows)
-                    'null)))
+          'rows (if resources? (map (lambda (row) (if (hash? row) (hash-remove row 'json) row)) shown) (map preview shown))
+          'more (cond [(> (length rows) preview-rows)
+                       (format "describe(\"~a\", offset: ~a) for the next rows~a" uri preview-rows (if resources? ", with each resource's JSON" ""))]
+                      [resources? (format "describe(\"~a\") for each resource's JSON, or describe(\"Type/id\") for one" uri)]
+                      [else 'null])))
 
 ;; options : hash -> Options   the verbs' arguments as a language's options
 (define (options args)
@@ -570,7 +575,7 @@
   ;; for SQL, the earlier results it reads (`r1`), so a derived table's trail is complete too
   (define opts
     (let* ([o (named (options args) #f)]
-           [f (argument-file args 'text)]
+           [f (argument-file args 'text h)]
            [o (if f (hash-set o 'textFile f) o)]
            [reads (if (equal? lang "sql")
                       ;; by number (`r3`) and by name (`diabetes`): the result each one is NOW
@@ -592,6 +597,13 @@
 ;; file's rows, named by its file (`patients.view.json` is `patients`) and by its `name`, and every
 ;; earlier result whose rows are a table (`r1`, `r2`, …: a CQL run's defines per patient, a view's
 ;; rows), so a cohort can be joined with a view's columns
+;; view-names : view-file -> (listof string)   the names SQL knows a view by: its file stem and `name`
+(define (view-names f)
+  (remove-duplicates
+   (filter values (list (regexp-replace #rx"[.]view[.]json$|[.]json$" (path->string (file-name-from-path f)) "")
+                        (with-handlers ([exn:fail? (lambda (_) #f)])
+                          (let ([n (hash-ref (call-with-input-file f read-json) 'name #f)]) (and (string? n) n)))))))
+
 (define (run-sql h text)
   (define views
     (for*/list ([f (in-list (workspace-files (hub-ws h)))]
@@ -602,6 +614,23 @@
                                                        (let ([n (hash-ref (call-with-input-file f read-json) 'name #f)]) (and (string? n) n)))))))])
       (cons name (lambda () (let ([r (execute h "sql-on-fhir" f (file->string f) (hasheq))])
                               (table (run-result-columns r) (run-result-rows r)))))))
+  ;; each view over EVERY version too (`bp_history`): the store's history as the view's input, so the
+  ;; values of a corrected reading are a column, not json_each over JSONB (a `meta.versionId` column
+  ;; says which version a row is)
+  (define history-views
+    (if (not (data-store-path h)) '()
+        (for/list ([v (in-list views)])
+          (cons (string-append (car v) "_history")
+                (lambda ()
+                  (define f (for/first ([f (in-list (workspace-files (hub-ws h)))]
+                                        #:when (equal? (workspace-language-of f) "sql-on-fhir")
+                                        #:when (member (car v) (view-names f)))
+                              f))
+                  (define type (hash-ref (call-with-input-file f read-json) 'resource "?"))
+                  (define r (parameterize ([current-sd-packages (hub-packages h)]
+                                           [current-data-source (resources->data-source (history-resources (data-store-path h) type))])
+                              ((ws-support-run (support-for "sql-on-fhir")) (hub-ws h) f (file->string f) (hasheq))))
+                  (table (run-result-columns r) (run-result-rows r)))))))
   (define (result-table st)
     (lambda () (table (map (lambda (c) (format "~a" c)) (run-result-columns (stored-result st)))
                       (run-result-rows (stored-result st)))))
@@ -616,7 +645,7 @@
             (for/list ([u+st (in-list tabular)] #:when (hash-ref (stored-options (cdr u+st)) 'name #f))
               (cons (hash-ref (stored-options (cdr u+st)) 'name) (result-table (cdr u+st))))))
   (define t (with-handlers ([exn:fail:user? (lambda (e) (error 'sql (regexp-replace #rx"^sql: " (exn-message e) "")))])
-              (sql-query text (make-immutable-hash (append results views)) #:database (data-store-path h))))
+              (sql-query text (make-immutable-hash (append results history-views views)) #:database (data-store-path h))))
   (run-result "table" (table-columns t) (table-rows t) (hasheq 'rows (length (table-rows t)))))
 
 ;; run-search : "Type?params" options -> run-result   FHIR search where the data source can run it
@@ -737,10 +766,21 @@
 
 ;; argument-file : args key -> string | #f   the file an argument's text was read from (`files`, which
 ;; `raco fhir-mcp call key=@file` fills; a client may pass it too)
-(define (argument-file args k)
+(define (argument-file args k [h #f])
   (define fs (hash-ref args 'files #f))
   (define f (and (hash? fs) (hash-ref fs k #f)))
-  (and (string? f) f))
+  (and (string? f) (file-label f h)))
+
+;; file-label : path-string hub|#f -> string   how the trail names a file: as given when it is a plain
+;; relative name, relative to the workspace when inside it, else absolute (`../readings.fsh` meant
+;; nothing once the shell had moved)
+(define (file-label f h)
+  (cond [(not (regexp-match? #rx"^[.][.]|^/|^~" f)) f]
+        [else
+         (define full (simplify-path (path->complete-path f)))
+         (define root (and h (simplify-path (path->complete-path (hub-root h)))))
+         (define inside (and root (let ([r (path->string (find-relative-path root full))]) (and (not (regexp-match? #rx"^[.][.]" r)) r))))
+         (or inside (path->string full))]))
 
 ;; source-line : Provenance id -> "file:line" | #f   the line of the FSH a commit's source holds where
 ;; the Instance with this id begins (a batch file of many resources: which lines made this one)
@@ -1019,7 +1059,7 @@
                                #:when (and (equal? (hash-ref p 'severity #f) "error")
                                            (not (equal? (hash-ref p 'phase #f) "validate"))
                                            (equal? (hash-ref p 'source #f) (path->string tmp))))
-                      (format "~a:~a:~a error: ~a" (or (argument-file args 'fsh) "fsh") (hash-ref p 'line "?") (hash-ref p 'column "?") (hash-ref p 'message ""))))
+                      (format "~a:~a:~a error: ~a" (or (argument-file args 'fsh h) "fsh") (hash-ref p 'line "?") (hash-ref p 'column "?") (hash-ref p 'message ""))))
         (when (pair? own) (error 'stage (string-join own "\n")))
         (define rs (filter instance? (map (lambda (row) (hash-ref row 'resource)) (run-result-rows r))))
         (when (null? rs) (error 'stage "the FSH defines no instance"))
@@ -1202,7 +1242,7 @@
                             (car pr) (cdr pr) (bare-suggestion (cdr pr)))
                     (format "~a: ~a is neither in the data nor in this stage~a" (car pr) (cdr pr) (suggestion (cdr pr))))))))
 
-(define (hub-commit! h id0 [reason #f])
+(define (hub-commit! h id0 [reason #f] #:agent [agent-asked #f])
   ;; `latest`: the newest stage not committed (from the shell, a stage's id is in its own answer)
   (define id (if (equal? id0 "latest")
                  (let ([ids (pending-stage-ids h)]) (if (null? ids) (error 'commit "no stage to commit (stage something first)") (last ids)))
@@ -1253,15 +1293,16 @@
   ;; the trail: a Provenance and an AuditEvent in the data, naming the versions written
   (define targets (for/list ([w (in-list written)] [ch (in-list todo)] #:when (hash-ref w 'ok #f))
                     (list (hash-ref w 'version (hash-ref w 'resource)) (if (eq? (change-action ch) 'create) 'create 'update))))
-  (define trail (if (null? targets) '() (write-trail! h (list (provenance targets (staged-source st) reason (unbox current-agent) (now-instant))
-                                                               (commit-audit (ws-config-fhir-version c) targets (unbox current-agent) (now-instant))))))
+  ;; who the trail names: the `agent` asked for, else the client (FHIR_MCP_AGENT from the shell)
+  (define agent (or agent-asked (unbox current-agent)))
+  (define trail (if (null? targets) '() (write-trail! h (list (provenance targets (staged-source st) reason agent (now-instant))
+                                                               (commit-audit (ws-config-fhir-version c) targets agent (now-instant))))))
   (configure! h (hub-root h))                              ; the data read again
-  ;; who the trail names: said, so an unnamed shell is noticed (FHIR_MCP_AGENT names it)
-  (define agent (unbox current-agent))
-  (define answer (hasheq 'stage id 'written (for/list ([w (in-list written)]) (hash-remove w 'version))
+  ;; each write with the version it made (`Observation/bp-a1/_history/2`), so a correction's v2 is seen
+  (define answer (hasheq 'stage id 'written written
                          'provenance (if (pair? trail) (car trail) 'null) 'agent agent))
-  (if (equal? agent "raco fhir-mcp call")
-      (hash-set answer 'note "the trail names the agent \"raco fhir-mcp call\"; set FHIR_MCP_AGENT to name who is writing")
+  (if (member agent '("raco fhir-mcp call" "raco fhir-mcp batch"))
+      (hash-set answer 'note (format "the trail names the agent ~s; name who is writing with commit(agent: …) or FHIR_MCP_AGENT" agent))
       answer))
 
 ;; instance-line : fsh-text id -> line | #f   where `Instance: <id>` (or an instance with `* id = "<id>"`) starts
@@ -1317,7 +1358,7 @@
   (define result (hash-ref args 'result #f))
   (cond
     [(string? fsh) (let ([src (hasheq 'kind "fsh" 'language "fsh" 'text fsh)]
-                         [from (argument-file args 'fsh)])
+                         [from (argument-file args 'fsh h)])
                      (if from (hash-set src 'path from) src))]
     [(string? result)
      (define st (result-of h result))
