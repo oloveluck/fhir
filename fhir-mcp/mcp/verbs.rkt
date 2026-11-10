@@ -13,6 +13,7 @@
 
 (require racket/contract racket/list racket/string json
          (only-in "tools.rkt" tool)
+         (only-in fhir/serialize/fhir-json key-order)
          (only-in fhir/diagnostic exn:fail:diagnostic? exn:fail:diagnostic-diagnostic diagnostic->jsexpr diagnostic-message)
          (only-in fhir/operation exn:fail:operation? exn:fail:operation-outcome)
          "workspace.rkt")
@@ -41,7 +42,7 @@
        (define keys (if order
                         (append (filter (lambda (k) (hash-has-key? v k)) order)
                                 (sort (filter (lambda (k) (not (memq k order))) ks) symbol<?))
-                        (sort ks symbol<?)))
+                        (key-order ks)))          ; resourceType, id, meta first, as FHIR writes them
        (string-append
         "{"
         (string-join (for/list ([k (in-list keys)])

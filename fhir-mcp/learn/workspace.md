@@ -255,7 +255,9 @@ too (its outcome, its text). The trail is data like any other:
   decoded;
 - `query("search", "Provenance?target=Observation/a1")`;
 - SQL: `trail` — one row per version a commit wrote (`type, id, versionId, recorded, agent, reason,
-  source, provenance`), so "where did every lab value come from" is
+  source, at, provenance`; `versionId` an integer, the rest text; `at` the file and line the version
+  was written from, `../src/a1c.fsh:12`, file names relative to the workspace), so "where did every
+  lab value come from" is
   `SELECT * FROM trail WHERE type = 'Observation'`; and `history` (every version of every resource),
   `Provenance`, `AuditEvent` for anything else. `trail` holds no values: join it with `history` on
   type, id and version for them, e.g. each version of a1 with its value and why it was written:
@@ -267,13 +269,23 @@ WHERE t.type = 'Observation' AND t.id = 'a1' ORDER BY t.versionId
 ```
 
 Each stored value with where it came from — the question an audit asks — is the type's table joined
-to `trail` on its current version (the line in the source file is history's `at`):
+to `trail` on its current version:
 
 ```
 SELECT o.id, o.resource ->> '$.valueQuantity.value' AS value, o.resource ->> '$.effectiveDateTime' AS taken,
        t.recorded, t.agent, t.reason, t.source
 FROM Observation o JOIN trail t ON t.type = 'Observation' AND t.id = o.id AND t.versionId = o.versionId
 ORDER BY o.id
+```
+
+A view's history (`<view>_history`) joins the trail the same way; a view column read from
+`meta.versionId` is text, so cast it (`trail.versionId` is an integer) — every version of each
+reading with its value and why it was written:
+
+```
+SELECT v.id, CAST(v.version AS INTEGER) AS version, v.value, t.reason, t.at
+FROM a1c_history v JOIN trail t ON t.type = 'Observation' AND t.id = v.id AND t.versionId = CAST(v.version AS INTEGER)
+ORDER BY v.id, version
 ```
 
 The trail says when and by whom the DATA was written, not the clinical facts: a lab value's own time

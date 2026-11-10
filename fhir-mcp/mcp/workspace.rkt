@@ -513,16 +513,20 @@
   ;; it) would be most of the answer's tokens
   (define resources? (equal? (run-result-kind r) "resources"))
   (define shown (take rows (min preview-rows (length rows))))
-  (hasheq 'result uri
+  (define more
+    (cond [(> (length rows) preview-rows)
+           (format "~a for the next rows~a" (call-text "describe" (list (cons 'ref uri) (cons 'offset preview-rows))) (if resources? ", with each resource's JSON" ""))]
+          [resources? (format "~a for each resource's JSON, or ~a for one" (call-text "describe" (list (cons 'ref uri))) (call-text "describe" (list (cons 'ref "Type/id"))))]
+          [else #f]))
+  (define answer
+   (hasheq 'result uri
           'kind (run-result-kind r)
           'columns (if resources? (remove "json" (run-result-columns r)) (run-result-columns r))
           'total (length rows)
           'summary (run-result-summary r)
-          'rows (if resources? (map (lambda (row) (if (hash? row) (hash-remove row 'json) row)) shown) (map preview shown))
-          'more (cond [(> (length rows) preview-rows)
-                       (format "~a for the next rows~a" (call-text "describe" (list (cons 'ref uri) (cons 'offset preview-rows))) (if resources? ", with each resource's JSON" ""))]
-                      [resources? (format "~a for each resource's JSON, or ~a for one" (call-text "describe" (list (cons 'ref uri))) (call-text "describe" (list (cons 'ref "Type/id"))))]
-                      [else 'null])))
+          'rows (if resources? (map (lambda (row) (if (hash? row) (hash-remove row 'json) row)) shown) (map preview shown))))
+  ;; `more` only when there is more to read (`"more": null` said nothing)
+  (if more (hash-set answer 'more more) answer))
 
 ;; options : hash -> Options   the verbs' arguments as a language's options
 (define (options args)
@@ -756,12 +760,17 @@
 (struct text-answer (text))
 ;; as-fsh : resource -> TextAnswer   the resource as an FSH Instance (fsh/decompile, loaded on demand:
 ;; fhir-mcp does not depend on fsh) — a third shorter than its JSON for coded data, and the form FSH files use
-(define (as-fsh r)
+(define (as-fsh r [stamped '()])
   (define fhir->fsh (with-handlers ([exn:fail? (lambda (_) (error 'describe "as \"fsh\" needs the fsh package"))])
                       (dynamic-require 'fsh/decompile 'fhir->fsh)))
   ;; `Usage: #example` is what an Instance means without it: not said; nor the store's bookkeeping
-  ;; (meta.versionId, meta.lastUpdated — describe as JSON shows them)
-  (define meta (let ([m (hash-ref r 'meta #f)]) (and (hash? m) (hash-remove (hash-remove m 'versionId) 'lastUpdated))))
+  ;; (meta.versionId, meta.lastUpdated — describe as JSON shows them), nor the profiles staging claims
+  ;; by itself (workspace.yaml's `profiles`: a correction staged again gets them again)
+  (define meta (let ([m (hash-ref r 'meta #f)])
+                 (and (hash? m)
+                      (let* ([m (hash-remove (hash-remove m 'versionId) 'lastUpdated)]
+                             [ps (let ([p (hash-ref m 'profile '())]) (if (list? p) (filter (lambda (u) (not (member u stamped))) p) p))])
+                        (if (null? ps) (hash-remove m 'profile) (hash-set m 'profile ps))))))
   (define r* (cond [(not meta) r] [(zero? (hash-count meta)) (hash-remove r 'meta)] [else (hash-set r 'meta meta)]))
   (text-answer (regexp-replace #rx"\nUsage: #example(?=\n|$)" (fhir->fsh r*) "")))
 
@@ -802,12 +811,21 @@
   (and f (file-label f h)))
 
 ;; file-label : path-string hub|#f -> string   how the trail names a file: relative to the workspace
-;; when inside it, else absolute
+;; — inside it, or up to two levels above (`../src/bad.fsh`, a file kept beside the workspace) — else
+;; absolute. Read against the workspace, it names the file from anywhere; one form for every answer
 (define (file-label f h)
   (define full (simplify-path (path->complete-path (expand-user-path f))))
   (define root (and h (simplify-path (path->complete-path (hub-root h)))))
-  (define inside (and root (let ([r (path->string (find-relative-path root full))]) (and (not (regexp-match? #rx"^[.][.]|^/" r)) r))))
-  (or inside (path->string full)))
+  (define relative (and root (let ([r (path->string (find-relative-path root full))])
+                               (and (not (regexp-match? #rx"^/|^([.][.]/){3}" r)) r))))
+  (or relative (path->string full)))
+
+;; shown-display : hub (string|#f) -> string|#f   a source's one-line display (`../src/a.fsh sha1:…`) with
+;; its path shown as `at` shows it
+(define (shown-display h d)
+  (cond [(not (string? d)) d]
+        [(regexp-match #px"^(\\S+[.][A-Za-z]+)( sha1:.*)$" d) => (lambda (m) (string-append (shown-path h (cadr m)) (caddr m)))]
+        [else d]))
 
 ;; shown-path : hub string -> string   a path the trail keeps (workspace-relative or absolute) as a
 ;; message shows it: relative to the current directory when that is shorter
@@ -846,7 +864,8 @@
 (define (hub-describe h ref args)
   (define fsh? (equal? (hash-ref args 'as #f) "fsh"))
   (define source? (equal? (hash-ref args 'as #f) "source"))
-  (define (shown r) (cond [(and fsh? (hash? r) (string? (hash-ref r 'resourceType #f))) (as-fsh r)]
+  (define (shown r) (cond [(and fsh? (hash? r) (string? (hash-ref r 'resourceType #f)))
+                                (as-fsh r (hash-ref (ws-config-profiles (workspace-config (hub-ws h))) (hash-ref r 'resourceType) '()))]
                           [(and source? (hash? r)) (as-source r)]
                           [else r]))
   (define offset (let ([o (hash-ref args 'offset 0)]) (if (exact-nonnegative-integer? o) o 0)))
@@ -904,7 +923,7 @@
                                         (cons 'recorded (hash-ref pv 'recorded #f))
                                         (cons 'by (let ([a (hash-ref pv 'agent '())]) (and (pair? a) (let ([w (hash-ref (car a) 'who (hasheq))]) (or (hash-ref w 'display #f) (hash-ref w 'reference #f))))))
                                         (cons 'reason (let ([r (hash-ref pv 'reason '())]) (and (pair? r) (hash-ref (car r) 'text #f))))
-                                        (cons 'source (let ([en (hash-ref pv 'entity '())]) (and (pair? en) (hash-ref (hash-ref (car en) 'what (hasheq)) 'display #f))))
+                                        (cons 'source (let ([en (hash-ref pv 'entity '())]) (and (pair? en) (shown-display h (hash-ref (hash-ref (car en) 'what (hasheq)) 'display #f)))))
                                         ;; where in that source this resource was written: an FSH Instance's line
                                         (cons 'at (source-line pv id h)))
                                   '()))]
@@ -1220,11 +1239,12 @@
       (hasheq 'stage id
               'changes (for/list ([c (in-list changes)])
                          (define base0 (hasheq 'resource (format "~a/~a" (hash-ref (change-resource c) 'resourceType) (hash-ref (change-resource c) 'id "(new id)"))
-                                              'action (symbol->string (change-action c))
-                                              'errors (change-errors c)))
+                                              'action (symbol->string (change-action c))))
+                         ;; errors only where there are some (`"errors": []` on every clean change was noise)
+                         (define base1 (if (null? (change-errors c)) base0 (hash-set base0 'errors (change-errors c))))
                          ;; what an update changes; a create's `action` says it all (`changed: "created"` repeated it)
-                         (define base (if (eq? (change-action c) 'create) base0
-                                          (hash-set base0 'changed (take (change-paths c) (min 30 (length (change-paths c)))))))
+                         (define base (if (eq? (change-action c) 'create) base1
+                                          (hash-set base1 'changed (take (change-paths c) (min 30 (length (change-paths c)))))))
                          (define ws (append (hash-ref warned (change-resource c) '()) (hash-ref dangling (change-resource c) '())))
                          (if (null? ws) base (hash-set base 'warnings ws)))
               'errors errors
@@ -1273,7 +1293,9 @@
     (define keys (append (set->list staged-keys) (map (lambda (i) (string-append "Patient/" i)) (ids-of "Patient"))))
     (define near (closest-names name (map (lambda (k) (regexp-replace #rx"^[^/]*/" k "")) keys)))
     (define full (for*/list ([n (in-list near)] [k (in-list keys)] #:when (string-suffix? k (string-append "/" n))) k))
-    (if (null? full) "" (format " (did you mean `~a`?)" (car full))))
+    ;; every near one (`pat-c` is as near `pat-a` as `pat-b`: naming one of them was a guess)
+    (define shown (let ([u (remove-duplicates full)]) (take u (min 3 (length u)))))
+    (if (null? shown) "" (format " (did you mean ~a?)" (string-join (map (lambda (k) (format "`~a`" k)) shown) " or "))))
   (for/hash ([r (in-list rs)])
     (values r (for/list ([pr (in-list (refs r ""))])
                 (if (bare? (cdr pr))
@@ -1330,11 +1352,19 @@
   (let ([f (build-path (state-dir h "stages") (string-append id ".json"))])
     (when (file-exists? f) (rename-file-or-directory f (build-path (state-dir h "stages") (string-append "committed-" id ".json")) #t)))
   ;; the trail: a Provenance and an AuditEvent in the data, naming the versions written
+  ;; each target with the line of the source that wrote it (`patients.fsh:30`: an FSH Instance's
+  ;; first line), so SQL's `trail` answers it per row
+  (define src (staged-source st))
+  (define (source-at r)
+    (define text (and (equal? (hash-ref src 'kind #f) "fsh") (hash-ref src 'text #f)))
+    (define line (and text (hash-ref r 'id #f) (instance-line text (hash-ref r 'id))))
+    (and line (format "~a:~a" (hash-ref src 'path "fsh") line)))
   (define targets (for/list ([w (in-list written)] [ch (in-list todo)] #:when (hash-ref w 'ok #f))
-                    (list (hash-ref w 'version (hash-ref w 'resource)) (if (eq? (change-action ch) 'create) 'create 'update))))
+                    (list (hash-ref w 'version (hash-ref w 'resource)) (if (eq? (change-action ch) 'create) 'create 'update)
+                          (source-at (change-resource ch)))))
   ;; who the trail names: the `agent` asked for, else the client (FHIR_MCP_AGENT from the shell)
   (define agent (or agent-asked (unbox current-agent)))
-  (define trail (if (null? targets) '() (write-trail! h (list (provenance targets (staged-source st) reason agent (now-instant))
+  (define trail (if (null? targets) '() (write-trail! h (list (provenance targets src reason agent (now-instant))
                                                                (commit-audit (ws-config-fhir-version c) targets agent (now-instant))))))
   (configure! h (hub-root h))                              ; the data read again
   ;; each write with the version it made (`Observation/bp-a1/_history/2`), so a correction's v2 is seen

@@ -34,7 +34,10 @@ history and search indexes). In a workspace the file is `<name>.capability.rkt`:
   the statement's date (else a fixed one, so the statement is the same every time it is derived).
 - A search parameter is `[name type]` (the definition FHIR gives that name for the type: `birthdate`,
   `gender`, `patient`, `subject`, `code`, `date`, … — a name FHIR does not define, or a wrong type, is
-  an error when the app loads, naming the nearest) or `[name type "FHIRPath"]` (your own). Types:
+  an error at its `(resource …)` form when the app loads, naming the nearest:
+  `study.capability.rkt:3:0: resource Patient: search parameter `birthDate`: FHIR defines none of
+  that name for Patient (did you mean `birthdate`?)`) or `[name type "FHIRPath"]` (your own). Every
+  mistake in the declarations is reported at once, one line each at its form. Types:
   `token string reference date number quantity uri`. The server searches with exactly what it
   declares (what `/metadata` advertises, plus `_id`, `_lastUpdated`, `_count`, `_sort`): a search with
   any other parameter — even one FHIR defines, like `name` when only `gender` is declared — answers its
@@ -165,7 +168,7 @@ A clinical result is a Quantity, its unit in UCUM: declare the output `Quantity`
 Here, serum creatinine in mg/dL converted to µmol/L (× 88.4):
 ```racket
 (define (creatinine-si-handler in req)
-  (define mg/dl (* 1.0 (car (hash-ref in "creatinine"))))
+  (define mg/dl (car (hash-ref in "creatinine")))     ; a decimal arrives as a Racket number (1.1)
   (Parameters (parameter (ParametersParameter (name "creatinine")
                            (valueQuantity (Quantity (value (real->decimal-string (* 88.4 mg/dl) 1))
                                                     (unit "µmol/L")
@@ -176,6 +179,9 @@ Here, serum creatinine in mg/dL converted to µmol/L (× 88.4):
   #:out ([creatinine Quantity 1 1 #:documentation "The same value in µmol/L"])
   #:handler creatinine-si-handler)
 ```
+Common UCUM codes for a result (learn://fhir lists more): eGFR `mL/min/{1.73_m2}`, creatinine `mg/dL`
+or `umol/L`, glucose `mg/dL` or `mmol/L`, HbA1c `%`, BMI `kg/m2`, blood pressure `mm[Hg]`; a code
+that is not UCUM is a validation warning naming the nearest one.
 `GET /$creatinine-si?creatinine=1.1` answers `{"name": "creatinine", "valueQuantity": {"value": 97.2,
 "unit": "µmol/L", "system": "http://unitsofmeasure.org", "code": "umol/L"}}` (the decimal is built
 as a string, as FHIR keeps its digits; the unit is the display, the code is UCUM's).

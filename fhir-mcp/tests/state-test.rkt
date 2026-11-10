@@ -80,6 +80,12 @@
     (check-regexp-match #rx"^subject: `anm` names no resource: .*[(]did you mean `Patient/ann`[?][)]$"
                         (car (hash-ref (car (hash-ref st3 'changes)) 'warnings)))
     (call d "stage" (hasheq 'drop (hash-ref st3 'stage)))
+    ;; two ids as near as each other: both named (naming one was a guess)
+    (call d "commit" (hasheq 'stage (hash-ref (call d "stage" (hasheq 'fsh "Instance: anb\nInstanceOf: Patient\n")) 'stage)))
+    (define st4 (call d "stage" (hasheq 'fsh "Instance: o5\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#4548-4\n* subject = Reference(anc)\n")))
+    (check-regexp-match #rx"did you mean `Patient/ann` or `Patient/anb`[?]|did you mean `Patient/anb` or `Patient/ann`[?]"
+                        (car (hash-ref (car (hash-ref st4 'changes)) 'warnings)))
+    (call d "stage" (hasheq 'drop (hash-ref st4 'stage)))
     (call d "stage" (hasheq 'fsh "Instance: o3\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#4548-4\n"))
     ;; the commit says who the trail names
     (check-true (string? (hash-ref (call d "commit" (hasheq 'stage (hash-ref st 'stage))) 'agent)))
@@ -140,9 +146,13 @@
       (call e "stage" (hasheq 'fsh "Instance: gus\nInstanceOf: Patient\n" 'files (hasheq 'fsh "gus.fsh")))
       (call e "commit" (hasheq 'stage "latest" 'agent "Practitioner/dr-ng"))
       (define v (car (hash-ref (call e "describe" (hasheq 'ref "Patient/gus/_history")) 'versions)))
-      ;; history's `at` as the current directory reads it; the source keeps the full path
+      ;; history's `at` and `source` as the current directory reads them, one form; the trail keeps the
+      ;; file relative to the workspace (`../<dir>-src/gus.fsh`), so SQL names it the same from anywhere
       (check-equal? (hash-ref v 'at) "gus.fsh:1")
-      (check-regexp-match (regexp (regexp-quote (path->string (build-path outside "gus.fsh")))) (hash-ref v 'source))
+      (check-regexp-match #rx"^gus[.]fsh sha1:" (hash-ref v 'source))
+      (define row (car (hash-ref (call e "query" (hasheq 'language "sql" 'text "SELECT source, at FROM trail WHERE id = 'gus'")) 'rows)))
+      (check-regexp-match #rx"^[.][.]/[^/]+-src/gus[.]fsh sha1:" (hash-ref row 'source))
+      (check-regexp-match #rx"^[.][.]/[^/]+-src/gus[.]fsh:1$" (hash-ref row 'at))
       ;; an agent written as a reference is one (an audit can follow it)
       (check-equal? (hash-ref v 'by) "Practitioner/dr-ng")
       (check-equal? (hash-ref (car (hash-ref (call e "query" (hasheq 'language "sql" 'text "SELECT agent FROM trail WHERE id = 'gus'")) 'rows)) 'agent)

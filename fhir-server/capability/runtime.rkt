@@ -11,7 +11,7 @@
 
 (require racket/contract
          racket/match
-         racket/list (only-in racket/string string-join)
+         racket/list (only-in racket/string string-join) (only-in net/uri-codec uri-decode)
          (only-in fhir/suggest did-you-mean)
          (only-in fhir/model/node fhir? fhir-type fhir-ref fhir-field-names)
          (only-in fhir/serialize/from-json from-json)
@@ -28,6 +28,8 @@
          fhir/kernel/operation-entry)
 
 (provide
+ (struct-out exn:fail:declaration)
+ with-declared-locations
  (struct-out repository)
  (struct-out operation-handler)
  (struct-out operation-entry)
@@ -456,8 +458,14 @@
        (for/or ([v (in-list (hash-ref in name '()))])
          (define code (let ([t (raw-text v)]) (and (string? t) t)))
          (and code (not (member code codes))
-              (format "parameter '~a' must be a code from ~a (~a), got \"~a\"" name vs
+              (format "parameter '~a' must be a code from ~a (~a), got \"~a\"" name (shown-value-set vs)
                       (apply string-append (add-between (take codes (min 12 (length codes))) ", ")) code)))))
+
+;; shown-value-set : url -> string   a value set as a message names it: an implicit VCL value set by
+;; its expression, decoded (`(http://hl7.org/fhir/administrative-gender)(female;male)`)
+(define (shown-value-set url)
+  (define m (regexp-match #rx"^http://fhir[.]org/VCL[?]v1=(.*)$" url))
+  (if m (with-handlers ([exn:fail? (lambda (_) url)]) (uri-decode (cadr m))) url))
 
 ;; value-set-codes : url -> (listof code) | #f   its expansion's codes ($expand, fhir-tx), once per url
 (define expansions (make-hash))
@@ -483,6 +491,25 @@
     [(and (equal? maxv "1") (> n 1))
      (format "parameter '~a' allows at most 1 value, got ~a" name n)]
     [else #f]))
+
+;; ---- declaration errors found when the app is built ------------------------------------------
+
+;; exn:fail:declaration : a resource declaration the app cannot be built with (a search parameter FHIR
+;; does not define for the type), known only once the core package is read — after the module expanded
+(struct exn:fail:declaration exn:fail:user (type) #:transparent)
+
+;; with-declared-locations : (listof (cons type "file:line:col")) (-> any) -> any
+;; runs the build, saying a declaration error at the resource form it is about, one line — it was a
+;; Racket error with a stack trace through the store's internals, and `serve` died without a word
+(define (with-declared-locations locs thunk)
+  (with-handlers ([exn:fail:declaration?
+                   (lambda (e)
+                     (define at (assq (exn:fail:declaration-type e) locs))
+                     (raise (exn:fail:user (if at
+                                               (format "~a: resource ~a: ~a" (cdr at) (exn:fail:declaration-type e) (exn-message e))
+                                               (exn-message e))
+                                           (current-continuation-marks))))])
+    (thunk)))
 
 ;; ---- node construction ----------------------------------------------------------------------
 

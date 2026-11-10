@@ -86,11 +86,22 @@
       (hasheq 'reference agent)
       (hasheq 'display agent)))
 
+;; source-line-url : the extension a Provenance target carries: where in the source it was written
+(define source-line-url "urn:fhir-mcp:source-line")
+
+;; target-reference : (list ref action [at]) -> Reference   the version written, and the source's
+;; file and line that wrote it when known (`patients.fsh:30`)
+(define (target-reference t)
+  (define at (and (pair? (cddr t)) (caddr t)))
+  (if at
+      (hasheq 'reference (car t) 'extension (list (hasheq 'url source-line-url 'valueString at)))
+      (hasheq 'reference (car t))))
+
 (define (provenance targets src reason agent now)
   (define doc (source-document src))
   (define act (activity targets))
   (for/fold ([p (hasheq 'resourceType "Provenance"
-                        'target (for/list ([t (in-list targets)]) (hasheq 'reference (car t)))
+                        'target (for/list ([t (in-list targets)]) (target-reference t))
                         'recorded now
                         'agent (list (hasheq 'type (hasheq 'coding (list (hasheq 'system "http://terminology.hl7.org/CodeSystem/provenance-participant-type" 'code "author")))
                                              'who (agent-who agent))))])

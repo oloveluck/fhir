@@ -253,8 +253,12 @@
   (check-equal? s10 200)
   (define-values (s11 o11) (handle app "GET" "/$g2" '((sex . "other")) ""))
   (check-equal? s11 400)
-  (check-regexp-match #rx"must be a code from http://fhir.org/VCL[?]v1=[(]http://hl7.org/fhir/administrative-gender[)][(]female;male[)] [(]female, male[)], got \"other\""
+  (check-regexp-match #rx"must be a code from [(]http://hl7.org/fhir/administrative-gender[)][(]female;male[)] [(]female, male[)], got \"other\""
                       (hash-ref (car (hash-ref o11 'issue)) 'diagnostics))
+  ;; the OperationDefinition carries the url percent-encoded, as the VCL specification requires
+  (let-values ([(st od) (handle app "GET" "/OperationDefinition/g2" '() "")])
+    (check-equal? (hash-ref (hash-ref (car (hash-ref od 'parameter)) 'binding) 'valueSet)
+                  "http://fhir.org/VCL?v1=%28http%3A%2F%2Fhl7.org%2Ffhir%2Fadministrative-gender%29%28female%3Bmale%29"))
   ;; a binding that is neither a url nor VCL is an error at the declaration
   (check-exn #rx"#:binding \"[(]female;\" is neither a ValueSet url nor a VCL expression"
              (lambda () (compile-capability '(server) '(operation $x #:system #:in ([s code 1 1 #:binding "(female;"]) #:handler h))))
@@ -264,4 +268,29 @@
   (check-equal? (map (lambda (p) (hash-ref p 'name)) (filter (lambda (p) (equal? (hash-ref p 'use) "in")) (hash-ref od 'parameter))) '("w" "n" "flag" "when"))
   (define-values (s7 _od) (handle app "GET" "/OperationDefinition/nope" '() ""))
   (check-equal? s7 404)
+  (delete-directory/files dir))
+
+;; ---- declaration errors: every one at once, each a line at its form; a search parameter FHIR does
+;; not define is said at its resource form when the app is built (it was a stack trace through the
+;; store, and `serve` died without a word)
+(let ()
+  (define dir (make-temporary-directory "cap-errs-~a"))
+  (define src (build-path dir "bad.capability.rkt"))
+  (define (write-app! text) (call-with-output-file src #:exists 'truncate (lambda (o) (void (write-string text o)))))
+  (define (load-error)
+    (with-handlers ([exn:fail:user? exn-message])
+      (parameterize ([current-namespace (make-base-namespace)]) (dynamic-require src 'app)) "no error"))
+  (write-app! (string-append "#lang fhir/capability\n(server)\n"
+                             "(resource Patient #:interactions (read create frob))\n"
+                             "(define (h in req) (Parameters))\n"
+                             "(operation $x #:system #:in ([p int 1 1]) #:handler h)\n"))
+  (define both (load-error))
+  (check-regexp-match #rx"bad[.]capability[.]rkt:3:[0-9]+: resource: unknown restful interaction frob" both)
+  (check-regexp-match #rx"bad[.]capability[.]rkt:5:[0-9]+: operation: unknown parameter type int" both)
+  (check-false (regexp-match? #rx"context[.][.][.]" both))
+  (write-app! (string-append "#lang fhir/capability\n(server)\n"
+                             "(resource Patient #:interactions (read search-type) #:search-params ([birthDate date] [gender string]))\n"))
+  (define sp (load-error))
+  (check-regexp-match #rx"^bad[.]capability[.]rkt:3:0: resource Patient: search parameter `birthDate`: FHIR defines none of that name for Patient [(]did you mean `birthdate`[?][)]" sp)
+  (check-regexp-match #rx"search parameter `gender` is a token in FHIR, not a string" sp)
   (delete-directory/files dir))

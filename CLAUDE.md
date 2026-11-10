@@ -1151,6 +1151,32 @@ half-right fix; each change has a test doing what the agent did:
   `ucum-valid?`); fhir-authoring's FHIR-version table and what `render` gives for a CQL null; the
   capability guide's strict handling, VCL bindings, temporary store and `urn:` operation canonicals.
 
+## New users, round 12 (2026-11-10)
+The eleventh rerun (every task first time, 8–16 calls, no source read, no wrong answer); each fix has
+a test doing what the agent did:
+- **Declaration errors, all and at their forms**: module-begin checks every declaration before raising
+  (`collected`) — a bad interaction and a bad parameter type are two lines, each at its form; a search
+  parameter FHIR does not define (decided only when the app is built, from the core package) is
+  `study.capability.rkt:3:0: resource Patient: search parameter `birthDate`: … (did you mean
+  `birthdate`?)` with every problem of the type (`exn:fail:declaration`, `with-declared-locations`;
+  it was a stack trace through store.rkt, and `serve` died without a word).
+- **VCL bindings percent-encoded** in the OperationDefinition, as the VCL spec requires
+  (`uri-unreserved-encode`); messages show the expression decoded (`shown-value-set`).
+- **One path form in the trail**: a source file is kept relative to the workspace up to two levels
+  above it (`../src/bad.fsh`), else absolute; history's `source` and `at` are shown alike
+  (`shown-display`). Each Provenance target carries the source line that wrote it (an extension,
+  `urn:fhir-mcp:source-line`), so SQL's `trail` has an `at` column.
+- **Leaner answers**: a change has `errors` only when there are some; `more` only when there is more;
+  `describe as=fsh` leaves out the profiles staging claims by itself (workspace.yaml `profiles`); a
+  bare reference's suggestion names every near id; answers write `resourceType`, `id`, `meta` first.
+- **FHIR JSON as FHIR writes it**: `fhir/serialize/fhir-json` (`fhir-json->string`, `write-fhir-json`
+  with `#:indent`, `key-order`); `raco fml --transform` and the intake pipeline print with it.
+- Docs: the fhir skill points the Racket route at fhir-authoring's pipeline section (the workspace
+  not needed) and names the rules cookbook, the blood-pressure rule, the correction recipe and
+  `enforce:=true`; the capability guide's declaration errors, common UCUM codes and decimal inputs
+  (a Racket number already); learn://workspace's `trail` column types, `at`, and a view-history ⋈ trail
+  join (tested); the CQL recipe adapted to another lab and a yes/no table (run against a workspace).
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

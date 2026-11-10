@@ -14,11 +14,12 @@
 (require (for-syntax racket/base
                      syntax/parse
                      racket/list
+                     (only-in racket/string string-join)
                      "declare.rkt"
                      fhir/r6/types)             ; populate the phase-1 registry for validation
          ;; runtime bindings the emitted template references (resolve at the user module's phase 0)
          (only-in "derive.rkt" derive-capability-statement derive-operation-definition)
-         (only-in "runtime.rkt" build-app current-repository-factory)
+         (only-in "runtime.rkt" build-app current-repository-factory with-declared-locations)
          (only-in "store.rkt" store-file-factory temporary-store-factory)
          (only-in json jsexpr->string)
          (only-in fhir/serialize/to-json node->jsexpr))
@@ -61,13 +62,29 @@
      (unless (null? (cdr servers))
        (decl-error 'capability "only one (server …) declaration is allowed" (cadr servers)))
      ;; 3. parse + validate declarations -> runtime construction syntax
-     (define server-stx (parse-server (car servers)))
+     ;; every declaration is checked before any error is raised: a file with a bad parameter type
+     ;; and a bad interaction says both, one line each, at their forms (`collected`)
+     (define problems '())
+     (define (collected thunk fallback)
+       (with-handlers ([exn:fail:user? (lambda (e) (set! problems (cons (exn-message e) problems)) (fallback))])
+         (thunk)))
+     (define server-stx (collected (lambda () (parse-server (car servers))) (lambda () #'#f)))
      ;; (server #:store "fhir.db"): the resources without a repository live in that SQLite file,
      ;; beside the module (a factory set outside — `serve --store`, a workspace — takes precedence)
      (define store-file (server-store (car servers)))
      (define-values (resource-stxs repo-pair-stxs)
-       (for/lists (rs ps) ([r (in-list resources)]) (parse-resource r)))
-     (define parsed (map parse-operation operations))
+       (for/lists (rs ps) ([r (in-list resources)])
+         (collected (lambda () (parse-resource r)) (lambda () (values #'#f #'#f)))))
+     (define parsed (for/list ([o (in-list operations)]) (collected (lambda () (parse-operation o)) (lambda () #f))))
+     (unless (null? problems)
+       (raise (exn:fail:user (string-join (reverse problems) "\n") (current-continuation-marks))))
+     ;; where each resource is declared, so an error found when the app is built (a search parameter
+     ;; FHIR does not define, which needs the core package to decide) is said at its form
+     (define resource-locs
+       (for/list ([r (in-list resources)])
+         (define t (syntax-case r () [(_ type . _) (syntax-e #'type)]))
+         #`(cons '#,t #,(format "~a:~a:~a" (let ([s (syntax-source r)]) (if (path? s) (let-values ([(d n _) (split-path s)]) (path->string n)) (format "~a" s)))
+                                 (syntax-line r) (syntax-column r)))))
      (define operation-stxs (map parsed-operation-rc parsed))
      (define od-stxs (map parsed-operation-od parsed))
      (define entry-list-stxs (map parsed-operation-entries parsed))
@@ -94,12 +111,13 @@
                                              #,store-file)))
                                     ;; no store anywhere: a temporary one, removed when the process ends
                                     #'(temporary-store-factory)))])
+            (with-declared-locations (list #,@resource-locs) (lambda ()
             (build-app #:capability capability-statement
                        #:operation-definitions operation-definitions
                        #:repositories (list #,@repo-pair-stxs)
                        #:operations (append #,@entry-list-stxs)
                        #:metadata #,(let ([h (server-option (car servers) '#:search-handling)])
-                                      (if h #`(hasheq 'search-handling #,h) #'(hash))))))
+                                      (if h #`(hasheq 'search-handling #,h) #'(hash))))))))
         (provide app capability-statement operation-definitions #,@op-names)
         (module+ main
           (displayln (jsexpr->string (node->jsexpr capability-statement)))))]))

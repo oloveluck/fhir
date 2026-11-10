@@ -100,6 +100,11 @@
                                                                                             (hasheq 'name "value" 'path "value.ofType(Quantity).value"))))))))
     (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT version, value FROM a1c_history WHERE id = 'a1' ORDER BY version")) 'rows)
                   (list (hasheq 'version "1" 'value 8) (hasheq 'version "2" 'value 8.4)))
+    ;; the guide's view-history ⋈ trail join: both versions, each with its reason and source line
+    (let ([rows (hash-ref (call "query" (hasheq 'language "sql" 'text (cadr (regexp-match #px"```\n(SELECT v.id.*?)```" (learn-text "workspace"))))) 'rows)])
+      (define a1 (filter (lambda (r) (equal? (hash-ref r 'id) "a1")) rows))
+      (check-equal? (map (lambda (r) (list (hash-ref r 'version) (hash-ref r 'value) (hash-ref r 'reason))) a1)
+                    '((1 8 "intake: ann's first HbA1c") (2 8.4 "lab corrected the value"))))
     (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT version, value FROM a1c WHERE id = 'a1'")) 'rows)
                   (list (hasheq 'version "2" 'value 8.4)))
     (call "write" (hasheq 'path "a1c.view.json" 'text ""))

@@ -118,6 +118,9 @@ then `main.rkt` (below) is those three calls as functions.
   ;; #:define answers one define; #:now fixes Today() (else the answer moves with the clock)
   (values patient (render (evaluate (list patient) #:define "Is 65 Or Older" #:now now))))
 ```
+`main.rkt` prints the Patient with `(write-fhir-json patient #:indent 2)` (`fhir/serialize/fhir-json`;
+`fhir-json->string` gives the text): `resourceType` first, then `id` and `meta`, as FHIR writes them —
+`write-json` puts a hash's keys in no order.
 Without a birth date the map's Patient breaks the profile, and the error is at the map's rule:
 `the map's Patient is invalid against IntakePatient (…) (FHIR R5 (5.0.0)): … qr2patient.map:14:25: fml validate error: Patient.birthDate: minimum
 required = 1, but found 0 (the rule here wrote nothing: its source matched nothing in the input)` —

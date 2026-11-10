@@ -110,15 +110,18 @@
 ;; with-declared : catalog type (listof (list name kind expr|#f)) -> catalog
 (define (with-declared catalog type sps)
   (define known (hash-ref catalog type '()))
-  (for ([sp (in-list sps)] #:unless (caddr sp))
-    (define name (symbol->string (car sp)))
-    (define def (findf (lambda (p) (equal? (search-param-name p) name)) known))
-    (cond
-      [(not def)
-       (error 'capability (format "search parameter `~a` of ~a: FHIR defines none of that name for ~a~a; give its FHIRPath: [~a ~a \"…\"]"
-                                  name type type (did-you-mean name (map search-param-name known)) name (cadr sp)))]
-      [(not (eq? (search-param-kind def) (cadr sp)))
-       (error 'capability (format "search parameter `~a` of ~a is a ~a in FHIR, not a ~a" name type (search-param-kind def) (cadr sp)))]))
+  ;; every problem of the declaration at once, each a line (the module says them at its form)
+  (define problems
+    (for*/list ([sp (in-list sps)] #:unless (caddr sp)
+                [name (in-value (symbol->string (car sp)))]
+                [def (in-value (findf (lambda (p) (equal? (search-param-name p) name)) known))]
+                #:unless (and def (eq? (search-param-kind def) (cadr sp))))
+      (if (not def)
+          (format "search parameter `~a`: FHIR defines none of that name for ~a~a; give its FHIRPath: [~a ~a \"…\"]"
+                  name type (did-you-mean name (map search-param-name known)) name (cadr sp))
+          (format "search parameter `~a` is a ~a in FHIR, not a ~a" name (search-param-kind def) (cadr sp)))))
+  (unless (null? problems)
+    (raise (exn:fail:declaration (string-join problems "; ") (current-continuation-marks) type)))
   (define own (for/list ([sp (in-list sps)] #:when (caddr sp))
                 (search-param (symbol->string (car sp)) (cadr sp) (caddr sp))))
   (define names (map search-param-name own))

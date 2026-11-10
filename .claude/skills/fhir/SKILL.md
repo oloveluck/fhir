@@ -15,7 +15,7 @@ one line, `file:line:col severity: message`, with "did you mean …" for a missp
 | you are … | start with |
 |---|---|
 | asking questions of health data, storing it under rules, keeping its trail | this skill: the workspace (MCP tools, or `raco fhir-mcp call` from the shell) |
-| writing a Racket program (an FML map, an FSH profile and a CQL library required side by side) | the `fhir-authoring` skill — its "languages together" example is a whole pipeline |
+| writing a Racket program (an FML map, an FSH profile and a CQL library required side by side) | the `fhir-authoring` skill, section "The languages together in one program": a pipeline template to copy (`fhir-examples/examples/intake-pipeline`), its pieces run one at a time, then `main.rkt` — the workspace sections below are not needed |
 | building a FHIR server with your own operations | "Build a FHIR server" below, and `raco fhir-mcp guide capability` |
 | using one language from the command line | its own skill: `cql`, `fsh`, `fml`, `fhirpath`, `vcl`, `sql-on-fhir` |
 
@@ -252,7 +252,11 @@ FHIRPath invariants for anything more complex) and name it in workspace.yaml —
 `profiles:` / `  Observation: <canonical>`. Every staged resource of the type is held to it and
 claims it in `meta.profile`; a stage that breaks it lists the rule and cannot commit; `check`
 holds the workspace's FSH examples to it, `check(data: true)` everything already stored, counting
-violations by rule.
+violations by rule. `write path=rules.fsh text=@rules.fsh enforce:=true` writes the profile AND names it
+in workspace.yaml. `raco fhir-mcp guide workspace` has what to copy: a rules cookbook (a range, a
+unit, not in the future), a complete blood-pressure rule (systolic and diastolic in mm[Hg], a
+subject), and the correction recipe (`describe … as=fsh`, edit, stage, commit with a reason) — each
+tested as written.
 Every commit writes a Provenance (versions, agent, `reason`, source text and hash) and an AuditEvent
 into the store; `audit: all` in workspace.yaml records every run, query and apply as an AuditEvent
 too. All of it is data: `describe("Type/id/_history")` (each version's changes as `path: old → new`),

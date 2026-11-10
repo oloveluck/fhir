@@ -22,6 +22,7 @@
          (only-in fhir/model/registry type-registered? primitive-name?)
          (only-in fhir/result/result ok? ok-value err-error invalid-encoding? invalid-encoding-value)
          (only-in vcl/compile vcl->valueset)
+         (only-in net/uri-codec uri-unreserved-encode)
          (only-in fhir/r6/fhir-version fhir-version)
          (only-in "interaction-codes.rkt"
                   type-interaction? system-interaction? search-param-type?))
@@ -209,8 +210,9 @@
     [(regexp-match? #rx"^(https?://|urn:)" s) s]
     [else
      (define r (vcl->valueset s))
+     ;; the url percent-encoded, as the VCL specification requires of an implicit value set's url
      (if (ok? r)
-         (hash-ref (ok-value r) 'url)
+         (string-append "http://fhir.org/VCL?v1=" (uri-unreserved-encode s))
          (decl-error 'operation
                      (format "#:binding ~s is neither a ValueSet url nor a VCL expression (~a); a code subset is written \"(<system>)(code1;code2)\""
                              s (let ([e (err-error r)]) (if (invalid-encoding? e) (invalid-encoding-value e) e)))

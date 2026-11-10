@@ -27,7 +27,7 @@
    (if subject (format "* subject = Reference(~a)\n" subject) "")
    (format "* component[0].code = http://loinc.org#8480-6\n* component[0].valueQuantity = ~a\n" sys)
    (if dia (format "* component[1].code = http://loinc.org#8462-4\n* component[1].valueQuantity = ~a\n" dia) "")))
-(define (errors-of fsh) (hash-ref (car (hash-ref (call "stage" (hasheq 'fsh fsh)) 'changes)) 'errors))
+(define (errors-of fsh) (hash-ref (car (hash-ref (call "stage" (hasheq 'fsh fsh)) 'changes)) 'errors '()))   ; none: no key
 
 (with-hub h
   (lambda ()
@@ -68,6 +68,8 @@
     ;; correcting a stored reading: its FSH, one line changed, staged again
     (call "commit" (hasheq 'stage (hash-ref (call "stage" (hasheq 'fsh (bp "bp-a1"))) 'stage) 'reason "intake"))
     (define-values (fsh _e) ((tool-run (hash-ref tools "describe")) (hasheq 'ref "Observation/bp-a1" 'as "fsh")))
+    ;; without the profile staging claims by itself (workspace.yaml's `profiles`): nothing to delete
+    (check-false (regexp-match? #rx"meta[.]profile" fsh))
     (define fixed (regexp-replace #rx"150 'mm\\[Hg\\]'" fsh "140 'mm[Hg]'"))
     (check-false (equal? fixed fsh))
     (define st (call "stage" (hasheq 'fsh fixed)))
@@ -89,7 +91,7 @@
   (string->jsexpr text))
 (define (hr id value unit date)
   (format "Instance: ~a\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#8867-4\n* subject = Reference(Patient/a)\n* effectiveDateTime = \"~a\"\n* valueQuantity = ~a '~a'\n" id date value unit))
-(define (errors2 fsh) (string-join (hash-ref (car (hash-ref (call2 "stage" (hasheq 'fsh fsh)) 'changes)) 'errors) "\n"))
+(define (errors2 fsh) (string-join (hash-ref (car (hash-ref (call2 "stage" (hasheq 'fsh fsh)) 'changes)) 'errors '()) "\n"))
 (with-hub h2
   (lambda ()
     (check-equal? (hash-ref (call2 "write" (hasheq 'path "rules.fsh" 'text cookbook)) 'problems) '())
