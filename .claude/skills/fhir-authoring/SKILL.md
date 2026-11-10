@@ -102,22 +102,37 @@ raco fml qr2patient.map --transform qr.json > patient.json   # the map alone: th
 raco fml check qr2patient.map --examples qr.json --profile fsh   # its result held to the profile
 raco cql Intake.cql --data patient.json --now 2026-01-01   # the library over that Patient
 ```
-then `main.rkt` (below) is those three calls as functions.
+then `main.rkt` is those three calls as functions, with a command line — the whole file:
 
 ```racket
 #lang racket/base
 ;; a QuestionnaireResponse -> FML -> a Patient -> validated against an FSH profile -> CQL's answer
 (require json
+         (only-in fhir/serialize/fhir-json write-fhir-json)       ; resourceType first, indented
          (only-in cql/value render)
          (only-in "fsh/intake.fsh" canonical-of)                 ; the profile, registered by canonical
          (only-in "qr2patient.map" transform)                    ; FHIR JSON in, FHIR JSON out
          (only-in "Intake.cql" evaluate))                        ; define name -> value, over resources
+(provide intake)
 (define (intake qr #:now [now #f])
   ;; #:validate holds the result to the profile; a problem names the map's rule that wrote the element
   (define patient (transform qr #:validate (canonical-of "IntakePatient")))
   ;; #:define answers one define; #:now fixes Today() (else the answer moves with the clock)
   (values patient (render (evaluate (list patient) #:define "Is 65 Or Older" #:now now))))
+(module+ main                                                    ; racket main.rkt qr.json
+  (require racket/cmdline)
+  (define file (command-line #:args (questionnaire-response.json) questionnaire-response.json))
+  (define-values (patient old?) (intake (call-with-input-file file read-json)))
+  (write-fhir-json patient #:indent 2) (newline)
+  (printf "65 or older: ~a\n" old?))
 ```
+Every file a program requires starts with its `#lang` line — `#lang fsh` in `intake.fsh`, `#lang fml`
+in `qr2patient.map`, `#lang cql` in `Intake.cql` — which is what makes it a module. A `.map` without
+it fails with Racket's own words, naming the file but not the cause:
+`default-load-handler: expected a `module' declaration, but found something else`. The command-line
+tools (`raco fml`, `raco cql`, `raco fsh`) read a file with or without that line, so a file written for
+them is required as soon as the line is added. `--examples` (raco fml check) takes a file or a
+directory of them; `--now` (raco cql) a date (`2026-01-01`) or a DateTime.
 `main.rkt` prints the Patient with `(write-fhir-json patient #:indent 2)` (`fhir/serialize/fhir-json`;
 `fhir-json->string` gives the text): `resourceType` first, then `id` and `meta`, as FHIR writes them —
 `write-json` puts a hash's keys in no order.

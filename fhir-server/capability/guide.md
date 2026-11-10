@@ -27,6 +27,7 @@ history and search indexes). In a workspace the file is `<name>.capability.rkt`:
   #:out ([bmi decimal 1 1])
   #:handler bmi-handler)                    ; (lambda (in req) …) -> a resource, usually Parameters
 ```
+A whole file — declarations, the handler and how to call it — is the worked example below.
 - Interactions: `read vread update patch delete history-instance history-type create search-type`.
   One the app does not declare answers 405 on a type it serves (404 for a type it does not).
 - The language is FHIR **R6** (6.0.0-ballot): the CapabilityStatement says so, resources are typed
@@ -67,7 +68,8 @@ history and search indexes). In a workspace the file is `<name>.capability.rkt`:
   `documentation` in the derived OperationDefinition (a client reads the unit there). A number may
   declare its range: `[creatinine decimal 1 1 #:min 0.1 #:max 20]` refuses `0` with a 400 before the
   handler runs (FHIR's minValue/maxValue extensions on the parameter). Every problem with a request's
-  inputs is answered at once, one line each; a handler that raises answers 500 naming the handler and
+  inputs is answered at once: an OperationOutcome issue each, its input named in `expression`
+  (`["weight"]`); a handler that raises answers 500 naming the handler and
   how to refuse an input instead.
 - A handler receives `in`, a hash from each input's name to its list of values, typed by the
   declaration and the same over GET (`?weight=80.5`) and POST (a Parameters body): `integer` an exact
@@ -144,10 +146,13 @@ In a workspace, as `clinic.capability.rkt`:
   `apply(operation: "$bmi", url: "http://localhost:8080", inputs: …)`.
 - `explain(ref: "clinic.capability.rkt", subject: "Patient")` shows what it declares for a type.
 
-On the command line: `racket clinic.capability.rkt` prints the CapabilityStatement;
-`raco fhir-server serve clinic.capability.rkt 8080 --store fhir.db` serves it. It prints
-`FHIR server on http://localhost:8080  (Ctrl-C, or kill <pid>, to stop)` and `store: <file>` when it
-is listening (a script waits for `GET /metadata`, then stops it with that pid); `--log` prints one
+On the command line: `racket clinic.capability.rkt` prints the CapabilityStatement (and creates no
+store: the store file is made when a resource is first read or written);
+`raco fhir-server serve clinic.capability.rkt 8080 --store fhir.db` serves it (`--port 8080` too;
+`--port 0` takes a free port). It prints
+`FHIR server on http://localhost:8080  (Ctrl-C, or kill <pid>, to stop)` and `store: <file>` once it
+is listening — that first line is the signal a script waits for, and it names the port when 0 was
+asked; a port in use is one line saying so (exit 1); `--log` prints one
 line per request (`GET /Patient?gender=female 200`) on stderr. `--store` wins over the module's own
 `(server #:store …)`, which is beside the module; with neither, resources live in a temporary SQLite
 file removed when the server stops.

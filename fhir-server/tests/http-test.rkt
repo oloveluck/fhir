@@ -69,3 +69,14 @@
   (printf "http-test: all checks passed\n"))
 
 (stop)
+
+;; port 0: a free port, the one listened on handed to #:on-listen (what `serve --port 0` prints)
+(let* ([got #f]
+       [stop0 (serve-app app #:port 0 #:on-listen (lambda (p) (set! got p)))])
+  (check-true (and (exact-positive-integer? got) (not (= got port))))
+  (define-values (in out) (tcp-connect "127.0.0.1" got))
+  (fprintf out "GET /metadata HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+  (flush-output out)
+  (check-regexp-match #rx"^HTTP/1.1 200" (port->string in))
+  (close-output-port out) (close-input-port in)
+  (stop0))

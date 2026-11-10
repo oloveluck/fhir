@@ -21,7 +21,7 @@
          (only-in "derive.rkt" derive-capability-statement derive-operation-definition)
          (only-in "runtime.rkt" build-app current-repository-factory with-declared-locations)
          (only-in "store.rkt" store-file-factory temporary-store-factory)
-         (only-in json jsexpr->string)
+         (only-in fhir/serialize/fhir-json fhir-json->string)
          (only-in fhir/serialize/to-json node->jsexpr))
 
 (provide app-module-begin)
@@ -120,4 +120,4 @@
                                       (if h #`(hasheq 'search-handling #,h) #'(hash))))))))
         (provide app capability-statement operation-definitions #,@op-names)
         (module+ main
-          (displayln (jsexpr->string (node->jsexpr capability-statement)))))]))
+          (displayln (fhir-json->string (node->jsexpr capability-statement) #:indent 2))))]))

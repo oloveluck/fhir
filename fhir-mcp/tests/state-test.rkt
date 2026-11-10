@@ -146,10 +146,11 @@
       (call e "stage" (hasheq 'fsh "Instance: gus\nInstanceOf: Patient\n" 'files (hasheq 'fsh "gus.fsh")))
       (call e "commit" (hasheq 'stage "latest" 'agent "Practitioner/dr-ng"))
       (define v (car (hash-ref (call e "describe" (hasheq 'ref "Patient/gus/_history")) 'versions)))
-      ;; history's `at` and `source` as the current directory reads them, one form; the trail keeps the
-      ;; file relative to the workspace (`../<dir>-src/gus.fsh`), so SQL names it the same from anywhere
-      (check-equal? (hash-ref v 'at) "gus.fsh:1")
-      (check-regexp-match #rx"^gus[.]fsh sha1:" (hash-ref v 'source))
+      ;; history names the file as the trail and SQL do, relative to the workspace (`../<dir>-src/gus.fsh`):
+      ;; one form wherever it is read from (a rerun's agent met three), the SHA-1 apart
+      (check-regexp-match #rx"^[.][.]/[^/]+-src/gus[.]fsh:1$" (hash-ref v 'at))
+      (check-regexp-match #rx"^[.][.]/[^/]+-src/gus[.]fsh$" (hash-ref v 'source))
+      (check-regexp-match #rx"^[0-9a-f]+$" (hash-ref v 'sha1))
       (define row (car (hash-ref (call e "query" (hasheq 'language "sql" 'text "SELECT source, sha1, at FROM trail WHERE id = 'gus'")) 'rows)))
       ;; the file and its SHA-1 apart, so a query filters by file without string surgery
       (check-regexp-match #rx"^[.][.]/[^/]+-src/gus[.]fsh$" (hash-ref row 'source))
@@ -158,7 +159,20 @@
       ;; an agent written as a reference is one (an audit can follow it)
       (check-equal? (hash-ref v 'by) "Practitioner/dr-ng")
       (check-equal? (hash-ref (car (hash-ref (call e "query" (hasheq 'language "sql" 'text "SELECT agent FROM trail WHERE id = 'gus'")) 'rows)) 'agent)
-                    "Practitioner/dr-ng"))
+                    "Practitioner/dr-ng")
+      ;; a correction's `at` is the rule it changed, not the instance's header
+      (call e "stage" (hasheq 'fsh "Instance: gus\nInstanceOf: Patient\n* gender = #male\n" 'files (hasheq 'fsh "gus.fsh")))
+      (call e "commit" (hasheq 'stage "latest" 'reason "gender corrected"))
+      (check-regexp-match #rx"gus[.]fsh:3$" (hash-ref (car (hash-ref (call e "describe" (hasheq 'ref "Patient/gus/_history")) 'versions)) 'at))
+      ;; the source of what is stored, from the resource's own reference (the Provenance's id was a lookup away)
+      (check-regexp-match #rx"[*] gender = #male" (call e "describe" (hasheq 'ref "Patient/gus" 'as "source")))
+      (check-regexp-match #rx"[*] gender = #male" (call e "describe" (hasheq 'ref "Patient/gus/_history" 'as "source")))
+      ;; write from a file elsewhere says it keeps a copy
+      (with-output-to-file "genders2.fhirpath" #:exists 'truncate (lambda () (display "Patient.gender")))
+      (check-regexp-match #rx"^from genders2[.]fhirpath: later edits go to genders2[.]fhirpath, the workspace's copy"
+                          (hash-ref (call e "write" (hasheq 'path "genders2.fhirpath" 'text "Patient.gender" 'files (hasheq 'text "genders2.fhirpath"))) 'copied)))
+    (let-values ([(text err?) ((tool-run (hash-ref (tools-of e) "describe")) (hasheq 'ref "Patient/ann" 'as "source"))])
+      (check-false err? text))
     (define inside (path->string (build-path dir "data-in.fsh")))
     (parameterize ([current-directory outside])
       (call e "stage" (hasheq 'fsh "Instance: hal\nInstanceOf: Patient\n" 'files (hasheq 'fsh inside)))
@@ -167,6 +181,9 @@
     (delete-directory/files outside)
     ;; from the shell, the next call is written as the shell takes it
     (set-box! call-style 'shell)
+    ;; a refused stage says how to discard it
+    (let-values ([(text err?) ((tool-run (hash-ref (tools-of e) "stage")) (hasheq 'fsh "Instance: ivy\nInstanceOf: Patient\n* gender = #femme\n"))])
+      (check-regexp-match #rx"[(]stage drop=stage-[0-9]+ discards this one[)]" text))
     (check-regexp-match #rx"^commit stage=stage-[0-9]+ writes" (hash-ref (call e "stage" (hasheq 'fsh "Instance: ida\nInstanceOf: Patient\n")) 'next))
     (set-box! call-style 'mcp)
     (check-regexp-match #rx"^commit[(]\"stage-[0-9]+\"[)] writes" (hash-ref (call e "stage" (hasheq 'fsh "Instance: ida\nInstanceOf: Patient\n")) 'next))
@@ -195,6 +212,7 @@
   (check-equal? code 1 text)                                          ; the unknown tool fails the batch
   (check-regexp-match #rx"### query language=sql text=\"SELECT count[(][*][)] AS n FROM Patient\" name=pcount\n[{].*\"name\":\"result://pcount\"" text)
   (check-regexp-match #rx"### describe ref=result://pcount as=csv\nn\n[0-9]+" text)
-  (check-regexp-match #rx"### nosuchtool\nno tool nosuchtool" text))
+  (check-regexp-match #rx"### [[]exit 1[]] nosuchtool\nno tool nosuchtool" text)
+  (check-regexp-match #rx"### 3 line[(]s[)], 1 failed: nosuchtool\n$" text))
 (delete-file batch-file)
 (delete-directory/files dir)

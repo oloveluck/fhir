@@ -1199,6 +1199,30 @@ test doing what the agent did:
   hash of defines) and that `render` is for printing; `apply url=` needs no workspace; the capability
   guide's ranges and all-at-once input errors.
 
+## New users, round 14 (2026-11-10)
+The thirteenth rerun (every task first time, no source read, no wrong answer); each fix has a test
+doing what the agent did:
+- **One path form in the trail**: history's `source` and `at` are the trail's own (relative to the
+  workspace, else absolute — the same text SQL's `trail` has, from any directory), the SHA-1 apart
+  (`sha1`); a correction's `at` is the rule it changed (`rule-line` on the first changed path; the
+  Provenance target's `urn:fhir-mcp:source-line`, matched by its full versioned reference), not the
+  instance's header. `describe ref=Observation/a1[/_history] as=source` answers the FSH that wrote it,
+  through its newest Provenance (no id to copy).
+- **The shell**: `write text=@../a.fsh` says it keeps a copy (`copied`: later edits go to the
+  workspace's file); a refused stage's `next` says how to discard it (`stage drop=stage-3`); `batch`
+  marks a failing line in its header (`### [exit 1] …`) and ends with a count naming them.
+- **Servers**: `raco fhir-server serve app.rkt --port 0` takes a free port and prints it (serve-app's
+  `#:on-listen`; `--port n` as well as the positional port); a port in use is one line, exit 1; the
+  banner names the temporary store (it said memory). An app's store is opened lazily (`open-fhir-store
+  #:lazy?`: the schema is made by the pool's first connection), so `racket app.rkt` prints the
+  statement — now as FHIR writes it, `resourceType` first, indented — and creates no `fhir.db`.
+  An operation's input problems are one OperationOutcome issue each, the input in `expression`
+  (`inputs-outcome`).
+- Docs: fhir-authoring shows `main.rkt` whole (fhir-examples' intake-pipeline-test compares its forms
+  with the file) and says every required file starts with its `#lang` line (and the error Racket gives
+  otherwise); `raco cql --now` takes a date; the capability guide on `--port 0`, the banner as the
+  ready signal and issues per input.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

@@ -65,7 +65,7 @@
      (printf "~a IG requirement(s) not met (raco fhir-server serve-ig ~a --gaps); ~a of them SHALL\n"
              (length gaps) ig (length (filter (lambda (g) (equal? (list-ref (gap->list g) 3) "SHALL")) gaps)))
      (define bearer (opt "--bearer" #f))
-     (define stop (serve-app (srv-app srv) #:port port #:bearer bearer))
+     (define stop (listening serve-app (srv-app srv) port #:bearer bearer #:on-listen (lambda (p) (set! port p))))
      (when bearer (printf "requests need: Authorization: Bearer ~a  (GET /metadata is public)\n" bearer))
      (printf "FHIR server for ~a on http://localhost:~a  (store: ~a; Ctrl-C to stop)\n" ig port db)
      (with-handlers ([exn:break? (lambda (_) (stop))]) (sync/enable-break never-evt))]))
@@ -77,16 +77,24 @@
   (define app (parameterize ([(dynamic-require 'fhir/capability/runtime 'current-repository-factory)
                               (and store ((dynamic-require 'fhir/capability/store 'store-file-factory) store))])
                 (dynamic-require (path->complete-path file) 'app)))
-  (define port (or (and port-str (string->number port-str)) 8080))
-  (define stop (serve-app app #:port port #:log? log?))
+  (define asked (or (and port-str (string->number port-str)) 8080))
+  (define port asked)
+  (define stop (listening serve-app app asked #:log? log? #:on-listen (lambda (p) (set! port p))))
   ;; what is served and where its data lives: the store `--store` named, else the module's own
-  ;; `(server #:store …)` (beside it), else memory; the pid, so a script can stop it
+  ;; `(server #:store …)` (beside it), else a temporary store; the pid, so a script can stop it
   (define stores ((dynamic-require 'fhir/capability/store 'opened-store-files)))
   (printf "FHIR server on http://localhost:~a  (Ctrl-C, or kill ~a, to stop)\n" port (getpid))
-  (printf "store: ~a\n" (if (null? stores) "none: resources without a repository are kept in memory"
+  (printf "store: ~a\n" (if (null? stores) "a temporary SQLite file, removed when the server stops (--store keeps one)"
                              (string-join (map path->string stores) ", ")))
   (flush-output)                                          ; said at once, even when the output is a file
   (with-handlers ([exn:break? (lambda (_) (stop))]) (sync/enable-break never-evt)))
+
+;; listening : serve-app app port … -> stop   serve, or say in one line why not: a port in use was a
+;; stack trace through tcp-listen (port 0 picks a free one, and the banner prints it)
+(define (listening serve-app app port #:log? [log? #f] #:bearer [bearer #f] #:on-listen [on-listen #f])
+  (with-handlers ([exn:fail:network?
+                   (lambda (e) (eprintf "fhir-server: cannot listen on port ~a (in use?); --port 0 picks a free one\n" port) (exit 1))])
+    (serve-app app #:port port #:log? log? #:bearer bearer #:on-listen on-listen)))
 
 ;; raco fhir-server load <store.db> <file|dir> — Bundles, single resources and .cql libraries (store/load.rkt)
 (define (cmd-load db-path src)
@@ -162,7 +170,7 @@
 
 (define usages
   '(("serve-ig"         "raco fhir-server serve-ig <ig> [--db store.db] [--port 8080] [--bearer token] [--capability id] [--load file|dir]… [--tz-offset ±hh:mm] [--no-examples] [--no-validate] [--gaps]")
-    ("serve"            "raco fhir-server serve <app.rkt> [port] [--store fhir.db] [--log]   (--store: resources declared without a repository kept in that SQLite store, over the module's own #:store; --log: one line per request on stderr)")
+    ("serve"            "raco fhir-server serve <app.rkt> [port | --port n] [--store fhir.db] [--log]   (port 0: a free one, printed; --store: resources declared without a repository kept in that SQLite store, over the module's own #:store; --log: one line per request on stderr)")
     ("load"             "raco fhir-server load <store.db> <file|dir>   (Bundles, resources, .cql libraries)")
     ("sql"              "raco fhir-server sql <store.db> \"SELECT …\"   (read-only; a view per type: id, versionId, lastUpdated, resource; resources, history; CSV out)")
     ("evaluate-measure" "raco fhir-server evaluate-measure <store.db> <Measure id|url> --period-start D --period-end D [--subject Patient/x] [--tz-offset ±hh:mm]")))
@@ -176,9 +184,13 @@
          "serve" (lambda (as) (need as 0 "serve") (require-files! "fhir-server" usages "serve" (list (arg as 0)))
                    (define store (let ([m (member "--store" as)]) (and m (pair? (cdr m)) (cadr m))))
                    (define log? (and (member "--log" as) #t))
-                   (define plain (let loop ([xs as]) (cond [(null? xs) '()] [(equal? (car xs) "--store") (if (pair? (cdr xs)) (loop (cddr xs)) '())]
+                   (define port-flag (let ([m (member "--port" as)]) (and m (pair? (cdr m)) (cadr m))))
+                   (define plain (let loop ([xs as]) (cond [(null? xs) '()] [(member (car xs) '("--store" "--port")) (if (pair? (cdr xs)) (loop (cddr xs)) '())]
                                                            [(equal? (car xs) "--log") (loop (cdr xs))] [else (cons (car xs) (loop (cdr xs)))])))
-                   (cmd-serve (car plain) (and (pair? (cdr plain)) (cadr plain)) store #:log? log?))
+                   (define port-str (or port-flag (and (pair? (cdr plain)) (cadr plain))))
+                   (unless (or (not port-str) (let ([n (string->number port-str)]) (and (exact-nonnegative-integer? n) (<= n 65535))))
+                     (usage-error "fhir-server" usages "serve" (format "not a port: ~a" port-str)))
+                   (cmd-serve (car plain) port-str store #:log? log?))
          "load" (lambda (as) (need as 1 "load")
                   (unless (or (file-exists? (arg as 1)) (directory-exists? (arg as 1)))
                     (usage-error "fhir-server" usages "load" (format "no such file or directory: ~a" (arg as 1))))

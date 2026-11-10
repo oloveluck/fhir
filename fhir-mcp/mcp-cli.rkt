@@ -93,19 +93,27 @@
   (set-box! call-style 'shell)
   (with-workspace o
     (lambda (h tools)
-      (define failed
-        (for/sum ([l (in-list lines)])
-          (printf "### ~a\n" l)
+      ;; each answer under its line, the line's exit status in the header (`### [exit 1] stage …`) and
+      ;; a last line counting them: a rerun's agent read a long batch and missed which line failed
+      (define statuses
+        (for/list ([l (in-list lines)])
           (define words (shell-words l))
           (define t (and (pair? words) (findf (lambda (x) (equal? (tool-name x) (car words))) tools)))
-          (cond
-            [(not t) (printf "no tool ~a (raco fhir-mcp tools lists them)\n" (if (pair? words) (car words) "")) 1]
-            [else
-             (define-values (out err?) (with-handlers ([exn:fail? (lambda (e) (values (exn-message e) #t))])
-                                         (call-tool t (call-arguments (cdr words)))))
-             (displayln out)
-             (flush-output)
-             (if (or err? (reports-errors? out)) 1 0)])))
+          (define-values (out status)
+            (cond
+              [(not t) (values (format "no tool ~a (raco fhir-mcp tools lists them)" (if (pair? words) (car words) "")) 1)]
+              [else
+               (define-values (out err?) (with-handlers ([exn:fail? (lambda (e) (values (exn-message e) #t))])
+                                           (call-tool t (call-arguments (cdr words)))))
+               (values out (if (or err? (reports-errors? out)) 1 0))]))
+          (printf "### ~a~a\n" (if (zero? status) "" "[exit 1] ") l)
+          (displayln out)
+          (flush-output)
+          status))
+      (define failed (for/sum ([x (in-list statuses)]) x))
+      (printf "### ~a line(s), ~a failed~a\n" (length statuses) failed
+              (if (zero? failed) ""
+                  (format ": ~a" (string-join (for/list ([l (in-list lines)] [x (in-list statuses)] #:unless (zero? x)) l) "; "))))
       (exit (if (zero? failed) 0 1)))))
 
 ;; shell-words : line -> (listof string)   split as a shell would: blanks separate, '…' and "…" quote

@@ -104,9 +104,13 @@
                      "(resource Observation #:interactions (read create search-type) #:search-params ([subject reference]))\n")
                     o)))
   (define app (dynamic-require src 'app))
+  ;; the store is made when it is first used: requiring the module (as `racket clinic.rkt` does to print
+  ;; the statement) leaves no fhir.db beside it
+  (check-false (file-exists? (build-path dir "fhir.db")))
   (define p (ok-value (from-json (hasheq 'resourceType "Patient" 'gender "female" 'name (list (hasheq 'family "Ng"))))))
   (define created (dispatch app (create-request 'Patient p)))
   (check-eq? (fhir-type created) 'Patient)
+  (check-true (file-exists? (build-path dir "fhir.db")))
   ;; what the guide says of a store-backed type: _include over a declared reference parameter, and the
   ;; reference's type modifier (a rerun's agent saw `subject:Patient` reported as unknown)
   (define pid (hash-ref (node->jsexpr created) 'id))
@@ -273,9 +277,12 @@
   ;; every problem at once: two mistyped inputs are two lines (one was reported)
   (define-values (s13 o13) (handle app "GET" "/$r" '((x . "abc") (n . "60.5")) ""))
   (check-equal? s13 400)
-  (define d13 (hash-ref (car (hash-ref o13 'issue)) 'diagnostics))
-  (check-regexp-match #rx"parameter 'x' must be a decimal, got \"abc\"" d13)
-  (check-regexp-match #rx"parameter 'n' must be an integer, got \"60[.]5\"" d13)
+  ;; one issue each, its input named in `expression`, so a client knows which field to fix
+  (define is13 (hash-ref o13 'issue))
+  (check-equal? (length is13) 2)
+  (define (issue-of n) (findf (lambda (i) (equal? (hash-ref i 'expression #f) (list n))) is13))
+  (check-regexp-match #rx"parameter 'x' must be a decimal, got \"abc\"" (hash-ref (issue-of "x") 'diagnostics))
+  (check-regexp-match #rx"parameter 'n' must be an integer, got \"60[.]5\"" (hash-ref (issue-of "n") 'diagnostics))
   ;; a handler that raises: a 500 that says which handler and how to refuse instead
   (define-values (s14 o14) (handle app "GET" "/$r" '((x . "0")) ""))
   (check-equal? s14 500)

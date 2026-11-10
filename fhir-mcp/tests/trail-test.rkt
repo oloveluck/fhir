@@ -60,8 +60,9 @@
     (check-equal? (map (lambda (v) (list (hash-ref v 'version) (hash-ref v 'changed) (hash-ref v 'reason) (hash-ref v 'by))) (hash-ref hist 'versions))
                   '(("2" ("valueQuantity.value: 8.0 → 8.4") "lab corrected the value" "claude-code 2.0 via fhir-mcp")
                     ("1" "created" "intake: ann's first HbA1c" "claude-code 2.0 via fhir-mcp")))
-    ;; each version names the line of its source where its Instance begins
-    (check-equal? (map (lambda (v) (hash-ref v 'at #f)) (hash-ref hist 'versions)) '("fsh:1" "fsh:5"))
+    ;; each version names the line of its source that made it: a create the Instance's first line, a
+    ;; correction the rule it changed (`* valueQuantity = 8.4 '%'`, line 6, not the header)
+    (check-equal? (map (lambda (v) (hash-ref v 'at #f)) (hash-ref hist 'versions)) '("fsh:6" "fsh:5"))
     ;; and when it was written (an agent needed SQL for the time)
     (check-true (andmap (lambda (v) (regexp-match? #px"^\\d{4}-\\d\\d-\\d\\dT" (hash-ref v 'recorded))) (hash-ref hist 'versions)))
     ;; computing over the trail: every version with the reason it was written, in SQL

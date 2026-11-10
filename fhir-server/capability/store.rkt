@@ -100,12 +100,12 @@
                         (with-handlers ([exn:fail? void]) (when (file-exists? x) (delete-file x)))))
     ;; the default plumber is flushed as the process ends (as capability/workspace stops its servers)
     (void (plumber-add-flush! (current-plumber) (lambda (_) (remove!))))
-    (set! temporary (store-repository-factory (open-fhir-store f))))
+    (set! temporary (store-repository-factory (open-fhir-store f #:lazy? #t))))
   temporary)
 
 (define opened (make-hash))
 (define (store-file-factory p)
-  (store-repository-factory (hash-ref! opened (simplify-path (path->complete-path p)) (lambda () (open-fhir-store p)))))
+  (store-repository-factory (hash-ref! opened (simplify-path (path->complete-path p)) (lambda () (open-fhir-store p #:lazy? #t)))))
 
 ;; with-declared : catalog type (listof (list name kind expr|#f)) -> catalog
 (define (with-declared catalog type sps)

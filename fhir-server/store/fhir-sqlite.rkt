@@ -25,7 +25,9 @@
 (provide
  (contract-out
   [struct fhir-store ([path path-string?] [pool connection-pool?])]
-  [open-fhir-store  (->* (path-string?) (#:max-connections exact-positive-integer?) fhir-store?)]
+  ;; #:lazy? #t: nothing touches the file until the store is first used (`racket app.rkt`, which only
+  ;; prints a capability app's statement, created the app's store beside it)
+  [open-fhir-store  (->* (path-string?) (#:max-connections exact-positive-integer? #:lazy? any/c) fhir-store?)]
   [close-fhir-store (-> fhir-store? void?)]
   ;; lease a connection for the extent of `proc` (returns its result)
   [call-with-store-connection  (-> fhir-store? (-> connection? any) any)]
@@ -41,13 +43,18 @@
   (query-exec c "PRAGMA foreign_keys=ON")
   c)
 
-(define (open-fhir-store path #:max-connections [max-conn 8])
-  (define pool
-    (connection-pool
-     (lambda () (configure! (sqlite3-connect #:database path #:mode 'create #:busy-retry-limit 20)))
-     #:max-connections max-conn))
+(define (open-fhir-store path #:max-connections [max-conn 8] #:lazy? [lazy? #f])
+  ;; lazily, the schema is made by the first connection the pool opens (once, under a lock)
+  (define schema-ready? (not lazy?))
+  (define lock (make-semaphore 1))
+  (define (connect)
+    (define c (configure! (sqlite3-connect #:database path #:mode 'create #:busy-retry-limit 20)))
+    (unless schema-ready?
+      (call-with-semaphore lock (lambda () (unless schema-ready? (ensure-schema! c) (set! schema-ready? #t)))))
+    c)
+  (define pool (connection-pool connect #:max-connections max-conn))
   (define store (fhir-store path pool))
-  (call-with-store-connection store ensure-schema!)
+  (unless lazy? (call-with-store-connection store ensure-schema!))
   store)
 
 (define (close-fhir-store store)

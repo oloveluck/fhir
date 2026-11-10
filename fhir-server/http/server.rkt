@@ -21,12 +21,15 @@
  (contract-out
   ;; #:bearer token — require `Authorization: Bearer <token>` on every request except GET /metadata
   ;; (a static token: enough for test kits that take a manually supplied access token; NOT SMART)
-  [serve-app (->* (app?) (#:port (integer-in 1 65535) #:host (or/c string? #f) #:bearer (or/c string? #f) #:log? boolean?)
+  ;; #:port 0 takes a free port; #:on-listen receives the port listened on (the one to print)
+  [serve-app (->* (app?) (#:port (integer-in 0 65535) #:host (or/c string? #f) #:bearer (or/c string? #f) #:log? boolean?
+                          #:on-listen (or/c #f (-> (integer-in 1 65535) any)))
                   (-> void))]))
 
 ;; start serving `app` on `port`; returns a thunk that stops the server.
-(define (serve-app app #:port [port 8080] #:host [host #f] #:bearer [bearer #f] #:log? [log? #f])
+(define (serve-app app #:port [port 8080] #:host [host #f] #:bearer [bearer #f] #:log? [log? #f] #:on-listen [on-listen #f])
   (define listener (tcp-listen port 128 #t host))
+  (when on-listen (let-values ([(_h p _rh _rp) (tcp-addresses listener #t)]) (on-listen p)))
   (define stopped? (box #f))
   (define (accept-loop)
     (define conn

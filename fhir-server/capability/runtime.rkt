@@ -343,7 +343,7 @@
      (define-values (in type-problems) (if od (typed-inputs/problems od in0) (values in0 '())))
      (define problems (if od (append (input-problems od in0) type-problems (range-problems od in)) '()))
      (cond
-       [(pair? problems) (operation-outcome-invalid (string-join* problems))]
+       [(pair? problems) (inputs-outcome problems)]
        [else
         ;; a handler that raises is a 500 saying what raised and how to refuse instead (a client
         ;; got `expt: undefined for 0 and -0.241`, the handler's author no hint)
@@ -461,7 +461,7 @@
 ;; validate the input hash against the OperationDefinition contract; #f = ok, else an OperationOutcome
 (define (validate-inputs op-def in)
   (define problems (input-problems op-def in))
-  (and (pair? problems) (operation-outcome-invalid (string-join* problems))))
+  (and (pair? problems) (inputs-outcome problems)))
 ;; input-problems : OperationDefinition inputs -> (listof problem-string)   unknown, missing, too
 ;; many, outside a required binding
 (define (input-problems op-def in)
@@ -607,6 +607,16 @@
    (from-json (hasheq 'resourceType "OperationOutcome"
                       'issue (list (hasheq 'severity severity 'code code
                                            'diagnostics diagnostics))))))
+;; inputs-outcome : (listof problem) -> OperationOutcome   one issue per problem, each naming its input
+;; in `expression` (`[x]`), as FHIR places an issue: one string of every problem joined by `;` read as
+;; one problem and a client could not tell which input to fix
+(define (inputs-outcome problems)
+  (ok-or-raise
+   (from-json (hasheq 'resourceType "OperationOutcome"
+                      'issue (for/list ([p (in-list problems)])
+                               (define name (let ([m (regexp-match #rx"^parameter '([^']+)'" p)]) (and m (cadr m))))
+                               (define i (hasheq 'severity "error" 'code "invalid" 'diagnostics p))
+                               (if name (hash-set i 'expression (list name)) i))))))
 (define (operation-outcome-not-supported msg) (operation-outcome "error" "not-supported" msg))
 (define (operation-outcome-invalid msg)       (operation-outcome "error" "invalid" msg))
 (define (operation-outcome-exception msg)     (operation-outcome "error" "exception" msg))

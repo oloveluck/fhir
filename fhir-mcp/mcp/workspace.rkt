@@ -44,7 +44,7 @@
   [open-hub        (->* (path-string?) (#:data (or/c string? #f) #:packages (listof string?)) hub?)]
   [hub-root        (-> hub? path?)]
   [with-hub        (-> hub? (-> any) any)]
-  [hub-write!      (->* (hub? string? string?) (#:enforce? any/c) jsexpr?)]
+  [hub-write!      (->* (hub? string? string?) (#:enforce? any/c #:from (or/c #f string?)) jsexpr?)]
   [hub-check       (->* (hub? (listof string?)) (#:data? boolean?) jsexpr?)]
   [hub-run         (-> hub? string? hash? jsexpr?)]
   [hub-query       (-> hub? string? string? hash? jsexpr?)]
@@ -253,7 +253,7 @@
   full)
 
 ;; ---- write, check ---------------------------------------------------------------------------------
-(define (hub-write! h p text #:enforce? [enforce? #f])
+(define (hub-write! h p text #:enforce? [enforce? #f] #:from [from #f])
   (define full (inside h p))
   (define config? (equal? (path->string (file-name-from-path full)) "workspace.yaml"))
   (define lang (workspace-language-of full))
@@ -281,8 +281,13 @@
            (if (null? sds) answer (hash-set answer 'enforced (enforce-profiles! h sds)))]
           [else (let ([unenforced (unlisted-profiles h text)])
                   (if (pair? unenforced) (hash-set answer 'notes unenforced) answer))]))
+  ;; text read from a file elsewhere (`text=@../a.fsh`) is COPIED: say so, since a later edit of that
+  ;; file changes nothing here (a rerun's agent edited its original and staged the old copy)
+  (define answer** (if (and from (not (equal? (path-string (simplify-path (path->complete-path from))) (path-string full))))
+                       (hash-set answer* 'copied (format "from ~a: later edits go to ~a, the workspace's copy (or write it again)" from (rel h full)))
+                       answer*))
   ;; the configuration only when it is what was written
-  (if config? (hash-set answer* 'config (config-json h)) answer*))
+  (if config? (hash-set answer** 'config (config-json h)) answer**))
 
 ;; unlisted-profiles : hub fsh-text -> (listof string)   a profile the text defines that workspace.yaml's
 ;; `profiles` does not name: its examples are checked against it, but stage and check(data: true)
@@ -820,13 +825,6 @@
                                (and (not (regexp-match? #rx"^/|^([.][.]/){3}" r)) r))))
   (or relative (path->string full)))
 
-;; shown-display : hub (string|#f) -> string|#f   a source's one-line display (`../src/a.fsh sha1:…`) with
-;; its path shown as `at` shows it
-(define (shown-display h d)
-  (cond [(not (string? d)) d]
-        [(regexp-match #px"^(\\S+[.][A-Za-z]+)( sha1:.*)$" d) => (lambda (m) (string-append (shown-path h (cadr m)) (caddr m)))]
-        [else d]))
-
 ;; shown-path : hub string -> string   a path the trail keeps (workspace-relative or absolute) as a
 ;; message shows it: relative to the current directory when that is shorter
 (define (shown-path h stored)
@@ -880,6 +878,15 @@
         [(equal? ref "stages") (describe-stages h)]
         [(regexp-match #px"^(?:([A-Za-z]+)/)?[$]([A-Za-z-]+)$" ref) (describe-operation ref)]
         [(regexp-match? #rx"/OperationDefinition/" ref) (describe-operation ref)]
+        ;; the source text a stored resource was written from, read through its newest Provenance —
+        ;; no id to copy (`describe ref=Observation/a1/_history as=source`, or the resource itself)
+        [(and source? (let ([m (regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)(?:/_history)?$" ref)])
+                        (and m (not (member (cadr m) '("Provenance" "DocumentReference" "Binary"))) m)))
+         => (lambda (m)
+              (define pv (let ([vs (hash-ref (describe-history h (cadr m) (caddr m)) 'versions '())])
+                           (for/first ([v (in-list vs)] #:when (hash-ref v 'provenance #f)) (hash-ref v 'provenance))))
+              (unless pv (error 'describe (format "~a was not written by a commit: no Provenance holds its source" ref)))
+              (as-source ((data-source-read (current-data-source)) "Provenance" (cadr (regexp-match #rx"^Provenance/(.+)$" pv)))))]
         [(regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)/_history$" ref)
          => (lambda (m) (describe-history h (cadr m) (caddr m)))]
         [(regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)$" ref)
@@ -923,13 +930,31 @@
                                         (cons 'recorded (hash-ref pv 'recorded #f))
                                         (cons 'by (let ([a (hash-ref pv 'agent '())]) (and (pair? a) (let ([w (hash-ref (car a) 'who (hasheq))]) (or (hash-ref w 'display #f) (hash-ref w 'reference #f))))))
                                         (cons 'reason (let ([r (hash-ref pv 'reason '())]) (and (pair? r) (hash-ref (car r) 'text #f))))
-                                        (cons 'source (let ([en (hash-ref pv 'entity '())]) (and (pair? en) (shown-display h (hash-ref (hash-ref (car en) 'what (hasheq)) 'display #f)))))
-                                        ;; where in that source this resource was written: an FSH Instance's line
-                                        (cons 'at (source-line pv id h)))
+                                        ;; the source as the trail keeps it (relative to the workspace), its
+                                        ;; SHA-1 apart, and where in it this version was written — the same
+                                        ;; values as SQL's `trail` (one form everywhere)
+                                        (cons 'source (let ([d (provenance-display pv)]) (and d (car (display-parts d)))))
+                                        (cons 'sha1 (let ([d (provenance-display pv)]) (and d (cdr (display-parts d)))))
+                                        (cons 'at (or (target-at pv (format "~a/~a/_history/~a" type id (vid cur))) (source-line pv id))))
                                   '()))]
                  #:when (cdr kv))
         (hash-set e (car kv) (cdr kv)))))
   (hasheq 'resource (format "~a/~a" type id) 'versions (reverse entries)))
+
+;; provenance-display : Provenance -> string|#f   its source's one-line display (`../src/a.fsh sha1:…`)
+(define (provenance-display pv)
+  (let ([en (hash-ref pv 'entity '())]) (and (pair? en) (hash-ref (hash-ref (car en) 'what (hasheq)) 'display #f))))
+;; display-parts : string -> (cons source sha1|#f)   as SQL's trail splits it
+(define (display-parts d)
+  (define m (regexp-match #px"^(.*) sha1:(\\S+)$" d))
+  (if m (cons (cadr m) (caddr m)) (cons d #f)))
+;; target-at : Provenance Type/id/_history/v -> string|#f   the source line the commit wrote this version from
+(define (target-at pv ref)
+  (for*/first ([t (in-list (hash-ref pv 'target '()))]
+               #:when (equal? (hash-ref t 'reference #f) ref)
+               [e (in-list (hash-ref t 'extension '()))]
+               #:when (equal? (hash-ref e 'url #f) "urn:fhir-mcp:source-line"))
+    (hash-ref e 'valueString #f)))
 
 ;; trim-definition : resource -> resource   a StructureDefinition without its snapshot (the elements
 ;; are a describe of Type.path away); the narrative dropped
@@ -1251,7 +1276,7 @@
               'next (cond [nothing? (format "nothing to commit: the ~a resource(s) are stored as they are" (length changes))]
                           [(zero? errors) (format "~a writes the ~a change(s) to ~a" (call-text "commit" (list (cons 'stage id))) (count (lambda (c) (not (eq? (change-action c) 'unchanged))) changes)
                                                   (let ([p (data-store-path h)]) (if p (format "the store ~a" (shown-path h (path->string (path->complete-path p)))) (hub-data-label h))))]
-                          [else "fix the errors, then stage again: a stage with errors is not committed"])))))
+                          [else (format "fix the errors, then stage again: a stage with errors is not committed (~a discards this one)" (call-text "stage" (list (cons 'drop id))))])))))
 
 ;; dangling-references : hub (listof resource) -> (hash resource -> (listof string))   each literal
 ;; reference (`Patient/pat-a`) to a resource neither in the data nor in this stage: a warning, not an
@@ -1355,13 +1380,19 @@
   ;; each target with the line of the source that wrote it (`patients.fsh:30`: an FSH Instance's
   ;; first line), so SQL's `trail` answers it per row
   (define src (staged-source st))
-  (define (source-at r)
+  ;; a correction (an update) is said at the first rule that changed (`* component[0].valueQuantity
+  ;; = 140 …`), a new resource at its Instance's first line
+  (define (source-at ch)
+    (define r (change-resource ch))
     (define text (and (equal? (hash-ref src 'kind #f) "fsh") (hash-ref src 'text #f)))
     (define line (and text (hash-ref r 'id #f) (instance-line text (hash-ref r 'id))))
-    (and line (format "~a:~a" (hash-ref src 'path "fsh") line)))
+    (define changed-path (and line (eq? (change-action ch) 'update)
+                              (for/first ([p (in-list (change-paths ch))]) (car (regexp-split #rx":" p)))))
+    (define at (or (and changed-path (rule-line text line changed-path)) line))
+    (and at (format "~a:~a" (hash-ref src 'path "fsh") at)))
   (define targets (for/list ([w (in-list written)] [ch (in-list todo)] #:when (hash-ref w 'ok #f))
                     (list (hash-ref w 'version (hash-ref w 'resource)) (if (eq? (change-action ch) 'create) 'create 'update)
-                          (source-at (change-resource ch)))))
+                          (source-at ch))))
   ;; who the trail names: the `agent` asked for, else the client (FHIR_MCP_AGENT from the shell)
   (define agent (or agent-asked (unbox current-agent)))
   (define trail (if (null? targets) '() (write-trail! h (list (provenance targets src reason agent (now-instant))
