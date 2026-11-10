@@ -62,10 +62,17 @@
   #:spec-url "https://build.fhir.org/datatypes.html#positiveInt")
 (define-fhir-primitive unsignedInt #:range [0 2147483647]
   #:spec-url "https://build.fhir.org/datatypes.html#unsignedInt")
+;; decimal-lexeme : any -> any   a Racket real as a decimal's lexeme (57.5 -> "57.5", 58 -> "58",
+;; 1/2 -> "0.5"); anything else unchanged, for the pattern to judge. A handler computing a value
+;; wrote `(real->decimal-string v 0)` = "58.", which FHIR's decimal refuses, and the form refused 57.5.
+(define (decimal-lexeme raw)
+  (cond [(exact-integer? raw) (number->string raw)]
+        [(and (real? raw) (rational? raw)) (number->string (exact->inexact raw))]
+        [else raw]))
 ;; decimal is STRING-backed to preserve precision/trailing zeros (Racket reals lose "1.50" -> 1.5).
 ;; The lexical form is validated against the spec regex and kept verbatim; the serializer emits it as
 ;; a raw JSON number token (serialize/to-json.rkt), so precision survives the write path.
-(define-fhir-primitive decimal #:pattern px:decimal
+(define-fhir-primitive decimal #:pattern px:decimal #:coerce decimal-lexeme
   #:spec-url "https://build.fhir.org/datatypes.html#decimal")
 
 ;; --- temporal (variable precision) --------------------------------------------------

@@ -30,6 +30,13 @@ raco fml check qr2patient.map --examples qr.json --profile fsh   # the map's res
 racket main.rkt --now 2026-01-01 qr.json                          # the Patient, then "65 or older: true"
 raco test tests.rkt                                               # all of the above as one gate
 ```
+To write the four files yourself instead: `fsh/intake.fsh` (`#lang fsh`: a Profile with `1..1` rules and
+an Instance — the fsh skill), `qr2patient.map` (`#lang fml`: a group from QuestionnaireResponse to
+Patient, one rule per item — the fml guide's cheat sheet), `Intake.cql` (`#lang cql`: `define "Is 65 Or
+Older": AgeInYears() >= 65` — the cql guide) and `main.rkt` (fhir-authoring shows it whole). The map and
+the validation read FHIR R5 and the CQL library FHIR 4.0.1: a Patient's name, gender and birthDate are
+the same in both. **A Racket program needs nothing below this line**: the rest of this skill is the
+workspace (MCP tools or `raco fhir-mcp`); go on in `fhir-authoring`, "The languages together in one program".
 
 ## Set up
 ```sh
@@ -276,7 +283,9 @@ subject), and the correction recipe (`describe … as=fsh`, edit, stage, commit 
 tested as written.
 Every commit writes a Provenance (versions, agent, `reason`, source text and hash) and an AuditEvent
 into the store; `audit: all` in workspace.yaml records every run, query and apply as an AuditEvent
-too. All of it is data: `describe("Type/id/_history")` (each version's changes as `path: old → new`),
+too. All of it is data: `describe("Observation", as: "trail")` — every stored Observation with its
+subject, value and date beside who wrote it, when, why and from which file and line, as CSV: "where did
+each value come from" in one call; `describe("Type/id/_history")` (each version's changes as `path: old → new`),
 `describe("Provenance/<id>", as: "source")` (the source text, decoded), `query("search", "Provenance?target=Patient/ann")`,
 and SQL over `trail` (each written version with its agent, reason and source), `history` (every
 version), `Provenance` and `AuditEvent`. A result's `describe` names

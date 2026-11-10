@@ -67,6 +67,14 @@
     ;; each version names the line of its source that made it: a create the Instance's first line, a
     ;; correction the rule it changed (`* valueQuantity = 8.4 '%'`, line 6, not the header)
     (check-equal? (map (lambda (v) (hash-ref v 'at #f)) (hash-ref hist 'versions)) '("fsh:6" "fsh:5"))
+    ;; staging the original text again would undo the correction: said, with what and why it undoes;
+    ;; and the patient stored as it is comes back as a count, not a listed "unchanged" change
+    (define again (call "stage" (hasheq 'fsh (string-append "Instance: ann\nInstanceOf: Patient\n* gender = #female\n\n" (a1c 8.0 "%")))))
+    (check-equal? (hash-ref again 'unchanged) 1)
+    (check-equal? (map (lambda (c) (hash-ref c 'resource)) (hash-ref again 'changes)) '("Observation/a1"))
+    (check-regexp-match #rx"puts back version 1's values [(]valueQuantity[.]value[)], undoing version 2 [(]\"lab corrected the value\"[)]"
+                        (string-join (hash-ref (car (hash-ref again 'changes)) 'warnings) "\n"))
+    (call "stage" (hasheq 'drop (hash-ref again 'stage)))
     ;; and when it was written (an agent needed SQL for the time)
     (check-true (andmap (lambda (v) (regexp-match? #px"^\\d{4}-\\d\\d-\\d\\dT" (hash-ref v 'recorded))) (hash-ref hist 'versions)))
     ;; computing over the trail: every version with the reason it was written, in SQL
@@ -118,6 +126,18 @@
     ;; the stored data, held to the rules: all of it holds (the trail's own resources included)
     (define cd (hash-ref (call "check" (hasheq 'data #t)) 'data))
     (check-equal? (hash-ref cd 'invalid) 0)
-    (check-true (>= (hash-ref cd 'checked) 8))))
+    (check-true (>= (hash-ref cd 'checked) 8))
+    ;; the trail of a type, with what each resource says: its subject and value beside who wrote it
+    (let-values ([(tr _e) ((tool-run (hash-ref tools "describe")) (hasheq 'ref "Observation" 'as "trail"))])
+      (check-regexp-match #rx"\na1,Patient/ann,8[.]4 %,[^,]*,2," tr))
+    ;; a define answering texts is tallied by text (it read {"other": n}), rows in patient order
+    (call "write" (hasheq 'path "Above.cql" 'text (string-append "library Above version '1'\nusing FHIR version '4.0.1'\ncontext Patient\n"
+                                                               "define \"Above\": if exists [Observation] then 'tested' else 'never tested'\n")))
+    (define ab (call "run" (hasheq 'path "Above.cql")))
+    (check-true (hash-has-key? (hash-ref (hash-ref ab 'summary) 'defines) 'Above))
+    (check-false (hash-has-key? (hash-ref (hash-ref (hash-ref ab 'summary) 'defines) 'Above) 'other))
+    (define pts (map (lambda (r) (hash-ref r 'patient)) (hash-ref ab 'rows)))
+    (check-equal? pts (sort pts string<?))
+    (void (call "write" (hasheq 'path "Above.cql" 'text "")))))
 
 (delete-directory/files dir)

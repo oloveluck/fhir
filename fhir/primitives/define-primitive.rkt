@@ -17,6 +17,8 @@
 ;;;   #:parse  proc  — proc : (raw url) -> Result value       (temporal types)
 ;;;   #:base   pred? — raw satisfies pred?                    (boolean, decimal)
 ;;;   #:length n     — additional max-length check (strings)
+;;;   #:coerce proc  — with #:pattern: proc : raw -> raw, applied first (decimal: a Racket real
+;;;                    becomes its lexeme, so `(valueDecimal 57.5)` builds what `"57.5"` does)
 ;;;   #:spec-url url — REQUIRED; the FHIR definition URL.
 
 (require (for-syntax racket/base
@@ -38,6 +40,7 @@
               (~optional (~seq #:range [lo hi]))
               (~optional (~seq #:parse parser))
               (~optional (~seq #:length maxlen))
+              (~optional (~seq #:coerce coerce))
               (~once     (~seq #:spec-url url)))
         ...)
      (define/with-syntax sname (format-id #'name "fhir-~a" #'name))
@@ -58,7 +61,8 @@
      (define/with-syntax make-fn
        (cond
          [(attribute pat)
-          #`(lambda (raw #:id [id #f] #:extension [extension '()])
+          #`(lambda (raw0 #:id [id #f] #:extension [extension '()])
+              (define raw #,(if (attribute coerce) #'(coerce raw0) #'raw0))
               (cond
                 [(not (string? raw)) (err (invalid-encoding 'name url raw))]
                 #,@(if (attribute maxlen)

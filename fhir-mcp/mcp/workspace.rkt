@@ -303,10 +303,16 @@
   (define f (build-path (hub-root h) "workspace.yaml"))
   (define text (if (file-exists? f) (file->string f) ""))
   (define lines (for/list ([sd (in-list sds)]) (format "  ~a: ~a" (hash-ref sd 'type) (hash-ref sd 'url))))
+  (define block (string-append "profiles:                    # rules the data keeps: FSH profiles (or an IG's) by type\n"
+                               (string-join lines "\n") "\n"))
   (define new-text
-    (if (regexp-match? #px"(?m:^profiles:\\s*$)" text)
-        (regexp-replace #px"(?m:^profiles:\\s*$)" text (lambda (_) (string-append "profiles:\n" (string-join lines "\n"))))
-        (string-append text (if (or (string=? text "") (regexp-match? #rx"\n$" text)) "" "\n") "profiles:\n" (string-join lines "\n") "\n")))
+    (cond
+      [(regexp-match? #px"(?m:^profiles:)" text)
+       (regexp-replace #px"(?m:^profiles:[^\n]*$)" text (lambda (head) (string-append head "\n" (string-join lines "\n"))))]
+      ;; init's commented template: filled in place (it was left, and a second `profiles:` appended)
+      [(regexp-match? #px"(?m:^# profiles:[^\n]*\n(?:#   [^\n]*\n)?)" text)
+       (regexp-replace #px"(?m:^# profiles:[^\n]*\n(?:#   [^\n]*\n)?)" text (lambda (_) block))]
+      [else (string-append text (if (or (string=? text "") (regexp-match? #rx"\n$" text)) "" "\n") block)]))
   (call-with-output-file f (lambda (o) (write-string new-text o)) #:exists 'truncate/replace)
   (configure! h (hub-root h))
   (refresh! h)
@@ -530,8 +536,14 @@
           'total (length rows)
           'summary (run-result-summary r)
           'rows (if resources? (map (lambda (row) (if (hash? row) (hash-remove row 'json) row)) shown) (map preview shown))))
-  ;; `more` only when there is more to read (`"more": null` said nothing)
-  (if more (hash-set answer 'more more) answer))
+  ;; `more` only when there is more to read (`"more": null` said nothing); a wide table says how to
+  ;; have it compact (11 columns of JSON objects was a long answer for a yes/no question)
+  (define cols (run-result-columns r))
+  (define with-more (if more (hash-set answer 'more more) answer))
+  (if (and (not resources?) (> (length cols) 6))
+      (hash-set with-more 'table (format "~a as=csv columns=\"~a\": the rows as CSV, the columns you choose"
+                                         (call-text "describe" (list (cons 'ref uri))) (string-join (map (lambda (c) (format "~a" c)) (take cols 3)) ",")))
+      with-more))
 
 ;; options : hash -> Options   the verbs' arguments as a language's options
 (define (options args)
@@ -876,7 +888,8 @@
       (cond
         [(and (regexp-match? #rx"^result://" ref) (equal? (hash-ref args 'as #f) "csv") (not against))
          (result-csv h ref offset (let ([l (hash-ref args 'limit #f)]) (if (exact-positive-integer? l) l 1000))
-                     #:columns (column-list (hash-ref args 'columns #f)))]
+                     #:columns (column-list (hash-ref args 'columns #f))
+                     #:sort (let ([v (hash-ref args 'sort #f)]) (and (string? v) v)))]
         [(regexp-match? #rx"^result://" ref) (describe-result h ref offset limit against)]
         [(equal? ref "stages") (describe-stages h)]
         [(regexp-match #px"^(?:([A-Za-z]+)/)?[$]([A-Za-z-]+)$" ref) (describe-operation ref)]
@@ -1002,7 +1015,8 @@
 ;; compact form of a table (JSON rows repeat every column name); a last line says what is left
 ;; #:columns: only these, in this order (a CQL run's table of the defines a person reads: `columns=
 ;; "Name,Latest Number,Latest Date"`); a name the result lacks is an error listing its columns
-(define (result-csv h uri offset limit #:columns [wanted #f])
+;; #:sort: a column to order the rows by (`-Name` descending), numbers as numbers, nulls last
+(define (result-csv h uri offset limit #:columns [wanted #f] #:sort [sort-by #f])
   (define st (or (result-of h uri) (error 'describe (format "no result ~a (results: ~a)" uri (result-listing h)))))
   (define r (stored-result st))
   (define all-cols (map (lambda (c) (format "~a" c)) (run-result-columns r)))
@@ -1011,7 +1025,7 @@
           [else (for ([c (in-list wanted)] #:unless (member c all-cols))
                   (error 'describe (format "~a has no column ~s~a (columns: ~a)" uri c (did-you-mean c all-cols) (string-join all-cols ", "))))
                 wanted]))
-  (define rows (run-result-rows r))
+  (define rows (sorted-rows (run-result-rows r) sort-by all-cols uri))
   (define page (take (drop rows (min offset (length rows))) (min limit (max 0 (- (length rows) offset)))))
   (define (line cells) (string-join (map csv-cell cells) ","))
   (text-answer
@@ -1023,12 +1037,40 @@
     (let ([next (+ offset (length page))])
       (if (< next (length rows)) (format "\n… ~a more rows: ~a" (- (length rows) next) (call-text "describe" (list (cons 'ref uri) (cons 'as "csv") (cons 'offset next)))) "")))))
 ;; trail-sql : type -> sql   each stored resource of the type at its current version, with the trail
+;; with the subject, the value and its date (the trail alone named a resource, not what it says)
 (define (trail-sql type)
   (format (string-append
-           "SELECT x.id, t.versionId, t.recorded, t.agent, t.reason, t.source, t.at, t.provenance "
+           "SELECT x.id, "
+           "COALESCE(x.resource ->> '$.subject.reference', x.resource ->> '$.patient.reference') AS subject, "
+           "COALESCE((x.resource ->> '$.valueQuantity.value') || ' ' || COALESCE(x.resource ->> '$.valueQuantity.code', x.resource ->> '$.valueQuantity.unit', ''), "
+           "x.resource ->> '$.valueString', x.resource ->> '$.valueCodeableConcept.coding[0].code', "
+           "CASE x.resource ->> '$.valueBoolean' WHEN 1 THEN 'true' WHEN 0 THEN 'false' END) AS value, "
+           "COALESCE(x.resource ->> '$.effectiveDateTime', x.resource ->> '$.effectivePeriod.start', x.resource ->> '$.issued', "
+           "x.resource ->> '$.authoredOn', x.resource ->> '$.recordedDate', x.resource ->> '$.birthDate') AS date, "
+           "t.versionId, t.recorded, t.agent, t.reason, t.source, t.at, t.provenance "
            "FROM ~a x LEFT JOIN trail t ON t.type = '~a' AND t.id = x.id AND t.versionId = CAST(x.versionId AS INTEGER) "
            "ORDER BY x.id")
           type type))
+
+;; sorted-rows : rows (string | #f) columns uri -> rows
+(define (sorted-rows rows sort-by cols uri)
+  (cond
+    [(not (string? sort-by)) rows]
+    [else
+     (define desc? (string-prefix? sort-by "-"))
+     (define col (if desc? (substring sort-by 1) sort-by))
+     (unless (member col cols)
+       (error 'describe (format "~a has no column ~s to sort by~a (columns: ~a)" uri col (did-you-mean col cols) (string-join cols ", "))))
+     (define key (string->symbol col))
+     (define (cell r) (if (hash? r) (hash-ref r key 'null) 'null))
+     (define (before? a b)
+       (cond [(eq? a 'null) #f] [(eq? b 'null) #t]
+             [(and (real? a) (real? b)) (< a b)]
+             [else (string<? (format "~a" a) (format "~a" b))]))
+     (define asc (sort rows before? #:key cell))
+     (if desc?
+         (let-values ([(nulls vals) (partition (lambda (r) (eq? (cell r) 'null)) asc)]) (append (reverse vals) nulls))
+         asc)]))
 
 ;; column-list : string | (listof string) | #f -> (listof string) | #f   `"A,B"` or a JSON list
 (define (column-list v)
@@ -1285,7 +1327,8 @@
         (for/list ([r (in-list rs)])
           (define current (and (hash-ref r 'id #f) ((data-source-read (current-data-source)) (hash-ref r 'resourceType) (hash-ref r 'id))))
           (define paths (if current (json-diff current r) '()))
-          (hash-set! warned r (at-line r (validation-issues r '("warning"))))
+          (hash-set! warned r (append (at-line r (validation-issues r '("warning")))
+                                      (let ([w (and current (pair? paths) (reverted-correction h current r))]) (if w (list w) '()))))
           (change r (cond [(not current) 'create] [(null? paths) 'unchanged] [else 'update]) paths (at-line r (validation-errors r)))))
       (define errors (for/sum ([c (in-list changes)]) (length (change-errors c))))
       (define dangling (dangling-references h rs))
@@ -1295,8 +1338,11 @@
       (unless nothing?
         (hash-set! (hub-stages h) id (staged changes source))
         (save-state! h "stages" id (lambda () (staged->jsexpr (staged changes source)))))
-      (hasheq 'stage id
-              'changes (for/list ([c (in-list changes)])
+      (define unchanged-count (count (lambda (c) (eq? (change-action c) 'unchanged)) changes))
+      (define answer
+       (hasheq 'stage id
+              ;; what changes, and how many are stored as they are (each listed buried the one change)
+              'changes (for/list ([c (in-list changes)] #:unless (and (eq? (change-action c) 'unchanged) (not nothing?)))
                          (define base0 (hasheq 'resource (format "~a/~a" (hash-ref (change-resource c) 'resourceType) (hash-ref (change-resource c) 'id "(new id)"))
                                               'action (symbol->string (change-action c))))
                          ;; errors only where there are some (`"errors": []` on every clean change was noise)
@@ -1313,7 +1359,33 @@
               'next (cond [nothing? (format "nothing to commit: the ~a resource(s) are stored as they are" (length changes))]
                           [(zero? errors) (format "~a writes the ~a change(s) to ~a" (call-text "commit" (list (cons 'stage id))) (count (lambda (c) (not (eq? (change-action c) 'unchanged))) changes)
                                                   (let ([p (data-store-path h)]) (if p (format "the store ~a" (shown-path h (path->string (path->complete-path p)))) (hub-data-label h))))]
-                          [else (format "fix the errors, then stage again: a stage with errors is not committed (~a discards this one)" (call-text "stage" (list (cons 'drop id))))])))))
+                          [else (format "fix the errors, then stage again: a stage with errors is not committed (~a discards this one)" (call-text "stage" (list (cons 'drop id))))])))
+      (if (and (positive? unchanged-count) (not nothing?)) (hash-set answer 'unchanged unchanged-count) answer))))
+
+;; reverted-correction : hub current staged -> string | #f   an update that puts back the values the
+;; newest commit changed — staging the original file again after a correction would quietly undo it
+;; (a rerun's agent saw `140 → 150` with nothing saying it reversed a committed typo fix). Said with
+;; the version and the reason it undoes; undecidable (no store, one version) says nothing.
+(define (reverted-correction h current staged)
+  (with-handlers ([exn:fail? (lambda (_) #f)])
+    (define type (hash-ref current 'resourceType))
+    (define id (hash-ref current 'id))
+    (define p (data-store-path h))
+    (define-values (store _catalog) (if p (open-store p (hub-packages h)) (values #f #f)))
+    (define versions (if store ((dynamic-require 'fhir/store/fhir-engine 'fhir-history) store type id) '()))   ; newest first
+    (and (>= (length versions) 2)
+         (let* ([prev (cadr versions)]
+                [changed-names (λ (lines) (for/list ([l (in-list lines)]) (car (regexp-split #rx": " l))))]
+                [last-change (changed-names (json-diff prev current))]
+                [still-differs (changed-names (json-diff prev staged))])
+           (and (pair? last-change)
+                (not (ormap (lambda (n) (member n still-differs)) last-change))
+                (let* ([newest (car (hash-ref (describe-history h type id) 'versions))]
+                       [v (hash-ref newest 'version "?")])
+                  (format "this puts back version ~a's values (~a), undoing version ~a~a: stage the corrected text (~a) to keep it, or commit with a reason to undo it on purpose"
+                          (sub1 (or (string->number (format "~a" v)) 2)) (string-join last-change ", ") v
+                          (let ([r (hash-ref newest 'reason #f)]) (if (string? r) (format " (\"~a\")" r) ""))
+                          (call-text "describe" (list (cons 'ref (format "~a/~a" type id)) (cons 'as "source"))))))))))
 
 ;; dangling-references : hub (listof resource) -> (hash resource -> (listof string))   each literal
 ;; reference (`Patient/pat-a`) to a resource neither in the data nor in this stage: a warning, not an

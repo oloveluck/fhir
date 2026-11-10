@@ -66,13 +66,14 @@
           'parameters (hasheq 'type "object" 'description "CQL parameters by name, each a CQL expression (\"Measurement Period\": \"Interval[@2025-01-01T00:00:00.000, @2025-12-31T23:59:59.999]\"); a Measure takes periodStart and periodEnd")
           'name (s "a name for the result, its table in SQL and result://<name> (default for run: the file's name, `diabetes` for diabetes.cql); the latest result of a name is the one read")
           'as (s "\"csv\": answer the result's rows as CSV (the result is kept and named all the same)")
-          'columns (s "with as: \"csv\": the columns to keep, in order (\"patient,Latest Number,Latest Date\")")))
+          'columns (s "with as: \"csv\": the columns to keep, in order (\"patient,Latest Number,Latest Date\")")
+          'sort (s "with as: \"csv\": the column to order rows by (\"Name\"; \"-Name\" descending)")))
 
 ;; as-csv : hub args answer-jsexpr -> answer   a run's or query's rows as CSV when asked (`run … as=csv
 ;; columns="Name,Latest Number"`: a CQL run's table in one call — it took a SQL query and a describe)
 (define (as-csv h args a)
   (if (and (equal? (hash-ref args 'as #f) "csv") (hash? a) (string? (hash-ref a 'result #f)))
-      (hub-describe h (hash-ref a 'result) (hasheq 'as "csv" 'columns (hash-ref args 'columns #f)))
+      (hub-describe h (hash-ref a 'result) (hasheq 'as "csv" 'columns (hash-ref args 'columns #f) 'sort (hash-ref args 'sort #f)))
       a))
 
 (define (workspace-tools h)
@@ -116,6 +117,7 @@
                          'limit (hasheq 'type "integer" 'description "results: at most this many rows (default 20)")
                          'against (s "results: an earlier result to compare with")
                          'columns (s "results as CSV: the columns to keep, in order (\"Name,Latest Number\")")
+                         'sort (s "results as CSV: the column to order rows by (\"-Name\" descending)")
                          'as (s "\"fsh\": a resource (Type/id, a canonical) as an FSH Instance, shorter than JSON for coded data; \"csv\": a result's rows as CSV (default limit 1000), the compact form of a table; \"source\": the text a commit's Provenance (or a DocumentReference, a Binary) carries, decoded — on Type/id, the FSH Instance that wrote it; \"trail\" on a type (Observation): every stored one with who, when, why and the file and line it came from, as CSV"))
                  '("ref"))
          (lambda (args) (answer (lambda () (hub-describe h (need args 'ref) args)))))

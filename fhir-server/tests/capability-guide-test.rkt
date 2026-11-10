@@ -43,3 +43,16 @@
     (for ([line '("GET /metadata 200" "POST /Patient 201" "GET /Patient[?]gender=female 200" "GET /[$]bmi[?]weight=80&height=180 200")])
       (check-regexp-match (regexp line) log)))
   (delete-directory/files d))
+
+;; the smallest server, as the guide writes it: it builds, and $double answers what the text says
+(let ()
+  (define text (cadr (regexp-match #px"## The smallest server.*?```racket\n(.*?)```" guide)))
+  (define d (make-temporary-directory "cap-small-~a"))
+  (define f (build-path d "study.capability.rkt"))
+  (call-with-output-file f (lambda (o) (write-string text o)))
+  (define small (dynamic-require f 'app))
+  (define-values (st js) (handle small "GET" "/$double" '((x . "2.5")) ""))
+  (check-equal? st 200)
+  (check-equal? (hash-ref (car (hash-ref js 'parameter)) 'valueDecimal) 5.0)
+  (check-regexp-match #rx"answers `5[.]0`" guide)
+  (delete-directory/files d))

@@ -338,3 +338,30 @@
   (check-false (regexp-match? #rx"#:min and #:max" mixed))
   (check-regexp-match #rx"resource Patient: search parameter `birthDate`: FHIR defines none" mixed)
   (delete-directory/files dir))
+
+;; a decimal output built from a computed number: a Racket number is a decimal (`(valueDecimal 57.5)`
+;; was refused); a string FHIR does not read (`(real->decimal-string v 0)` = "58.") answers a 500 that
+;; says the BUILT value is the problem, not an input (the hint said to refuse an input)
+(let ()
+  (define dir (make-temporary-directory "cap-dec-~a"))
+  (define src (build-path dir "dec.capability.rkt"))
+  (call-with-output-file src
+    (lambda (o) (write-string (string-append
+                               "#lang fhir/capability\n(server)\n"
+                               "(define (good in req) (Parameters (parameter (ParametersParameter (name \"x\") (valueDecimal (* 1.0 (/ 115 2)))))))\n"
+                               "(define (bad in req) (Parameters (parameter (ParametersParameter (name \"x\") (valueDecimal (real->decimal-string 57.5 0))))))\n"
+                               "(operation $good #:system #:out ([x decimal 1 1]) #:handler good)\n"
+                               "(operation $bad #:system #:out ([x decimal 1 1]) #:handler bad)\n")
+                              o)))
+  (define app (dynamic-require src 'app))
+  (define handle (dynamic-require 'fhir/http/router 'handle))
+  (define-values (gs gj) (handle app "GET" "/$good" '() ""))
+  (check-equal? gs 200)
+  (check-equal? (hash-ref (car (hash-ref gj 'parameter)) 'valueDecimal) 57.5)
+  (define-values (bs bj) (handle app "GET" "/$bad" '() ""))
+  (check-equal? bs 500)
+  (define msg (hash-ref (car (hash-ref bj 'issue)) 'diagnostics))
+  (check-regexp-match #rx"\"58[.]\" is not a valid value" msg)
+  (check-regexp-match #rx"a value the handler built is not valid FHIR: give a decimal as a Racket number" msg)
+  (check-false (regexp-match? #rx"to refuse an input" msg))
+  (delete-directory/files dir))

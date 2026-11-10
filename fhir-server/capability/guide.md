@@ -7,6 +7,24 @@ is what it does. Resources live in a SQLite FHIR store (each resource as JSONB, 
 history and search indexes). In a workspace the file is `<name>.capability.rkt`: `write` checks it,
 `run` serves it over the workspace's own store (`data: fhir.db`), and `apply` calls its operations.
 
+## The smallest server
+One file: a SQLite store beside it, two resources, one operation of your own. The rest of this guide
+is what each part can say.
+```racket
+#lang fhir/capability
+(server #:store "study.db" #:search-handling "strict")   ; patient data: refuse a filter it cannot apply
+(resource Patient #:interactions (read create search-type) #:search-params ([gender token] [birthdate date]))
+(resource Observation #:interactions (read create search-type) #:search-params ([patient reference] [code token]))
+(define (double-handler in req)                           ; `in`: each input's name -> its list of values
+  (Parameters (parameter (ParametersParameter (name "doubled") (valueDecimal (* 2 (car (hash-ref in "x"))))))))
+(operation $double #:system #:in ([x decimal 1 1]) #:out ([doubled decimal 1 1]) #:handler double-handler)
+```
+`racket study.capability.rkt` prints its CapabilityStatement; `raco fhir-server serve
+study.capability.rkt --port 0` serves it (the first line printed is its url); `GET /$double?x=2.5`
+answers `5.0`. The server speaks FHIR **R6** (`6.0.0-ballot4` in `/metadata`) whatever FHIR version a
+workspace uses; its clients send JSON that R4 and R6 write alike for most resources. After editing the
+file, stop the server (its pid is in the first line) and serve it again: the store keeps the data.
+
 ## Official references
 - CapabilityStatement: https://hl7.org/fhir/R4/capabilitystatement.html
 - The RESTful API (interactions, levels): https://hl7.org/fhir/R4/http.html
@@ -128,7 +146,8 @@ operation of its own.
 
 ```racket
 #lang fhir/capability
-(require (only-in fhir/conformance/operations $validate) (only-in fml/operations))
+(require (only-in fhir/conformance/operations $validate)
+         (only-in fml/operations))                 ; loads StructureMap/$transform, served below
 
 (server #:url "http://example.org/clinic" #:search-handling "strict")   ; patient data: refuse a filter it cannot apply
 
@@ -153,7 +172,7 @@ operation of its own.
 
 In a workspace, as `clinic.capability.rkt`:
 - `write` answers its problems: with `Observaton` for `Observation`,
-  `clinic.capability.rkt:8:11 error: resource: unknown resource type Observaton`.
+  `clinic.capability.rkt:9:11 error: resource: unknown resource type Observaton`.
 - `run` serves it and answers its url and what it serves; the server reads and writes the
   workspace's `fhir.db`, so `stage`/`commit`, search, CQL and SQL see the same data.
 - `apply("$bmi", {"weight": 80, "height": 180})` calls the running app: `{"bmi": 24.7}` in a

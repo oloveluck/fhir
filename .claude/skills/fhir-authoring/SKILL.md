@@ -111,6 +111,7 @@ then `main.rkt` is those three calls as functions, with a command line — the w
 ;; a QuestionnaireResponse -> FML -> a Patient -> validated against an FSH profile -> CQL's answer
 (require json
          (only-in fhir/serialize/fhir-json write-fhir-json)       ; resourceType first, indented
+         (only-in fhir/operation exn:fail:operation?)        ; the error an invalid result raises
          (only-in cql/value render)
          (only-in "fsh/intake.fsh" canonical-of)                 ; the profile, registered by canonical
          (only-in "qr2patient.map" transform)                    ; FHIR JSON in, FHIR JSON out
@@ -126,9 +127,11 @@ then `main.rkt` is those three calls as functions, with a command line — the w
   (define now (make-parameter #f))                              ; --now 2026-01-01 fixes "today"
   (define file (command-line #:once-each [("--now") date "the day the answer is for" (now date)]
                              #:args (questionnaire-response.json) questionnaire-response.json))
-  (define-values (patient old?) (intake (call-with-input-file file read-json) #:now (now)))
-  (write-fhir-json patient #:indent 2) (newline)
-  (printf "65 or older: ~a\n" old?))
+  ;; an invalid Patient (the map's rule named) is a message and exit 1, not a stack trace
+  (with-handlers ([exn:fail:operation? (lambda (e) (eprintf "~a\n" (exn-message e)) (exit 1))])
+    (define-values (patient old?) (intake (call-with-input-file file read-json) #:now (now)))
+    (write-fhir-json patient #:indent 2) (newline)
+    (printf "65 or older: ~a\n" old?)))
 ```
 Every file a program requires starts with its `#lang` line — `#lang fsh` in `intake.fsh`, `#lang fml`
 in `qr2patient.map`, `#lang cql` in `Intake.cql` — which is what makes it a module. A `.map` without
@@ -249,7 +252,7 @@ module provides `transform` (FHIR JSON in, FHIR JSON out; `#:structures` gives l
 ```sh
 raco fml map.map                                   # the StructureMap JSON
 raco fml map.map --transform src.json [--structures sds/]
-raco fml check map.map [--structures sds/] [--examples ex/] [--profile sd.json]   # findings on their lines
+raco fml check map.map [--structures sds/] [--examples ex/] [--profile sd.json|fsh-dir|canonical]   # findings on their lines
 ```
 
 `check` reports what the two StructureDefinitions decide — an element the type lacks, a value

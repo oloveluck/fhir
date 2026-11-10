@@ -96,10 +96,23 @@ With two views — `bp.view.json`, one row per blood pressure, and `patients.vie
 {"resourceType": "ViewDefinition", "name": "bp", "status": "active", "resource": "Observation",
  "where": [{"path": "code.coding.exists(system = 'http://loinc.org' and code = '85354-9')"}],
  "select": [{"column": [
+   {"name": "id", "path": "id"},
+   {"name": "version", "path": "meta.versionId"},
    {"name": "patient", "path": "subject.getReferenceKey(Patient)"},
-   {"name": "systolic", "path": "component.where(code.coding.exists(code = '8480-6')).value.ofType(Quantity).value.first()"}]}]}
+   {"name": "date", "path": "effective.ofType(dateTime)"},
+   {"name": "systolic", "path": "component.where(code.coding.exists(code = '8480-6')).value.ofType(Quantity).value.first()"},
+   {"name": "diastolic", "path": "component.where(code.coding.exists(code = '8462-4')).value.ofType(Quantity).value.first()"}]}]}
 ```
-the mean systolic by gender is
+a summary per patient — readings, means, and whether the mean is at or above 140/90 — is
+
+```
+SELECT patient, count(*) AS readings, round(avg(systolic), 1) AS mean_systolic,
+       round(avg(diastolic), 1) AS mean_diastolic,
+       CASE WHEN avg(systolic) >= 140 OR avg(diastolic) >= 90 THEN 'yes' ELSE 'no' END AS at_or_above_140_90
+FROM bp GROUP BY patient ORDER BY patient
+```
+(`bp_history` is the same view over every stored version, for a reading's corrections), and the mean
+systolic by gender is
 
 ```
 SELECT p.gender, count(*) AS n, round(avg(b.systolic), 1) AS mean_systolic

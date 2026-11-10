@@ -12,7 +12,7 @@
          (only-in fhir/mcp/tools tool-name tool-run))
 
 (define guide (learn-text "capability"))
-(define app (cadr (regexp-match #px"```racket\n(.*?)```" guide)))
+(define app (cadr (regexp-match #px"## Worked example.*?```racket\n(.*?)```" guide)))
 
 (define dir (make-temporary-directory "cap-ws-~a"))
 (void (init-workspace! dir))

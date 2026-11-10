@@ -1270,6 +1270,30 @@ real defect; each change has a test doing what the agent did:
   cql's guide too; fhir-authoring says where the language repos are, what `evaluate` returns before
   `render`, and the order of a check report's diagnostics.
 
+## New users, round 17 (2026-11-10)
+The sixteenth rerun (every task first time, 12–18 calls, right answers) found one risk and one
+defect; each change has a test doing what the agent did:
+- **A correction is not undone quietly**: staging the original file again after a committed
+  correction answered `140 → 150` as a plain update; the change now warns that it puts back version
+  N−1's values on the paths the newest commit changed, naming that commit's reason and how to keep it
+  (`reverted-correction`, from the store's history). A stage answers resources stored as they are as
+  a count (`unchanged`), not a list burying the change.
+- **A decimal is a number too**: `(valueDecimal 57.5)` was refused and `(real->decimal-string v 0)`
+  gave "58.", which FHIR refuses — the handler crashed with a hint about refusing inputs. A decimal
+  primitive now takes a Racket real (`#:coerce`, `decimal-lexeme` in fhir/primitives), and a 500 from a
+  value the handler BUILT says so (`handler-crash-hint`), its regexp left out of the message.
+- **Tables**: `describe ref=<Type> as=trail` has the subject, the value and its date beside the
+  trail; CSV answers take `sort` (`-Name` descending); a CQL run's rows come in patient order and a
+  define answering a few texts is tallied by text (cql `tally`); a wide run answer says how to have it
+  as CSV (`table`). `enforce:=true` fills init's commented `profiles:` template (it appended a second
+  key). learn://workspace's `bp` view has id, version, date and diastolic, and the 140/90 summary is a
+  tested recipe (bp-rule-test runs both as written).
+- **Docs**: the capability guide opens with the smallest server (store, two resources, an operation;
+  capability-guide-test builds it), the R6 note and the restart loop; the fhir skill's Racket route
+  says where to stop and what each of the four files is, and the versions in one sentence; the
+  template's `main.rkt` catches `exn:fail:operation?` (exit 1, the message); `raco fsh check`'s
+  summary counts in the singular when it is one and its canonical note is one short line.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

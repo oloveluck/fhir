@@ -4,7 +4,7 @@
 ;;; (as two `raco fhir-mcp call`s are), a stage made by the first committed by the second, a result
 ;;; described, joined in SQL and staged from; numbers continue; results and stages count apart.
 
-(require rackunit racket/file json racket/system
+(require rackunit racket/file racket/string json racket/system
          fhir/mcp/workspace fhir/mcp/verbs fhir/mcp/init
          (only-in fhir/mcp/tools tool-name tool-run))
 
@@ -201,13 +201,16 @@
     ;; a table in one call: a query's (or run's) rows as CSV, the columns asked for in their order
     (define tbl (call e "query" (hasheq 'language "sql" 'text "SELECT id, 1 AS one, 'x' AS two FROM Patient ORDER BY id" 'as "csv" 'columns "two,id")))
     (check-regexp-match #rx"^two,id\nx," tbl)
+    ;; ordered by a column asked for, descending with `-`
+    (define sorted (call e "query" (hasheq 'language "sql" 'text "SELECT id FROM Patient" 'as "csv" 'sort "-id")))
+    (check-equal? (cdr (string-split sorted "\n")) (sort (cdr (string-split sorted "\n")) string>?))
     (let-values ([(text err?) ((tool-run (hash-ref (tools-of e) "query")) (hasheq 'language "sql" 'text "SELECT 1 AS one FROM Patient" 'as "csv" 'columns "onee"))])
       (check-true err?)
       (check-regexp-match #rx"no column \\\\\"onee\\\\\" [(]did you mean `one`[?][)]" text))
     ;; where each stored value came from, for a type, in one call (it was a join from the guide)
     (define tr (call e "describe" (hasheq 'ref "Patient" 'as "trail")))
-    (check-regexp-match #rx"^id,versionId,recorded,agent,reason,source,at,provenance\n" tr)
-    (check-regexp-match #rx"\ngus,2,[^,]+,[^,]+,gender corrected,[.][.]/[^,]+-src/gus[.]fsh,[.][.]/[^,]+-src/gus[.]fsh:3,Provenance/" tr)
+    (check-regexp-match #rx"^id,subject,value,date,versionId,recorded,agent,reason,source,at,provenance\n" tr)
+    (check-regexp-match #rx"\ngus,,,,2,[^,]+,[^,]+,gender corrected,[.][.]/[^,]+-src/gus[.]fsh,[.][.]/[^,]+-src/gus[.]fsh:3,Provenance/" tr)
     ;; a refused commit lists the errors it refuses for (a count sent the reader back to the stage)
     (define bad-stage (hash-ref (with-handlers ([exn:fail? (lambda (_) (hasheq 'stage "?"))])
                                   (let-values ([(text _e) ((tool-run (hash-ref (tools-of e) "stage")) (hasheq 'fsh "Instance: jo\nInstanceOf: Patient\n* gender = #femme\n"))])

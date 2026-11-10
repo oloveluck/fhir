@@ -42,6 +42,9 @@
     ;; enforce: true lists it (an agent had to edit workspace.yaml by hand); the note is gone, a stage holds to it
     (define w3 (call "write" (hasheq 'path "intake.fsh" 'text "Profile: IntakePatient\nParent: Patient\nId: intake-patient\n* birthDate 1..1\n" 'enforce #t)))
     (check-equal? (hash-ref w3 'enforced) '("Patient: http://example.org/fhir/StructureDefinition/intake-patient"))
+    ;; one `profiles:` key in workspace.yaml, init's commented template filled, not a second appended
+    (let ([yaml (file->string (build-path dir "workspace.yaml"))])
+      (check-equal? (length (regexp-match* #px"(?m:^profiles:)" yaml)) 1 yaml))
     (check-false (hash-ref (call "write" (hasheq 'path "intake.fsh" 'text "Profile: IntakePatient\nParent: Patient\nId: intake-patient\n* birthDate 1..1\n")) 'notes #f))
     (check-regexp-match #rx"birthDate" (string-join (hash-ref (car (hash-ref (call "stage" (hasheq 'fsh "Instance: nob\nInstanceOf: Patient\n")) 'changes)) 'errors) "\n"))
     (check-regexp-match #rx"Observation: http://example.org/fhir/StructureDefinition/bp-rule\n  Patient: http://example.org/fhir/StructureDefinition/intake-patient|Patient: .*intake-patient"
@@ -82,7 +85,18 @@
     (check-false (equal? fixed fsh))
     (define st (call "stage" (hasheq 'fsh fixed)))
     (check-equal? (hash-ref (car (hash-ref st 'changes)) 'action) "update")
-    (check-equal? (hash-ref (car (hash-ref st 'changes)) 'changed) '("component[0].valueQuantity.value: 150 → 140"))))
+    (check-equal? (hash-ref (car (hash-ref st 'changes)) 'changed) '("component[0].valueQuantity.value: 150 → 140"))
+    ;; the guide's bp view and per-patient summary over three readings (140/95 corrected, 142/90, 138/88)
+    (call "commit" (hasheq 'stage (hash-ref st 'stage) 'reason "typo"))
+    (call "commit" (hasheq 'stage (hash-ref (call "stage" (hasheq 'fsh (string-append (bp "bp-a2" #:sys "142 'mm[Hg]'" #:dia "90 'mm[Hg]'") "\n"
+                                                                                     (bp "bp-a3" #:sys "138 'mm[Hg]'" #:dia "88 'mm[Hg]'"))))
+                                           'stage)))
+    (define view (cadr (regexp-match #px"```json\n([{]\"resourceType\": \"ViewDefinition\", \"name\": \"bp\".*?)```" (learn-text "workspace"))))
+    (call "write" (hasheq 'path "bp.view.json" 'text view))
+    (define summary (cadr (regexp-match #px"```\n(SELECT patient, count.*?)```" (learn-text "workspace"))))
+    (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text summary)) 'rows)
+                  (list (hasheq 'patient "a" 'readings 3 'mean_systolic 140 'mean_diastolic 91 'at_or_above_140_90 "yes")))
+    (void (call "write" (hasheq 'path "bp.view.json" 'text "")))))
 (delete-directory/files dir)
 
 ;; the cookbook's rules: each refuses what it says and lets the rest through
@@ -113,3 +127,18 @@
     (check-regexp-match #rx"hr-unit" (errors2 (hr "hz" 1.2 "Hz" "2025-03-01")))
     (check-regexp-match #rx"not-future" (errors2 (hr "later" 72 "/min" "2999-01-01")))))
 (delete-directory/files dir2)
+
+;; in a workspace fresh from init, `enforce` fills init's commented `profiles:` template in place
+(let ()
+  (define d3 (make-temporary-directory "enforce-~a"))
+  (void (init-workspace! d3))
+  (define h3 (open-hub d3))
+  (define t3 (for/hash ([t (in-list (workspace-tools h3))]) (values (tool-name t) t)))
+  (with-hub h3
+    (lambda ()
+      ((tool-run (hash-ref t3 "write")) (hasheq 'path "r.fsh" 'text "Profile: R\nParent: Patient\nId: r\n* birthDate 1..1\n" 'enforce #t))))
+  (define yaml (file->string (build-path d3 "workspace.yaml")))
+  (check-equal? (length (regexp-match* #px"(?m:^profiles:)" yaml)) 1 yaml)
+  (check-false (regexp-match? #px"(?m:^# profiles:)" yaml) yaml)
+  (check-regexp-match #px"(?m:^profiles:.*\n  Patient: http://example.org/fhir/StructureDefinition/r$)" yaml)
+  (delete-directory/files d3))

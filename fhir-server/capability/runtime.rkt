@@ -350,8 +350,9 @@
         ;; got `expt: undefined for 0 and -0.241`, the handler's author no hint)
         (define r (with-handlers ([exn:fail? (lambda (e)
                                                (operation-outcome-exception
-                                                (format "the $~a handler raised: ~a — to refuse an input, return an OperationOutcome whose issue code is `invalid` (a 400), or declare the input's range (#:min, #:max)"
-                                                        (request-code req) (exn-message e))))])
+                                                (format "the $~a handler raised: ~a — ~a"
+                                                        (request-code req) (built-value-message (exn-message e))
+                                                        (handler-crash-hint (exn-message e)))))])
                     ((operation-handler-proc h) in req)))
         (when (and (fhir? r) (eq? (fhir-type r) 'OperationOutcome) (operation-handler-op-def h)
                    (returns-outcome? (operation-handler-op-def h))
@@ -359,6 +360,21 @@
                    (not (hash-ref refusals r #f)))
           (hash-set! results r #t))
         r])]))
+;; handler-crash-hint : message -> string   what to do, by what failed: a value the handler BUILT that
+;; FHIR refuses (`decimal: "58." does not match …` — the hint used to say to refuse an input), or
+;; anything else (refuse the input instead of raising)
+(define (handler-crash-hint msg)
+  (if (built-value-problem? msg)
+      (string-append "a value the handler built is not valid FHIR"
+                     (if (regexp-match? #rx"decimal:" msg)
+                         ": give a decimal as a Racket number, `(valueDecimal 57.5)`, or a string FHIR reads (\"58\" or \"57.5\", not \"58.\")"
+                         ""))
+      "to refuse an input, return an OperationOutcome whose issue code is `invalid` (a 400), or declare the input's range (#:min, #:max)"))
+(define (built-value-problem? msg) (regexp-match? #rx"^fhir: [A-Za-z]+: |invalid [A-Za-z]+ value" msg))
+;; built-value-message : message -> message   the format check's regexp left out (it read as noise)
+(define (built-value-message msg)
+  (regexp-replace #px" does not match \\^[^ ]*\\$" msg " is not a valid value"))
+
 (define (outcome-code n)
   (define issues (let ([v (fhir-ref n 'issue #f)]) (if (list? v) v (if v (list v) '()))))
   (and (pair? issues) (let ([c (fhir-ref (car issues) 'code #f)]) (and c (leaf->string c)))))
