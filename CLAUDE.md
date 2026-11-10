@@ -1294,6 +1294,38 @@ defect; each change has a test doing what the agent did:
   template's `main.rkt` catches `exn:fail:operation?` (exit 1, the message); `raco fsh check`'s
   summary counts in the singular when it is one and its canonical note is one short line.
 
+## New users, round 18 (2026-11-10)
+The seventeenth rerun (every task first time, 10–12 calls, right answers) found one real defect;
+each change has a test doing what the agent did:
+- **A day the calendar lacks is no date** (`fhir/primitives/temporal.rkt` `calendar-problem`): the
+  spec's regex allows day 31 in every month, so `birthDate = "1940-02-30"` passed `raco fhir-validate`
+  ("All OK") and `raco fsh check`, and CQL computed an age from it. date/dateTime/instant now check the
+  day against the month (leap years by 4/100/400); the validator says why (`'1940-02-30' is not a
+  valid date (February 1940 has 29 days)`), fsh check at the rule; CQL (literal: a translation error;
+  `Date(…)`: a run-time error; `ToDate('…')`: null) and FHIRPath (literal: an error; `toDate()`:
+  empty) agree. TCKs unchanged (FHIRPath 1044/1044 and 932/934, CQL 1820/1823).
+- **The trail reads more**: `describe ref=<Type> as=trail` has the patient's `name` and a blood
+  pressure's components as its `value` (`142 mm[Hg] / 91 mm[Hg]`; it was empty), takes `columns`/`sort`,
+  and `ref=Type/id/_history as=trail|csv` is every version of one resource (`trail-sql type [id]`);
+  history notes where `source`/`at` are relative to when called from elsewhere; `write`'s `copied`
+  names both files from the current directory.
+- **`batch`**: a line starting with `!` is expected to fail (`### [failed, as expected] …`; a misspelt
+  tool still fails), counted apart in the summary.
+- **Capability apps**: a misspelt search-parameter type is said once, with the nearest and the types
+  (`tokn`: it was also reported as "a token in FHIR, not a tokn"); a server option given a symbol
+  (`#:mode server`) or an unknown option is one line at the value (it was syntax-parse's "expected
+  string" and a stack trace); an instance statement without `#:date` is dated when the server
+  started (`started-at`, derive.rkt; it was 2025-01-01).
+- **`raco fhir new pipeline <dir>`** copies fhir-examples' intake-pipeline template (without compiled/;
+  refuses an existing dir) — the docs' copy command was a `racket -e` inside `cp`.
+- Docs: the fhir skill opens with a question → recipe table and keeps the Racket quickstart in its own
+  last section; its HbA1c example uses 9 % as the CQL recipe does; fhir-authoring has an API card for
+  the pipeline, says the mapped Patient needs no id and that `raco make` stops at the first failing
+  module (`compilation context...` is the chain of requires); learn://workspace says a stage is all or
+  nothing, has a parameterized RuleSet for many readings (tested) and formats means with `printf`;
+  the capability guide builds a decimal output from a Racket real and documents a bare-id reference
+  search; cql's guide has `Ever Above 9`; `raco fsh check`'s default canonical note is one word.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

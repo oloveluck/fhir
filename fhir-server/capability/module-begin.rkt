@@ -59,8 +59,12 @@
                 [sps (in-value (let loop ([xs (cddr items)])
                                  (cond [(or (null? xs) (null? (cdr xs))) '()]
                                        [(eq? (syntax-e (car xs)) '#:search-params)
+                                        ;; a type that is no search-parameter type is already an error of
+                                        ;; its own: said once (`tokn` was reported twice)
                                         (for/list ([p (in-list (or (syntax->list (cadr xs)) '()))]
-                                                   #:when (let ([l (syntax->list p)]) (and l (>= (length l) 2))))
+                                                   #:when (let ([l (syntax->list p)])
+                                                            (and l (>= (length l) 2)
+                                                                 (memq (syntax-e (cadr l)) '(number date string token reference composite quantity uri special)))))
                                           (define l (map syntax->datum (syntax->list p)))
                                           (list (car l) (cadr l) (and (pair? (cddr l)) (caddr l))))]
                                        [else (loop (cdr xs))])))]

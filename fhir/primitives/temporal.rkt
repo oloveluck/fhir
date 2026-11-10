@@ -23,7 +23,8 @@
           [parse-t-time       (-> string? string? result?)]
           [parse-t-datetime   (-> string? string? result?)]
           [parse-fhir-instant (-> string? string? result?)]
-          [temporal->string   (-> any/c string?)]))
+          [temporal->string   (-> any/c string?)]
+          [calendar-problem   (-> string? (or/c string? #f))]))
 
 ;; precision ∈ '(year month day)
 (struct t-date (year month day precision) #:transparent)
@@ -42,10 +43,42 @@
 
 (define (->num s) (and s (string->number s)))
 
+;; days-in-month : year month -> natural   the Gregorian calendar (leap years by the 4/100/400 rule)
+(define (days-in-month y m)
+  (case m
+    [(4 6 9 11) 30]
+    [(2) (if (and (zero? (modulo y 4)) (or (not (zero? (modulo y 100))) (zero? (modulo y 400))))
+             29 28)]
+    [else 31]))
+
+(define month-names
+  #("January" "February" "March" "April" "May" "June" "July" "August" "September" "October"
+    "November" "December"))
+
+;; calendar-problem : string -> string | #f   why a date-shaped lexeme names no day of the
+;; calendar ("February 1940 has 29 days"), #f when it does or is not date-shaped. The spec's
+;; regexes allow a day up to 31 in every month; the calendar does not.
+(define (calendar-problem raw)
+  (match (regexp-match #px"^([0-9]{4})-([0-9]{2})-([0-9]{2})" raw)
+    [(list _ ys ms ds)
+     (define-values (y m d) (values (->num ys) (->num ms) (->num ds)))
+     (and (<= 1 m 12) (> d (days-in-month y m))
+          (format "~a ~a has ~a days" (vector-ref month-names (sub1 m)) y (days-in-month y m)))]
+    [_ #f]))
+
+;; calendar-error : symbol string string -> err | #f   an out-of-range error for a day the month lacks
+(define (calendar-error type url raw)
+  (match (regexp-match #px"^([0-9]{4})-([0-9]{2})-([0-9]{2})" raw)
+    [(list _ ys ms ds)
+     #:when (calendar-problem raw)
+     (err (out-of-range type url raw 1 (days-in-month (->num ys) (->num ms))))]
+    [_ #f]))
+
 (define (parse-t-date raw url)
   (cond
     [(not (string? raw)) (err (invalid-encoding 'date url raw))]
     [(not (regexp-match? px:date raw)) (err (pattern-mismatch 'date url raw px:date))]
+    [(calendar-error 'date url raw) => values]
     [else
      (match-define (list _ y m d) (regexp-match date-extract raw))
      (ok (t-date (->num y) (->num m) (->num d)
@@ -63,6 +96,7 @@
   (cond
     [(not (string? raw)) (err (invalid-encoding 'dateTime url raw))]
     [(not (regexp-match? px:dateTime raw)) (err (pattern-mismatch 'dateTime url raw px:dateTime))]
+    [(calendar-error 'dateTime url raw) => values]
     [else
      (match-define (list _ y m d h mi s frac tz) (regexp-match datetime-extract raw))
      (ok (t-datetime (->num y) (->num m) (->num d)
@@ -74,6 +108,7 @@
   (cond
     [(not (string? raw)) (err (invalid-encoding 'instant url raw))]
     [(not (regexp-match? px:instant raw)) (err (pattern-mismatch 'instant url raw px:instant))]
+    [(calendar-error 'instant url raw) => values]
     [else
      (match-define (list _ y m d h mi s frac tz) (regexp-match datetime-extract raw))
      (ok (t-datetime (->num y) (->num m) (->num d)
@@ -109,6 +144,17 @@
 
 (module+ test
   (require rackunit)
+  ;; the calendar, not only the regex: a day the month lacks is refused, leap years by 4/100/400
+  (check-true (err? (parse-t-date "1940-02-30" "u")))
+  (check-true (ok? (parse-t-date "1940-02-29" "u")))
+  (check-true (err? (parse-t-date "1900-02-29" "u")))
+  (check-true (ok? (parse-t-date "2000-02-29" "u")))
+  (check-true (err? (parse-t-date "2024-04-31" "u")))
+  (check-true (err? (parse-t-datetime "2024-06-31T10:00:00Z" "u")))
+  (check-true (err? (parse-fhir-instant "2023-02-29T10:00:00Z" "u")))
+  (check-equal? (calendar-problem "1940-02-30") "February 1940 has 29 days")
+  (check-equal? (calendar-problem "1941-02-30") "February 1941 has 28 days")
+  (check-false (calendar-problem "1940-02"))
   (check-equal? (parse-t-date "1974" "u") (ok (t-date 1974 #f #f 'year)))
   (check-equal? (parse-t-date "1974-12" "u") (ok (t-date 1974 12 #f 'month)))
   (check-equal? (parse-t-date "1974-12-25" "u") (ok (t-date 1974 12 25 'day)))

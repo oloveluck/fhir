@@ -95,7 +95,22 @@
     (call "write" (hasheq 'path "bp.view.json" 'text view))
     (define summary (cadr (regexp-match #px"```\n(SELECT patient, count.*?)```" (learn-text "workspace"))))
     (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text summary)) 'rows)
-                  (list (hasheq 'patient "a" 'readings 3 'mean_systolic 140 'mean_diastolic 91 'at_or_above_140_90 "yes")))
+                  (list (hasheq 'patient "a" 'readings 3 'mean_systolic "140.0" 'mean_diastolic "91.0" 'at_or_above_140_90 "yes")))
+    ;; the guide's RuleSet for many readings: one line each, held to the rule, each version's trail at
+    ;; its line; the trail's value reads a blood pressure's components (it was empty)
+    (define rs (cadr (regexp-match #px"```fsh\n(RuleSet: Reading.*?)```" (learn-text "workspace"))))
+    (define readings (string-append rs "\n"
+                                    "Instance: bp-r1\nInstanceOf: Observation\n* insert Reading(bp-r1, a, 2025-01-10, 142, 91)\n\n"
+                                    "Instance: bp-r2\nInstanceOf: Observation\n* insert Reading(bp-r2, a, 2025-02-10, 128, 82)\n"))
+    (define rst (call "stage" (hasheq 'fsh readings 'files (hasheq 'fsh "readings.fsh"))))
+    (check-equal? (for/list ([c (in-list (hash-ref rst 'changes))]) (list (hash-ref c 'resource) (hash-ref c 'errors '())))
+                  '(("Observation/bp-r1" ()) ("Observation/bp-r2" ())))
+    (call "commit" (hasheq 'stage (hash-ref rst 'stage) 'reason "readings"))
+    (define-values (trail-csv _e1) ((tool-run (hash-ref tools "describe")) (hasheq 'ref "Observation/bp-r1/_history" 'as "trail")))
+    (check-regexp-match #rx"^id,subject,name,value,date,versionId,recorded,agent,reason,source,at,provenance\n" trail-csv)
+    (check-regexp-match #rx"\nbp-r1,Patient/a,,142 mm\\[Hg\\] / 91 mm\\[Hg\\],2025-01-10,1,[^,]+,[^,]*,readings,[^,]*readings[.]fsh,[^,]*readings[.]fsh:11," trail-csv)
+    (define-values (cols-csv _e2) ((tool-run (hash-ref tools "describe")) (hasheq 'ref "Observation" 'as "trail" 'columns "id,value,at" 'sort "-id")))
+    (check-regexp-match #rx"^id,value,at\nbp-r2,128 mm\\[Hg\\] / 82 mm\\[Hg\\],[^,\n]*readings[.]fsh:15\n" cols-csv)
     (void (call "write" (hasheq 'path "bp.view.json" 'text "")))))
 (delete-directory/files dir)
 

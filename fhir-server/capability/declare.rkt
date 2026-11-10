@@ -26,7 +26,7 @@
          (only-in net/uri-codec uri-unreserved-encode)
          (only-in fhir/r6/fhir-version fhir-version)
          (only-in "interaction-codes.rkt"
-                  type-interaction? system-interaction? search-param-type?))
+                  type-interaction? system-interaction? search-param-type? search-param-types))
 
 (provide
  (struct-out parsed-operation)
@@ -75,12 +75,26 @@
      (define fmts (if (attribute fmt) (syntax->datum #'(fmt ...)) '("application/fhir+json")))
      #`(rc-server #,mode-v
                   #,(if (attribute status) (syntax-e #'status) "active")
-                  #,(if (attribute date) (syntax-e #'date) "2025-01-01T00:00:00Z")
+                  #,(if (attribute date) (syntax-e #'date) #f)   ; #f: when the server started (derive)
                   #,(if (attribute fv) (syntax-e #'fv) fhir-version)
                   (list #,@fmts)
                   #,(if (attribute url) (syntax-e #'url) #f)
                   #,(if (attribute name) (syntax-e #'name) #f)
-                  #,(if (attribute description) (syntax-e #'description) #f))]))
+                  #,(if (attribute description) (syntax-e #'description) #f))]
+    ;; a keyword with a value that is not a string (`#:mode server`): one line, at the value
+    [(_ . args)
+     (let loop ([xs (syntax->list #'args)])
+       (cond [(or (not xs) (null? xs)) (decl-error 'server "expected (server #:mode \"server\" #:name \"…\" …), each value a string" stx)]
+             [(and (keyword? (syntax-e (car xs))) (pair? (cdr xs)) (not (string? (syntax-e (cadr xs)))))
+              (decl-error 'server (format "~a takes a string: ~a" (syntax-e (car xs)) (format "~s" (format "~a" (syntax->datum (cadr xs))))) (cadr xs))]
+             [(keyword? (syntax-e (car xs)))
+              (if (memq (syntax-e (car xs)) '(#:mode #:status #:fhir-version #:date #:url #:name #:description #:store #:search-handling #:format))
+                  (loop (cddr xs))
+                  (decl-error 'server (format "unknown option ~a~a" (syntax-e (car xs))
+                                              (did-you-mean (keyword->string (syntax-e (car xs)))
+                                                            '("mode" "status" "fhir-version" "date" "url" "name" "description" "store" "search-handling" "format")))
+                              (car xs)))]
+             [else (loop (cdr xs))]))]))
 
 ;; ---- (resource Type …) ----------------------------------------------------------------------
 ;; -> (values rc-resource-stx  repo-pair-stx)
@@ -105,7 +119,7 @@
          (syntax-parse s
            [(sp-name:id sp-type:id (~optional sp-expr:str))
             (unless (search-param-type? (syntax-e #'sp-type))
-              (decl-error 'resource (format "unknown search-param type ~a" (syntax-e #'sp-type)) #'sp-type))
+              (decl-error 'resource (search-type-message (syntax-e #'sp-type)) #'sp-type))
             #`(list '#,#'sp-name '#,#'sp-type #,(if (attribute sp-expr) (syntax-e #'sp-expr) #f))]
            [_ (decl-error 'resource "search-param must be [name type] or [name type \"expr\"]" s)])))
      (define interactions-stx #`(list #,@(for/list ([ix (in-list interactions)]) #`'#,ix)))
@@ -189,6 +203,13 @@
       (format " (did you mean ~a?)" (string-join (map (lambda (t) (format "`~a`" t)) (take prefixed (min 2 (length prefixed)))) " or "))
       (did-you-mean name parameter-type-names)))
 
+;; search-type-message : symbol -> string   an unknown search-parameter type, with the nearest and the
+;; types there are (`tokn`: did you mean `token`?)
+(define (search-type-message t)
+  (define names (map symbol->string search-param-types))
+  (format "unknown search-param type ~a~a; one of ~a" t (did-you-mean (symbol->string t) names)
+          (string-join names ", ")))
+
 ;; parse a #:in/#:out spec (a syntax list of [name type min max]) into rc-param constructor syntaxes
 (define (parse-params spec use)
   (cond
@@ -250,7 +271,7 @@
   (require rackunit (only-in fhir/r6/types))     ; populate the registry at phase 0 for the test
   ;; parse-server yields an rc-server construction with defaults
   (check-equal? (syntax->datum (parse-server #'(server)))
-                '(rc-server "server" "active" "2025-01-01T00:00:00Z" "6.0.0-ballot4"
+                '(rc-server "server" "active" #f "6.0.0-ballot4"      ; #f: dated when the server starts
                             (list "application/fhir+json") #f #f #f))
   ;; a name and a description for the statement (its `implementation` too)
   (check-equal? (list-tail (syntax->datum (parse-server #'(server #:name "Clinic" #:description "The clinic's server"))) 7)

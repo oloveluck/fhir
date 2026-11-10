@@ -12,9 +12,16 @@
 ;;; registered, so the whole tree resolves in one call), then `ok-or-raise`.
 
 (require racket/contract racket/list
+         (only-in racket/date date->string date-display-format)
          (only-in fhir/serialize/from-json from-json)
          (only-in fhir/result/result ok-or-raise)
          (only-in fhir/r6/fhir-version fhir-version))
+
+;; started-at : string   when this process loaded the app, UTC to the second: an instance statement
+;; declared without #:date is dated when the server started (it said 2025-01-01 forever)
+(define started-at
+  (parameterize ([date-display-format 'iso-8601])
+    (string-append (date->string (seconds->date (current-seconds) #f) #t) "Z")))
 
 (provide
  (struct-out rc-server-struct)
@@ -111,7 +118,7 @@
              'url (rc-server-url server)
              'name (rc-server-name server)
              'status (rc-server-status server)
-             'date (rc-server-date server)
+             'date (or (rc-server-date server) started-at)
              'description (rc-server-description server)
              'kind "instance"
              ;; an instance statement says which server it is (cpb-2, cpb-14): its address, in words

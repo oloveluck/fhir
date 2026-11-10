@@ -129,7 +129,7 @@
     (check-true (>= (hash-ref cd 'checked) 8))
     ;; the trail of a type, with what each resource says: its subject and value beside who wrote it
     (let-values ([(tr _e) ((tool-run (hash-ref tools "describe")) (hasheq 'ref "Observation" 'as "trail"))])
-      (check-regexp-match #rx"\na1,Patient/ann,8[.]4 %,[^,]*,2," tr))
+      (check-regexp-match #rx"\na1,Patient/ann,,8[.]4 %,[^,]*,2," tr))
     ;; a define answering texts is tallied by text (it read {"other": n}), rows in patient order
     (call "write" (hasheq 'path "Above.cql" 'text (string-append "library Above version '1'\nusing FHIR version '4.0.1'\ncontext Patient\n"
                                                                "define \"Above\": if exists [Observation] then 'tested' else 'never tested'\n")))

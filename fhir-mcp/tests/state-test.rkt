@@ -180,8 +180,12 @@
       (check-regexp-match #rx"[*] gender = #male" (call e "describe" (hasheq 'ref "Patient/gus/_history" 'as "source")))
       ;; write from a file elsewhere says it keeps a copy
       (with-output-to-file "genders2.fhirpath" #:exists 'truncate (lambda () (display "Patient.gender")))
-      (check-regexp-match #rx"^from genders2[.]fhirpath: later edits go to genders2[.]fhirpath, the workspace's copy"
-                          (hash-ref (call e "write" (hasheq 'path "genders2.fhirpath" 'text "Patient.gender" 'files (hasheq 'text "genders2.fhirpath"))) 'copied)))
+      ;; both paths named from here, so the same file name in two places reads as two files
+      (let ([m (regexp-match #rx"^genders2[.]fhirpath was copied to ([^ ]+) [(]the workspace's file[)]: edit that one, or write again after editing genders2[.]fhirpath$"
+                             (hash-ref (call e "write" (hasheq 'path "genders2.fhirpath" 'text "Patient.gender" 'files (hasheq 'text "genders2.fhirpath"))) 'copied))])
+        (check-not-false m)
+        (check-regexp-match #rx"/genders2[.]fhirpath$" (cadr m))
+        (check-true (file-exists? (cadr m)))))
     (let-values ([(text err?) ((tool-run (hash-ref (tools-of e) "describe")) (hasheq 'ref "Patient/ann" 'as "source"))])
       (check-false err? text))
     (define inside (path->string (build-path dir "data-in.fsh")))
@@ -209,7 +213,7 @@
       (check-regexp-match #rx"no column \\\\\"onee\\\\\" [(]did you mean `one`[?][)]" text))
     ;; where each stored value came from, for a type, in one call (it was a join from the guide)
     (define tr (call e "describe" (hasheq 'ref "Patient" 'as "trail")))
-    (check-regexp-match #rx"^id,subject,value,date,versionId,recorded,agent,reason,source,at,provenance\n" tr)
+    (check-regexp-match #rx"^id,name,value,date,versionId,recorded,agent,reason,source,at,provenance\n" tr)
     (check-regexp-match #rx"\ngus,,,,2,[^,]+,[^,]+,gender corrected,[.][.]/[^,]+-src/gus[.]fsh,[.][.]/[^,]+-src/gus[.]fsh:3,Provenance/" tr)
     ;; a refused commit lists the errors it refuses for (a count sent the reader back to the stage)
     (define bad-stage (hash-ref (with-handlers ([exn:fail? (lambda (_) (hasheq 'stage "?"))])
@@ -248,5 +252,17 @@
   (check-regexp-match #rx"### describe ref=result://pcount as=csv\nn\n[0-9]+" text)
   (check-regexp-match #rx"### [[]exit 1[]] nosuchtool\nno tool nosuchtool" text)
   (check-regexp-match #rx"### 3 line[(]s[)], 1 failed: nosuchtool\n$" text))
+;; a line expected to fail (`!`): refused is right, accepted is the failure; the summary says both
+(with-output-to-file batch-file #:exists 'truncate
+  (lambda () (display "! describe ref=Patient/no-such-patient\n! nosuchtool\n! query language=sql text=\"SELECT count(*) AS n FROM Patient\"\nquery language=sql text=\"SELECT count(*) AS n FROM Patient\"\n")))
+(let ([out (open-output-string)])
+  (define code (parameterize ([current-output-port out] [current-error-port out])
+                 (system*/exit-code (find-executable-path "raco") "fhir-mcp" "batch" (path->string batch-file) "--workspace" (path->string dir))))
+  (define text (get-output-string out))
+  (check-equal? code 1 text)
+  (check-regexp-match #rx"### [[]failed, as expected[]] ! describe ref=Patient/no-such-patient\n" text)
+  (check-regexp-match #rx"### [[]exit 1[]] ! nosuchtool\n" text)        ; a misspelt tool is no expected failure
+  (check-regexp-match #rx"### [[]exit 0, expected to fail[]] ! query" text)
+  (check-regexp-match #rx"### 4 line[(]s[)], 2 failed [(]1 more failed as expected[)]: ! nosuchtool; ! query" text))
 (delete-file batch-file)
 (delete-directory/files dir)

@@ -106,16 +106,18 @@ With two views — `bp.view.json`, one row per blood pressure, and `patients.vie
 a summary per patient — readings, means, and whether the mean is at or above 140/90 — is
 
 ```
-SELECT patient, count(*) AS readings, round(avg(systolic), 1) AS mean_systolic,
-       round(avg(diastolic), 1) AS mean_diastolic,
+SELECT patient, count(*) AS readings, printf('%.1f', avg(systolic)) AS mean_systolic,
+       printf('%.1f', avg(diastolic)) AS mean_diastolic,
        CASE WHEN avg(systolic) >= 140 OR avg(diastolic) >= 90 THEN 'yes' ELSE 'no' END AS at_or_above_140_90
 FROM bp GROUP BY patient ORDER BY patient
 ```
-(`bp_history` is the same view over every stored version, for a reading's corrections), and the mean
+(`printf('%.1f', …)` writes a mean as a person reads it, `140.0`, where `round(…, 1)` gives a number
+that may print as `140` or `139.66666666666666`; `bp_history` is the same view over every stored
+version, for a reading's corrections), and the mean
 systolic by gender is
 
 ```
-SELECT p.gender, count(*) AS n, round(avg(b.systolic), 1) AS mean_systolic
+SELECT p.gender, count(*) AS n, printf('%.1f', avg(b.systolic)) AS mean_systolic
 FROM bp b JOIN patients p ON p.id = b.patient GROUP BY p.gender
 ```
 and a classification by a patient's mean (`HAVING avg(b.systolic) >= 140` keeps those whose mean is
@@ -176,6 +178,27 @@ Every staged resource of that type is validated against it and claims it in `met
 stage that breaks it lists the broken rule per resource and cannot be committed. `check` holds the
 workspace's FSH examples to it too, and `check(data: true)` everything already stored: how many
 resources (`byType`, the trail's own Provenances and AuditEvents among them), how many break a rule, the rules by how often they are broken, the first problems as lines.
+
+A stage is all or nothing: one invalid resource refuses the whole stage, so nothing is half-written.
+To keep the valid ones, drop the stage, take the refused resources out of the text (each problem
+names its line) and stage again; stage a batch apart when some of it may be refused.
+
+Many readings of one shape are one parameterized RuleSet and one line each (the commit's source
+keeps every line, and each version's `at` names the line that wrote it):
+
+```fsh
+RuleSet: Reading(id, patient, date, sys, dia)
+* code = http://loinc.org#85354-9 "Blood pressure panel"
+* status = #final
+* subject = Reference(Patient/{patient})
+* effectiveDateTime = "{date}"
+* component[0].code = http://loinc.org#8480-6
+* component[0].valueQuantity = {sys} 'mm[Hg]'
+* component[1].code = http://loinc.org#8462-4
+* component[1].valueQuantity = {dia} 'mm[Hg]'
+```
+with, per reading, `Instance: bp-a1` / `InstanceOf: Observation` / `* insert Reading(bp-a1, a,
+2025-01-10, 142, 91)`.
 
 Keep DATA out of the workspace's `.fsh` files: they are the project (profiles, value sets, a few
 examples), and every one of them is compiled and checked together, so a patient written there twice
@@ -278,8 +301,11 @@ the source the data came from (the FSH, the file, or the run, with its text and 
 AuditEvent of the transaction. With `audit: all`, every run, query and apply leaves an AuditEvent
 too (its outcome, its text). The trail is data like any other:
 - `describe("Observation", as: "trail")`: every stored Observation at its current version, with
-  `versionId, recorded, agent, reason, source, at, provenance`, as CSV — "where did each value come
-  from" in one call (the SQL below is the same join, for anything more);
+  `id, subject, name` (the patient's), `value` (a value[x], else the components in order: `142 mm[Hg] /
+  91 mm[Hg]`), `date`, then `versionId, recorded, agent, reason, source, at, provenance`, as CSV —
+  "where did each value come from" in one call; `columns="id,name,value,at"` and `sort="-date"` as for
+  any table; `describe("Observation/a1/_history", as: "trail")` (or `as: "csv"`) is the same for every
+  version of one resource, newest first (the SQL below is the same join, for anything more);
 - `describe("Observation/a1/_history")`: every version, newest first, what changed since the one
   before (`valueQuantity.value: 8.0 → 8.4`), and who wrote it (`agent`), when (`recorded`), why
   (`reason`), from what (`source`, `sha1`) and where (`at`) — the same names as SQL's `trail`. `at` is

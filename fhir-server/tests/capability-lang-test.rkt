@@ -8,6 +8,7 @@
          (only-in fhir/r6/types)
          (only-in fhir/serialize/from-json from-json)
          (only-in fhir/serialize/to-json node->jsexpr)
+         (only-in fhir/capability/derive derive-capability-statement rc-server)
          (only-in fhir/result/result ok-value)
          (only-in fhir/model/node fhir? fhir-type)
          ;; dispatch / app? / request constructors are library functions, not re-exported by the app
@@ -337,7 +338,24 @@
   (check-regexp-match #rx"operation: unknown parameter type int [(]did you mean `integer`" mixed)
   (check-false (regexp-match? #rx"#:min and #:max" mixed))
   (check-regexp-match #rx"resource Patient: search parameter `birthDate`: FHIR defines none" mixed)
+  ;; a misspelt search-parameter type: the nearest and the types there are, said once (it was said
+  ;; twice, the second time as "a token in FHIR, not a tokn")
+  (write-app! (string-append "#lang fhir/capability\n(server)\n"
+                             "(resource Patient #:interactions (read search-type) #:search-params ([gender tokn]))\n"))
+  (define tokn (load-error))
+  (check-regexp-match #rx"bad[.]capability[.]rkt:3:[0-9]+: resource: unknown search-param type tokn [(]did you mean `token`[?][)]; one of number, date, string, token" tokn)
+  (check-equal? (length (regexp-match* #rx"tokn" tokn)) 1 tokn)
+  ;; a server option given a symbol: one line at the value (it was syntax-parse's "expected string"
+  ;; and a stack trace)
+  (write-app! "#lang fhir/capability\n(server #:mode server)\n")
+  (check-regexp-match #rx"bad[.]capability[.]rkt:2:15: server: #:mode takes a string: \"server\"$" (load-error))
+  (write-app! "#lang fhir/capability\n(server #:nmae \"x\")\n")
+  (check-regexp-match #rx"server: unknown option #:nmae [(]did you mean `name`[?][)]" (load-error))
   (delete-directory/files dir))
+
+;; an instance statement declared without #:date is dated when the server started, not 2025-01-01
+(check-false (equal? (hash-ref (node->jsexpr (derive-capability-statement (rc-server "server" "active" #f "6.0.0" '("json") #f) '() '())) 'date)
+                     "2025-01-01T00:00:00Z"))
 
 ;; a decimal output built from a computed number: a Racket number is a decimal (`(valueDecimal 57.5)`
 ;; was refused); a string FHIR does not read (`(real->decimal-string v 0)` = "58.") answers a 500 that

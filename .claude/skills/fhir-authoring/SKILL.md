@@ -81,6 +81,25 @@ default, full snapshots opt-in.
 
 ## The languages together in one program
 
+**The API a pipeline uses**, one line each (the rest of this section is the detail):
+| from | binding | what it is |
+|---|---|---|
+| a `#lang fml` file | `(transform src [#:validate spec] [#:strict? #f])` | FHIR JSON (a hash) in, FHIR JSON out; `#:validate` a canonical, `#t`, an FSH project or a list: an invalid result raises `exn:fail:operation` naming the map's rule |
+| a `#lang fsh` file | `(canonical-of "Name")`, `compiled`, `resources` | a definition's url by name or id; the project's FHIR JSON; typed nodes |
+| a `#lang cql` file | `(evaluate resources [#:define name] [#:now date] [#:parameters h] [#:valuesets vss])` | a define's Racket value (`#t`, a number, a moment), or a hash of every define |
+| `cql/value` | `(render v)` | a CQL value as text to print (`"true"`, a FHIR value's JSON, `"null"`) |
+| `fhir/serialize/fhir-json` | `(write-fhir-json js [out] #:indent 2)`, `(fhir-json->string js)` | FHIR JSON as FHIR writes it (`resourceType` first) |
+| `fhir/operation` | `exn:fail:operation?`, `exn:fail:operation-outcome` | the error `#:validate` and `ensure-valid` raise; its OperationOutcome |
+| `fhir/conformance/operations` | `(ensure-valid r #:profile url)` | the resource, or that error (names the element, not the map's rule) |
+
+The map's Patient has no `id` (nothing in the QuestionnaireResponse gives one); CQL's Patient context
+needs none, and `evaluate` takes the list of the patient's resources as they are.
+`raco make main.rkt` compiles the required files in turn and stops at the first that fails (a typo
+in the map AND in the CQL shows the map's first); its last lines, `compilation context...:`, name
+the chain of files that required the failing one. To see every language's problems at once, run the
+checks (`raco fsh check fsh`, `raco fml check qr2patient.map …`, `raco cql Intake.cql`), or the
+template's `raco test tests.rkt`.
+
 Every `#lang` file is a Racket module, so a program `require`s them side by side and uses their values:
 `"profile.fsh"` provides `compiled` (FHIR JSON), `"intake.fml"` `transform` (FHIR JSON -> FHIR JSON),
 `"codes.vcl"` `valueset`, `"rules.cql"` `evaluate` (a library over a patient's resources, with
@@ -91,8 +110,7 @@ its own language by `raco make`. Worked examples: `fhir-examples/examples/intake
 The intake pipeline is a template — `fsh/` (the profile and a valid example), `fsh-invalid/` (an
 example meant to fail), `qr2patient.map`, `Intake.cql`, `main.rkt`, `qr.json` — to copy and change:
 ```sh
-cp -r "$(dirname "$(racket -e '(display (collection-file-path "main.rkt" "fhir-examples" "examples" "intake-pipeline"))')")" my-pipeline
-rm -rf my-pipeline/compiled my-pipeline/*/compiled
+raco fhir new pipeline my-pipeline             # a copy of the template (fhir-examples' examples/intake-pipeline)
 cd my-pipeline && racket main.rkt qr.json      # the Patient, then "65 or older: true" (--now 2014-01-01: false)
 raco fsh check fsh && raco fsh check fsh-invalid --context fsh   # clean; then the bad example, at its line
 ```

@@ -38,6 +38,7 @@
          (only-in fhirpath/value item->system)
          (only-in fhirpath/ucum ucum-valid?)
          (only-in fhir/serialize/jsexpr-util drop-false)
+         (only-in fhir/primitives/temporal calendar-problem)
          (only-in fhirpath/terminology tx-service-validate tx-service-expand))
 
 (provide
@@ -359,7 +360,12 @@
      (define ctor (primitive-constructor tc))
      (cond [(not ctor) '()]
            [(let ([r (with-handlers ([exn:fail? (lambda (_) (err #f))]) (ctor input))]) (and (not (ok? r))))
-            (list (issue "error" "invalid" loc (format "'~a' is not a valid ~a" input tc)))]
+            (define why (and (member tc '("date" "dateTime" "instant")) (string? input)
+                             (calendar-problem input)))
+            (list (issue "error" "invalid" loc
+                         (if why
+                             (format "'~a' is not a valid ~a (~a)" input tc why)
+                             (format "'~a' is not a valid ~a" input tc))))]
            ;; a canonical reference must not end in '|' (a version separator with no version)
            [(and (equal? tc "canonical") (string? input) (regexp-match? #rx"[|]$" input))
             (list (issue "error" "invalid" loc "canonical URL cannot end in '|'"))]

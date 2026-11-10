@@ -25,7 +25,7 @@
   `(("serve" ,(format "raco fhir-mcp [serve] ~a   the server over stdin/stdout" flags))
     ("tools" ,(format "raco fhir-mcp tools ~a   the tools and their schemas" flags))
     ("call"  ,(format "raco fhir-mcp call <tool> ['<json>' | -] [key=value | key=@file | key:=<json>]… ~a   run one tool: arguments as a JSON object (- reads it from stdin) and/or one by one, a file's text with @" flags))
-    ("batch" ,(format "raco fhir-mcp batch [<file> | -] ~a   many calls in one process: one per line, `<tool> key=value key=@file key:=<json> …` (quoted as a shell would; # starts a comment), each answer after a `### <line>` header" flags))
+    ("batch" ,(format "raco fhir-mcp batch [<file> | -] ~a   many calls in one process: one per line, `<tool> key=value key=@file key:=<json> …` (quoted as a shell would; # starts a comment; a line starting with ! is expected to fail), each answer after a `### <line>` header" flags))
     ("init"  "raco fhir-mcp init [<dir>] [--fhir-version 4.0.1|5.0.0]   make a directory a workspace an agent can use: workspace.yaml (data: fhir.db, a SQLite FHIR store), .mcp.json, CLAUDE.md")
     ("guide" "raco fhir-mcp guide [<topic>]   a guide (learn://<topic>) as text; without a topic, the topics")))
 
@@ -95,8 +95,12 @@
     (lambda (h tools)
       ;; each answer under its line, the line's exit status in the header (`### [exit 1] stage …`) and
       ;; a last line counting them: a rerun's agent read a long batch and missed which line failed
+      ;; a line starting with `!` is EXPECTED to fail (a stage meant to be refused): it counts as
+      ;; failed when it succeeds, and its header says which way it went
       (define statuses
-        (for/list ([l (in-list lines)])
+        (for/list ([l0 (in-list lines)])
+          (define expect-fail? (regexp-match? #px"^!\\s*" l0))
+          (define l (if expect-fail? (string-trim (substring l0 1)) l0))
           (define words (shell-words l))
           (define t (and (pair? words) (findf (lambda (x) (equal? (tool-name x) (car words))) tools)))
           (define-values (out status)
@@ -106,14 +110,22 @@
                (define-values (out err?) (with-handlers ([exn:fail? (lambda (e) (values (exn-message e) #t))])
                                            (call-tool t (call-arguments (cdr words)))))
                (values out (if (or err? (reports-errors? out)) 1 0))]))
-          (printf "### ~a~a\n" (if (zero? status) "" "[exit 1] ") l)
+          (define ok? (if expect-fail? (and t (= status 1)) (zero? status)))
+          (printf "### ~a~a\n"
+                  (cond [(and expect-fail? ok?) "[failed, as expected] "]
+                        [(and expect-fail? t) "[exit 0, expected to fail] "]
+                        [ok? ""]
+                        [else "[exit 1] "])
+                  l0)
           (displayln out)
           (flush-output)
-          status))
-      (define failed (for/sum ([x (in-list statuses)]) x))
-      (printf "### ~a line(s), ~a failed~a\n" (length statuses) failed
+          (cons (if ok? 0 1) expect-fail?)))
+      (define failed (for/sum ([x (in-list statuses)]) (car x)))
+      (define expected (for/sum ([x (in-list statuses)] #:when (and (cdr x) (zero? (car x)))) 1))
+      (printf "### ~a line(s), ~a failed~a~a\n" (length statuses) failed
+              (if (zero? expected) "" (format " (~a more failed as expected)" expected))
               (if (zero? failed) ""
-                  (format ": ~a" (string-join (for/list ([l (in-list lines)] [x (in-list statuses)] #:unless (zero? x)) l) "; "))))
+                  (format ": ~a" (string-join (for/list ([l (in-list lines)] [x (in-list statuses)] #:unless (zero? (car x))) l) "; "))))
       (exit (if (zero? failed) 0 1)))))
 
 ;; shell-words : line -> (listof string)   split as a shell would: blanks separate, '…' and "…" quote

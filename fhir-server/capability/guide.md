@@ -72,7 +72,8 @@ A whole file — declarations, the handler and how to call it — is the worked 
   (from the request's Host), so it validates as FHIR. A stored type also answers `_include=Observation:subject` (and `_revinclude`) over its declared reference
   parameters, the included resources marked `search.mode` include; the statement does not list them
   (`searchInclude`). A reference parameter takes FHIR's type modifier:
-  `subject:Patient=123` is `subject=Patient/123`.
+  `subject:Patient=123` is `subject=Patient/123`, and a bare id (`subject=123`) matches a
+  reference to any type with that id.
 
 ### The store
 - A resource without `#:repository` is kept in the store: the workspace's when the workspace serves
@@ -105,7 +106,10 @@ A whole file — declarations, the handler and how to call it — is the worked 
 - A handler receives `in`, a hash from each input's name to its list of values, typed by the
   declaration and the same over GET (`?weight=80.5`) and POST (a Parameters body): `integer` an exact
   integer, `decimal` a Racket real, `boolean` `#t`/`#f`, `string`/`code`/`uri`/`date`/`dateTime` the
-  text as sent, a resource a typed node. A value that is not of its type, or an input the declaration
+  text as sent, a resource a typed node. An output is built the same way round: `(valueDecimal 24.7)`
+  takes the Racket real (round it yourself: `(/ (round (* bmi 10)) 10.0)`), `(valueInteger 3)`,
+  `(valueString "…")`; a decimal STRING works too when it is FHIR's (`"24.7"`), but
+  `(real->decimal-string v 0)` gives `"58."`, which FHIR does not read. A value that is not of its type, or an input the declaration
   does not name (`weigth`: "did you mean `weight`?"), is answered 400 before the handler runs. Each
   operation's derived OperationDefinition is served at `GET /OperationDefinition/<code>` (and all of
   them at `GET /OperationDefinition`), so a client can read what `$bmi` takes. Its url is
@@ -163,7 +167,7 @@ operation of its own.
   (define (input k) (car (hash-ref in k)))           ; declared decimal: a Racket real, GET or POST
   (define m (/ (input "height") 100))
   (define bmi (/ (input "weight") (* m m)))
-  (Parameters (parameter (ParametersParameter (name "bmi") (valueDecimal (real->decimal-string bmi 1))))))
+  (Parameters (parameter (ParametersParameter (name "bmi") (valueDecimal (/ (round (* bmi 10)) 10.0))))))
 (operation $bmi #:system
   #:in ([weight decimal 1 1] [height decimal 1 1])
   #:out ([bmi decimal 1 1])
@@ -184,8 +188,8 @@ In a workspace, as `clinic.capability.rkt`:
 
 On the command line: `racket clinic.capability.rkt` prints the CapabilityStatement (and creates no
 store: the store file is made when a resource is first read or written);
-`raco fhir-server serve clinic.capability.rkt 8080 --store fhir.db` serves it (`--port 8080` too;
-`--port 0` takes a free port). It prints
+`raco fhir-server serve clinic.capability.rkt --port 8080 --store fhir.db` serves it (`--port 0`
+takes a free port; a bare `8080` after the file means the same). It prints
 `FHIR server on http://localhost:8080  (Ctrl-C, or kill <pid>, to stop)` and `store: <file>` once it
 is listening — that first line is the signal a script waits for, and it names the port when 0 was
 asked; a port in use is one line saying so (exit 1); `--log` prints one

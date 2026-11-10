@@ -153,6 +153,11 @@
 (define (path-string p) (if (path? p) (path->string p) p))
 (define (rel h p) (path->string (find-relative-path (hub-root h) (simplify-path (path->complete-path p (hub-root h))))))
 
+;; from-here : path -> string   a path as seen from the current directory (where the shell call was made)
+(define (from-here p)
+  (path->string (find-relative-path (simplify-path (path->complete-path (current-directory)))
+                                    (simplify-path (path->complete-path p)))))
+
 ;; files-by-language : hub -> (hash language -> (listof (cons path text)))
 (define (files-by-language h)
   (for/fold ([acc (hash)]) ([f (in-list (workspace-files (hub-ws h)))])
@@ -284,7 +289,11 @@
   ;; text read from a file elsewhere (`text=@../a.fsh`) is COPIED: say so, since a later edit of that
   ;; file changes nothing here (a rerun's agent edited its original and staged the old copy)
   (define answer** (if (and from (not (equal? (path-string (simplify-path (path->complete-path from))) (path-string full))))
-                       (hash-set answer* 'copied (format "from ~a: later edits go to ~a, the workspace's copy (or write it again)" from (rel h full)))
+                       (hash-set answer* 'copied
+                                 ;; both named from where the call was made: the same file name in two
+                                 ;; places read as one file
+                                 (format "~a was copied to ~a (the workspace's file): edit that one, or write again after editing ~a"
+                                         from (from-here full) from))
                        answer*))
   ;; the configuration only when it is what was written
   (if config? (hash-set answer** 'config (config-json h)) answer**))
@@ -896,9 +905,18 @@
         [(regexp-match? #rx"/OperationDefinition/" ref) (describe-operation ref)]
         ;; where each stored value came from, for a type: its current version with who, when, why and
         ;; from which file and line (a join copied from deep in the guide answered it before)
-        [(and (equal? (hash-ref args 'as #f) "trail") (regexp-match? #px"^[A-Z][A-Za-z]+$" ref))
-         (hub-describe h (hash-ref (hub-query h "sql" (trail-sql ref) (hasheq 'name (string-append (string-downcase ref) "_trail"))) 'result)
-                       (hasheq 'as "csv"))]
+        ;; (`describe ref=Observation as=trail`), or every version of one (`ref=Observation/a1/_history
+        ;; as=trail`, as=csv too), with its value; `columns`/`sort` as for any table
+        [(and (member (hash-ref args 'as #f) '("trail" "csv"))
+              (or (and (equal? (hash-ref args 'as #f) "trail") (regexp-match #px"^([A-Z][A-Za-z]+)$" ref))
+                  (regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)/_history$" ref)))
+         => (lambda (m)
+              (define name (if (pair? (cddr m))
+                               (string-append (string-downcase (cadr m)) "_" (string-replace (caddr m) "-" "_") "_history")
+                               (string-append (string-downcase (cadr m)) "_trail")))
+              (hub-describe h (hash-ref (hub-query h "sql" (apply trail-sql (cdr m)) (hasheq 'name name)) 'result)
+                            (for/hasheq ([k (in-list '(as columns sort limit))] #:when (hash-ref args k #f))
+                              (values k (if (eq? k 'as) "csv" (hash-ref args k))))))]
         ;; the source text a stored resource was written from, read through its newest Provenance —
         ;; no id to copy (`describe ref=Observation/a1/_history as=source`, or the resource itself)
         [(and source? (let ([m (regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)(?:/_history)?$" ref)])
@@ -964,7 +982,11 @@
                                   '()))]
                  #:when (cdr kv))
         (hash-set e (car kv) (cdr kv)))))
-  (hasheq 'resource (format "~a/~a" type id) 'versions (reverse entries)))
+  ;; `source`/`at` are the trail's own paths (relative to the workspace, as SQL's `trail` has them):
+  ;; say where that is when the call was made from elsewhere (a rerun's agent, in the folder above)
+  (define here (from-here (hub-root h)))
+  (define base (hasheq 'resource (format "~a/~a" type id) 'versions (reverse entries)))
+  (if (member here '("." "./")) base (hash-set base 'paths (format "source and at are relative to the workspace, ~a" here))))
 
 ;; provenance-display : Provenance -> string|#f   its source's one-line display (`../src/a.fsh sha1:…`)
 (define (provenance-display pv)
@@ -1036,21 +1058,42 @@
                  "\n")
     (let ([next (+ offset (length page))])
       (if (< next (length rows)) (format "\n… ~a more rows: ~a" (- (length rows) next) (call-text "describe" (list (cons 'ref uri) (cons 'as "csv") (cons 'offset next)))) "")))))
-;; trail-sql : type -> sql   each stored resource of the type at its current version, with the trail
-;; with the subject, the value and its date (the trail alone named a resource, not what it says)
-(define (trail-sql type)
-  (format (string-append
-           "SELECT x.id, "
-           "COALESCE(x.resource ->> '$.subject.reference', x.resource ->> '$.patient.reference') AS subject, "
-           "COALESCE((x.resource ->> '$.valueQuantity.value') || ' ' || COALESCE(x.resource ->> '$.valueQuantity.code', x.resource ->> '$.valueQuantity.unit', ''), "
-           "x.resource ->> '$.valueString', x.resource ->> '$.valueCodeableConcept.coding[0].code', "
-           "CASE x.resource ->> '$.valueBoolean' WHEN 1 THEN 'true' WHEN 0 THEN 'false' END) AS value, "
-           "COALESCE(x.resource ->> '$.effectiveDateTime', x.resource ->> '$.effectivePeriod.start', x.resource ->> '$.issued', "
-           "x.resource ->> '$.authoredOn', x.resource ->> '$.recordedDate', x.resource ->> '$.birthDate') AS date, "
-           "t.versionId, t.recorded, t.agent, t.reason, t.source, t.at, t.provenance "
-           "FROM ~a x LEFT JOIN trail t ON t.type = '~a' AND t.id = x.id AND t.versionId = CAST(x.versionId AS INTEGER) "
-           "ORDER BY x.id")
-          type type))
+;; trail-sql : type [id] -> sql   each stored resource of the type at its current version, with the
+;; trail (who, when, why, from which file and line) — or, given an id, every version of that one
+;; resource, newest first. `value` reads a value[x], else the components' values in order (a blood
+;; pressure: `120 mm[Hg] / 80 mm[Hg]`); `name` is the subject's (a Patient's own name for a Patient).
+(define (trail-sql type [id #f])
+  (define (q s) (string-replace s "'" "''"))
+  (define value-of
+    (string-append
+     "COALESCE((x.resource ->> '$.valueQuantity.value') || ' ' || COALESCE(x.resource ->> '$.valueQuantity.code', x.resource ->> '$.valueQuantity.unit', ''), "
+     "x.resource ->> '$.valueString', x.resource ->> '$.valueCodeableConcept.coding[0].code', "
+     "CASE x.resource ->> '$.valueBoolean' WHEN 1 THEN 'true' WHEN 0 THEN 'false' END, "
+     "(SELECT group_concat(COALESCE((c.value ->> '$.valueQuantity.value') || ' ' || COALESCE(c.value ->> '$.valueQuantity.code', c.value ->> '$.valueQuantity.unit', ''), "
+     "c.value ->> '$.valueString', c.value ->> '$.valueCodeableConcept.coding[0].code'), ' / ') "
+     "FROM json_each(x.resource, '$.component') c))"))
+  (define subject-of "COALESCE(x.resource ->> '$.subject.reference', x.resource ->> '$.patient.reference')")
+  (define name-of
+    (string-append
+     "(SELECT trim(COALESCE(p.resource ->> '$.name[0].given[0]', '') || ' ' || COALESCE(p.resource ->> '$.name[0].family', p.resource ->> '$.name[0].text', ''))"
+     " FROM resources p WHERE p.type = 'Patient' AND p.id = "
+     (if (equal? type "Patient") "x.id" (string-append "substr(" subject-of ", 9)"))
+     (if (equal? type "Patient") "" (string-append " AND " subject-of " LIKE 'Patient/%'"))
+     ")"))
+  (string-append
+   "SELECT x.id, "
+   (if (equal? type "Patient") "" (string-append subject-of " AS subject, "))
+   name-of " AS name, "
+   value-of " AS value, "
+   "COALESCE(x.resource ->> '$.effectiveDateTime', x.resource ->> '$.effectivePeriod.start', x.resource ->> '$.issued', "
+   "x.resource ->> '$.authoredOn', x.resource ->> '$.recordedDate', x.resource ->> '$.birthDate') AS date, "
+   (if id "x.versionId, " "t.versionId, ")
+   "t.recorded, t.agent, t.reason, t.source, t.at, t.provenance "
+   (if id
+       (format "FROM history x LEFT JOIN trail t ON t.type = '~a' AND t.id = x.id AND t.versionId = CAST(x.versionId AS INTEGER) WHERE x.type = '~a' AND x.id = '~a' ORDER BY CAST(x.versionId AS INTEGER) DESC"
+               (q type) (q type) (q id))
+       (format "FROM ~a x LEFT JOIN trail t ON t.type = '~a' AND t.id = x.id AND t.versionId = CAST(x.versionId AS INTEGER) ORDER BY x.id"
+               type (q type)))))
 
 ;; sorted-rows : rows (string | #f) columns uri -> rows
 (define (sorted-rows rows sort-by cols uri)

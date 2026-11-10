@@ -158,3 +158,13 @@
 (check-equal? (errs (hasheq 'resourceType "Observation" 'status "final" 'code (hasheq 'text "x")
                             'valueQuantity (hasheq 'value 130 'unit "mmHg")))
               '() "no system: the unit is free text")
+
+;; ---- the calendar: the regex allows day 31 in every month (a new user's 1940-02-30 was "All OK") ---
+(check-equal? (errs (hasheq 'resourceType "Patient" 'birthDate "1940-02-30"))
+              '(("invalid" . "Patient.birthDate")))
+(check-equal? (errs (hasheq 'resourceType "Patient" 'birthDate "2000-02-29")) '())
+(check-equal? (errs (hasheq 'resourceType "Observation" 'status "final" 'code (hasheq 'text "x")
+                            'effectiveDateTime "2024-04-31T10:00:00Z"))
+              '(("invalid" . "Observation.effective[x]")))
+(check-regexp-match #rx"'1940-02-30' is not a valid date [(]February 1940 has 29 days[)]"
+                    (issue-msg (car (validate-issues (hasheq 'resourceType "Patient" 'birthDate "1940-02-30")))))

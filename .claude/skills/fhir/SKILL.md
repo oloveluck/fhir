@@ -15,28 +15,22 @@ one line, `file:line:col severity: message`, with "did you mean …" for a missp
 | you are … | start with |
 |---|---|
 | asking questions of health data, storing it under rules, keeping its trail | this skill: the workspace (MCP tools, or `raco fhir-mcp call` from the shell) |
-| writing a Racket program (an FML map, an FSH profile and a CQL library required side by side) | the `fhir-authoring` skill, section "The languages together in one program": a pipeline template to copy (`fhir-examples/examples/intake-pipeline`), its pieces run one at a time, then `main.rkt` — the workspace sections below are not needed |
+| writing a Racket program (an FML map, an FSH profile and a CQL library required side by side) | "A Racket program" at the end (a quickstart), then the `fhir-authoring` skill — the workspace sections are not needed |
 | building a FHIR server with your own operations | "Build a FHIR server" below, and `raco fhir-mcp guide capability` |
 | using one language from the command line | its own skill: `cql`, `fsh`, `fml`, `fhirpath`, `vcl`, `sql-on-fhir` |
 
-**Racket pipeline quickstart** (a QuestionnaireResponse → FML → a Patient validated against an FSH
-profile → a CQL answer; fhir-authoring explains each piece):
-```sh
-cp -r "$(dirname "$(racket -e '(display (collection-file-path "main.rkt" "fhir-examples" "examples" "intake-pipeline"))')")" my-pipeline
-cd my-pipeline && rm -rf compiled */compiled
-raco fsh check fsh                                                # the profile and its valid example: exit 0
-raco fsh check fsh-invalid --context fsh || true                  # the example meant to fail, at its line (exit 1)
-raco fml check qr2patient.map --examples qr.json --profile fsh   # the map's result held to the profile
-racket main.rkt --now 2026-01-01 qr.json                          # the Patient, then "65 or older: true"
-raco test tests.rkt                                               # all of the above as one gate
-```
-To write the four files yourself instead: `fsh/intake.fsh` (`#lang fsh`: a Profile with `1..1` rules and
-an Instance — the fsh skill), `qr2patient.map` (`#lang fml`: a group from QuestionnaireResponse to
-Patient, one rule per item — the fml guide's cheat sheet), `Intake.cql` (`#lang cql`: `define "Is 65 Or
-Older": AgeInYears() >= 65` — the cql guide) and `main.rkt` (fhir-authoring shows it whole). The map and
-the validation read FHIR R5 and the CQL library FHIR 4.0.1: a Patient's name, gender and birthDate are
-the same in both. **A Racket program needs nothing below this line**: the rest of this skill is the
-workspace (MCP tools or `raco fhir-mcp`); go on in `fhir-authoring`, "The languages together in one program".
+**Which call answers which question** (each one a tested recipe):
+| question | where |
+|---|---|
+| is the latest HbA1c above 9 %, per patient (and "never tested") | `raco fhir-mcp guide cql`, "the latest value per patient"; `run path=… as=csv columns=…` for the table |
+| was any result above a threshold | a FHIR search: `query language=search text="Observation?code=…&value-quantity=gt9"` |
+| where did each stored value come from (who, when, why, which file and line) | `describe ref=Observation as=trail` (one resource's versions: `ref=Observation/a1/_history as=trail`) |
+| what changed in a resource, version by version | `describe ref=Observation/a1/_history` |
+| a rule every resource of a type must meet | "Constraints and the trail" below; the rules cookbook in `raco fhir-mcp guide workspace` |
+| correct a stored value with a reason | the correction recipe in `raco fhir-mcp guide workspace` |
+| a table of values to join or chart | a ViewDefinition (`raco fhir-mcp guide sql-on-fhir`), then `query language=sql` |
+| a FHIR server with an operation of your own | "Build a FHIR server" below |
+| a Racket program: map, validate, decide | "A Racket program" at the end |
 
 ## Set up
 ```sh
@@ -84,7 +78,7 @@ Keep data files like `patients.fsh` outside the workspace directory: the workspa
 files are its project (profiles, value sets, a few examples), compiled and checked together, so a
 patient written there and staged too is a duplicate id. The trail names the agent `raco fhir-mcp call` unless `commit … agent="intake desk"` (or `FHIR_MCP_AGENT`) names who is writing. A capability
 app that `run` serves lives as long as the process that ran it: from the shell, serve it with
-`raco fhir-server serve app.capability.rkt 8080 --store fhir.db`.
+`raco fhir-server serve app.capability.rkt --port 8080 --store fhir.db`.
 Not installed: the README's "Getting the tools" (Racket 9, then `raco pkg install` of the repositories).
 
 ## The guides
@@ -144,7 +138,7 @@ InstanceOf: Observation
 * code = http://loinc.org#4548-4 "Hemoglobin A1c"
 * subject = Reference(ann)
 * effectiveDateTime = "2025-02-10"
-* valueQuantity = 8.4 '%'
+* valueQuantity = 9.4 '%'
 
 Instance: bob-a1c
 InstanceOf: Observation
@@ -169,18 +163,18 @@ commit {"stage": "stage-1", "reason": "two patients' HbA1c results"}
 The commit leaves a Provenance in the store beside the data: the versions it wrote, the agent, the
 reason, and the FSH it came from (the text itself, with its SHA-1).
 
-Find results above 8% with a FHIR search (the store indexes every resource by FHIR's own search
+Find results above 9% with a FHIR search (the store indexes every resource by FHIR's own search
 parameters):
 
 ```call
-query {"language": "search", "text": "Observation?code=http://loinc.org|4548-4&value-quantity=gt8"}
+query {"language": "search", "text": "Observation?code=http://loinc.org|4548-4&value-quantity=gt9"}
 ```
 ```answer
 {"result": "result://r1", "total": 1, "rows": [{"resource": "Observation/ann-a1c"}]}
 ```
 
-That search answers "was ANY result above 8%?". A rule per patient — "is the LATEST result above
-8%?" — is CQL (the recipe in `learn://cql`, "the latest value per patient"):
+That search answers "was ANY result above 9%?". A rule per patient — "is the LATEST result above
+9%?" — is CQL (the recipe in `learn://cql`, "the latest value per patient"):
 
 ```cql
 library Diabetes version '1.0.0'
@@ -191,7 +185,7 @@ code "HbA1c": '4548-4' from "LOINC"
 context Patient
 define "A1c Results": [Observation: "HbA1c"] O where O.status in { 'final', 'amended', 'corrected' }
 define "Latest": Last("A1c Results" O sort by (effective as dateTime))
-define "Poor Control": ("Latest".value as Quantity) > 8 '%'
+define "Poor Control": ("Latest".value as Quantity) > 9 '%'
 ```
 
 ```call
@@ -209,7 +203,7 @@ run {"path": "Diabetes.cql"}
 ```
 This is the short form of learn://cql's latest-value recipe, which spells the same library out in
 full (`"Latest Value"`, `"Poorly Controlled"`, a number and a unit to print, "never tested"): start
-from the recipe for a real question, and set its threshold (here 8 %, there 9 %) to the one asked.
+from the recipe for a real question, and set its threshold (9 % in both) to the one asked.
 A run's preview lists every define per patient; `explain(ref, subject, entry: "<define>")` answers one.
 
 A table of every HbA1c result, as a ViewDefinition:
@@ -238,7 +232,7 @@ latest run of Diabetes.cql — SQL kept in a file stays right when the CQL is ru
 query {"language": "sql", "text": "SELECT a1c.patient, a1c.value FROM a1c JOIN Diabetes d ON d.patient = a1c.patient WHERE d.\"Poor Control\" = 1"}
 ```
 ```answer
-{"columns": ["patient", "value"], "rows": [{"patient": "ann", "value": 8.4}]}
+{"columns": ["patient", "value"], "rows": [{"patient": "ann", "value": 9.4}]}
 ```
 
 SQL reads the stored resources too: each resource type is a table of `id`, `versionId`,
@@ -267,7 +261,7 @@ Read one resource back in its compact form:
 describe {"ref": "Observation/ann-a1c", "as": "fsh"}
 ```
 ```answer
-"Instance: ann-a1c\nInstanceOf: Observation\n* code = http://loinc.org#4548-4 \"Hemoglobin A1c\"\n* effectiveDateTime = \"2025-02-10\"\n* status = #final\n* subject = Reference(Patient/ann)\n* valueQuantity = 8.4 '%'"
+"Instance: ann-a1c\nInstanceOf: Observation\n* code = http://loinc.org#4548-4 \"Hemoglobin A1c\"\n* effectiveDateTime = \"2025-02-10\"\n* status = #final\n* subject = Reference(Patient/ann)\n* valueQuantity = 9.4 '%'"
 ```
 
 ## Constraints and the trail
@@ -303,7 +297,7 @@ From the shell each call is its own process, so a server `run` started is gone w
 yourself and give `apply` its url (`apply … url=` needs no workspace: it only POSTs to the server).
 After editing the app, stop the server (the pid it printed) and serve it again.
 ```
-raco fhir-server serve study.capability.rkt 8080 --store fhir.db &       # check it first: racket study.capability.rkt
+raco fhir-server serve study.capability.rkt --port 8080 --store fhir.db &       # check it first: racket study.capability.rkt
 raco fhir-mcp call apply operation='$egfr' url=http://localhost:8080 inputs:='{"creatinine": 1.1, "age": 60, "sex": "female"}'
 ```
 `raco fhir-mcp guide capability` has the cheat sheet and a worked example (a clinic server with a
@@ -322,3 +316,22 @@ Each language also has a command line and a Racket `#lang` (its repository's REA
 `raco sql-on-fhir run <view> <data>`, `raco fhir-validate <resource.json> [profile.json]`,
 `raco fhir-tx expand <url>`, `raco fhir-server serve-ig <package>`. Writing the languages in Racket
 modules: the `fhir-authoring` skill; serving FHIR over HTTP: `fhir-serving`.
+
+## A Racket program
+A QuestionnaireResponse → FML → a Patient validated against an FSH profile → a CQL answer
+(fhir-authoring explains each piece):
+```sh
+raco fhir new pipeline my-pipeline && cd my-pipeline          # a copy of the template
+raco fsh check fsh                                                # the profile and its valid example: exit 0
+raco fsh check fsh-invalid --context fsh || true                  # the example meant to fail, at its line (exit 1)
+raco fml check qr2patient.map --examples qr.json --profile fsh   # the map's result held to the profile
+racket main.rkt --now 2026-01-01 qr.json                          # the Patient, then "65 or older: true"
+raco test tests.rkt                                               # all of the above as one gate
+```
+To write the four files yourself instead: `fsh/intake.fsh` (`#lang fsh`: a Profile with `1..1` rules and
+an Instance — the fsh skill), `qr2patient.map` (`#lang fml`: a group from QuestionnaireResponse to
+Patient, one rule per item — the fml guide's cheat sheet), `Intake.cql` (`#lang cql`: `define "Is 65 Or
+Older": AgeInYears() >= 65` — the cql guide) and `main.rkt` (fhir-authoring shows it whole). The map and
+the validation read FHIR R5 and the CQL library FHIR 4.0.1: a Patient's name, gender and birthDate are
+the same in both. A Racket program needs none of the workspace sections above; go on in `fhir-authoring`, "The languages
+together in one program" (its API card lists every function `main.rkt` uses).
