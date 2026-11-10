@@ -42,6 +42,11 @@ raco fhir-mcp call run path=Diabetes.cql --workspace ws                      # r
 raco fhir-mcp call query language=sql text=@summary.sql name=summary --workspace ws
 raco fhir-mcp call describe ref=result://summary as=csv --workspace ws
 ```
+Each call is a process of its own (1–4 s of startup). For a series, `raco fhir-mcp batch calls.txt`
+(or `-` for stdin) runs one call per line — `stage fsh=@patients.fsh`, `commit stage=latest
+reason="intake"`, quoted as a shell would — in one process, each answer under a `### <line>`
+header, every line run (exit 1 if any failed).
+
 A run is named by its file and a query by its `name` (as a SQL table: letters, digits, `_`); the
 name means the latest result of it, in SQL (`FROM Diabetes`) and in `result://`, in any case.
 `write text=@file` copies the file into the workspace: edit the workspace's copy, or write it again.

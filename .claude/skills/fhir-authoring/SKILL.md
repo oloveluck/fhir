@@ -86,12 +86,21 @@ Every `#lang` file is a Racket module, so a program `require`s them side by side
 its own language by `raco make`. Worked examples: `fhir-examples/examples/intake-pipeline/` (below;
 `tests/intake-pipeline-test.rkt` runs it) and `fhir-examples/screening/` (six languages).
 
+The intake pipeline is a template — `fsh/` (the profile and a valid example), `fsh-invalid/` (an
+example meant to fail), `qr2patient.map`, `Intake.cql`, `main.rkt`, `qr.json` — to copy and change:
+```sh
+cp -r "$(dirname "$(racket -e '(display (collection-file-path "main.rkt" "fhir-examples" "examples" "intake-pipeline"))')")" my-pipeline
+rm -rf my-pipeline/compiled my-pipeline/*/compiled
+cd my-pipeline && racket main.rkt qr.json      # the Patient, then "65 or older: true"
+raco fsh check fsh && raco fsh check fsh-invalid --context fsh   # clean; then the bad example, at its line
+```
+
 ```racket
 #lang racket/base
 ;; a QuestionnaireResponse -> FML -> a Patient -> validated against an FSH profile -> CQL's answer
 (require json (only-in fhir/conformance/operations)              ; loading it registers $validate
          (only-in cql/value render)
-         (only-in "intake.fsh" canonical-of)                     ; the profile, registered by canonical
+         (only-in "fsh/intake.fsh" canonical-of)                 ; the profile, registered by canonical
          (only-in "qr2patient.map" transform)                    ; FHIR JSON in, FHIR JSON out
          (only-in "Intake.cql" evaluate))                        ; define name -> value, over resources
 (define (intake qr #:now [now #f])
@@ -101,7 +110,7 @@ its own language by `raco make`. Worked examples: `fhir-examples/examples/intake
   (values patient (render (evaluate (list patient) #:define "Is 65 Or Older" #:now now))))
 ```
 Without a birth date the map's Patient breaks the profile, and the error is at the map's rule:
-`the map's Patient is invalid: … qr2patient.map:14:25: fml validate error: Patient.birthDate: minimum
+`the map's Patient is invalid against IntakePatient (…) (FHIR R5 (5.0.0)): … qr2patient.map:14:25: fml validate error: Patient.birthDate: minimum
 required = 1, but found 0 (the rule here wrote nothing: its source matched nothing in the input)` —
 the birthDate rule is there, but the QuestionnaireResponse had no `birthDate` item for it to read. `(ensure-valid patient #:profile url)` (`fhir/conformance/operations`)
 validates any resource the same way, naming the element but not the rule.

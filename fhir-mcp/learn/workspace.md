@@ -137,7 +137,8 @@ named table's columns. Import FHIR JSON with
 
 ## Constraints
 A rule about the data is a FHIR profile: write it in FSH (cardinalities, fixed codes, bindings,
-FHIRPath invariants for the complex ones) and name it in workspace.yaml:
+FHIRPath invariants for the complex ones) and name it in workspace.yaml — `write(path, text,
+enforce: true)` (shell: `enforce:=true`) adds the file's profiles there for you:
 
 ```yaml
 profiles:

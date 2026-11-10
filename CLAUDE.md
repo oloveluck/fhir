@@ -1064,6 +1064,34 @@ The seventh rerun (every task first time, 11–20 calls) named these; each has a
   served app from the shell; `render`'s type; when FHIR versions matter in a pipeline; 140/90 read as
   systolic OR diastolic; why a view's paths use `.first()`.
 
+## New users, round 9 (2026-11-10)
+The eighth rerun (every task first time, 12–19 calls); each fix has a test doing what the agent did:
+- **What a capability app derives about itself is valid FHIR** (capability/derive.rkt,
+  `tests/derived-valid-test.rkt` validates the statement and every OperationDefinition): `drop-absent`
+  dropped `#f`, so an OD lost its required `type`/`instance: false`; the OD's `name` is machine-usable
+  (`operation-name`: `evaluate-measure` -> EvaluateMeasure, cnl-0); the instance statement carries an
+  `implementation` (cpb-2, cpb-14). `(server #:name … #:description …)` (rc-server keeps its six-argument
+  constructor, as rc-param did). `raco fhir-validate --fhir-version 4.0.1|5.0.0|6.0.0`, and the version a
+  resource names (`fhirVersion`) when none is asked: an app's R6 `/metadata` validates as R6.
+- **Messages**: `transform #:validate`'s error names what it held the result to and in which version
+  (`invalid against IntakePatient (http://…) (FHIR R5 (5.0.0))`); fsh check cites a profile rule only
+  when it imposes the kind of constraint broken (`constraint-kinds`: a cardinality for a minimum, a
+  binding for a value set, an assignment for a pattern, an `only` for a type — it cited `* gender 1..1`
+  for "femme"); `raco fsh check` prints the canonical it used (the default `http://example.org` too).
+- **Workspace**: a `Reference(name)` of no instance (a bare name) is warned with the id it most likely
+  meant; staging what is stored unchanged makes no stage; `write(…, enforce: true)` lists the file's
+  profiles in workspace.yaml (`enforce-profiles!`); history's `recorded` is the Provenance's (one time,
+  as the trail says it); stage answers drop the repeated `target`; CQL explain's `of-type` is
+  `patientHas`.
+- **`raco fhir-mcp batch [file|-]`**: many calls in one process, one per line, quoted as a shell would
+  (`shell-words`), each answer under `### <line>`; every line runs, exit 1 if any failed.
+- Docs, each tested: the capability guide's Quantity output and a standalone curl smoke test
+  (`tests/capability-guide-test.rkt` runs the guide's block); fhir-examples' intake pipeline laid out as
+  a template (`fsh/`, `fsh-invalid/`; the test checks both) with a copy command in fhir-authoring; CQL's
+  recipe variations (a window, the last two, their mean). Writing that recipe found a crash: `Take(X
+  sort by Y desc, 2)` reads `2` as a second sort item (as cql.g4 does), and `Take` with one argument was
+  a `cadr` error; it now says to parenthesize the query.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

@@ -64,7 +64,7 @@
     (define e (ok "explain" (hasheq 'ref "result://r1" 'subject "Patient/b" 'entry "Gap")))
     (check-equal? (hash-ref e 'value) #t)
     (define tests (findf (lambda (u) (equal? (hash-ref u 'define) "Tests")) (hash-ref e 'uses)))
-    (check-equal? (hash-ref (car (hash-ref tests 'retrieves)) 'of-type) 1)
+    (check-equal? (hash-ref (car (hash-ref tests 'retrieves)) 'patientHas) 1)
     (check-equal? (hash-ref (car (hash-ref tests 'retrieves)) 'found) '())
 
     ;; ---- the other languages
@@ -253,7 +253,7 @@
     (define e (ok2 "explain" (hasheq 'ref (hash-ref r 'result) 'subject "Member/m2" 'entry "Gap")))
     (check-equal? (hash-ref e 'value) #t)
     (define rt (car (hash-ref (findf (lambda (u) (equal? (hash-ref u 'define) "HbA1c Visits")) (hash-ref e 'uses)) 'retrieves)))
-    (check-equal? (list (hash-ref rt 'type) (hash-ref rt 'of-type) (hash-ref rt 'found)) '("Visit" 1 ()))
+    (check-equal? (list (hash-ref rt 'type) (hash-ref rt 'patientHas) (hash-ref rt 'found)) '("Visit" 1 ()))
     ;; a library naming a model nobody installed says so at compile
     (define bad (ok2 "write" (hasheq 'path "nomodel.cql" 'text "library N\nusing Nowhere version '1'\ncontext Patient\ndefine X: [Thing]\n")))
     (check-true (pair? (hash-ref bad 'problems)))

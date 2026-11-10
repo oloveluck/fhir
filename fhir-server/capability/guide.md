@@ -15,7 +15,8 @@ history and search indexes). In a workspace the file is `<name>.capability.rkt`:
 
 ## Cheat sheet
 ```
-(server #:url "http://example.org/clinic" #:store "fhir.db")     ; one per app
+(server #:url "http://example.org/clinic" #:store "fhir.db"      ; one per app; also #:name, #:description,
+        #:description "The clinic's FHIR server")                 ;   #:status, #:date, #:mode, #:format, #:fhir-version
 (resource Patient #:interactions (read create update delete search-type history-instance)
           #:search-params ([gender token] [family string "name.family"]))
 (operation "StructureMap/$transform")       ; an existing operation, by reference
@@ -134,6 +135,36 @@ line per request (`GET /Patient?gender=female 200`) on stderr. `--store` wins ov
 `raco fhir-server sql fhir.db "SELECT id, resource ->> '$.gender' AS gender FROM Patient"` reads the
 store as CSV, read-only: a view per stored type (`id, versionId, lastUpdated, resource`), `resources`
 (every type) and `history` (every version).
+
+A server needs no workspace: the file, `raco fhir-server serve`, and any HTTP client. A smoke test:
+```sh
+raco fhir-server serve clinic.capability.rkt 8080 --store fhir.db --log &
+curl -s localhost:8080/metadata | head -c 200
+curl -s -X POST localhost:8080/Patient -H 'Content-Type: application/fhir+json' \
+     -d '{"resourceType":"Patient","gender":"female","name":[{"family":"Ng"}]}'
+curl -s 'localhost:8080/Patient?gender=female'
+curl -s 'localhost:8080/$bmi?weight=80&height=180'
+kill %1
+```
+
+## An output with a unit
+A clinical result is a Quantity, its unit in UCUM: declare the output `Quantity` and build one.
+```racket
+(define (egfr-handler in req)
+  (define v (* 1.0 (car (hash-ref in "creatinine"))))
+  (Parameters (parameter (ParametersParameter (name "egfr")
+                           (valueQuantity (Quantity (value (real->decimal-string (* 52.3 v) 1))
+                                                    (unit "mL/min/1.73m2")
+                                                    (system "http://unitsofmeasure.org")
+                                                    (code "mL/min/{1.73_m2}")))))))
+(operation $egfr #:system
+  #:in ([creatinine decimal 1 1])
+  #:out ([egfr Quantity 1 1])
+  #:handler egfr-handler)
+```
+`GET /$egfr?creatinine=1.1` answers `{"name": "egfr", "valueQuantity": {"value": 57.5, "unit":
+"mL/min/1.73m2", "system": "http://unitsofmeasure.org", "code": "mL/min/{1.73_m2}"}}` (the formula
+here is a stand-in; the decimal is a string, as FHIR keeps its digits).
 
 ## The languages inside a server
 A handler is Racket, and every language of the workspace is a library in it:

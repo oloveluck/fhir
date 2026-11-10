@@ -45,6 +45,8 @@
               (~optional (~seq #:fhir-version fv:str))
               (~optional (~seq #:date date:str))
               (~optional (~seq #:url url:str))
+              (~optional (~seq #:name name:str))
+              (~optional (~seq #:description description:str))
               (~optional (~seq #:store store:str))         ; read by module-begin (server-store)
               (~optional (~seq #:format fmt:str ...))) ...)
      (define mode-v (if (attribute mode) (syntax-e #'mode) "server"))
@@ -57,7 +59,9 @@
                   #,(if (attribute date) (syntax-e #'date) "2025-01-01T00:00:00Z")
                   #,(if (attribute fv) (syntax-e #'fv) fhir-version)
                   (list #,@fmts)
-                  #,(if (attribute url) (syntax-e #'url) #f))]))
+                  #,(if (attribute url) (syntax-e #'url) #f)
+                  #,(if (attribute name) (syntax-e #'name) #f)
+                  #,(if (attribute description) (syntax-e #'description) #f))]))
 
 ;; ---- (resource Type …) ----------------------------------------------------------------------
 ;; -> (values rc-resource-stx  repo-pair-stx)
@@ -181,7 +185,10 @@
   ;; parse-server yields an rc-server construction with defaults
   (check-equal? (syntax->datum (parse-server #'(server)))
                 '(rc-server "server" "active" "2025-01-01T00:00:00Z" "6.0.0-ballot4"
-                            (list "application/fhir+json") #f))
+                            (list "application/fhir+json") #f #f #f))
+  ;; a name and a description for the statement (its `implementation` too)
+  (check-equal? (list-tail (syntax->datum (parse-server #'(server #:name "Clinic" #:description "The clinic's server"))) 7)
+                '("Clinic" "The clinic's server"))
   ;; parse-resource validates the type and interactions
   (define-values (rstx pstx) (parse-resource #'(resource Patient #:interactions (read create)
                                                           #:repository repo)))

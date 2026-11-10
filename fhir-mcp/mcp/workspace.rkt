@@ -43,7 +43,7 @@
   [open-hub        (->* (path-string?) (#:data (or/c string? #f) #:packages (listof string?)) hub?)]
   [hub-root        (-> hub? path?)]
   [with-hub        (-> hub? (-> any) any)]
-  [hub-write!      (-> hub? string? string? jsexpr?)]
+  [hub-write!      (->* (hub? string? string?) (#:enforce? any/c) jsexpr?)]
   [hub-check       (->* (hub? (listof string?)) (#:data? boolean?) jsexpr?)]
   [hub-run         (-> hub? string? hash? jsexpr?)]
   [hub-query       (-> hub? string? string? hash? jsexpr?)]
@@ -252,7 +252,7 @@
   full)
 
 ;; ---- write, check ---------------------------------------------------------------------------------
-(define (hub-write! h p text)
+(define (hub-write! h p text #:enforce? [enforce? #f])
   (define full (inside h p))
   (define config? (equal? (path->string (file-name-from-path full)) "workspace.yaml"))
   (define lang (workspace-language-of full))
@@ -273,8 +273,13 @@
             'written (file-exists? full)
             'problems (map (lambda (d) (problem-json h d)) mine)
             'problemsElsewhere others))
-  (define unenforced (if (equal? lang "fsh") (unlisted-profiles h text) '()))
-  (define answer* (if (pair? unenforced) (hash-set answer 'notes unenforced) answer))
+  (define answer*
+    (cond [(not (equal? lang "fsh")) answer]
+          [enforce?
+           (define sds (unlisted-profile-sds h text))
+           (if (null? sds) answer (hash-set answer 'enforced (enforce-profiles! h sds)))]
+          [else (let ([unenforced (unlisted-profiles h text)])
+                  (if (pair? unenforced) (hash-set answer 'notes unenforced) answer))]))
   ;; the configuration only when it is what was written
   (if config? (hash-set answer* 'config (config-json h)) answer*))
 
@@ -282,6 +287,27 @@
 ;; `profiles` does not name: its examples are checked against it, but stage and check(data: true)
 ;; hold the data only to the listed ones (a rerun's agent expected a new rule to apply at once)
 (define (unlisted-profiles h text)
+  (for/list ([sd (in-list (unlisted-profile-sds h text))])
+    (format "profile ~a (~a) is not in workspace.yaml's `profiles`: examples are checked against it, but stage and check(data: true) hold data to it only once listed (write it again with enforce: true, or add profiles:\n  ~a: ~a)"
+            (hash-ref sd 'name "?") (hash-ref sd 'url "?") (hash-ref sd 'type "?") (hash-ref sd 'url "?"))))
+
+;; enforce-profiles! : hub (listof SD) -> (listof string)   each profile added to workspace.yaml's
+;; `profiles` under its type (the file edited as text: the line after `profiles:`, else a new block)
+(define (enforce-profiles! h sds)
+  (define f (build-path (hub-root h) "workspace.yaml"))
+  (define text (if (file-exists? f) (file->string f) ""))
+  (define lines (for/list ([sd (in-list sds)]) (format "  ~a: ~a" (hash-ref sd 'type) (hash-ref sd 'url))))
+  (define new-text
+    (if (regexp-match? #px"(?m:^profiles:\\s*$)" text)
+        (regexp-replace #px"(?m:^profiles:\\s*$)" text (lambda (_) (string-append "profiles:\n" (string-join lines "\n"))))
+        (string-append text (if (or (string=? text "") (regexp-match? #rx"\n$" text)) "" "\n") "profiles:\n" (string-join lines "\n") "\n")))
+  (call-with-output-file f (lambda (o) (write-string new-text o)) #:exists 'truncate/replace)
+  (configure! h (hub-root h))
+  (refresh! h)
+  (map (lambda (sd) (format "~a: ~a" (hash-ref sd 'type) (hash-ref sd 'url))) sds))
+
+;; unlisted-profile-sds : hub fsh-text -> (listof SD)   the text's profiles workspace.yaml does not list
+(define (unlisted-profile-sds h text)
   (define listed (append* (hash-values (ws-config-profiles (workspace-config (hub-ws h))))))
   (define sds (registered-resources "StructureDefinition"))
   (for*/list ([e (in-list (regexp-match* #px"(?m:^Profile:\\s*([A-Za-z0-9_.-]+)\\s*$)((?:\n(?!Profile:|Instance:|Extension:|ValueSet:|CodeSystem:|Invariant:|RuleSet:|Logical:|Resource:|Mapping:|Alias:).*)*)" text #:match-select values))]
@@ -290,8 +316,7 @@
               [sd (in-value (findf (lambda (r) (and (equal? (hash-ref r 'id #f) id) (equal? (hash-ref r 'derivation #f) "constraint"))) sds))]
               #:when sd
               #:unless (member (hash-ref sd 'url #f) listed))
-    (format "profile ~a (~a) is not in workspace.yaml's `profiles`: examples are checked against it, but stage and check(data: true) hold data to it only once listed (profiles:\n  ~a: ~a)"
-            name (hash-ref sd 'url "?") (hash-ref sd 'type "?") (hash-ref sd 'url "?"))))
+    (hash-set sd 'name name)))
 
 (define (config-json h)
   (define c (workspace-config (hub-ws h)))
@@ -799,6 +824,8 @@
                             'changed (if prev (json-diff prev cur) "created"))])
                 ([kv (in-list (if pv
                                   (list (cons 'provenance (format "Provenance/~a" (hash-ref pv 'id "?")))
+                                        ;; the commit's time, as the trail and the Provenance say it
+                                        (cons 'recorded (hash-ref pv 'recorded #f))
                                         (cons 'by (let ([a (hash-ref pv 'agent '())]) (and (pair? a) (hash-ref (hash-ref (car a) 'who (hasheq)) 'display #f))))
                                         (cons 'reason (let ([r (hash-ref pv 'reason '())]) (and (pair? r) (hash-ref (car r) 'text #f))))
                                         (cons 'source (let ([en (hash-ref pv 'entity '())]) (and (pair? en) (hash-ref (hash-ref (car en) 'what (hasheq)) 'display #f))))
@@ -1106,13 +1133,15 @@
           (define paths (if current (json-diff current r) '()))
           (hash-set! warned r (at-line r (validation-issues r '("warning"))))
           (change r (cond [(not current) 'create] [(null? paths) 'unchanged] [else 'update]) paths (at-line r (validation-errors r)))))
-      (define id (format "stage-~a" (next-number h "stages" "stage-" (hub-stages h))))
-      (hash-set! (hub-stages h) id (staged changes source))
-      (save-state! h "stages" id (lambda () (staged->jsexpr (staged changes source))))
       (define errors (for/sum ([c (in-list changes)]) (length (change-errors c))))
       (define dangling (dangling-references h rs))
+      ;; nothing would change: no stage (one with nothing to commit was made, and numbered)
+      (define nothing? (and (zero? errors) (andmap (lambda (c) (eq? (change-action c) 'unchanged)) changes)))
+      (define id (if nothing? 'null (format "stage-~a" (next-number h "stages" "stage-" (hub-stages h)))))
+      (unless nothing?
+        (hash-set! (hub-stages h) id (staged changes source))
+        (save-state! h "stages" id (lambda () (staged->jsexpr (staged changes source)))))
       (hasheq 'stage id
-              'target (hub-data-label h)
               'changes (for/list ([c (in-list changes)])
                          (define base (hasheq 'resource (format "~a/~a" (hash-ref (change-resource c) 'resourceType) (hash-ref (change-resource c) 'id "(new id)"))
                                               'action (symbol->string (change-action c))
@@ -1121,8 +1150,9 @@
                          (define ws (append (hash-ref warned (change-resource c) '()) (hash-ref dangling (change-resource c) '())))
                          (if (null? ws) base (hash-set base 'warnings ws)))
               'errors errors
-              'next (if (zero? errors) (format "commit(\"~a\") writes the ~a change(s)" id (count (lambda (c) (not (eq? (change-action c) 'unchanged))) changes))
-                        "fix the errors, then stage again: a stage with errors is not committed")))))
+              'next (cond [nothing? (format "nothing to commit: the ~a resource(s) are stored as they are" (length changes))]
+                          [(zero? errors) (format "commit(\"~a\") writes the ~a change(s) to ~a" id (count (lambda (c) (not (eq? (change-action c) 'unchanged))) changes) (hub-data-label h))]
+                          [else "fix the errors, then stage again: a stage with errors is not committed"])))))
 
 ;; dangling-references : hub (listof resource) -> (hash resource -> (listof string))   each literal
 ;; reference (`Patient/pat-a`) to a resource neither in the data nor in this stage: a warning, not an
@@ -1139,9 +1169,12 @@
                      (let ([m (regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)$" ref)])
                        (or (not m)                                     ; not a literal Type/id reference: not ours to judge
                            (with-handlers ([exn:fail? (lambda (_) #t)]) (and (read (cadr m) (caddr m)) #t))))))))
+  ;; a bare name (`Reference(pat-c)` with no instance pat-c compiles to `pat-c`) is no reference FHIR
+  ;; can follow: said like a dangling one, with the staged or stored id it most likely meant
+  (define (bare? r) (not (regexp-match? #rx"[/:#]" r)))
   (define (refs v path)
     (cond [(hash? v)
-           (append (let ([r (hash-ref v 'reference #f)]) (if (and (string? r) (not (exists? r))) (list (cons path r)) '()))
+           (append (let ([r (hash-ref v 'reference #f)]) (if (and (string? r) (or (bare? r) (not (exists? r)))) (list (cons path r)) '()))
                    (append* (for/list ([(k x) (in-hash v)] #:unless (eq? k 'contained))
                               (refs x (if (string=? path "") (symbol->string k) (format "~a.~a" path k))))))]
           [(list? v) (append* (for/list ([x (in-list v)] [i (in-naturals)]) (refs x (format "~a[~a]" path i))))]
@@ -1156,9 +1189,18 @@
     (define m (regexp-match #px"^([A-Z][A-Za-z]+)/(.+)$" ref))
     (define near (if m (closest-names (caddr m) (ids-of (cadr m))) '()))
     (if (null? near) "" (format " (did you mean ~a?)" (string-join (map (lambda (n) (format "`~a/~a`" (cadr m) n)) near) " or "))))
+  ;; a bare name's nearest: among this stage's resources and the stored Patients, as Type/id
+  (define (bare-suggestion name)
+    (define keys (append (set->list staged-keys) (map (lambda (i) (string-append "Patient/" i)) (ids-of "Patient"))))
+    (define near (closest-names name (map (lambda (k) (regexp-replace #rx"^[^/]*/" k "")) keys)))
+    (define full (for*/list ([n (in-list near)] [k (in-list keys)] #:when (string-suffix? k (string-append "/" n))) k))
+    (if (null? full) "" (format " (did you mean `~a`?)" (car full))))
   (for/hash ([r (in-list rs)])
     (values r (for/list ([pr (in-list (refs r ""))])
-                (format "~a: ~a is neither in the data nor in this stage~a" (car pr) (cdr pr) (suggestion (cdr pr)))))))
+                (if (bare? (cdr pr))
+                    (format "~a: `~a` names no resource: a reference is Type/id, and FSH writes Reference(x) as one only when an instance x is in the same stage or project~a"
+                            (car pr) (cdr pr) (bare-suggestion (cdr pr)))
+                    (format "~a: ~a is neither in the data nor in this stage~a" (car pr) (cdr pr) (suggestion (cdr pr))))))))
 
 (define (hub-commit! h id0 [reason #f])
   ;; `latest`: the newest stage not committed (from the shell, a stage's id is in its own answer)

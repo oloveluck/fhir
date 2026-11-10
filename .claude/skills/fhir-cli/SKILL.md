@@ -25,7 +25,7 @@ are defined in `fhir/codegen/target.rkt` (an IG can be a target too: whitelist +
 
 | command | what it does |
 |---|---|
-| `raco fhir-validate <resource.json> [profile.json…] [--format outcome\|text\|json]` | validate against the base type, the supplied profiles and those in `meta.profile` → OperationOutcome (exit 1 on error) |
+| `raco fhir-validate <resource.json> [profile.json…] [--format outcome\|text\|json] [--fhir-version 4.0.1\|5.0.0\|6.0.0]` | validate against the base type, the supplied profiles and those in `meta.profile` → OperationOutcome (exit 1 on error); in R5, or the version asked for, or the one the resource names (`fhirVersion`: a capability app's R6 `/metadata`) |
 | `raco fhir-tx tck` | the hl7.fhir.uv.tx-ecosystem terminology suite (473/553) |
 
 For a whole FSH project use `raco fsh check <dir>` (fhir-authoring skill): it validates every example

@@ -17,7 +17,8 @@
          (only-in fhir/r6/fhir-version fhir-version))
 
 (provide
- (struct-out rc-server)
+ (struct-out rc-server-struct)
+ rc-server
  (struct-out rc-resource)
  (struct-out rc-operation)
  (struct-out rc-param-struct)
@@ -25,12 +26,19 @@
  (contract-out
   [op-code->canonical (-> string? string?)]
   [derive-capability-statement (-> rc-server? (listof rc-resource?) (listof rc-operation?) any/c)]
+  ;; operation-name : code -> string   an OperationDefinition's machine-usable name ("evaluate-measure" -> EvaluateMeasure)
+  [operation-name (-> string? string?)]
   [derive-operation-definition (-> rc-operation? any/c)]))
 
 ;; ---- runtime declaration data (produced by declare.rkt's emitters) --------------------------
 
 ;; server-level metadata (exactly one per module)
-(struct rc-server (mode status date fhir-version format url) #:transparent)
+(struct rc-server (mode status date fhir-version format url name description) #:transparent
+  #:name rc-server-struct #:constructor-name rc-server*)
+;; rc-server : mode status date fhir-version format url [name description] -> rc-server
+;; (the six-argument form stays: the operations app, IG and store servers build one)
+(define (rc-server mode status date fv fmt url [name #f] [description #f])
+  (rc-server* mode status date fv fmt url name description))
 ;; a supported resource: type-sym, (listof interaction-sym), (listof (cons name-sym type-sym)), profile
 (struct rc-resource (type interactions search-params profile) #:transparent)
 ;; an operation: code (no $), display ($name), levels = (list system? type? instance?),
@@ -96,9 +104,16 @@
     (drop-absent
      (hasheq 'resourceType "CapabilityStatement"
              'url (rc-server-url server)
+             'name (rc-server-name server)
              'status (rc-server-status server)
              'date (rc-server-date server)
+             'description (rc-server-description server)
              'kind "instance"
+             ;; an instance statement says which server it is (cpb-2, cpb-14): its address, in words
+             'implementation (drop-absent (hasheq 'description (or (rc-server-description server)
+                                                                     (rc-server-name server)
+                                                                     "A FHIR server declared in #lang fhir/capability")
+                                                  'url (rc-server-url server)))
              'fhirVersion (rc-server-fhir-version server)
              'format (rc-server-format server)
              'rest (list (hasheq 'mode (rc-server-mode server)
@@ -111,19 +126,28 @@
   (define levels (rc-operation-levels o))
   (ok-or-raise
    (from-json
-    (drop-absent
+    (hash-set*
+     (drop-absent
      (hasheq 'resourceType "OperationDefinition"
              'url (op-code->canonical (rc-operation-code o))
-             'name (rc-operation-code o)
+             'name (operation-name (rc-operation-code o))
              'status "active"
              'kind "operation"
              'code (rc-operation-code o)
              'resource (let ([rs (rc-operation-resource-types o)]) (if (null? rs) #f rs))
-             'system (list-ref levels 0)
-             'type (list-ref levels 1)
-             'instance (list-ref levels 2)
              'parameter (append (map param->jsexpr (rc-operation-in-params o))
-                                (map param->jsexpr (rc-operation-out-params o))))))))
+                                (map param->jsexpr (rc-operation-out-params o)))))
+     ;; system, type and instance are each required (1..1): false is said, not left out
+     'system (and (list-ref levels 0) #t)
+     'type (and (list-ref levels 1) #t)
+     'instance (and (list-ref levels 2) #t)))))
+
+;; operation-name : code -> string   a name a machine can use (cnl-0): `egfr` -> Egfr,
+;; `evaluate-measure` -> EvaluateMeasure
+(define (operation-name code)
+  (apply string-append
+         (for/list ([w (in-list (regexp-split #rx"[^A-Za-z0-9]+" code))] #:unless (string=? w ""))
+           (string-append (string-upcase (substring w 0 1)) (substring w 1)))))
 
 (define (param->jsexpr p)
   (drop-absent

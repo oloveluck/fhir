@@ -39,6 +39,14 @@
     (check-equal? (length (hash-ref w2 'notes)) 1)
     (check-regexp-match #rx"^profile IntakePatient [(]http://example.org/fhir/StructureDefinition/intake-patient[)] is not in workspace.yaml's `profiles`.*Patient: http://example.org/fhir/StructureDefinition/intake-patient[)]$"
                         (car (hash-ref w2 'notes)))
+    ;; enforce: true lists it (an agent had to edit workspace.yaml by hand); the note is gone, a stage holds to it
+    (define w3 (call "write" (hasheq 'path "intake.fsh" 'text "Profile: IntakePatient\nParent: Patient\nId: intake-patient\n* birthDate 1..1\n" 'enforce #t)))
+    (check-equal? (hash-ref w3 'enforced) '("Patient: http://example.org/fhir/StructureDefinition/intake-patient"))
+    (check-false (hash-ref (call "write" (hasheq 'path "intake.fsh" 'text "Profile: IntakePatient\nParent: Patient\nId: intake-patient\n* birthDate 1..1\n")) 'notes #f))
+    (check-regexp-match #rx"birthDate" (string-join (hash-ref (car (hash-ref (call "stage" (hasheq 'fsh "Instance: nob\nInstanceOf: Patient\n")) 'changes)) 'errors) "\n"))
+    (check-regexp-match #rx"Observation: http://example.org/fhir/StructureDefinition/bp-rule\n  Patient: http://example.org/fhir/StructureDefinition/intake-patient|Patient: .*intake-patient"
+                        (file->string (build-path dir "workspace.yaml")))
+    (call "stage" (hasheq 'drop "all"))
     (call "write" (hasheq 'path "intake.fsh" 'text ""))
     (check-equal? (errors-of (bp "ok")) '())
     ;; each refusal says what it found, at the line that wrote it — the failing item by its index, or

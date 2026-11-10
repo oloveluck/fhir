@@ -46,8 +46,11 @@
   (list
    (tool "write"
          "Save a file in the workspace and get its problems back, each at its line and column: .fsh (FHIR Shorthand), .cql, .fhirpath, .vcl, .map/.fml, .view.json (a ViewDefinition), .json (any FHIR resource), or workspace.yaml. Empty text deletes the file. Read learn://workspace first."
-         (schema (hasheq 'path (s "the file's path, relative to the workspace") 'text (s "the whole file")) '("path" "text"))
-         (lambda (args) (answer (lambda () (hub-write! h (need args 'path) (let ([t (hash-ref args 'text #f)]) (if (string? t) t (need args 'text))))))))
+         (schema (hasheq 'path (s "the file's path, relative to the workspace") 'text (s "the whole file")
+                         'enforce (hasheq 'type "boolean" 'description "FSH: list the file's profiles in workspace.yaml's `profiles`, so stage and check(data) hold data to them"))
+                 '("path" "text"))
+         (lambda (args) (answer (lambda () (hub-write! h (need args 'path) (let ([t (hash-ref args 'text #f)]) (if (string? t) t (need args 'text)))
+                                                      #:enforce? (memq (hash-ref args 'enforce #f) '(#t "true")))))))
    (tool "check"
          "Every problem in the workspace (or in the files named), each at its file, line and column, with the workspace's configuration: FHIR version, packages, data. With data: true, also every stored resource held to its base type and the workspace's profiles (workspace.yaml `profiles`), violations counted by rule."
          (schema (hasheq 'paths (hasheq 'type "array" 'items (hasheq 'type "string") 'description "files to check (default: all)")

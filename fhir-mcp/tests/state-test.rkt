@@ -68,6 +68,11 @@
     (define st2 (call d "stage" (hasheq 'fsh "Instance: o2\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#4548-4\n* subject = Reference(Patient/anm)\n")))
     (check-regexp-match #rx"Patient/anm is neither in the data nor in this stage [(]did you mean `Patient/ann`[?][)]"
                         (car (hash-ref (car (hash-ref st2 'changes)) 'warnings)))
+    ;; Reference(name) of no instance compiles to a bare name: no reference at all, said so (it passed silently)
+    (define st3 (call d "stage" (hasheq 'fsh "Instance: o4\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#4548-4\n* subject = Reference(anm)\n")))
+    (check-regexp-match #rx"^subject: `anm` names no resource: .*[(]did you mean `Patient/ann`[?][)]$"
+                        (car (hash-ref (car (hash-ref st3 'changes)) 'warnings)))
+    (call d "stage" (hasheq 'drop (hash-ref st3 'stage)))
     (call d "stage" (hasheq 'fsh "Instance: o3\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#4548-4\n"))
     ;; the commit says who the trail names
     (check-true (string? (hash-ref (call d "commit" (hasheq 'stage (hash-ref st 'stage))) 'agent)))
@@ -103,6 +108,10 @@
     (let-values ([(text err?) ((tool-run (hash-ref (tools-of e) "describe")) (hasheq 'ref "result://a1c"))])
       (check-true err?)
       (check-regexp-match #rx"r[0-9]+ [(]genders[)].*r[0-9]+ [(]a1c_table[)]" text))
+    ;; staging what is stored, unchanged, makes no stage
+    (define same (call e "stage" (hasheq 'fsh "Instance: eve\nInstanceOf: Patient\n* gender = #female\n")))
+    (check-equal? (hash-ref same 'stage) 'null)
+    (check-regexp-match #rx"^nothing to commit" (hash-ref same 'next))
     ;; commit the newest stage without reading its id
     (call e "stage" (hasheq 'fsh "Instance: fay\nInstanceOf: Patient\n"))
     (check-equal? (hash-ref (car (hash-ref (call e "commit" (hasheq 'stage "latest")) 'written)) 'resource) "Patient/fay")))
@@ -117,4 +126,17 @@
   (check-regexp-match #rx"\"errors\":[1-9]" out))
 (let-values ([(code out) (shell "query" "language=sql" "text=SELECT count(*) AS n FROM Patient")])
   (check-equal? code 0 out))
+;; many calls in one process: each line a call, quoted as a shell would, every one run
+(define batch-file (make-temporary-file "calls-~a.txt"))
+(with-output-to-file batch-file #:exists 'truncate
+  (lambda () (display "# the workspace's patients\nquery language=sql text=\"SELECT count(*) AS n FROM Patient\" name=pcount\ndescribe ref=result://pcount as=csv\nnosuchtool\n")))
+(let ([out (open-output-string)])
+  (define code (parameterize ([current-output-port out] [current-error-port out])
+                 (system*/exit-code (find-executable-path "raco") "fhir-mcp" "batch" (path->string batch-file) "--workspace" (path->string dir))))
+  (define text (get-output-string out))
+  (check-equal? code 1 text)                                          ; the unknown tool fails the batch
+  (check-regexp-match #rx"### query language=sql text=\"SELECT count[(][*][)] AS n FROM Patient\" name=pcount\n[{].*\"name\":\"result://pcount\"" text)
+  (check-regexp-match #rx"### describe ref=result://pcount as=csv\nn\n[0-9]+" text)
+  (check-regexp-match #rx"### nosuchtool\nno tool nosuchtool" text))
+(delete-file batch-file)
 (delete-directory/files dir)
