@@ -66,16 +66,33 @@ InstanceOf: Observation
 ## Analysis: views, then SQL
 A ViewDefinition (`*.view.json`) turns resources into a table, one row per resource (or per
 repetition, with `forEach`). `query("sql", "SELECT …")` then asks SQLite over those tables: each view
-by its file name or `name`, and each earlier result by its handle (`r1`, `r2`, …), so a CQL run's
-answer per patient joins with a view's columns. One reading statement; a column holding a list or
+by its file name or `name`, and each earlier result by its name and its number, so a CQL run's
+answer per patient joins with a view's columns. A run is named by its file (`diabetes.cql` ->
+`diabetes`), a query by the `name` it is given; a name is the LATEST result of that name, so SQL
+kept in a file (`FROM diabetes`) reads the newest run, where `r3` is always the same result
+(`describe("result://diabetes")` reads it too). A view's name wins over a result's. One reading statement; a column holding a list or
 an object (a CQL Quantity, a Coding) is its JSON text — `json_each` walks a list, `->>` reads a value
 (`r3."Latest Value" ->> '$.value'`); a boolean is 1/0 in SQL (a CQL result's own CSV says
 true/false); a name with a space is quoted (`r3."Poor Control"`); null is NULL.
+
+With two views — `bp.view.json`, one row per blood pressure, and `patients.view.json` (`id`,
+`gender`) —
+
+```json
+{"resourceType": "ViewDefinition", "name": "bp", "status": "active", "resource": "Observation",
+ "where": [{"path": "code.coding.exists(system = 'http://loinc.org' and code = '85354-9')"}],
+ "select": [{"column": [
+   {"name": "patient", "path": "subject.getReferenceKey(Patient)"},
+   {"name": "systolic", "path": "component.where(code.coding.exists(code = '8480-6')).value.ofType(Quantity).value.first()"}]}]}
+```
+the mean systolic by gender is
 
 ```
 SELECT p.gender, count(*) AS n, round(avg(b.systolic), 1) AS mean_systolic
 FROM bp b JOIN patients p ON p.id = b.patient GROUP BY p.gender
 ```
+and a classification by a patient's mean (`HAVING avg(b.systolic) >= 140` keeps those whose mean is
+high, not those with one high reading).
 
 ## Which language for which question
 - A value inside one resource: FHIRPath.
@@ -109,7 +126,10 @@ resource as JSONB with its versions and the search indexes FHIR's search paramet
 `commit` writes it (one transaction per stage; a resource with an id keeps it); every language,
 FHIR search and SQL read it; a capability app the workspace runs serves it. In SQL each stored type
 is a table of `id`, `versionId`, `lastUpdated` and `resource` (JSONB: `resource ->> '$.birthDate'`,
-`json_each(resource, '$.name')`), beside the views and earlier results. Import FHIR JSON with
+`json_each(resource, '$.name')`), beside the views and earlier results; `resources` is every type at
+once (`type, id, versionId, lastUpdated, resource`), `history` every version (the same columns), and
+`trail` the commits (below). A column SQLite does not know is answered with the nearest and each
+named table's columns. Import FHIR JSON with
 `raco fhir-server load fhir.db <dir|bundle.json>`.
 
 ## Constraints
@@ -159,8 +179,11 @@ Expression: "code.coding.where(system = 'http://loinc.org' and code = '85354-9')
 
 Named for `Observation` in `profiles`, it holds every blood pressure to the rule and lets every other
 Observation through. `X.exists() and X.all(…)` says "there is one, and EVERY one is in mm[Hg]": with
-`X.where(…).exists()` alone, a second systolic in kPa beside one in mm[Hg] would pass. A refusal quotes the rule's `Description` (`bp-systolic: A blood pressure …`),
-not the value it found: write the description as the fix the author needs.
+`X.where(…).exists()` alone, a second systolic in kPa beside one in mm[Hg] would pass. A refusal quotes the rule's `Description` and what the rule found, at the rule that wrote it:
+`fsh:7: Observation: hr-range: A heart rate (LOINC 8867-4) is between 20 and 250 /min (found
+value.ofType(Quantity) = 300 '/min')` — line 7 is the instance's `* valueQuantity = 300 '/min'`.
+"Found" is what the rule tests (the part after `implies`, without its final `where`/`exists`);
+write the description as the fix the author needs.
 
 ### Rules cookbook
 Each rule is an invariant on a profile named in `profiles`; `X implies Y` keeps it to the resources
@@ -224,13 +247,13 @@ too (its outcome, its text). The trail is data like any other:
 - SQL: `trail` — one row per version a commit wrote (`type, id, versionId, recorded, agent, reason,
   source, provenance`), so "where did every lab value come from" is
   `SELECT * FROM trail WHERE type = 'Observation'`; and `history` (every version of every resource),
-  `Provenance`, `AuditEvent` for anything else, e.g. each version with its value and reason:
+  `Provenance`, `AuditEvent` for anything else. `trail` holds no values: join it with `history` on
+  type, id and version for them, e.g. each version of a1 with its value and why it was written:
 
 ```
-SELECT h.versionId, p.resource ->> '$.reason[0].text' AS reason
-FROM history h JOIN Provenance p ON EXISTS (SELECT 1 FROM json_each(p.resource, '$.target') t
-  WHERE t.value ->> '$.reference' = h.type || '/' || h.id || '/_history/' || h.versionId)
-WHERE h.type = 'Observation' AND h.id = 'a1'
+SELECT t.versionId, h.resource ->> '$.valueQuantity.value' AS value, t.reason, t.agent, t.recorded
+FROM trail t JOIN history h ON h.type = t.type AND h.id = t.id AND h.versionId = t.versionId
+WHERE t.type = 'Observation' AND t.id = 'a1' ORDER BY t.versionId
 ```
 
 A Provenance written by a commit, for SQL (`p.resource ->> '$.<path>'`): `target[n].reference`

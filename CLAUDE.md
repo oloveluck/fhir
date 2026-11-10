@@ -998,8 +998,38 @@ The fifth rerun (every task first time, 10–22 calls) found a loophole in our o
   recorded, agent, reason, source, provenance). `stage drop=all`. `Prefer: handling=strict` makes a
   capability server refuse an unsupported search parameter (400; `current-search-strict?`).
 - Docs: the CQL recipe's "No HbA1c", text answers print as text, the shell's `write … text=@file`.
-Not done, named: a refusal quoting the value it found; operation canonicals under the server's
-`#:url` (the `urn:fhir-capability:operation:<code>` join key is used in several places).
+Not done, named: operation canonicals under the server's `#:url` (the
+`urn:fhir-capability:operation:<code>` join key is used in several places).
+
+## New users, round 7 (2026-11-10)
+The sixth rerun (every task first time) named what still cost a step; each fix has a test doing it:
+- **A refusal quotes what it found, at the rule that wrote it.** The validator's invariant issue
+  ends with ` (found value.ofType(Quantity) = 300 '/min')` (`found-text`, validate.rkt: the paths the
+  rule tests — the consequent of a top-level `implies`, each chain without its final
+  `exists`/`all`/… and the `where` it tests — evaluated on the focus and printed compactly: a Quantity
+  `300 '/min'`, a Coding `system#code`, an object `{k: v}`). The stage points at the instance's rule
+  writing that element (`rule-line`; `fsh:7:` for `* valueQuantity = …`, not the header), errors
+  listed once; `raco fsh check` traces it the same way (check.rkt, `tests/invariant-trace-test.rkt`).
+- **Server `$validate`**: an Observation POSTed to `/Patient/$validate` is a 400 saying where to send
+  it (it was "All OK"; only for operations FHIR defines on Resource, so `$transform`'s content is
+  not held to StructureMap); `{}` is no body; a resource given at instance level is the one checked.
+  A request's own failure is marked (`refused!`, runtime.rkt) so it is never mistaken for the
+  operation's OperationOutcome result (200).
+- **Results by name** (fhir-mcp): a run is named by its file (`diabetes.cql` -> `diabetes`), a query by
+  `name`; `result://<name>` and SQL's `FROM diabetes` read the latest of the name (saved SQL with
+  `r4` read whatever r4 was). `reads` records the numbered result a name meant. Result numbers sort
+  numerically (r10 after r9).
+- **FML in a pipeline names the rule**: `#lang fml`'s `(transform src #:validate spec)` validates
+  the result and raises with each problem at the map rule that wrote the element, or "no rule of
+  <group> writes `x`" (fml's `validate-result`; the module keeps its source text, since the quoted
+  AST loses positions). `raco fml check --profile` takes an FSH project or a canonical
+  (`profiles-from`), applied to results of the profile's type. fhir-examples' intake pipeline uses it.
+- Smaller: `write` of FSH notes a profile workspace.yaml's `profiles` does not list (not enforced
+  until it is); SQL's unknown column suggests the nearest and lists the named tables' columns; a
+  reference parameter takes FHIR's type modifier (`subject:Patient=123`, store/search-index.rkt);
+  `_include` on store-backed capability apps documented and tested; CQL explain omits empty
+  `retrieves`/`uses`; "must be an integer"; the guide's `bp` view shown and the trail ⋈ history join
+  tested from the guide's text.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

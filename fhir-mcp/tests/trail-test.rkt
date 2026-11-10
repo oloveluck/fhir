@@ -9,7 +9,7 @@
 (require rackunit racket/file racket/string json net/base64
          fhir/mcp/workspace fhir/mcp/verbs fhir/mcp/init
          (only-in fhir/mcp/trail current-agent)
-         (only-in fhir/mcp/tools tool-name tool-run))
+         (only-in fhir/mcp/tools tool-name tool-run) (only-in fhir/mcp/resources learn-text))
 
 (define dir (make-temporary-directory "trail-~a"))
 (void (init-workspace! dir))
@@ -34,11 +34,11 @@
     (check-equal? (hash-ref (call "write" (hasheq 'path "rules.fsh" 'text rules)) 'problems) '())
     ;; the constraint: an HbA1c in mmol/mol breaks the invariant, so the stage cannot commit
     (define bad (call "stage" (hasheq 'fsh (a1c 64 "mmol/mol"))))
-    (check-equal? (hash-ref (car (hash-ref bad 'changes)) 'errors) '("fsh:1: Observation: a1c-percent: An HbA1c is a percentage"))
+    (check-equal? (hash-ref (car (hash-ref bad 'changes)) 'errors) '("fsh:6: Observation: a1c-percent: An HbA1c is a percentage (found value.ofType(Quantity).code = mmol/mol)"))
     (call "commit" (hasheq 'stage (hash-ref bad 'stage)) #:ok? #f)
     ;; FSH read from a file (`fsh=@a1c.fsh` on the command line) is named by the file
     (check-equal? (hash-ref (car (hash-ref (call "stage" (hasheq 'fsh (a1c 64 "mmol/mol") 'files (hasheq 'fsh "a1c.fsh"))) 'changes)) 'errors)
-                  '("a1c.fsh:1: Observation: a1c-percent: An HbA1c is a percentage"))
+                  '("a1c.fsh:6: Observation: a1c-percent: An HbA1c is a percentage (found value.ofType(Quantity).code = mmol/mol)"))
     ;; a valid one commits, claims the profile, and leaves a Provenance naming the version and the reason
     (define ok1 (call "stage" (hasheq 'fsh (string-append "Instance: ann\nInstanceOf: Patient\n* gender = #female\n\n" (a1c 8.0 "%")))))
     (define c1 (call "commit" (hasheq 'stage (hash-ref ok1 'stage) 'reason "intake: ann's first HbA1c")))
@@ -79,6 +79,10 @@
     (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT versionId, reason, agent FROM trail WHERE type = 'Observation' AND id = 'a1' ORDER BY versionId")) 'rows)
                   (list (hasheq 'versionId 1 'reason "intake: ann's first HbA1c" 'agent "claude-code 2.0 via fhir-mcp")
                         (hasheq 'versionId 2 'reason "lab corrected the value" 'agent "claude-code 2.0 via fhir-mcp")))
+    ;; trail holds no values: the guide's join with history gives each version's value and reason
+    (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text (cadr (regexp-match #px"```\n(SELECT t.versionId.*?)```" (learn-text "workspace"))))) 'rows)
+                  (list (hasheq 'versionId 1 'value 8 'reason "intake: ann's first HbA1c" 'agent "claude-code 2.0 via fhir-mcp" 'recorded (hash-ref (car (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT recorded FROM trail WHERE id = 'a1' AND versionId = 1")) 'rows)) 'recorded))
+                        (hasheq 'versionId 2 'value 8.4 'reason "lab corrected the value" 'agent "claude-code 2.0 via fhir-mcp" 'recorded (hash-ref (car (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT recorded FROM trail WHERE id = 'a1' AND versionId = 2")) 'rows)) 'recorded))))
     ;; a result says where it came from
     (check-equal? (hash-ref (hash-ref (call "describe" (hasheq 'ref (hash-ref q 'result))) 'source) 'language) "sql")
     ;; the stored data, held to the rules: all of it holds (the trail's own resources included)

@@ -37,7 +37,11 @@ history and search indexes). In a workspace the file is `<name>.capability.rkt`:
   declares (what `/metadata` advertises, plus `_id`, `_lastUpdated`, `_count`, `_sort`): a search with
   any other parameter — even one FHIR defines, like `name` when only `gender` is declared — answers its
   matches without it and says so: an OperationOutcome entry (`search.mode` outcome) in the Bundle. A
-  client that sends `Prefer: handling=strict` gets a 400 naming the parameter instead.
+  client that sends `Prefer: handling=strict` gets a 400 naming the parameter instead. A store-backed
+  type also answers `_include=Observation:subject` (and `_revinclude`) over its declared reference
+  parameters, the included resources marked `search.mode` include; the statement does not list them
+  (`searchInclude`), as an in-memory app has none. A reference parameter takes FHIR's type modifier:
+  `subject:Patient=123` is `subject=Patient/123`.
 - A resource without `#:repository` is kept in the store: the workspace's when the workspace serves
   it, else `#:store`'s file beside the module, else (no store anywhere) in memory. A store-backed
   create or update is validated as sent (its base type, the profiles it claims): an error refuses it
@@ -63,7 +67,11 @@ history and search indexes). In a workspace the file is `<name>.capability.rkt`:
   `(OperationOutcome (issue (OperationOutcomeIssue (severity "error") (code "invalid") (diagnostics "…"))))`;
   `processing` answers 422, `not-found` 404. An exception becomes a 500 OperationOutcome.
 - `(operation $validate)` serves `POST /<Type>/$validate` (and `/<Type>/<id>/$validate`) for every
-  declared type, not `POST /$validate`: FHIR defines it on resources.
+  declared type, not `POST /$validate`: FHIR defines it on resources. The resource must be of the
+  endpoint's type (an Observation POSTed to `/Patient/$validate` is a 400 saying where to send it).
+  At instance level, a body (or Parameters `resource`) is the resource checked, as an update of the
+  stored one; no body, or `{}`, checks the stored resource. `mode` is accepted and changes nothing:
+  every mode (create, update, delete) checks the resource as just said.
 - `$validate` takes the resource in a Parameters (`resource`) or as the bare POST body, and reads it
   as sent: a misspelt element or a bad date is reported, as `raco fhir-validate` reports it. It
   answers 200 either way, its findings in the OperationOutcome (its result IS an OperationOutcome).

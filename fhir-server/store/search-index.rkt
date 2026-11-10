@@ -267,6 +267,12 @@
     [(and (eq? kind 'token) (equal? modifier "not"))
      (define c (or-clauses (map (lambda (v) (token-clause name v)) (split-or value))))
      (and c (clause (string-append "NOT " (clause-sql c)) (clause-args c)))]
+    ;; a reference's [type] modifier: `subject:Patient=123` is `subject=Patient/123`
+    [(and (eq? kind 'reference) modifier (regexp-match? #px"^[A-Z][A-Za-z]+$" modifier))
+     (or-clauses (for/list ([v (in-list (split-or value))])
+                   (if (regexp-match? #rx"/" v)
+                       (and (regexp-match? (pregexp (string-append "(?:^|/)" modifier "/")) v) (reference-clause name v))
+                       (exists-in "fhir_reference_index" name "x.target_type=? AND x.target_id=?" (list modifier v)))))]
     [(and modifier (not (member modifier (case kind [(string) '("exact" "contains")] [else '()])))) #f]
     [else
      (or-clauses
@@ -392,5 +398,7 @@
   (check-regexp-match #rx"^NOT EXISTS" (clause-sql (compile-param "gender" 'token "missing" "true")))
   (check-false (compile-param "x" 'composite #f "a$b"))
   (check-false (compile-param "family" 'string "text" "x"))               ; unsupported modifier
+  ;; a reference's type modifier names the target type: subject:Patient=123 = subject=Patient/123
+  (check-equal? (compile-param "subject" 'reference "Patient" "123") (or-clauses (list (reference-clause "subject" "Patient/123"))))
   (define-values (lo hi) (number-range "100"))
   (check-equal? (list lo hi) '(99.5 100.5)))

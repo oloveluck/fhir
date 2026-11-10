@@ -89,15 +89,21 @@ its own language by `raco make`. Worked examples: `fhir-examples/examples/intake
 ```racket
 #lang racket/base
 ;; a QuestionnaireResponse -> FML -> a Patient -> validated against an FSH profile -> CQL's answer
-(require json (only-in fhir/conformance/operations ensure-valid)  ; loading it registers $validate
+(require json (only-in fhir/conformance/operations)              ; loading it registers $validate
          (only-in cql/value render)
          (only-in "intake.fsh" canonical-of)                     ; the profile, registered by canonical
          (only-in "qr2patient.map" transform)                    ; FHIR JSON in, FHIR JSON out
          (only-in "Intake.cql" evaluate))                        ; define name -> value, over resources
-(define (intake qr)
-  (define patient (ensure-valid (transform qr) #:profile (canonical-of "IntakePatient")))
-  (values patient (render (hash-ref (evaluate (list patient)) "Is 65 Or Older"))))
+(define (intake qr #:now [now #f])
+  ;; #:validate holds the result to the profile; a problem names the map's rule that wrote the element
+  (define patient (transform qr #:validate (canonical-of "IntakePatient")))
+  ;; #:define answers one define; #:now fixes Today() (else the answer moves with the clock)
+  (values patient (render (evaluate (list patient) #:define "Is 65 Or Older" #:now now))))
 ```
+Without a birth date the map's Patient breaks the profile, and the error is at the map's rule:
+`the map's Patient is invalid: … qr2patient.map:14:25: fml validate error: Patient.birthDate: minimum
+required = 1, but found 0`. `(ensure-valid patient #:profile url)` (`fhir/conformance/operations`)
+validates any resource the same way, naming the element but not the rule.
 Each step reads its own FHIR version, which matters when they meet: FSH compiles for the nearest
 `sushi-config.yaml`'s `fhirVersion` (else 5.0.0); FML builds R5 types (an R4 source is read leniently,
 and a value it cannot read is warned about, `fml warning: … not read`); `$validate`/`ensure-valid`

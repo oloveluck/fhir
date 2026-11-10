@@ -26,7 +26,7 @@
          (only-in fhir/result/result ok-or-raise ok? ok-value)
          (only-in "derive.rkt" rc-operation rc-server derive-capability-statement)
          (only-in "runtime.rkt" build-app app? current-app app-repositories repository-read
-                  request request-id request-body request-type current-request-json)
+                  request request-id request-body request-type current-request-json refused!)
          (only-in fhir/model/node fhir?))
 
 (provide
@@ -64,6 +64,10 @@
   (define node (and read (read id)))
   (and node (node->jsexpr node)))
 
+;; refusal : severity code text -> OperationOutcome   the request's failure, before the operation runs
+(define refusal-js (make-weak-hasheq))
+(define (refusal . args) (let ([oo (apply outcome args)]) (hash-set! refusal-js oo #t) oo))
+
 ;; operation->entries : operation -> (listof operation-entry)
 (define (operation->entries op #:read [read app-read] #:around [around (lambda (thunk) (thunk))])
   (define types (let ([ts (operation-resource-types op)]) (if (null? ts) '(#f) ts)))
@@ -78,7 +82,9 @@
              ;; a resource other than Parameters is the operation's subject input (`resource` for
              ;; $validate), as FHIR allows for an operation that takes one resource
              (define raw (let ([j (current-request-json)]) (and (hash? j) (strip-jnum j))))
-             (define sent (or raw (and body (strip-jnum (node->jsexpr body)))))
+             ;; an empty object is no body: `{}` and nothing at all ask the same thing
+             (define sent (let ([s (or raw (and body (strip-jnum (node->jsexpr body))))])
+                            (and (hash? s) (positive? (hash-count s)) s)))
              (define inputs
                (cond [(not sent) (hasheq)]
                      [(equal? (hash-ref sent 'resourceType #f) "Parameters") (parameters->inputs sent)]
@@ -86,14 +92,42 @@
                      [else (parameters->inputs sent)]))
              ;; the request's own type: an operation on Resource is entered under "Resource"
              (define rtype (let ([t (request-type req)]) (if t (symbol->string t) type)))
-             (define subject (and (eq? level 'instance) read (read rtype (request-id req))))
-             (if (and (eq? level 'instance) (not subject))
-                 (outcome "error" "not-found" (format "~a/~a is not on this server" rtype (request-id req)))
-                 (invoke op subject inputs))))))
-      (ok-or-raise (from-json result #:lenient? #t))))
+             ;; the resource the request gives for the subject input (a body, or Parameters' `resource`)
+             (define given (let ([s (operation-subject op)])
+                             (and s (let ([vs (hash-ref inputs s '())]) (and (pair? vs) (hash? (car vs)) (car vs))))))
+             (define given-type (and given (hash-ref given 'resourceType #f)))
+             (cond
+               ;; POST /Patient/$validate with an Observation: the endpoint names the type it takes
+               ;; (only for an operation FHIR defines on every resource, where the subject IS of the
+               ;; endpoint's type; $transform's `content` is not a StructureMap)
+               [(and given rtype (not (equal? rtype "Resource")) (memq level '(type instance))
+                     (member "Resource" (operation-resource-types op))
+                     (not (equal? given-type rtype)))
+                (refusal "error" "invalid"
+                         (format "the ~a is ~a, but ~a/$~a takes ~a~a"
+                                 (operation-subject op)
+                                 (if given-type (a/an given-type) "not a resource (no resourceType)")
+                                 rtype (operation-code op) (a/an rtype)
+                                 (if given-type (format " (POST it to /~a/$~a)" given-type (operation-code op)) "")))]
+               ;; instance level: the resource given is the one to check (an update of it); without
+               ;; one, the stored resource is the subject
+               [(and (eq? level 'instance) given)
+                (if (and read (read rtype (request-id req)))
+                    (invoke op #f inputs)
+                    (outcome "error" "not-found" (format "~a/~a is not on this server" rtype (request-id req))))]
+               [else
+                (define subject (and (eq? level 'instance) read (read rtype (request-id req))))
+                (if (and (eq? level 'instance) (not subject))
+                    (outcome "error" "not-found" (format "~a/~a is not on this server" rtype (request-id req)))
+                    (invoke op subject inputs))])))))
+      (define node (ok-or-raise (from-json result #:lenient? #t)))
+      (if (hash-ref refusal-js result #f) (refused! node) node)))
   (for*/list ([level (in-list (operation-levels op))]
               [type (in-list (if (eq? level 'system) '(#f) types))])
     (operation-entry level (operation-code op) type (handler level type))))
+
+;; a/an : string -> string   "an Observation", "a Patient"
+(define (a/an word) (format "~a ~a" (if (regexp-match? #rx"^[AEIOUaeiou]" word) "an" "a") word))
 
 ;; operation->rc : operation -> rc-operation   its CapabilityStatement entry, under its own canonical
 (define (operation->rc op)

@@ -15,7 +15,7 @@
 ;;; a boolean as 1/0, null as NULL. Tables are given as thunks, so only the ones a query names are
 ;;; computed.
 
-(require racket/contract racket/list racket/string racket/file json db)
+(require racket/contract racket/list racket/string racket/file json db (only-in fhir/suggest did-you-mean))
 
 (provide
  (struct-out table)
@@ -50,13 +50,31 @@
      (when (and (null? names) (null? (tables-named sql types)))
        (raise-user-error 'sql (format "the statement names none of the tables: ~a" (string-join (sort (append (hash-keys tables) types) string<?) ", "))))
      (for ([n (in-list names)]) (load-table! c n ((hash-ref tables n)) #:temp? (and store #t)))
-     (define r (with-handlers ([exn:fail:sql? (lambda (e) (raise-user-error 'sql (sql-message e)))])
+     (define named (remove-duplicates (append names (tables-named sql (append types '("resources" "history" "trail"))))))
+     (define r (with-handlers ([exn:fail:sql? (lambda (e) (raise-user-error 'sql (with-columns (sql-message e) c named)))])
                  (query c (regexp-replace #px";\\s*$" (string-trim sql) ""))))
      (define cols (for/list ([h (in-list (rows-result-headers r))]) (cdr (assq 'name h))))
      (table cols
             (for/list ([v (in-list (rows-result-rows r))])
               (for/hasheq ([col (in-list cols)] [x (in-vector v)]) (values (string->symbol col) (cell-out x c))))))
    (lambda () (disconnect c))))
+
+;; with-columns : message connection tables -> message   a column SQLite does not know is said with
+;; the nearest one and each named table's columns (`no such column: gendr (did you mean `gender`?;
+;; patients: id, gender)`): a reader cannot otherwise see a view's columns
+(define (with-columns msg c tables)
+  (define m (regexp-match #px"^no such column: (?:[A-Za-z_][A-Za-z0-9_]*[.])?\"?([^\" ]+)\"?" msg))
+  (cond
+    [(not m) msg]
+    [else
+     (define cols (for/list ([t (in-list tables)])
+                    (cons t (with-handlers ([exn:fail? (lambda (_) '())])
+                              (map (lambda (v) (vector-ref v 1)) (query-rows c (format "PRAGMA table_info(~a)" (q t))))))))
+     (define all (remove-duplicates (append-map cdr cols)))
+     (format "~a~a~a" msg (did-you-mean (cadr m) all)
+             (let ([listed (filter (lambda (tc) (pair? (cdr tc))) cols)])
+               (if (null? listed) ""
+                   (format " (~a)" (string-join (for/list ([tc (in-list listed)]) (format "~a: ~a" (car tc) (string-join (cdr tc) ", "))) "; ")))))]))
 
 (define (sql-message e)
   (define info (exn:fail:sql-info e))
@@ -148,7 +166,7 @@
   (check-exn #rx"one SELECT" (lambda () (sql-query "DELETE FROM patients" tables)))
   (check-exn #rx"one SELECT" (lambda () (sql-query "SELECT 1 FROM patients; ATTACH 'x.db' AS x" tables)))
   (check-exn #rx"one SELECT" (lambda () (sql-query "ATTACH DATABASE 'x.db' AS x" tables)))
-  (check-exn #rx"no such column: gendr" (lambda () (sql-query "SELECT gendr FROM patients" tables)))
+  (check-exn #rx"no such column: gendr [(]did you mean `gender`[?][)] [(]patients: [^)]*gender" (lambda () (sql-query "SELECT gendr FROM patients" tables)))
   (check-exn #rx"names none of the tables: a1c, patients, unused" (lambda () (sql-query "SELECT 1" tables)))
   (check-equal? (tables-named "select * from \"a1c\" join patients" '("a1c" "patients" "pat")) '("a1c" "patients"))
   ;; over a store: a view per resource type, the resource as JSONB read in place; tables beside it;

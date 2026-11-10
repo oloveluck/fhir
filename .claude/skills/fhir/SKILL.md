@@ -73,7 +73,7 @@ same text as `learn://<topic>`. Read `fhir` (resources, codes, quantities, refer
 |---|---|
 | `write(path, text)` | saves a file; answers its problems |
 | `check()` | every file's problems |
-| `run(path)` | a file against the data: a summary, the first rows, a handle `result://rN` |
+| `run(path)` | a file against the data: a summary, the first rows, a handle `result://rN` and `result://<file name>` |
 | `query(language, text)` | once, without a file: `fhirpath`, `cql`, `vcl`, `search`, `view`, `sql` |
 | `explain(ref, subject)` | why one patient's (resource's) answer is what it is, step by step |
 | `describe(ref)` | a result (paged; `as: "csv"`), `Type/id` (`as: "fsh"`), a canonical, a type or element, an operation |
@@ -167,7 +167,7 @@ write {"path": "Diabetes.cql", "text": "<the CQL above>"}
 run {"path": "Diabetes.cql"}
 ```
 ```answer
-{"result": "result://r2", "summary": {"patients": 2, "defines": {"Poor Control": {"true": 1, "false": 1}}},
+{"result": "result://r2", "name": "result://Diabetes", "summary": {"patients": 2, "defines": {"Poor Control": {"true": 1, "false": 1}}},
  "rows": [{"patient": "ann", "Poor Control": true}, {"patient": "bob", "Poor Control": false}]}
 ```
 
@@ -189,11 +189,12 @@ write {"path": "a1c.view.json", "text": "<the view above>"}
 {"problems": []}
 ```
 
-Then SQL over the tables: each view by its name, each earlier result by its handle (`r2` is the CQL
-run; a column whose name has a space is quoted):
+Then SQL over the tables: each view by its name, each earlier result by its name (`Diabetes`, the
+latest run of Diabetes.cql — SQL kept in a file stays right when the CQL is run again) or its number
+(`r2`); a column whose name has a space is quoted:
 
 ```call
-query {"language": "sql", "text": "SELECT a1c.patient, a1c.value FROM a1c JOIN r2 ON r2.patient = a1c.patient WHERE r2.\"Poor Control\" = 1"}
+query {"language": "sql", "text": "SELECT a1c.patient, a1c.value FROM a1c JOIN Diabetes d ON d.patient = a1c.patient WHERE d.\"Poor Control\" = 1"}
 ```
 ```answer
 {"columns": ["patient", "value"], "rows": [{"patient": "ann", "value": 8.4}]}

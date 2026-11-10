@@ -72,6 +72,26 @@
     ;; the commit says who the trail names
     (check-true (string? (hash-ref (call d "commit" (hasheq 'stage (hash-ref st 'stage))) 'agent)))
     (check-equal? (hash-ref (call d "stage" (hasheq 'drop "all")) 'stages) '())))   ; every pending stage at once
+;; results by name: a run is named by its file, a query by `name`; SQL saved in a file reads the latest
+;; of a name, whatever its number (a rerun's agent kept a `FROM r4` that later read the wrong result)
+(define e (open-hub dir))
+(with-hub e
+  (lambda ()
+    (call e "write" (hasheq 'path "genders.fhirpath" 'text "Patient.gender"))
+    (define r1 (call e "run" (hasheq 'path "genders.fhirpath" 'over "Patient")))
+    (check-equal? (hash-ref r1 'name) "result://genders")
+    (define n1 (hash-ref (car (hash-ref (call e "query" (hasheq 'language "sql" 'text "SELECT count(*) AS n FROM genders")) 'rows)) 'n))
+    (call e "commit" (hasheq 'stage (hash-ref (call e "stage" (hasheq 'fsh "Instance: eve\nInstanceOf: Patient\n* gender = #female\n")) 'stage)))
+    (define r2 (call e "run" (hasheq 'path "genders.fhirpath" 'over "Patient")))
+    (check-false (equal? (hash-ref r2 'result) (hash-ref r1 'result)))
+    (define q (call e "query" (hasheq 'language "sql" 'text "SELECT count(*) AS n FROM genders" 'name "gender_count")))
+    (check-equal? (hash-ref (car (hash-ref q 'rows)) 'n) (add1 n1))         ; the latest run
+    (check-equal? (hash-ref (hash-ref (call e "describe" (hasheq 'ref (hash-ref q 'result))) 'source) 'reads) (list (hash-ref r2 'result)))
+    (check-equal? (hash-ref (call e "describe" (hasheq 'ref "result://gender_count")) 'total) 1)
+    (check-equal? (hash-ref (car (hash-ref (call e "query" (hasheq 'language "sql" 'text "SELECT n FROM gender_count")) 'rows)) 'n) (add1 n1))
+    (let-values ([(text err?) ((tool-run (hash-ref (tools-of e) "query")) (hasheq 'language "sql" 'text "SELECT 1" 'name "r7"))])
+      (check-true err?)
+      (check-regexp-match #rx"cannot name a result" text))))
 ;; the shell: a call whose answer counts errors exits 1
 (define (shell . words)
   (define out (open-output-string))

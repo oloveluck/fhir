@@ -100,17 +100,26 @@
       (write-string (string-append
                      "#lang fhir/capability\n"
                      "(server #:store \"fhir.db\")\n"
-                     "(resource Patient #:interactions (read create search-type) #:search-params ([gender token] [family string \"name.family\"]))\n")
+                     "(resource Patient #:interactions (read create search-type) #:search-params ([gender token] [family string \"name.family\"]))\n"
+                     "(resource Observation #:interactions (read create search-type) #:search-params ([subject reference]))\n")
                     o)))
   (define app (dynamic-require src 'app))
   (define p (ok-value (from-json (hasheq 'resourceType "Patient" 'gender "female" 'name (list (hasheq 'family "Ng"))))))
-  (check-eq? (fhir-type (dispatch app (create-request 'Patient p))) 'Patient)
+  (define created (dispatch app (create-request 'Patient p)))
+  (check-eq? (fhir-type created) 'Patient)
+  ;; what the guide says of a store-backed type: _include over a declared reference parameter, and the
+  ;; reference's type modifier (a rerun's agent saw `subject:Patient` reported as unknown)
+  (define pid (hash-ref (node->jsexpr created) 'id))
+  (dispatch app (create-request 'Observation (ok-value (from-json (hasheq 'resourceType "Observation" 'status "final" 'code (hasheq 'text "x")
+                                                                          'subject (hasheq 'reference (string-append "Patient/" pid)))))))
+  (define inc (node->jsexpr (dispatch app (search-request 'Observation `((subject:Patient . ,pid) (_include . "Observation:subject"))))))
+  (check-equal? (sort (map (lambda (e) (hash-ref (hash-ref e 'search) 'mode)) (hash-ref inc 'entry)) string<?) '("include" "match"))
   (define found (node->jsexpr (dispatch app (search-request 'Patient '((family . "ng"))))))
   (check-equal? (length (hash-ref found 'entry '())) 1)
   (check-true (file-exists? (build-path dir "fhir.db")))
   (define c ((dynamic-require 'db 'sqlite3-connect) #:database (build-path dir "fhir.db")))
   (check-equal? ((dynamic-require 'db 'query-value) c "SELECT resource ->> '$.name[0].family' FROM fhir_resources WHERE resource_type = 'Patient'") "Ng")
-  (check-equal? ((dynamic-require 'db 'query-value) c "SELECT typeof(resource) FROM fhir_resources") "blob")
+  (check-equal? ((dynamic-require 'db 'query-value) c "SELECT typeof(resource) FROM fhir_resources WHERE resource_type = 'Patient'") "blob")
   ((dynamic-require 'db 'disconnect) c)
   (delete-directory/files dir))
 

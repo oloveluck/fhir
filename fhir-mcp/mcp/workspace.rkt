@@ -273,8 +273,25 @@
             'written (file-exists? full)
             'problems (map (lambda (d) (problem-json h d)) mine)
             'problemsElsewhere others))
+  (define unenforced (if (equal? lang "fsh") (unlisted-profiles h text) '()))
+  (define answer* (if (pair? unenforced) (hash-set answer 'notes unenforced) answer))
   ;; the configuration only when it is what was written
-  (if config? (hash-set answer 'config (config-json h)) answer))
+  (if config? (hash-set answer* 'config (config-json h)) answer*))
+
+;; unlisted-profiles : hub fsh-text -> (listof string)   a profile the text defines that workspace.yaml's
+;; `profiles` does not name: its examples are checked against it, but stage and check(data: true)
+;; hold the data only to the listed ones (a rerun's agent expected a new rule to apply at once)
+(define (unlisted-profiles h text)
+  (define listed (append* (hash-values (ws-config-profiles (workspace-config (hub-ws h))))))
+  (define sds (registered-resources "StructureDefinition"))
+  (for*/list ([e (in-list (regexp-match* #px"(?m:^Profile:\\s*([A-Za-z0-9_.-]+)\\s*$)((?:\n(?!Profile:|Instance:|Extension:|ValueSet:|CodeSystem:|Invariant:|RuleSet:|Logical:|Resource:|Mapping:|Alias:).*)*)" text #:match-select values))]
+              [name (in-value (cadr e))]
+              [id (in-value (let ([m (regexp-match #px"(?m:^Id:\\s*([A-Za-z0-9.-]+))" (caddr e))]) (if m (cadr m) name)))]
+              [sd (in-value (findf (lambda (r) (and (equal? (hash-ref r 'id #f) id) (equal? (hash-ref r 'derivation #f) "constraint"))) sds))]
+              #:when sd
+              #:unless (member (hash-ref sd 'url #f) listed))
+    (format "profile ~a (~a) is not in workspace.yaml's `profiles`: examples are checked against it, but stage and check(data: true) hold data to it only once listed (profiles:\n  ~a: ~a)"
+            name (hash-ref sd 'url "?") (hash-ref sd 'type "?") (hash-ref sd 'url "?"))))
 
 (define (config-json h)
   (define c (workspace-config (hub-ws h)))
@@ -353,8 +370,43 @@
   (define f (build-path (state-dir h kind) (string-append name ".json")))
   (and (file-exists? f) (with-handlers ([exn:fail? (lambda (_) #f)]) (call-with-input-file f read-json))))
 
+;; ---- result names -----------------------------------------------------------------------------
+;; A result has a number (result://r7, never reused) and may have a NAME: a run's is its file's
+;; (`diabetes.cql` -> diabetes), a query's the `name` it was given. A name means the latest result of
+;; that name, so SQL saved in a file (`FROM diabetes`) reads the newest run, whatever its number.
+
+;; result-name : string -> string|#f   an SQL identifier made of a name (r<digits> is the numbering's)
+(define (result-name s)
+  (define n (regexp-replace* #px"[^A-Za-z0-9_]" s "_"))
+  (define n2 (if (regexp-match? #px"^[0-9]" n) (string-append "_" n) n))
+  (and (positive? (string-length n2)) (not (regexp-match? #px"^r[0-9]+$" n2)) n2))
+
+;; file-result-name : path -> string|#f   `diabetes.cql` -> diabetes, `bp.view.json` -> bp
+(define (file-result-name p)
+  (result-name (regexp-replace #px"[.](view[.]json|capability[.]rkt|[A-Za-z0-9]+)$" (path->string (file-name-from-path p)) "")))
+
+;; named : options default -> options   the name asked for (made an identifier), else the default
+(define (named opts default)
+  (define asked (let ([n (hash-ref opts 'name #f)]) (and (string? n) (or (result-name n) (error 'run (format "`~a` cannot name a result: r<number> names results by number" n))))))
+  (define n (or asked default))
+  (if n (hash-set opts 'name n) (hash-remove opts 'name)))
+
+;; result-number : uri -> integer   result://r12 -> 12 (for ordering; 0 when it is not numbered)
+(define (result-number uri) (or (let ([m (regexp-match #px"^result://r([0-9]+)$" uri)]) (and m (string->number (cadr m)))) 0))
+
+;; result-uri : hub uri -> uri|#f   the numbered result a reference means: itself, or the latest of a name
+(define (result-uri h uri)
+  (define m (and (string? uri) (regexp-match #px"^result://(.+)$" uri)))
+  (cond [(not m) #f]
+        [(regexp-match? #px"^r[0-9]+$" (cadr m)) (and (or (hash-ref (hub-results h) uri #f) (load-state h "results" (cadr m))) uri)]
+        [else (for/last ([u (in-list (hub-result-uris h))]
+                         #:when (let ([st (result-of* h u)]) (and st (equal? (hash-ref (stored-options st) 'name #f) (cadr m)))))
+                u)]))
+
 ;; result-of : hub uri -> stored | #f ; stage-of : hub id -> staged | #f   memory, else the workspace
-(define (result-of h uri)
+(define (result-of h uri0)
+  (result-of* h (or (result-uri h uri0) uri0)))
+(define (result-of* h uri)
   (or (hash-ref (hub-results h) uri #f)
       (let ([js (and (string? uri) (load-state h "results" (regexp-replace #rx"^result://" uri "")))])
         (and (hash? js) (let ([st (jsexpr->stored js)]) (hash-set! (hub-results h) uri st) st)))))
@@ -407,8 +459,11 @@
   (save-state! h "results" (regexp-replace #rx"^result://" uri "") (lambda () (stored->jsexpr st)))
   uri)
 
-(define (result-json uri r)
+(define (result-json uri r [name #f])
   (define rows (run-result-rows r))
+  (define base (result-json* uri r rows))
+  (if name (hash-set base 'name (string-append "result://" name)) base))
+(define (result-json* uri r rows)
   (hasheq 'result uri
           'kind (run-result-kind r)
           'columns (run-result-columns r)
@@ -421,7 +476,7 @@
 
 ;; options : hash -> Options   the verbs' arguments as a language's options
 (define (options args)
-  (for/hasheq ([k '(entry over parameters)] #:when (and (hash-ref args k #f) (not (eq? (hash-ref args k) 'null))))
+  (for/hasheq ([k '(entry over parameters name)] #:when (and (hash-ref args k #f) (not (eq? (hash-ref args k) 'null))))
     (values k (let ([v (hash-ref args k)]) (if (and (eq? k 'parameters) (hash? v))
                                                (for/hash ([(n x) (in-hash v)]) (values (symbol->string n) (format "~a" x)))
                                                v)))))
@@ -446,10 +501,10 @@
   (define lang (or (workspace-language-of full) (error 'run (format "~a is not a file of the workspace's languages" p))))
   (refresh! h)
   (define text (file->string full))
-  (define opts (options args))
+  (define opts (named (options args) (file-result-name full)))
   (define r (audited h "run" (hasheq 'kind "file" 'path (rel h full) 'language lang 'text text)
                      (lambda () (execute h lang full text opts))))
-  (result-json (store! h (stored lang full text opts r)) r))
+  (result-json (store! h (stored lang full text opts r)) r (hash-ref opts 'name #f)))
 
 ;; audited : hub what Source thunk -> value   with `audit: all`, the execution leaves an AuditEvent
 ;; in the data (its outcome, its source text), whether it succeeds or fails
@@ -470,18 +525,20 @@
   ;; what the result came from besides its text: the file it was read from (`text=@table.sql`) and,
   ;; for SQL, the earlier results it reads (`r1`), so a derived table's trail is complete too
   (define opts
-    (let* ([o (options args)]
+    (let* ([o (named (options args) #f)]
            [f (argument-file args 'text)]
            [o (if f (hash-set o 'textFile f) o)]
            [reads (if (equal? lang "sql")
-                      (for/list ([n (in-list (remove-duplicates (regexp-match* #px"\\br[0-9]+\\b" text)))]
-                                 #:when (result-of h (string-append "result://" n)))
-                        (string-append "result://" n))
+                      ;; by number (`r3`) and by name (`diabetes`): the result each one is NOW
+                      (for*/list ([n (in-list (remove-duplicates (regexp-match* #px"\\b[A-Za-z_][A-Za-z0-9_]*\\b" text)))]
+                                  [uri (in-value (result-uri h (string-append "result://" n)))]
+                                  #:when uri)
+                        uri)
                       '())])
       (if (pair? reads) (hash-set o 'reads reads) o)))
   (define r (audited h (string-append "query " language) (hasheq 'kind "query" 'language language 'text text)
                      (lambda () (if (equal? lang "sql") (run-sql h text) (execute h lang #f text opts)))))
-  (result-json (store! h (stored lang #f text opts r)) r))
+  (result-json (store! h (stored lang #f text opts r)) r (hash-ref opts 'name #f)))
 
 ;; run-sql : hub sql -> run-result   SQL over the workspace's tables (sql.rkt): each ViewDefinition
 ;; file's rows, named by its file (`patients.view.json` is `patients`) and by its `name`, and every
@@ -497,12 +554,19 @@
                                                        (let ([n (hash-ref (call-with-input-file f read-json) 'name #f)]) (and (string? n) n)))))))])
       (cons name (lambda () (let ([r (execute h "sql-on-fhir" f (file->string f) (hasheq))])
                               (table (run-result-columns r) (run-result-rows r)))))))
+  (define (result-table st)
+    (lambda () (table (map (lambda (c) (format "~a" c)) (run-result-columns (stored-result st)))
+                      (run-result-rows (stored-result st)))))
+  (define tabular
+    (for*/list ([uri (in-list (hub-result-uris h))] [st (in-value (result-of* h uri))] #:when st
+                #:when (andmap hash? (run-result-rows (stored-result st))))
+      (cons uri st)))
+  ;; by number, and by name: the latest of each name (a later one replaces an earlier in the hash)
   (define results
-    (for*/list ([uri (in-list (hub-result-uris h))] [st (in-value (result-of h uri))] #:when st
-               #:when (andmap hash? (run-result-rows (stored-result st))))
-      (cons (regexp-replace #rx"^result://" uri "")
-            (lambda () (table (map (lambda (c) (format "~a" c)) (run-result-columns (stored-result st)))
-                              (run-result-rows (stored-result st)))))))
+    (append (for/list ([u+st (in-list tabular)])
+              (cons (regexp-replace #rx"^result://" (car u+st) "") (result-table (cdr u+st))))
+            (for/list ([u+st (in-list tabular)] #:when (hash-ref (stored-options (cdr u+st)) 'name #f))
+              (cons (hash-ref (stored-options (cdr u+st)) 'name) (result-table (cdr u+st))))))
   (define t (with-handlers ([exn:fail:user? (lambda (e) (error 'sql (regexp-replace #rx"^sql: " (exn-message e) "")))])
               (sql-query text (make-immutable-hash (append results views)) #:database (data-store-path h))))
   (run-result "table" (table-columns t) (table-rows t) (hasheq 'rows (length (table-rows t)))))
@@ -576,7 +640,7 @@
 (define (hub-result-uris h)
   (sort (remove-duplicates (append (hash-keys (hub-results h))
                                    (map (lambda (n) (string-append "result://" n)) (saved-names h "results"))))
-        string<?))
+        < #:key result-number))
 (define (hub-read-result h uri)
   (define st (result-of h uri))
   (and st (let ([r (stored-result st)])
@@ -994,7 +1058,13 @@
       (define (at-line r errors)
         (define fsh (and (equal? (hash-ref source 'kind #f) "fsh") (hash-ref source 'text #f)))
         (define line (and fsh (hash-ref r 'id #f) (instance-line fsh (hash-ref r 'id))))
-        (if line (map (lambda (e) (format "~a:~a: ~a" (hash-ref source 'path "fsh") line e)) errors) errors))
+        ;; at the rule that wrote the element the error is about, when the instance has one; else at
+        ;; the instance's header (a missing element has no rule to point at)
+        (if line
+            (map (lambda (e) (format "~a:~a: ~a" (hash-ref source 'path "fsh")
+                                     (or (rule-line fsh line (error-element e)) line) e))
+                 (remove-duplicates errors))
+            (remove-duplicates errors)))
       (when (null? rs) (error 'stage "nothing to stage"))
       (define changes
         (for/list ([r (in-list rs)])
@@ -1124,6 +1194,25 @@
               [(regexp-match? #px"^Instance:" (car ls)) (loop (cdr ls) (add1 i) i)]
               [(and start (regexp-match? (pregexp (string-append "^\\*\\s*id\\s*=\\s*\"" (regexp-quote id) "\"")) (car ls))) start]
               [else (loop (cdr ls) (add1 i) start)]))))
+
+;; error-element : error-text -> name|#f   the element an error is about: what an invariant found
+;; (`… (found value.ofType(Quantity) = 300 '/min')` -> value), else the path's first step
+;; (`Observation.component[1].value[x]: …` -> component)
+(define (error-element e)
+  (cond [(regexp-match #px"[(]found ([A-Za-z]+)" e) => cadr]
+        [(regexp-match #px"^[A-Z][A-Za-z]*[.]([a-z][A-Za-z]*)" e) => cadr]
+        [else #f]))
+
+;; rule-line : fsh-text instance-line name|#f -> line|#f   the first rule of that instance writing the
+;; element (`* valueQuantity = …` for `value`, `* component[0].code` for `component`)
+(define (rule-line text start element)
+  (and element
+       (let ([rx (pregexp (string-append "^\\s*\\*\\s+" (regexp-quote element) "(?:[.\\[\\s=]|[A-Z]|$)"))])
+         (for/first ([l (in-list (drop (regexp-split #rx"\n" text) start))]
+                     [i (in-naturals (add1 start))]
+                     #:break (regexp-match? #px"^(?:Instance|Profile|Extension|ValueSet|CodeSystem|Logical|Resource|RuleSet|Invariant|Mapping|Alias):" l)
+                     #:when (regexp-match? rx l))
+           i))))
 
 ;; stage-source : hub args -> Source   what a stage's resources are made from (trail.rkt)
 (define (stage-source h args)

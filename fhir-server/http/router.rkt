@@ -171,7 +171,9 @@
 ;; invoke an operation; input Parameters come from the POST body or are synthesised from the query
 (define (invoke app method level type id code query body)
   (cond
-    [(and (equal? method "POST") (positive? (string-length (string-trim body))))
+    ;; an empty object is no body, as an empty POST is (`{}` asked for a 400 "not a FHIR resource")
+    [(and (equal? method "POST") (positive? (string-length (string-trim body)))
+          (not (regexp-match? #px"^\\s*[{]\\s*[}]\\s*$" body)))
      (with-body body (lambda (n) (values 'invoke (dispatch app (invoke-request #:code code #:level level #:type type #:id id #:body n)))))]
     [else
      (values 'invoke (dispatch app (invoke-request #:code code #:level level #:type type #:id id

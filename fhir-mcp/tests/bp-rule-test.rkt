@@ -31,7 +31,15 @@
 
 (with-hub h
   (lambda ()
-    (check-equal? (hash-ref (call "write" (hasheq 'path "rules.fsh" 'text rule)) 'problems) '())
+    (define w (call "write" (hasheq 'path "rules.fsh" 'text rule)))
+    (check-equal? (hash-ref w 'problems) '())
+    (check-false (hash-ref w 'notes #f))                                  ; listed in `profiles`: enforced
+    ;; a profile workspace.yaml does not list is said to be unenforced (an agent expected it to apply)
+    (define w2 (call "write" (hasheq 'path "intake.fsh" 'text "Profile: IntakePatient\nParent: Patient\nId: intake-patient\n* birthDate 1..1\n")))
+    (check-equal? (length (hash-ref w2 'notes)) 1)
+    (check-regexp-match #rx"^profile IntakePatient [(]http://example.org/fhir/StructureDefinition/intake-patient[)] is not in workspace.yaml's `profiles`.*Patient: http://example.org/fhir/StructureDefinition/intake-patient[)]$"
+                        (car (hash-ref w2 'notes)))
+    (call "write" (hasheq 'path "intake.fsh" 'text ""))
     (check-equal? (errors-of (bp "ok")) '())
     (check-regexp-match #rx"bp-systolic: A blood pressure" (string-join (errors-of (bp "kpa" #:sys "20 'kPa'")) "\n"))
     (check-regexp-match #rx"bp-diastolic" (string-join (errors-of (bp "nodia" #:dia #f)) "\n"))
@@ -70,7 +78,12 @@
   (lambda ()
     (check-equal? (hash-ref (call2 "write" (hasheq 'path "rules.fsh" 'text cookbook)) 'problems) '())
     (check-equal? (errors2 (hr "ok" 72 "/min" "2025-03-01")) "")
-    (check-regexp-match #rx"hr-range" (errors2 (hr "fast" 300 "/min" "2025-03-01")))
+    ;; a refusal quotes what it found, at the rule that wrote it (a rerun's agent had to find the value
+    ;; itself, and the line was the instance's header), once (it was listed twice)
+    (check-equal? (errors2 (hr "fast" 300 "/min" "2025-03-01"))
+                  "fsh:7: Observation: hr-range: A heart rate (LOINC 8867-4) is between 20 and 250 /min (found value.ofType(Quantity) = 300 '/min')")
+    (check-regexp-match #rx"^fsh:6: .*not-future.*[(]found effective.ofType[(]dateTime[)] = @2999-01-01[)]$"
+                        (errors2 (hr "later2" 72 "/min" "2999-01-01")))
     (check-regexp-match #rx"hr-unit" (errors2 (hr "hz" 1.2 "Hz" "2025-03-01")))
     (check-regexp-match #rx"not-future" (errors2 (hr "later" 72 "/min" "2999-01-01")))))
 (delete-directory/files dir2)

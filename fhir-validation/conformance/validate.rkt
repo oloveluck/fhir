@@ -30,6 +30,11 @@
          (only-in fhir/model/registry constructor-of all-types type-registered?)
          (only-in fhirpath/eval eval-fhirpath)
          (only-in fhirpath/parser/parse parse-fhirpath)
+         (only-in fhirpath/parser/ast fp-invoke fp-invoke? fp-invoke-target fp-call fp-call? fp-call-target
+                  fp-call-name fp-call-args fp-binop? fp-binop-op fp-binop-lhs fp-binop-rhs fp-unop? fp-unop-operand
+                  fp-typeop? fp-typeop-operand fp-index? fp-index-target fp-var?)
+         (only-in fhirpath/print fhirpath->string)
+         (only-in fhir/model/node fhir?)
          (only-in fhirpath/value item->system)
          (only-in fhir/serialize/jsexpr-util drop-false)
          (only-in fhirpath/terminology tx-service-validate tx-service-expand))
@@ -591,8 +596,103 @@
      (if (equal? result (list #f))
          (list (issue (if (equal? (hash-ref c 'severity #f) "warning") "warning" "error")
                       "invariant" path
-                      (format "~a: ~a" (hash-ref c 'key "?") (hash-ref c 'human ""))))
+                      (format "~a: ~a~a" (hash-ref c 'key "?") (hash-ref c 'human "")
+                              (found-text expr focus root))))
          '())]))
+
+;; ---- what a broken invariant found ---------------------------------------------------------
+;; A refusal that quotes only the rule ("A heart rate is between 20 and 250 /min") leaves the reader
+;; to find the value. `found-text` names it: the paths the rule tests (the consequent of a top-level
+;; `implies`, else the whole expression), each without its final test — `value.ofType(Quantity)
+;; .where(value >= 20 …).exists()` is read as `value.ofType(Quantity)` — evaluated on the focus and
+;; shown compactly: " (found value.ofType(Quantity) = 300 '/min')". Nothing is said when nothing
+;; is found or the expression does not parse (the rule's own words stand alone).
+
+;; tests : the calls that test a collection rather than select from it
+(define tests '(exists empty all allTrue anyTrue allFalse anyFalse count not hasValue))
+
+;; evidence-paths : AST -> (listof AST)   the focus-rooted selections the rule tests, at most three
+(define (evidence-paths ast)
+  (define (rooted? a)
+    (cond [(fp-invoke? a) (or (not (fp-invoke-target a)) (rooted? (fp-invoke-target a)))]
+          [(fp-call? a) (and (fp-call-target a) (rooted? (fp-call-target a)))]
+          [(fp-index? a) (rooted? (fp-index-target a))]
+          [(fp-var? a) #t]
+          [else #f]))
+  ;; selection : AST -> AST   a rooted chain without its trailing tests (and the where they test)
+  (define (selection a)
+    (cond [(and (fp-call? a) (memq (fp-call-name a) tests) (fp-call-target a))
+           (define t (fp-call-target a))
+           (if (and (memq (fp-call-name a) '(exists empty)) (null? (fp-call-args a))
+                    (fp-call? t) (eq? (fp-call-name t) 'where) (fp-call-target t))
+               (selection (fp-call-target t))
+               (selection t))]
+          [else a]))
+  (define (paths a)
+    (cond [(and (rooted? a) (not (fp-var? a))) (list (selection a))]
+          [(fp-binop? a) (append (paths (fp-binop-lhs a)) (paths (fp-binop-rhs a)))]
+          [(fp-unop? a) (paths (fp-unop-operand a))]
+          [(fp-typeop? a) (paths (fp-typeop-operand a))]
+          [(and (fp-call? a) (fp-call-target a)) (paths (fp-call-target a))]
+          [else '()]))
+  (define body (if (and (fp-binop? ast) (eq? (fp-binop-op ast) 'implies)) (fp-binop-rhs ast) ast))
+  (define ps (remove-duplicates (filter (lambda (p) (not (fp-var? p))) (paths body))))
+  (take ps (min 3 (length ps))))
+
+;; found-text : expression focus root -> string   "" or " (found p = v; q = w)"
+(define (found-text expr focus root)
+  (with-handlers ([exn:fail? (lambda (_) "")])
+    (define parts
+      (for*/list ([p (in-list (evidence-paths (parse-fhirpath expr)))]
+                  [vs (in-value (eval-fhirpath p (list focus)
+                                               #:externals (hash "resource" (list root) "rootResource" (list root)
+                                                                 "context" (list focus))))]
+                  #:when (pair? vs))
+        (format "~a = ~a" (fhirpath->string p)
+                (clip (string-join (map compact-item (take vs (min 3 (length vs)))) ", ")
+                      (if (> (length vs) 3) ", …" "")))))
+    (if (null? parts) "" (format " (found ~a)" (string-join parts "; ")))))
+
+;; clip : string suffix -> string   at most 100 characters
+(define (clip s more) (if (> (string-length s) 100) (string-append (substring s 0 99) "…") (string-append s more)))
+
+;; compact-item : item -> string   a FHIRPath item as a reader writes it
+(define (compact-item it)
+  (define v (item->system it))
+  (cond [(fhir? v) (compact-json (node->jsexpr v))]
+        [(fhir? it) (compact-json (node->jsexpr it))]
+        [(string? v) v]
+        [(boolean? v) (if v "true" "false")]
+        [else (let ([o (open-output-string)]) (display (if (number? v) v (compact-system v)) o) (get-output-string o))]))
+(define (compact-system v)
+  (with-handlers ([exn:fail? (lambda (_) (format "~a" v))])
+    ((dynamic-require 'fhirpath/render 'item->text) v)))
+
+;; compact-json : jsexpr -> string   a Quantity `300 '/min'`, a Coding `system#code`, a
+;; CodeableConcept its codings (else its text), a Reference `Reference(Type/id)`, an object
+;; `{key: value, …}` without ids and extensions
+(define (compact-json j)
+  (cond
+    [(hash? j)
+     (define (has k) (hash-ref j k #f))
+     (cond
+       [(and (has 'value) (or (has 'unit) (has 'code)) (not (has 'coding)) (number-ish? (has 'value)))
+        (format "~a '~a'" (compact-json (has 'value)) (or (has 'code) (has 'unit)))]
+       [(and (has 'code) (string? (has 'code)) (or (has 'system) (has 'display)) (not (has 'value)))
+        (format "~a#~a" (or (has 'system) "") (has 'code))]
+       [(list? (has 'coding)) (string-join (map compact-json (has 'coding)) ", ")]
+       [(and (has 'text) (= (hash-count j) 1)) (format "~a" (has 'text))]
+       [(string? (has 'reference)) (format "Reference(~a)" (has 'reference))]
+       [else (format "{~a}" (string-join (for/list ([k (in-list (sort (hash-keys j) symbol<?))]
+                                                    #:unless (memq k '(id extension modifierExtension)))
+                                           (format "~a: ~a" k (compact-json (hash-ref j k))))
+                                         ", "))])]
+    [(list? j) (string-join (map compact-json j) ", ")]
+    [(string? j) j]
+    [(boolean? j) (if j "true" "false")]
+    [(jnum? j) (jnum-lexeme j)]
+    [else (format "~a" j)]))
+(define (number-ish? v) (or (number? v) (jnum? v)))
 
 ;; the focus node(s) for an element's relative path (""=root)
 ;; focus-items : relative-path node -> (listof node)

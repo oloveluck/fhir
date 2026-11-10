@@ -57,6 +57,23 @@
   (check-equal? (hash-ref oo 'resourceType) "OperationOutcome"))
 (let-values ([(st oo) (post app "/Patient/nope/$validate" (params))])
   (check-regexp-match #rx"Patient/nope is not on this server" (hash-ref (car (hash-ref oo 'issue)) 'diagnostics)))
+;; what a new user did: `{}` at instance level is no body (it was a 400, "at most 1 'resource'")
+(let-values ([(st oo) (post app (format "/Patient/~a/$validate" (hash-ref created 'id)) (hasheq))])
+  (check-equal? st 200)
+  (check-equal? (hash-ref (car (hash-ref oo 'issue)) 'severity) "information"))
+;; a resource given at instance level is the one checked (an update of the stored one)
+(let-values ([(st oo) (post app (format "/Patient/~a/$validate" (hash-ref created 'id))
+                            (hash-set patient 'gender "femme"))])
+  (check-equal? st 200)
+  (check-regexp-match #rx"femme|gender" (hash-ref (car (hash-ref oo 'issue)) 'diagnostics)))
+;; an Observation POSTed to Patient/$validate was "All OK": the endpoint names the type it takes
+(define obs (hasheq 'resourceType "Observation" 'status "final" 'code (hasheq 'text "x")))
+(let-values ([(st oo) (post app "/Patient/$validate" obs)])
+  (check-equal? st 400)
+  (check-regexp-match #rx"the resource is an Observation, but Patient/[$]validate takes a Patient [(]POST it to /Observation/[$]validate[)]"
+                      (hash-ref (car (hash-ref oo 'issue)) 'diagnostics)))
+(let-values ([(st oo) (post app "/Patient/$validate" (params (hasheq 'name "resource" 'resource obs)))])
+  (check-equal? st 400))
 ;; an inline declaration is an operation value too: served, and applied in-process by the same handler
 (define $echo (dynamic-require (collection-file-path "ops-app.rkt" "fhir" "tests") '$echo))
 (define (result-of p) (hash-ref (car (hash-ref p 'parameter)) 'valueString))

@@ -74,6 +74,7 @@
   [operation-outcome (-> string? string? string? fhir?)]
   [operation-outcome-not-supported (-> string? fhir?)]
   [operation-result? (-> any/c boolean?)]
+  [refused! (-> any/c any/c)]
   [make-searchset (-> any/c fhir?)]
   [operation-outcome-invalid (-> string? fhir?)]
   [operation-outcome-exception (-> string? fhir?)]
@@ -301,7 +302,8 @@
         (define r (guarded (lambda () ((operation-handler-proc h) in req))))
         (when (and (fhir? r) (eq? (fhir-type r) 'OperationOutcome) (operation-handler-op-def h)
                    (returns-outcome? (operation-handler-op-def h))
-                   (not (member (outcome-code r) '("exception" "not-found"))))
+                   (not (member (outcome-code r) '("exception" "not-found")))
+                   (not (hash-ref refusals r #f)))
           (hash-set! results r #t))
         r])]))
 (define (outcome-code n)
@@ -325,7 +327,7 @@
               (for/list ([v (in-list vs)])
                 (define c (typed-value type v))
                 (when (eq? c 'bad)
-                  (return (format "parameter '~a' must be a ~a, got ~a" name type (shown v))))
+                  (return (format "parameter '~a' must be ~a ~a, got ~a" name (if (regexp-match? #rx"^[aeiou]" (format "~a" type)) "an" "a") type (shown v))))
                 c)))))
 (define (raw-text v)
   (cond [(string? v) v]
@@ -403,6 +405,10 @@
 ;; its issues say, where an OperationOutcome a handler returns otherwise is the request's failure
 (define results (make-weak-hasheq))
 (define (operation-result? n) (hash-ref results n #f))
+;; refused! : OperationOutcome node -> node   the REQUEST's failure, said before the operation ran (a body
+;; of the wrong type): never the operation's result, so it answers by its issue code (400), not 200
+(define refusals (make-weak-hasheq))
+(define (refused! n) (hash-set! refusals n #t) n)
 (define (returns-outcome? od)
   (for/or ([p (in-list (navigate (list od) 'parameter))])
     (and (equal? (leaf->string (single (navigate (list p) 'use))) "out")
