@@ -327,4 +327,14 @@
   (define sp (load-error))
   (check-regexp-match #rx"^bad[.]capability[.]rkt:3:0: resource Patient: search parameter `birthDate`: FHIR defines none of that name for Patient [(]did you mean `birthdate`[?][)]" sp)
   (check-regexp-match #rx"search parameter `gender` is a token in FHIR, not a string" sp)
+  ;; a misspelt type is said as a type (not as a range on a non-number), with the nearest, and in the
+  ;; same answer as a search parameter FHIR does not define (it showed only after the type was fixed)
+  (write-app! (string-append "#lang fhir/capability\n(server)\n"
+                             "(resource Patient #:interactions (read search-type) #:search-params ([birthDate date]))\n"
+                             "(define (h in req) (Parameters))\n"
+                             "(operation $x #:system #:in ([age int 1 1 #:min 18 #:max 120]) #:handler h)\n"))
+  (define mixed (load-error))
+  (check-regexp-match #rx"operation: unknown parameter type int [(]did you mean `integer`" mixed)
+  (check-false (regexp-match? #rx"#:min and #:max" mixed))
+  (check-regexp-match #rx"resource Patient: search parameter `birthDate`: FHIR defines none" mixed)
   (delete-directory/files dir))

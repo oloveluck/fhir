@@ -18,8 +18,9 @@
                        (only-in fhir/operation operation)
                        (only-in "operations.rkt" operation->rc operation->od operation->entries declared-operation))
          syntax/parse
-         racket/list
+         racket/list racket/string
          (only-in fhir/model/registry type-registered? primitive-name?)
+         (only-in fhir/suggest did-you-mean)
          (only-in fhir/result/result ok? ok-value err-error invalid-encoding? invalid-encoding-value)
          (only-in vcl/compile vcl->valueset)
          (only-in net/uri-codec uri-unreserved-encode)
@@ -171,6 +172,23 @@
      (parsed-operation rc #`(derive-operation-definition #,rc) #`(list #,@entries)
                        #`(define name (declared-operation (derive-operation-definition #,rc) handler #,code)))]))
 
+;; the primitives an operation parameter usually takes, and every name a misspelt type is compared with
+(define common-primitives '("integer" "decimal" "boolean" "string" "code" "date" "dateTime" "uri"))
+(define parameter-type-names
+  (append common-primitives
+          '("positiveInt" "unsignedInt" "integer64" "instant" "time" "id" "oid" "uuid" "url" "canonical" "markdown"
+            "base64Binary" "Quantity" "Coding" "CodeableConcept" "Reference" "Period" "Range" "Ratio" "Identifier"
+            "HumanName" "Address" "ContactPoint" "Attachment" "Duration" "Age" "Money")))
+
+;; type-suggestion : name -> string   the nearest type names; a prefix counts (`int` -> `integer`,
+;; too far by edit distance for did-you-mean)
+(define (type-suggestion name)
+  (define prefixed (filter (lambda (t) (and (> (string-length name) 1) (string-prefix? (string-downcase t) (string-downcase name))))
+                           parameter-type-names))
+  (if (pair? prefixed)
+      (format " (did you mean ~a?)" (string-join (map (lambda (t) (format "`~a`" t)) (take prefixed (min 2 (length prefixed)))) " or "))
+      (did-you-mean name parameter-type-names)))
+
 ;; parse a #:in/#:out spec (a syntax list of [name type min max]) into rc-param constructor syntaxes
 (define (parse-params spec use)
   (cond
@@ -183,12 +201,16 @@
                                                  (~optional (~seq #:min lo:number))
                                                  (~optional (~seq #:max hi:number))) ...)
           (define tsym (syntax-e #'ptype))
+          ;; the type first: `[age int … #:min 18]` was told only that #:min bounds a number
+          (unless (or (type-registered? tsym) (primitive-name? tsym))
+            (decl-error 'operation (format "unknown parameter type ~a~a; a parameter's type is a FHIR primitive (~a) or a datatype or resource (Quantity, Coding, CodeableConcept, Reference, Patient, …)"
+                                           tsym (type-suggestion (symbol->string tsym))
+                                           (string-join common-primitives ", "))
+                        #'ptype))
           (when (and (attribute vs) (not (memq tsym '(code Coding CodeableConcept string uri))))
             (decl-error 'operation "#:binding binds a code (or Coding, CodeableConcept) parameter to a value set" p))
           (when (and (or (attribute lo) (attribute hi)) (not (memq tsym '(integer decimal positiveInt unsignedInt))))
-            (decl-error 'operation "#:min and #:max bound a number (an integer or decimal parameter)" p))
-          (unless (or (type-registered? tsym) (primitive-name? tsym))
-            (decl-error 'operation (format "unknown parameter type ~a" tsym) #'ptype))
+            (decl-error 'operation (format "#:min and #:max bound a number: ~a is a ~a, not an integer or decimal" (syntax-e #'pname) tsym) p))
           (define minv (syntax-e #'pmin))
           (define maxv (syntax-parse #'pmax [n:nat (syntax-e #'n)] [(~datum *) '*] [_ #f]))
           (unless maxv

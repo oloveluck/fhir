@@ -28,11 +28,15 @@ history and search indexes). In a workspace the file is `<name>.capability.rkt`:
   #:handler bmi-handler)                    ; (lambda (in req) …) -> a resource, usually Parameters
 ```
 A whole file — declarations, the handler and how to call it — is the worked example below.
+
+### Resources and interactions
 - Interactions: `read vread update patch delete history-instance history-type create search-type`.
   One the app does not declare answers 405 on a type it serves (404 for a type it does not).
 - The language is FHIR **R6** (6.0.0-ballot): the CapabilityStatement says so, resources are typed
   by R6, and data written by an R4 workspace is read leniently. `(server #:date "2026-11-09")` sets
   the statement's date (else a fixed one, so the statement is the same every time it is derived).
+
+### Search
 - A search parameter is `[name type]` (the definition FHIR gives that name for the type: `birthdate`,
   `gender`, `patient`, `subject`, `code`, `date`, … — a name FHIR does not define, or a wrong type, is
   an error at its `(resource …)` form when the app loads, naming the nearest:
@@ -51,12 +55,21 @@ A whole file — declarations, the handler and how to call it — is the worked 
   parameters, the included resources marked `search.mode` include; the statement does not list them
   (`searchInclude`). A reference parameter takes FHIR's type modifier:
   `subject:Patient=123` is `subject=Patient/123`.
+
+### The store
 - A resource without `#:repository` is kept in the store: the workspace's when the workspace serves
   it, else `#:store`'s file beside the module, else (no store anywhere) a temporary SQLite file
   removed when the server stops — searched, versioned and validated the same way. A
   create or update is validated as sent (its base type, the profiles it claims): an error refuses it
   with 422 and every issue, so nothing is stored with fields it could not read. A create answers 201
   with `Location: Type/id/_history/1`; a body of another type than the endpoint's is a 400.
+
+### Operations: inputs and outputs
+- An input or output is `[name type min max]`, `max` a number or `*`. Its type is a FHIR primitive —
+  `integer`, `decimal`, `boolean`, `string`, `code`, `date`, `dateTime`, `uri` (also `positiveInt`,
+  `unsignedInt`, `instant`, `time`, `id`, `markdown`, …) — or a datatype or resource: `Quantity`,
+  `Coding`, `CodeableConcept`, `Reference`, `Period`, `Identifier`, `Patient`, `Observation`, `Bundle`, …
+  A misspelt type is a declaration error naming the nearest (`int`: "did you mean `integer`?").
 - A `code` input may be bound to a value set: `[sex code 1 1 #:binding
   "http://hl7.org/fhir/ValueSet/administrative-gender"]` refuses any other code with a 400 naming the
   codes it takes, before the handler runs (the value set is expanded from the packages or the
@@ -87,6 +100,8 @@ the server's `#:url`. The handler returns a resource built with the R6 forms
   (400), return an OperationOutcome whose issue code is `invalid`:
   `(OperationOutcome (issue (OperationOutcomeIssue (severity "error") (code "invalid") (diagnostics "…"))))`;
   `processing` answers 422, `not-found` 404. An exception becomes a 500 OperationOutcome.
+
+### $validate
 - `(operation $validate)` serves `POST /<Type>/$validate` (and `/<Type>/<id>/$validate`) for every
   declared type, not `POST /$validate`: FHIR defines it on resources. The resource must be of the
   endpoint's type (an Observation POSTed to `/Patient/$validate` is a 400 saying where to send it).
@@ -96,6 +111,8 @@ the server's `#:url`. The handler returns a resource built with the R6 forms
 - `$validate` takes the resource in a Parameters (`resource`) or as the bare POST body, and reads it
   as sent: a misspelt element or a bad date is reported, as `raco fhir-validate` reports it. It
   answers 200 either way, its findings in the OperationOutcome (its result IS an OperationOutcome).
+
+### Creates and existing operations
 - A create answers 201 with an absolute `Location` (`http://host:port/Patient/<id>/_history/1`). The
   id is the server's: one sent with `POST` is ignored, as FHIR says. To choose it, `PUT /Patient/ann`
   (with `update` declared) creates `Patient/ann`.
@@ -194,9 +211,18 @@ Here, serum creatinine in mg/dL converted to µmol/L (× 88.4):
   #:out ([creatinine Quantity 1 1 #:documentation "The same value in µmol/L"])
   #:handler creatinine-si-handler)
 ```
-Common UCUM codes for a result (learn://fhir lists more): eGFR `mL/min/{1.73_m2}`, creatinine `mg/dL`
-or `umol/L`, glucose `mg/dL` or `mmol/L`, HbA1c `%`, BMI `kg/m2`, blood pressure `mm[Hg]`; a code
-that is not UCUM is a validation warning naming the nearest one.
+Common UCUM codes for a result, each with a display for `unit` (learn://fhir lists more):
+
+| result | `code` (UCUM) | `unit` (display) |
+|---|---|---|
+| eGFR | `mL/min/{1.73_m2}` | `mL/min/1.73m2` |
+| creatinine | `mg/dL`, `umol/L` | `mg/dL`, `µmol/L` |
+| glucose | `mg/dL`, `mmol/L` | `mg/dL`, `mmol/L` |
+| HbA1c | `%` | `%` |
+| BMI | `kg/m2` | `kg/m2` |
+| blood pressure | `mm[Hg]` | `mmHg` |
+
+A code that is not UCUM is a validation warning naming the nearest one; the `unit` is free text.
 `GET /$creatinine-si?creatinine=1.1` answers `{"name": "creatinine", "valueQuantity": {"value": 97.2,
 "unit": "µmol/L", "system": "http://unitsofmeasure.org", "code": "umol/L"}}` (the decimal is built
 as a string, as FHIR keeps its digits; the unit is the display, the code is UCUM's).

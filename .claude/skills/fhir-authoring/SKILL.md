@@ -50,6 +50,8 @@ compile to a **delegating** form macro; `#:base` may be another profile (multi-l
 
 ## `#lang fsh` — FHIR Shorthand (bidirectional)
 
+The language repositories sit beside this one (`../fsh`, `../cql`, `../fml`, … from the fhir repo;
+`raco fhir-mcp guide <language>` prints each guide from the installed package, wherever it is).
 **The fsh repository's own skill (`fsh/.claude/skills/fsh`) is the guide**, with the language
 guide it points to (`fsh/guide.md`). In brief:
 
@@ -134,7 +136,13 @@ it fails with Racket's own words, naming the file but not the cause:
 `default-load-handler: expected a `module' declaration, but found something else`. The command-line
 tools (`raco fml`, `raco cql`, `raco fsh`) read a file with or without that line, so a file written for
 them is required as soon as the line is added. `--examples` (raco fml check) takes a file or a
-directory of them; `--now` (raco cql) a date (`2026-01-01`) or a DateTime.
+directory of them; `--now` (raco cql) a date (`2026-01-01`) or a DateTime. The template's `tests.rkt` is
+these checks as one gate (`raco test tests.rkt`): the FSH project clean, the invalid example at its
+line, the answers on either side of the 65th birthday, the refusal without a birth date — change its
+expectations with the files.
+`evaluate` answers Racket values (`#t`, a number, a hash of defines without `#:define`); `render`
+turns one into the text to print — `main.rkt` prints `render`'s. A check report's
+`check-report-diagnostics` come in source order, compile problems first, then each example's.
 `main.rkt` prints the Patient with `(write-fhir-json patient #:indent 2)` (`fhir/serialize/fhir-json`;
 `fhir-json->string` gives the text): `resourceType` first, then `id` and `meta`, as FHIR writes them,
 and the other elements by name (`birthDate`, `gender`, `name` — not the order the specification lists

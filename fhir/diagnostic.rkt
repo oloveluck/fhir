@@ -19,7 +19,7 @@
 ;;; with prop:exn:srclocs so DrRacket and errortrace point at the source). `exn->diagnostic` turns
 ;;; a parser's exception — a brag parse error, a lexer's no-match, anything else — into one.
 
-(require racket/contract racket/match racket/string racket/list (only-in json write-json))
+(require racket/contract racket/match racket/string racket/list racket/path (only-in json write-json))
 
 (provide
  (struct-out loc) (struct-out diagnostic) (struct-out exn:fail:diagnostic)
@@ -98,7 +98,23 @@
         '())))
 
 (define (raise-diagnostic d)
-  (raise (exn:fail:diagnostic (diagnostic->string d) (current-continuation-marks) d)))
+  (raise (exn:fail:diagnostic (diagnostic->string (with-shown-source d)) (current-continuation-marks) d)))
+
+;; with-shown-source : diagnostic -> diagnostic   the message names an absolute source path relative to
+;; the current directory when that is shorter (a `#lang` build error printed
+;; `/tmp/…/rerun/qr2patient.map:17:25:` from inside that directory); the exn keeps the full one
+(define (with-shown-source d)
+  (define l (diagnostic-loc d))
+  (define src (and l (loc-source l)))
+  (define shown
+    (and (string? src) (absolute-path? src)
+         (with-handlers ([exn:fail? (lambda (_) #f)])
+           (let ([rel (path->string (find-relative-path (simplify-path (current-directory)) (simplify-path src)))])
+             (and (not (regexp-match? #rx"^([.][.]/){2}" rel)) (< (string-length rel) (string-length src)) rel)))))
+  (if shown
+      (diagnostic (diagnostic-lang d) (diagnostic-phase d) (diagnostic-severity d) (diagnostic-message d)
+                  (loc shown (loc-line l) (loc-column l) (loc-position l) (loc-span l)))
+      d))
 
 ;; ---- from a parser's exception ----------------------------------------------------------------
 ;; brag:   "Encountered parsing error near X (token 'T) while parsing 'unknown [line=L, column=C, offset=O]"

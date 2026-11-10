@@ -8,6 +8,15 @@ To start a new workspace from a shell: `raco fhir-mcp init [dir]` writes `worksp
 `data: fhir.db`, a SQLite FHIR store created on first use), a `.mcp.json` that registers this
 server, a `CLAUDE.md` that points here and a `.gitignore`. It never overwrites a file.
 
+**Find your task** (each a section below, with a tested recipe):
+- store data, with who and why: "The data", then "The trail" (`stage` → `commit reason=… agent=…`)
+- a rule the data must keep, and its refusal: "Constraints" ("Rules cookbook"; the blood-pressure rule)
+- a table: "Analysis" — a CQL run in one call, `run path=X.cql as=csv columns="Name,Latest Number"`;
+  a view and SQL for anything grouped or joined
+- fix a stored value and show its history: "Correcting a stored resource", then "The trail"
+- where each stored value came from: `describe ref=Observation as=trail` ("The trail")
+- from a shell, many steps: `raco fhir-mcp batch -` (one process; "The tools")
+
 | File | Language | `run` gives | Guide |
 |---|---|---|---|
 | `*.fsh` | FHIR Shorthand: profiles, extensions, value sets, code systems, example instances | the resources the file defines, each example validated | `learn://fsh` |
@@ -38,7 +47,9 @@ Examples validate against the profiles the FSH defines.
 - `describe(ref)` reads anything by reference: `result://r1` (paged with offset/limit, or compared
   with `against`), `Patient/123`, a canonical url, a type or element (`Observation.component`), an
   operation (`$expand`), or a fragment of a definition's name. `describe("result://r1", as: "csv")`
-  answers a result's rows as CSV, the compact form of a table. `describe(ref, as: "fsh")` answers a
+  answers a result's rows as CSV, the compact form of a table (`columns: "Name,Latest Number"` keeps
+  those, in that order); `run` and `query` take the same `as: "csv"` and `columns`, so a CQL run's
+  table is one call. `describe(ref, as: "fsh")` answers a
   resource as an FSH Instance: a line per coding, quantity or reference, a third shorter than its JSON
   for coded data (compact JSON is as short for a small resource of plain values).
 - `apply(operation, inputs)` applies any FHIR operation the server implements. `describe("$code")`
@@ -253,6 +264,9 @@ commit's `agent`), the `reason` given to commit, and
 the source the data came from (the FSH, the file, or the run, with its text and SHA-1) — and an
 AuditEvent of the transaction. With `audit: all`, every run, query and apply leaves an AuditEvent
 too (its outcome, its text). The trail is data like any other:
+- `describe("Observation", as: "trail")`: every stored Observation at its current version, with
+  `versionId, recorded, agent, reason, source, at, provenance`, as CSV — "where did each value come
+  from" in one call (the SQL below is the same join, for anything more);
 - `describe("Observation/a1/_history")`: every version, newest first, what changed since the one
   before (`valueQuantity.value: 8.0 → 8.4`), and who wrote it (`agent`), when (`recorded`), why
   (`reason`), from what (`source`, `sha1`) and where (`at`) — the same names as SQL's `trail`. `at` is

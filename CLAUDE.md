@@ -1244,6 +1244,32 @@ each change has a test doing what the agent did:
   about a name is positioned at the name (cql `at-the-name`, in `raco cql`, the `#lang cql` build, the
   editor and the workspace); fhir-authoring says `write-fhir-json` orders the other elements by name.
 
+## New users, round 16 (2026-11-10)
+The fifteenth rerun (every task first time, 13–18 calls, no source read, right answers) found one
+real defect; each change has a test doing what the agent did:
+- **Declaration errors, really at once**: `[age int 1 1 #:min 18]` said only that `#:min` bounds a
+  number — the type is checked first now, with the nearest (`int`: "did you mean `integer`?", a
+  prefix counts) and the primitives listed (declare.rkt `type-suggestion`); and a search parameter
+  FHIR does not define, decided from the core package when the app is built, is checked at expansion
+  too whenever other declarations already fail (module-begin `search-param-problems`), so both come in
+  one answer.
+- **Tables and the trail in one call**: `run`/`query … as=csv columns="Name,Latest Number"` answer the
+  rows as CSV with those columns (`as-csv`, `result-csv #:columns`, an unknown column suggested);
+  `describe ref=Observation as=trail` is every stored resource of a type at its current version with
+  who, when, why and the file and line (`trail-sql`). cql's recipe has `"Above 9"` (`never tested`,
+  `yes`, `no`), so the clinic's table is `run … as=csv columns=…`.
+- **Refusals that say the fix**: a refused commit lists its errors (it gave a count) and how to drop
+  the stage; "found no component matching '8462-4'" adds `: add a component with '8462-4'`
+  (`with-missing-hint`); an MCP-style hint names a non-first argument (`stage(drop: "stage-2")`, it read
+  as `stage("stage-2")`).
+- **Servers' guide**: sub-headings, the operation input/output types, a UCUM code-and-display table.
+- **The Racket route**: a quickstart at the top of the fhir skill (copy, the checks, run, `raco test
+  tests.rkt` — run as written); the template ships `tests.rkt` (its one gate, run by `raco test -p
+  fhir-examples`) and a FHIR-versions note in `main.rkt`; a `#lang` build error names its file
+  relative to the current directory (fhir/diagnostic `with-shown-source`); `#:now` takes a date in
+  cql's guide too; fhir-authoring says where the language repos are, what `evaluate` returns before
+  `render`, and the order of a check report's diagnostics.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

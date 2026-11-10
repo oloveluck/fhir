@@ -15,7 +15,7 @@
 ;;; dotted paths that differ from the data's copy, errors the validation errors.
 ;;; Every hub-* procedure answers a jsexpr, or raises: exn:fail:diagnostic (positioned), exn:fail.
 
-(require racket/contract racket/list racket/string racket/file racket/path racket/match racket/set json (only-in fhir/suggest closest-names) (only-in net/base64 base64-decode)
+(require racket/contract racket/list racket/string racket/file racket/path racket/match racket/set json (only-in fhir/suggest closest-names did-you-mean) (only-in net/base64 base64-decode)
          (only-in fhir/serialize/json-position json-path-location)
          net/uri-codec
          fhir/lang/workspace
@@ -797,7 +797,9 @@
     [else
      (define args (for/list ([kv (in-list kvs)] [i (in-naturals)])
                     (define v (if (number? (cdr kv)) (val (cdr kv)) (format "~s" (cdr kv))))
-                    (if (zero? i) v (format "~a: ~a" (car kv) v))))
+                    ;; positional only for a tool's first parameter (`commit("stage-2")`); `drop` is not
+                    ;; stage's first, so `stage(drop: "stage-2")`
+                    (if (and (zero? i) (memq (car kv) '(stage ref path operation language))) v (format "~a: ~a" (car kv) v))))
      (format "~a(~a)" tool (string-join args ", "))]))
 
 ;; argument-file : args key [hub] -> string | #f   the file an argument's text was read from, as the
@@ -873,11 +875,17 @@
     (lambda ()
       (cond
         [(and (regexp-match? #rx"^result://" ref) (equal? (hash-ref args 'as #f) "csv") (not against))
-         (result-csv h ref offset (let ([l (hash-ref args 'limit #f)]) (if (exact-positive-integer? l) l 1000)))]
+         (result-csv h ref offset (let ([l (hash-ref args 'limit #f)]) (if (exact-positive-integer? l) l 1000))
+                     #:columns (column-list (hash-ref args 'columns #f)))]
         [(regexp-match? #rx"^result://" ref) (describe-result h ref offset limit against)]
         [(equal? ref "stages") (describe-stages h)]
         [(regexp-match #px"^(?:([A-Za-z]+)/)?[$]([A-Za-z-]+)$" ref) (describe-operation ref)]
         [(regexp-match? #rx"/OperationDefinition/" ref) (describe-operation ref)]
+        ;; where each stored value came from, for a type: its current version with who, when, why and
+        ;; from which file and line (a join copied from deep in the guide answered it before)
+        [(and (equal? (hash-ref args 'as #f) "trail") (regexp-match? #px"^[A-Z][A-Za-z]+$" ref))
+         (hub-describe h (hash-ref (hub-query h "sql" (trail-sql ref) (hasheq 'name (string-append (string-downcase ref) "_trail"))) 'result)
+                       (hasheq 'as "csv"))]
         ;; the source text a stored resource was written from, read through its newest Provenance —
         ;; no id to copy (`describe ref=Observation/a1/_history as=source`, or the resource itself)
         [(and source? (let ([m (regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)(?:/_history)?$" ref)])
@@ -992,10 +1000,17 @@
 
 ;; result-csv : hub uri offset limit -> text-answer   a result's rows as CSV, a header line first: the
 ;; compact form of a table (JSON rows repeat every column name); a last line says what is left
-(define (result-csv h uri offset limit)
+;; #:columns: only these, in this order (a CQL run's table of the defines a person reads: `columns=
+;; "Name,Latest Number,Latest Date"`); a name the result lacks is an error listing its columns
+(define (result-csv h uri offset limit #:columns [wanted #f])
   (define st (or (result-of h uri) (error 'describe (format "no result ~a (results: ~a)" uri (result-listing h)))))
   (define r (stored-result st))
-  (define cols (map (lambda (c) (format "~a" c)) (run-result-columns r)))
+  (define all-cols (map (lambda (c) (format "~a" c)) (run-result-columns r)))
+  (define cols
+    (cond [(not wanted) all-cols]
+          [else (for ([c (in-list wanted)] #:unless (member c all-cols))
+                  (error 'describe (format "~a has no column ~s~a (columns: ~a)" uri c (did-you-mean c all-cols) (string-join all-cols ", "))))
+                wanted]))
   (define rows (run-result-rows r))
   (define page (take (drop rows (min offset (length rows))) (min limit (max 0 (- (length rows) offset)))))
   (define (line cells) (string-join (map csv-cell cells) ","))
@@ -1007,6 +1022,19 @@
                  "\n")
     (let ([next (+ offset (length page))])
       (if (< next (length rows)) (format "\n… ~a more rows: ~a" (- (length rows) next) (call-text "describe" (list (cons 'ref uri) (cons 'as "csv") (cons 'offset next)))) "")))))
+;; trail-sql : type -> sql   each stored resource of the type at its current version, with the trail
+(define (trail-sql type)
+  (format (string-append
+           "SELECT x.id, t.versionId, t.recorded, t.agent, t.reason, t.source, t.at, t.provenance "
+           "FROM ~a x LEFT JOIN trail t ON t.type = '~a' AND t.id = x.id AND t.versionId = CAST(x.versionId AS INTEGER) "
+           "ORDER BY x.id")
+          type type))
+
+;; column-list : string | (listof string) | #f -> (listof string) | #f   `"A,B"` or a JSON list
+(define (column-list v)
+  (cond [(string? v) (filter (lambda (x) (not (string=? x ""))) (map string-trim (string-split v ",")))]
+        [(and (list? v) (andmap string? v)) v]
+        [else #f]))
 ;; csv-cell : jsexpr -> string   RFC 4180: quoted when it holds a comma, quote or line break; null empty
 (define (csv-cell v)
   (define s (cond [(eq? v 'null) ""] [(string? v) v] [(boolean? v) (if v "true" "false")]
@@ -1248,9 +1276,9 @@
         ;; the instance's header (a missing element has no rule to point at)
         (if line
             (map (lambda (e) (format "~a:~a: ~a" (or (argument-file args 'fsh) "fsh")   ; the file as the user named it
-                                     (or (rule-line fsh line (error-element e)) line) e))
+                                     (or (rule-line fsh line (error-element e)) line) (with-missing-hint e)))
                  (remove-duplicates errors))
-            (remove-duplicates errors)))
+            (map with-missing-hint (remove-duplicates errors))))
       (when (null? rs) (error 'stage "nothing to stage"))
       (define warned (make-hasheq))                   ; resource -> its validation warnings, at their lines
       (define changes
@@ -1351,7 +1379,12 @@
                                           (if (null? ids) " (stage something first)" (format " (stages: ~a)" (string-join ids ", "))))))))
   (define changes (staged-changes st))
   (define errors (for/sum ([c (in-list changes)]) (length (change-errors c))))
-  (unless (zero? errors) (error 'commit (format "~a has ~a validation error(s); fix them and stage again" id errors)))
+  ;; the errors themselves, not a count to scroll back for
+  (unless (zero? errors)
+    (define listed (append* (for/list ([c (in-list changes)]) (change-errors c))))
+    (error 'commit (format "~a has ~a validation error(s); fix them and stage again (~a discards it):\n~a"
+                           id errors (call-text "stage" (list (cons 'drop id)))
+                           (string-join (map (lambda (e) (format "  ~a" e)) (take listed (min 10 (length listed)))) "\n"))))
   (define todo (filter (lambda (c) (not (eq? (change-action c) 'unchanged))) changes))
   (define c (workspace-config (hub-ws h)))
   (define d (ws-config-data c))
@@ -1450,6 +1483,14 @@
         [(regexp-match? #px"[(]found no " e) #f]
         [(regexp-match #px"^[A-Z][A-Za-z]*[.]([a-z][A-Za-z0-9_.\\[\\]]*):" e) => cadr]
         [else #f]))
+
+;; with-missing-hint : error -> error   something missing says what to add, beside where:
+;; `(found no component matching '8462-4')` -> `…; add a component with '8462-4'` (a rerun's agent
+;; was told the instance's line, not what the fix was)
+(define (with-missing-hint e)
+  (match (regexp-match #px"[(]found no ([A-Za-z]+) matching ([^)]+)[)]" e)
+    [(list whole elem what) (string-replace e whole (format "(found no ~a matching ~a: add a ~a with ~a)" elem what elem what))]
+    [_ e]))
 
 ;; rule-line : fsh-text instance-line path|#f -> line|#f   the first rule of that instance writing the
 ;; element: the whole path (`* component[0].valueQuantity = …`), else ever shorter prefixes of it

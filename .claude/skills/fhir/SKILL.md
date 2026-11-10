@@ -19,6 +19,18 @@ one line, `file:line:col severity: message`, with "did you mean …" for a missp
 | building a FHIR server with your own operations | "Build a FHIR server" below, and `raco fhir-mcp guide capability` |
 | using one language from the command line | its own skill: `cql`, `fsh`, `fml`, `fhirpath`, `vcl`, `sql-on-fhir` |
 
+**Racket pipeline quickstart** (a QuestionnaireResponse → FML → a Patient validated against an FSH
+profile → a CQL answer; fhir-authoring explains each piece):
+```sh
+cp -r "$(dirname "$(racket -e '(display (collection-file-path "main.rkt" "fhir-examples" "examples" "intake-pipeline"))')")" my-pipeline
+cd my-pipeline && rm -rf compiled */compiled
+raco fsh check fsh                                                # the profile and its valid example: exit 0
+raco fsh check fsh-invalid --context fsh || true                  # the example meant to fail, at its line (exit 1)
+raco fml check qr2patient.map --examples qr.json --profile fsh   # the map's result held to the profile
+racket main.rkt --now 2026-01-01 qr.json                          # the Patient, then "65 or older: true"
+raco test tests.rkt                                               # all of the above as one gate
+```
+
 ## Set up
 ```sh
 raco fhir-mcp init my-workspace   # [--fhir-version 5.0.0]; `fhir-mcp init` once the standalone tools are on PATH
@@ -42,7 +54,8 @@ raco fhir-mcp call run path=Diabetes.cql --workspace ws                      # r
 raco fhir-mcp call query language=sql text=@summary.sql name=summary --workspace ws
 raco fhir-mcp call describe ref=result://summary as=csv --workspace ws
 ```
-Each call is a process of its own (1–4 s of startup). For a series, `raco fhir-mcp batch calls.txt`
+Each call is a process of its own (1–4 s of startup): for more than two calls, prefer
+`raco fhir-mcp batch calls.txt`
 (or `-` for stdin) runs one call per line — `stage fsh=@patients.fsh`, `commit stage=latest
 reason="intake"`, quoted as a shell would — in one process, each answer under a `### <line>`
 header, every line run (exit 1 if any failed). Its `--workspace` applies to every line:

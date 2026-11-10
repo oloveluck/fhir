@@ -64,7 +64,16 @@
   (hasheq 'entry (s "CQL: one define to run (default: every define)")
           'over (s "what to run over: Patient/<id> for CQL; a type or Type/id for FHIRPath and FML (default: every patient, or the type the expression or map starts from)")
           'parameters (hasheq 'type "object" 'description "CQL parameters by name, each a CQL expression (\"Measurement Period\": \"Interval[@2025-01-01T00:00:00.000, @2025-12-31T23:59:59.999]\"); a Measure takes periodStart and periodEnd")
-          'name (s "a name for the result, its table in SQL and result://<name> (default for run: the file's name, `diabetes` for diabetes.cql); the latest result of a name is the one read")))
+          'name (s "a name for the result, its table in SQL and result://<name> (default for run: the file's name, `diabetes` for diabetes.cql); the latest result of a name is the one read")
+          'as (s "\"csv\": answer the result's rows as CSV (the result is kept and named all the same)")
+          'columns (s "with as: \"csv\": the columns to keep, in order (\"patient,Latest Number,Latest Date\")")))
+
+;; as-csv : hub args answer-jsexpr -> answer   a run's or query's rows as CSV when asked (`run … as=csv
+;; columns="Name,Latest Number"`: a CQL run's table in one call — it took a SQL query and a describe)
+(define (as-csv h args a)
+  (if (and (equal? (hash-ref args 'as #f) "csv") (hash? a) (string? (hash-ref a 'result #f)))
+      (hub-describe h (hash-ref a 'result) (hasheq 'as "csv" 'columns (hash-ref args 'columns #f)))
+      a))
 
 (define (workspace-tools h)
   (list
@@ -86,13 +95,13 @@
    (tool "run"
          "Run a workspace file against the data: CQL -> every define per patient; FHIRPath -> the value per resource; VCL -> the expansion; FML -> each source transformed and validated; a ViewDefinition -> its rows; FSH -> the resources it defines, examples validated; a Measure -> its populations. Answers a summary, the first rows and a handle (result://rN, and result://<name>: the file's name unless `name` says otherwise) for describe, explain and SQL."
          (schema (hash-set run-props 'path (s "the file, relative to the workspace")) '("path"))
-         (lambda (args) (answer (lambda () (hub-run h (need args 'path) args)))))
+         (lambda (args) (answer (lambda () (as-csv h args (hub-run h (need args 'path) args))))))
    (tool "query"
          "Ask once without saving a file. language: fhirpath (an expression; `over` a type or Type/id), cql (an expression, evaluated per patient, or a whole library), vcl (an expression, expanded), search (Type?name=value…, a FHIR search over the data, files included), view (a ViewDefinition as JSON), sql (one SELECT over the tables: each *.view.json by its file name or `name`, earlier results by their names — a run of diabetes.cql is `diabetes`, a query given `name` that name — and as r1, r2 …; group, join, count, average). Answers like run."
          (schema (hash-set* run-props 'language (hasheq 'type "string" 'enum '("fhirpath" "cql" "vcl" "search" "view" "sql"))
                             'text (s "the expression, library, search, view or SQL statement"))
                  '("language" "text"))
-         (lambda (args) (answer (lambda () (hub-query h (need args 'language) (need args 'text) args)))))
+         (lambda (args) (answer (lambda () (as-csv h args (hub-query h (need args 'language) (need args 'text) args))))))
    (tool "explain"
          "Why one subject's answer is what it is, step by step and positioned in the source: a CQL define down through the defines it uses to the retrieves (how many resources of the type the patient has, which were kept); every part of a FHIRPath expression; which part of a VCL expression holds a code; a view's where clauses; a map's result and its problems traced to rules; an FSH entity's problems."
          (schema (hasheq 'ref (s "a result (result://rN) or a workspace file")
@@ -106,7 +115,8 @@
                          'offset (hasheq 'type "integer" 'description "results: the first row")
                          'limit (hasheq 'type "integer" 'description "results: at most this many rows (default 20)")
                          'against (s "results: an earlier result to compare with")
-                         'as (s "\"fsh\": a resource (Type/id, a canonical) as an FSH Instance, shorter than JSON for coded data; \"csv\": a result's rows as CSV (default limit 1000), the compact form of a table; \"source\": the text a commit's Provenance (or a DocumentReference, a Binary) carries, decoded"))
+                         'columns (s "results as CSV: the columns to keep, in order (\"Name,Latest Number\")")
+                         'as (s "\"fsh\": a resource (Type/id, a canonical) as an FSH Instance, shorter than JSON for coded data; \"csv\": a result's rows as CSV (default limit 1000), the compact form of a table; \"source\": the text a commit's Provenance (or a DocumentReference, a Binary) carries, decoded — on Type/id, the FSH Instance that wrote it; \"trail\" on a type (Observation): every stored one with who, when, why and the file and line it came from, as CSV"))
                  '("ref"))
          (lambda (args) (answer (lambda () (hub-describe h (need args 'ref) args)))))
    (tool "apply"

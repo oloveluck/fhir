@@ -54,7 +54,7 @@
     (check-equal? (errors-of (bp "kpa" #:sys "20 'kPa'"))
                   '("fsh:7: Observation: bp-systolic: A blood pressure (LOINC 85354-9) has a systolic component (LOINC 8480-6) in mm[Hg] (found component[0].valueQuantity = 20 'kPa')"))
     (check-equal? (errors-of (bp "nodia" #:dia #f))
-                  '("fsh:1: Observation: bp-diastolic: A blood pressure (LOINC 85354-9) has a diastolic component (LOINC 8462-4) in mm[Hg] (found no component matching '8462-4')"))
+                  '("fsh:1: Observation: bp-diastolic: A blood pressure (LOINC 85354-9) has a diastolic component (LOINC 8462-4) in mm[Hg] (found no component matching '8462-4': add a component with '8462-4')"))
     (check-equal? (errors-of (bp "nosubj" #:subject #f))
                   '("fsh:1: Observation: bp-subject: A blood pressure (LOINC 85354-9) has a subject (found no subject)"))
     ;; `'mmHg'` is not UCUM: a warning at its line (it was refused by the rule alone, unexplained)

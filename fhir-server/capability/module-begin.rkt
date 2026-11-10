@@ -43,6 +43,35 @@
 ;; server-store : (server …) syntax -> string | #f   its #:store file
 (define-for-syntax (server-store stx) (server-option stx '#:store))
 
+;; search-param-problems : (listof resource-syntax) -> (listof string)   the search parameters FHIR does
+;; not define (or types otherwise), decided from the core package — normally when the app is built;
+;; here too when other declarations already fail, so a file's mistakes are said at once (a misspelt
+;; `birthDate` showed only after a bad parameter type was fixed). Undecidable (no package): none.
+(define-for-syntax (search-param-problems resources)
+  (with-handlers ([exn:fail? (lambda (_) '())])
+    (define with-declared (dynamic-require 'fhir/capability/store 'with-declared))
+    (define catalog ((dynamic-require 'fhir/capability/store 'core-search-params)))
+    (define declaration? (dynamic-require 'fhir/capability/runtime 'exn:fail:declaration?))
+    (for*/list ([r (in-list resources)]
+                [items (in-value (syntax->list r))]
+                #:when (and items (>= (length items) 2) (symbol? (syntax-e (cadr items))))
+                [type (in-value (syntax-e (cadr items)))]
+                [sps (in-value (let loop ([xs (cddr items)])
+                                 (cond [(or (null? xs) (null? (cdr xs))) '()]
+                                       [(eq? (syntax-e (car xs)) '#:search-params)
+                                        (for/list ([p (in-list (or (syntax->list (cadr xs)) '()))]
+                                                   #:when (let ([l (syntax->list p)]) (and l (>= (length l) 2))))
+                                          (define l (map syntax->datum (syntax->list p)))
+                                          (list (car l) (cadr l) (and (pair? (cddr l)) (caddr l))))]
+                                       [else (loop (cdr xs))])))]
+                [msg (in-value (with-handlers ([declaration? exn-message] [exn:fail? (lambda (_) #f)])
+                                 (with-declared catalog type sps) #f))]
+                #:when msg)
+      ;; positioned as the other declaration errors are (srcloc->string: relative to the directory)
+      (format "~a: resource ~a: ~a"
+              (srcloc->string (srcloc (syntax-source r) (syntax-line r) (syntax-column r) (syntax-position r) (syntax-span r)))
+              type msg))))
+
 (define-syntax (app-module-begin stx)
   (syntax-parse stx
     [(_ form ...)
@@ -77,7 +106,8 @@
          (collected (lambda () (parse-resource r)) (lambda () (values #'#f #'#f)))))
      (define parsed (for/list ([o (in-list operations)]) (collected (lambda () (parse-operation o)) (lambda () #f))))
      (unless (null? problems)
-       (raise (exn:fail:user (string-join (reverse problems) "\n") (current-continuation-marks))))
+       (raise (exn:fail:user (string-join (append (reverse problems) (search-param-problems resources)) "\n")
+                             (current-continuation-marks))))
      ;; where each resource is declared, so an error found when the app is built (a search parameter
      ;; FHIR does not define, which needs the core package to decide) is said at its form
      (define resource-locs
