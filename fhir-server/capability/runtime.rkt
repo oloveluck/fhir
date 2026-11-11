@@ -264,6 +264,15 @@
       (format "~a/~a" (cadr m) (caddr m))))
   (and (pair? missing) missing))
 
+;; patient-subject-hint : name declared -> string | #f   `subject` refused where `patient` is declared
+;; (or the other way): the two are FHIR's own pair on Observation and its kin — `patient` reads subject
+;; when it is a Patient — and a client may send either (a rerun's agent expected one to answer the other)
+(define (patient-subject-hint n declared)
+  (cond [(and (equal? n "subject") (member "patient" declared))
+         " (did you mean `patient`? it reads the subject when it is a Patient; declare `subject` too if clients send it)"]
+        [(and (equal? n "patient") (member "subject" declared))
+         " (did you mean `subject`? declare `patient` too if clients send it)"]
+        [else #f]))
 ;; advertised-search-names : app|#f type -> (listof string)   the search parameters /metadata lists
 (define (advertised-search-names a type)
   (if (not a) '()
@@ -301,7 +310,7 @@
      (if (and (current-search-strict?) (search-result/ignored? r))
          (let* ([names (search-result/ignored-names r)]
                 [declared (advertised-search-names (current-app) (request-type req))]
-                [near (string-append* (for/list ([n (in-list names)]) (did-you-mean n declared)))])
+                [near (string-append* (for/list ([n (in-list names)]) (or (patient-subject-hint n declared) (did-you-mean n declared))))])
            (operation-outcome-invalid (format "search parameter~a ~a not supported here (strict search handling)~a; this server searches with what /metadata advertises~a"
                                               (if (> (length names) 1) "s" "")
                                               (apply string-append (add-between (map (lambda (n) (format "`~a`" n)) names) ", "))

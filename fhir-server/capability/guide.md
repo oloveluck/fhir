@@ -37,10 +37,11 @@ Observations by patient: `patient` and `subject` are two parameters, and a stric
 one it does not declare — declare both when clients send both.
 
 ## Official references
-- CapabilityStatement: https://hl7.org/fhir/R4/capabilitystatement.html
-- The RESTful API (interactions, levels): https://hl7.org/fhir/R4/http.html
-- Operations and OperationDefinition: https://hl7.org/fhir/R4/operations.html
-- Search parameters: https://hl7.org/fhir/R4/search.html
+The server speaks R6 (the current build); the pages are the same in substance in R4.
+- CapabilityStatement: https://build.fhir.org/capabilitystatement.html (R4: https://hl7.org/fhir/R4/capabilitystatement.html)
+- The RESTful API (interactions, levels): https://build.fhir.org/http.html
+- Operations and OperationDefinition: https://build.fhir.org/operations.html
+- Search parameters: https://build.fhir.org/search.html
 
 ## Cheat sheet
 ```

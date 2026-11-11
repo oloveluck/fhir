@@ -36,7 +36,8 @@
          (only-in fhirpath/print fhirpath->string)
          (only-in fhir/model/node fhir?)
          (only-in fhirpath/value item->system)
-         (only-in fhirpath/ucum ucum-valid? ucum-suggestion)
+         (only-in fhirpath/ucum ucum-valid? ucum-suggestion ucum-convert)
+         (only-in racket/format ~r)
          (only-in fhir/serialize/jsexpr-util drop-false)
          (only-in fhir/primitives/temporal calendar-problem)
          (only-in fhirpath/terminology tx-service-validate tx-service-expand))
@@ -760,8 +761,22 @@
 ;; found-text : expression focus root -> string   "" or " (found p = v; no q matching 'c')"
 (define (found-text expr focus root)
   (with-handlers ([exn:fail? (lambda (_) "")])
-    (define parts (remove-duplicates (evidence (parse-fhirpath expr) focus root "")))
+    (define parts (map (lambda (p) (with-conversion p expr))
+                       (remove-duplicates (evidence (parse-fhirpath expr) focus root ""))))
     (if (null? parts) "" (format " (found ~a)" (string-join (take parts (min 4 (length parts))) "; ")))))
+
+;; with-conversion : part expression -> part   a value found in a unit that converts to the one the rule
+;; names (`code = 'mm[Hg]'`) says what it is in that unit — `20 'kPa' (= 150 'mm[Hg]')` — so a data
+;; steward corrects the unit rather than deleting the reading
+(define (with-conversion part expr)
+  (define m (regexp-match #px"^(.* = )(-?[0-9]+(?:[.][0-9]+)?) '([^']+)'$" part))
+  (define targets (remove-duplicates (map cadr (regexp-match* #px"code\\s*=\\s*'([^']+)'" expr #:match-select values))))
+  (or (and m
+           (for/or ([t (in-list targets)] #:unless (equal? t (cadddr m)) #:when (ucum-valid? t))
+             (define v (with-handlers ([exn:fail? (lambda (_) #f)])
+                         (ucum-convert (inexact->exact (string->number (caddr m))) (cadddr m) t)))
+             (and v (format "~a (= ~a '~a')" part (~r (exact->inexact v) #:precision 1) t))))
+      part))
 
 ;; clip : string suffix -> string   at most 100 characters
 (define (clip s more) (if (> (string-length s) 100) (string-append (substring s 0 99) "…") (string-append s more)))
@@ -1030,6 +1045,11 @@
   ;; evidence: a Quantity with a unit and no number is said so, not printed as a Coding
   (check-equal? (compact-json (hasheq 'system "http://unitsofmeasure.org" 'code "mm[Hg]")) "'mm[Hg]' (no number)")
   (check-equal? (compact-json (hasheq 'value 120)) "120 (no unit)")
+  ;; a value in a unit that converts to the rule's says what it is in that unit; one that does not, nothing
+  (check-equal? (with-conversion "component[0].valueQuantity = 20 'kPa'" "value.where(code = 'mm[Hg]').exists()")
+                "component[0].valueQuantity = 20 'kPa' (= 150 'mm[Hg]')")
+  (check-equal? (with-conversion "valueQuantity = 4 'mmol/L'" "value.where(code = 'mg/dL').exists()")
+                "valueQuantity = 4 'mmol/L'")
   (check-equal? (compact-json (hasheq 'system "http://loinc.org" 'code "8480-6")) "http://loinc.org#8480-6"))
 
 (module+ test

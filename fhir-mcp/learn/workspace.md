@@ -18,8 +18,8 @@ server, a `CLAUDE.md` that points here and a `.gitignore`. It never overwrites a
 - from a shell, many steps: `raco fhir-mcp batch -` (one process; "The tools")
 
 A whole program for one measurement, in order (blood pressure, each step a recipe below): the rule
-(`write path=bp-rule.fsh text=@… enforce:=true`), a refused reading (`stage fsh=@bad.fsh`: the reason
-at its line), the data (`stage fsh=@readings.fsh`, `commit stage=latest reason=… agent=…`), the table
+(`write path=bp-rule.fsh text=@… enforce:=true`), a refused reading (`stage fsh=@bad.fsh keep:=false`:
+the reason at its line, nothing kept), the data (`stage fsh=@readings.fsh`, `commit stage=latest reason=… agent=…`), the table
 (`write path=bp.view.json …`, then `query language=sql text=@summary.sql as=csv`), a correction
 (`describe ref=Observation/bp-a1 as=source`, edit, `stage`, `commit … reason=…`) and its history
 (`describe ref=Observation/bp-a1/_history as=trail`). Each block below saves as a file by its name:
@@ -351,7 +351,8 @@ without its system — to require the code too, give the profile
 `fsh:7: Observation: hr-range: A heart rate (LOINC 8867-4) is between 20 and 250 /min (found
 valueQuantity = 300 '/min')` — line 7 is the instance's `* valueQuantity = 300 '/min'`. "Found"
 follows the rule: what the part after `implies` tests, the item of an `all(…)` that fails it by
-its index (`found component[0].valueQuantity = 20 'kPa'`), or what is missing (`found no
+its index (`found component[0].valueQuantity = 20 'kPa' (= 150 'mm[Hg]')`, the value in the rule's
+unit when it converts, so the reading can be corrected rather than dropped), or what is missing (`found no
 component matching '8462-4'`, at the instance's first line);
 write the description as the fix the author needs.
 

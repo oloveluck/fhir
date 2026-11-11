@@ -200,6 +200,8 @@
   (check-regexp-match #rx"search parameter `subject` not supported here" (hash-ref (car (hash-ref o1 'issue)) 'diagnostics))
   ;; … and says what the type does search on
   (check-regexp-match #rx"[(]Observation: patient; every type: _id, _lastUpdated, _count, _offset, _sort[)]" (hash-ref (car (hash-ref o1 'issue)) 'diagnostics))
+  ;; … and that `patient` is the one it declares for what `subject` asks (a rerun's agent expected it)
+  (check-regexp-match #rx"`subject` not supported here [(]strict search handling[)] [(]did you mean `patient`[?] it reads the subject when it is a Patient" (hash-ref (car (hash-ref o1 'issue)) 'diagnostics))
   ;; no store declared: a temporary one, searched as a stored app is (the in-memory search matched
   ;; `patient=Patient/x` by string equality against a Reference, so every Observation or none)
   (for ([p '("x" "y")])

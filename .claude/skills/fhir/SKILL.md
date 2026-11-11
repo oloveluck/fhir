@@ -5,6 +5,9 @@ description: "Use FHIR as a tool for health data — create resources (FSH), sto
 
 # FHIR as a tool
 
+**Writing a Racket program** (files that `require` each other, no workspace or server)? Read
+`raco fhir guide racket` — one page — and stop here.
+
 One workspace holds FHIR data and the programs that work on it, in seven languages that compose by
 canonical url — six to describe and compute on health data (FSH, CQL, FHIRPath, VCL, FML, SQL on
 FHIR views) and one to declare FHIR servers (capability apps). Every resource is stored in SQLite,
@@ -26,12 +29,12 @@ one line, `file:line:col severity: message`, with "did you mean …" for a missp
 | which patients have no HbA1c at all | the same library's `"No HbA1c"` define (CQL), not a search: FHIR search has no "has none", and a `_has` search is refused (`raco fhir guide search`) |
 | was any result above a threshold | a FHIR search: `query language=search text="Observation?code=…&value-quantity=gt9"`; per patient beside the latest, the CQL guide's `Ever Above 9` |
 | whose mean blood pressure is at or above 140/90 | `raco fhir guide workspace`, the `bp` view and its summary SQL — read clinically as systolic ≥ 140 OR diastolic ≥ 90 |
-| where did each stored value come from (who, when, why, which file and line) | `describe ref=Observation as=trail` (one resource's versions: `ref=Observation/a1/_history as=trail`) |
+| where did each stored value come from (who, when, why, which file and line) | `describe ref=Observation as=trail` (one resource's versions: `ref=Observation/a1/_history as=trail`) — with the subject, name, value and date beside the trail; SQL's `trail` view has the trail alone (join a view for values) |
 | what changed in a resource, version by version | `describe ref=Observation/a1/_history` |
 | a rule every resource of a type must meet | `raco fhir guide workspace`: its opening paragraph "A whole program for one measurement, in order" (rule, refusal, data, summary, correction, history — each step a `--block` name), then the rules cookbook |
 | correct a stored value with a reason | the same paragraph's correction step (`describe … as=source`, edit, stage, commit with a reason) |
 | a table of values to join or chart | a ViewDefinition (`raco fhir guide sql-on-fhir`), then `query language=sql` |
-| a FHIR server with an operation of your own | "Build a FHIR server" below; a whole operation (the eGFR equation, every input option): `raco fhir guide capability`, "One operation using every option" |
+| a FHIR server with an operation of your own | start a file from `raco fhir guide capability --block smallest > study.capability.rkt`, then `raco fhir-server check study.capability.rkt` and `raco fhir-server serve study.capability.rkt --port 0`; a whole operation (the eGFR equation, every input option): the same guide's "One operation using every option" |
 | a Racket program: map, validate, decide | `raco fhir guide racket`; "A Racket program" at the end |
 
 **A Racket program, in brief** (the workspace below is not needed): `raco fhir new pipeline my-pipeline`

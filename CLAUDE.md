@@ -1616,6 +1616,24 @@ wrong answer by probing: a CQL quantity literal in a unit that is not UCUM. Each
   Racket guide opens with what is required when writing your own; the capability guide on `check`,
   `#:warnings`, `patient` vs `subject` beside the smallest server; cql's guide on annotation units.
 
+## New users, round 31 (2026-11-11)
+The thirtieth rerun (every task first time, 8–13 calls, right answers; the cohort task now LDL) found no
+wrong answer; the one quiet risk left and the small things, each with a test:
+- **A run says when a define is null for every patient** (cql/workspace `all-null-notes`, the run
+  summary's `notes`), with the units its text compares with — an LDL rule in `'mmol/L'` over mg/dL data
+  was null for all three patients and the run said nothing (UCUM converts no molar unit to a mass one).
+- **A refusal says what the value is in the rule's unit** (validate.rkt `with-conversion`): `found
+  component[0].valueQuantity = 20 'kPa' (= 150 'mm[Hg]')` when the invariant names a unit
+  (`code = 'mm[Hg]'`) the found one converts to — so a steward corrects the reading instead of dropping it.
+- **Strict search names the other half of `patient`/`subject`** (runtime.rkt `patient-subject-hint`):
+  `subject` refused where `patient` is declared says `did you mean patient? it reads the subject when it
+  is a Patient`.
+- Docs: learn://workspace's whole-program paragraph checks the refused reading with `keep:=false`;
+  cql's guide lists the HbA1c-named defines to rename for another lab and `>=`; the fhir skill opens with
+  the Racket pointer, gives the server row's first command (`--block smallest`, `check`, `serve`) and
+  says which trail view has values; the capability guide's references are R6's; `raco fsh check`'s
+  default-canonical note says how to set it.
+
 ## SQL on FHIR where tables are made (2026-11-11)
 An audit of where the toolkit flattens FHIR into tables found hand-written JSON SQL doing a
 ViewDefinition's job, and under it a load-order defect; both fixed, each with a test doing it:

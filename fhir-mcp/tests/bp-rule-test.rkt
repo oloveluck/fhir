@@ -55,7 +55,7 @@
     ;; each refusal says what it found, at the line that wrote it — the failing item by its index, or
     ;; what is missing (a rerun's agent got every component, cut off, at the component's code line)
     (check-equal? (errors-of (bp "kpa" #:sys "20 'kPa'"))
-                  '("fsh:7: Observation: bp-systolic: A blood pressure (LOINC 85354-9) has a systolic component (LOINC 8480-6), a number in mm[Hg] (found component[0].valueQuantity = 20 'kPa')"))
+                  '("fsh:7: Observation: bp-systolic: A blood pressure (LOINC 85354-9) has a systolic component (LOINC 8480-6), a number in mm[Hg] (found component[0].valueQuantity = 20 'kPa' (= 150 'mm[Hg]'))"))
     (check-equal? (errors-of (bp "nodia" #:dia #f))
                   '("fsh:7: Observation: bp-diastolic: A blood pressure (LOINC 85354-9) has a diastolic component (LOINC 8462-4), a number in mm[Hg] (found no component matching '8462-4': add a component with '8462-4' after this line)"))
     (check-equal? (errors-of (bp "nosubj" #:subject #f))
@@ -88,7 +88,7 @@
                   "fsh:7: Observation.component.value[x].code: `mmHg` is not a UCUM unit (mercury is written mm[Hg])")
     ;; EVERY systolic in mm[Hg]: a second one in kPa beside a good one is refused (a rerun found the gap)
     (check-equal? (errors-of (string-append (bp "mixed") "* component[2].code = http://loinc.org#8480-6\n* component[2].valueQuantity = 20 'kPa'\n"))
-                  '("fsh:11: Observation: bp-systolic: A blood pressure (LOINC 85354-9) has a systolic component (LOINC 8480-6), a number in mm[Hg] (found component[2].valueQuantity = 20 'kPa')"))
+                  '("fsh:11: Observation: bp-systolic: A blood pressure (LOINC 85354-9) has a systolic component (LOINC 8480-6), a number in mm[Hg] (found component[2].valueQuantity = 20 'kPa' (= 150 'mm[Hg]'))"))
     ;; a blood pressure coded without its system: refused by bp-coded (the other invariants are keyed
     ;; on LOINC's system, and an agent's `#85354-9` with a systolic only went through with a warning);
     ;; the stage still says which system the code's shape suggests
