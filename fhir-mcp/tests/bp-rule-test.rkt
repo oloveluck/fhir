@@ -70,9 +70,12 @@
       (check-equal? (hash-ref (car (hash-ref a 'changes)) 'action) "would create")
       ;; checking only, everything to fix is said: the errors and the reference to nothing stored
       (let-values ([(text _e) ((tool-run (hash-ref tools "stage")) (hasheq 'fsh (bp "kpa4" #:sys "20 'kPa'" #:subject "Patient/nobody") 'keep #f))])
-        (define c (car (hash-ref (string->jsexpr text) 'changes)))
+        (define a (string->jsexpr text))
+        (define c (car (hash-ref a 'changes)))
         (check-equal? (length (hash-ref c 'errors)) 1)
-        (check-regexp-match #rx"Patient/nobody" (string-join (hash-ref c 'warnings '()) " ")))
+        ;; said once for the stage, not per change
+        (check-false (hash-ref c 'warnings #f))
+        (check-regexp-match #rx"Patient/nobody" (string-join (hash-ref a 'references '()) " ")))
       (check-false (for/or ([st (in-list (append (hash-ref (call "describe" (hasheq 'ref "stages")) 'stages '())
                                                  (hash-ref (call "describe" (hasheq 'ref "stages")) 'refused '())))])
                      (member "create Observation/kpa3" (hash-ref st 'resources)))))
@@ -119,7 +122,7 @@
                                            'stage)))
     (define view (cadr (regexp-match #px"```json\n([{]\"resourceType\": \"ViewDefinition\", \"name\": \"bp\".*?)```" (learn-text "workspace"))))
     (call "write" (hasheq 'path "bp.view.json" 'text view))
-    (define summary (cadr (regexp-match #px"```\n(SELECT patient, count.*?)```" (learn-text "workspace"))))
+    (define summary (cadr (regexp-match #px"```\n((?:-- [^\n]*\n)?SELECT patient, count.*?)```" (learn-text "workspace"))))
     (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text summary)) 'rows)
                   (list (hasheq 'patient "a" 'readings 3 'mean_systolic "140.0" 'mean_diastolic "91.0" 'at_or_above_140_90 "yes")))
     ;; the guide's RuleSet for many readings: one line each, held to the rule, each version's trail at
@@ -143,7 +146,7 @@
     ;; the view and its name column itself)
     (call "write" (hasheq 'path "patients.view.json"
                           'text (cadr (regexp-match #px"```json\n([{]\"resourceType\": \"ViewDefinition\", \"name\": \"patients\".*?)```" (learn-text "workspace")))))
-    (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text (cadr (regexp-match #px"```\n(SELECT p.name, count.*?)```" (learn-text "workspace"))))) 'rows)
+    (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text (cadr (regexp-match #px"```\n((?:-- [^\n]*\n)?SELECT p.name, count.*?)```" (learn-text "workspace"))))) 'rows)
                   (list (hasheq 'name "Alice Abara" 'readings 5 'mean_systolic "138.0" 'mean_diastolic "89.2" 'at_or_above_140_90 "no")))
     (void (call "write" (hasheq 'path "patients.view.json" 'text "")))
     ;; the reading's source text stages again: its RuleSet comes with it (it failed: RuleSet not found)

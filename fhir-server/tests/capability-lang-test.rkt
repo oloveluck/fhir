@@ -397,3 +397,30 @@
   (check-regexp-match #rx"a value the handler built is not valid FHIR: give a decimal as a Racket number" msg)
   (check-false (regexp-match? #rx"to refuse an input" msg))
   (delete-directory/files dir))
+
+;; ---- (server #:references "checked"): a create naming a resource the server does not hold is
+;; refused (a study server stored an Observation of `Patient/nope` without a word); a type the server
+;; does not serve is not decided
+(let ()
+  (define dir (make-temporary-directory "cap-refs-~a"))
+  (define src (build-path dir "r.rkt"))
+  (void (call-with-output-file src
+          (lambda (o)
+            (write-string (string-append
+                           "#lang fhir/capability\n"
+                           "(server #:references \"checked\")\n"
+                           "(resource Patient #:interactions (read create))\n"
+                           "(resource Observation #:interactions (read create))\n")
+                          o))))
+  (define app (dynamic-require src 'app))
+  (define handle (dynamic-require 'fhir/http/router 'handle))
+  (define (obs subject) (format "{\"resourceType\":\"Observation\",\"status\":\"final\",\"code\":{\"text\":\"QT\"},\"subject\":{\"reference\":\"~a\"},\"performer\":[{\"reference\":\"Practitioner/x\"}]}" subject))
+  (define-values (s1 b1) (handle app "POST" "/Observation" '() (obs "Patient/nope")))
+  (check-equal? s1 422)
+  (check-regexp-match #rx"Observation refers to Patient/nope, which this server does not hold" (hash-ref (car (hash-ref b1 'issue)) 'diagnostics))
+  (define-values (s2 p) (handle app "POST" "/Patient" '() "{\"resourceType\":\"Patient\",\"gender\":\"female\"}"))
+  (define-values (s3 _b3) (handle app "POST" "/Observation" '() (obs (format "Patient/~a" (hash-ref p 'id)))))
+  (check-equal? s3 201)
+  (check-exn #rx"#:references must be \"checked\" or \"unchecked\""
+             (lambda () (compile-capability '(server #:references "strict") '(define x 1))))
+  (delete-directory/files dir))

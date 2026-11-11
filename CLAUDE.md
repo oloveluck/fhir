@@ -1483,8 +1483,29 @@ a test doing what the agent did:
   (`the linkId there: name, gendr — did you mean 'gendr'?`; `where-evidence`, every matched item kept
   in `source-matches`); learn://racket lists the diagnostics API for tests; `init` and its CLAUDE.md
   name `raco fhir guide`; fml's guide writes `raco fml`.
-Not done, named: one command checking every `#lang` file a program requires (`raco test tests.rkt` is
-the one gate); a warning when a CQL library's FHIR version differs from the data's.
+Not done, named: a warning when a CQL library's FHIR version differs from the data's.
+
+## New users, round 25 (2026-11-11)
+The twenty-fourth rerun (every task first time, 6–14 calls, right answers, no source read) left one risk
+and two missing tools; each fix has a test doing what the agent did:
+- **`(server #:references "checked")`** (capability/runtime.rkt `unheld-references`): a create or update
+  whose literal reference names a resource of a served type the server does not hold is a 422 naming it
+  (a study server stored an Observation of `Patient/nope` without a word); a reference to a type the
+  server does not serve, a contained, absolute or urn: one is not decided. Default unchanged.
+- **`raco fhir check-files [dir|file …]`** (`fhir/check-files`): every `#lang` `.fsh`/`.map`/`.cql`/`.vcl`
+  file compiled on its own in a fresh namespace, each one's problem printed at its line, all in one run,
+  exit 1 — `raco make main.rkt` stopped at the first, so three typos took three runs (fhir-examples'
+  intake-pipeline-test plants one in each language).
+- **The template's `tests.rkt` reads its expectations from the files**: the Instances of `fsh-invalid/`
+  and the birth date (the `valueDate` answer, whatever its linkId), so a project of one's own runs it
+  unedited (an agent changed it with `sed`).
+- **Every guide block has a name**: `block-name` reads a leading `-- name` (or `;; name`) comment and
+  the first FSH entity past `Alias:` lines; the workspace guide's SQL blocks are named (`bp-summary`,
+  `bp-summary-by-name`, `a1c-trail` …; mcp/sql.rkt's `reading?` skips leading comment lines).
+- **Smaller**: `keep:=false` lists dangling references once for the stage (`references`), after the
+  errors; `--now` says `write it as 2026-01-01, or 2026-01-01T12:00:00Z` (its examples read as today's
+  date); learn://workspace says what `at` points to for each kind of resource; the capability guide's
+  UCUM table has heart rate and ECG intervals with their LOINC codes, and says any number is a decimal.
 
 ## SQL on FHIR where tables are made (2026-11-11)
 An audit of where the toolkit flattens FHIR into tables found hand-written JSON SQL doing a

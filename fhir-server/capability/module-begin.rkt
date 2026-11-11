@@ -150,10 +150,10 @@
                        #:operation-definitions operation-definitions
                        #:repositories (list #,@repo-pair-stxs)
                        #:operations (append #,@entry-list-stxs)
-                       #:metadata #,(let ([h (server-option (car servers) '#:search-handling)])
-                                      (if h
-                                          #`(hasheq 'search-handling #,h 'sd-packages (r6-sd-packages))
-                                          #'(hasheq 'sd-packages (r6-sd-packages)))))))))
+                       #:metadata #,(let ([h (server-option (car servers) '#:search-handling)]
+                                          [refs (server-option (car servers) '#:references)])
+                                      #`(hasheq 'search-handling #,(or h #f) 'references #,(or refs #f)
+                                                'sd-packages (r6-sd-packages))))))))
         (provide app capability-statement operation-definitions #,@op-names)
         (module+ main
           (displayln (fhir-json->string (node->jsexpr capability-statement) #:indent 2))))]))

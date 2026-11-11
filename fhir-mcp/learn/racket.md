@@ -47,13 +47,18 @@ In tests (the template's `tests.rkt` uses each):
 `racket <file>.fsh` (or `.map`, `.vcl`) prints what the file compiles to, as FHIR JSON.
 
 ## What checks what
+- `raco fhir check-files` compiles every `#lang` `.fsh`, `.map`, `.cql` and `.vcl` file under the
+  current directory (or the ones named) and reports each one's problem at its line, all in one run —
+  `raco make main.rkt` stops at the first failing file. Exit 1 when any has one.
 - `raco make` (and `racket main.rkt`) compiles each `#lang` file in its language: an FSH rule on an
   element the type lacks, an FML rule writing an element the target lacks, a CQL name that does not
   resolve all fail the build at their line. It does NOT validate the FSH examples (that needs the
   whole project): an invalid example builds. `raco fsh check fsh` validates them, each problem at its
   line; keep an example meant to fail in its own folder (`raco fsh check fsh-invalid --context fsh`).
 - The template's `tests.rkt` is all of it as one gate (`raco test tests.rkt`): copy it beside files
-  you wrote yourself (`raco fhir new pipeline tmp`, take `tmp/tests.rkt`) and change its expectations.
+  you wrote yourself (`raco fhir new pipeline tmp`, take `tmp/tests.rkt`) and run it as it is: it reads
+  what to expect from the files — the Instances in `fsh-invalid/`, the birth date (the answer written as
+  a `valueDate`, whatever its linkId) in `qr.json` — so it needs no edit for other names.
   It drives `main.rkt` through what the template's provides, so a `main.rkt` of your own keeps that
   shape: `(provide intake)` with `(intake qr #:now [now #f])` answering two values, the Patient (FHIR
   JSON) and the answer's text, and the command line in a `(module+ main …)` (a plain script runs

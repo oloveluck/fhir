@@ -57,3 +57,11 @@
   (check-regexp-match #rx"(?m:^[0-9]+  --block BloodPressureRule  \\[fsh\\])" listing))
 (let-values ([(code text) (run "fhir" "guide" "workspace" "--block" "bp")])
   (check-regexp-match #rx"\"name\": \"bp\"" text))
+;; every SQL block of the workspace guide has a name (an agent took the summary as `--block 5`), and the
+;; FSH guide's blocks are named by their first entity, past their Alias lines
+(let-values ([(code listing) (run "fhir" "guide" "workspace" "--blocks")])
+  (check-regexp-match #rx"--block bp-summary-by-name " listing))
+(let-values ([(code text) (run "fhir" "guide" "workspace" "--block" "bp-summary-by-name")])
+  (check-regexp-match #rx"^-- bp-summary-by-name\nSELECT p[.]name" text))
+(let-values ([(code listing) (run "fhir" "guide" "fsh" "--blocks")])
+  (check-regexp-match #rx"(?m:^1  --block [A-Za-z])" listing))

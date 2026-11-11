@@ -51,7 +51,8 @@
 
 ;; reading? : sql -> boolean   one statement that reads
 (define (reading? sql)
-  (define s (string-trim (regexp-replace #px";\\s*$" (string-trim sql) "")))
+  ;; leading `-- …` comment lines are not the statement (a guide's block names itself with one)
+  (define s (string-trim (regexp-replace #px";\\s*$" (string-trim (regexp-replace #px"^(?:\\s*--[^\n]*\n)+" sql "")) "")))
   (and (regexp-match? #px"(?i:^(select|with|values)\\b)" s)
        (not (regexp-match? #px";" (regexp-replace* #px"'(?:[^']|'')*'" s "")))))
 
@@ -146,6 +147,8 @@
 (module+ test
   (require rackunit)
   ;; a column named like a table is not that table (the hint listed Patient's columns for `patient`)
+  (check-true (reading? "-- bp-summary\nSELECT 1"))
+  (check-false (reading? "-- x\nDELETE FROM t"))
   (check-equal? (tables-read "SELECT patient, avg(systolc) FROM bp GROUP BY patient" '("bp" "Patient")) '("bp"))
   (check-equal? (tables-read "SELECT * FROM a JOIN \"Patient\" p ON p.id = a.x, b" '("a" "Patient" "b")) '("a" "Patient" "b"))
   (define patients (table '("id" "gender" "birth")

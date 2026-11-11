@@ -67,6 +67,7 @@
               (~optional (~seq #:description description:str))
               (~optional (~seq #:store store:str))         ; read by module-begin (server-store)
               (~optional (~seq #:search-handling sh:str))  ; read by module-begin (the app's metadata)
+              (~optional (~seq #:references refs:str))     ; read by module-begin (the app's metadata)
               (~optional (~seq #:format fmt:str ...))) ...)
      (define mode-v (if (attribute mode) (syntax-e #'mode) "server"))
      (unless (member mode-v '("server" "client"))
@@ -74,6 +75,8 @@
                            (or (attribute mode) stx)))
      (when (and (attribute sh) (not (member (syntax-e #'sh) '("strict" "lenient"))))
        (decl-error 'server (format "#:search-handling must be \"strict\" or \"lenient\", got ~s" (syntax-e #'sh)) #'sh))
+     (when (and (attribute refs) (not (member (syntax-e #'refs) '("checked" "unchecked"))))
+       (decl-error 'server (format "#:references must be \"checked\" or \"unchecked\", got ~s" (syntax-e #'refs)) #'refs))
      (define fmts (if (attribute fmt) (syntax->datum #'(fmt ...)) '("application/fhir+json")))
      #`(rc-server #,mode-v
                   #,(if (attribute status) (syntax-e #'status) "active")
@@ -90,11 +93,11 @@
              [(and (keyword? (syntax-e (car xs))) (pair? (cdr xs)) (not (string? (syntax-e (cadr xs)))))
               (decl-error 'server (format "~a takes a string: ~a" (syntax-e (car xs)) (format "~s" (format "~a" (syntax->datum (cadr xs))))) (cadr xs))]
              [(keyword? (syntax-e (car xs)))
-              (if (memq (syntax-e (car xs)) '(#:mode #:status #:fhir-version #:date #:url #:name #:description #:store #:search-handling #:format))
+              (if (memq (syntax-e (car xs)) '(#:mode #:status #:fhir-version #:date #:url #:name #:description #:store #:search-handling #:references #:format))
                   (loop (cddr xs))
                   (decl-error 'server (format "unknown option ~a~a" (syntax-e (car xs))
                                               (did-you-mean (keyword->string (syntax-e (car xs)))
-                                                            '("mode" "status" "fhir-version" "date" "url" "name" "description" "store" "search-handling" "format")))
+                                                            '("mode" "status" "fhir-version" "date" "url" "name" "description" "store" "search-handling" "references" "format")))
                               (car xs)))]
              [else (loop (cdr xs))]))]))
 

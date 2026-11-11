@@ -225,8 +225,44 @@
        [(not fn)
         (operation-outcome-not-supported
          (format "interaction ~a is not supported on ~a" (request-kind req) (request-type req)))]
+       [(and (memq (request-kind req) '(create update)) (checked-references-app? a)
+             (unheld-references a req))
+        => (lambda (missing)
+             (operation-outcome "error" "processing"
+                                (format "~a refers to ~a, which this server does not hold (#:references \"checked\"): nothing was written; create ~a first"
+                                        (request-type req) (string-join missing ", ") (if (= 1 (length missing)) "it" "them"))))]
        [else (parameterize ([current-search-strict? (or (current-search-strict?) (strict-search-app? a))])
                (guarded (lambda () (run-interaction (request-kind req) fn req))))])]))
+
+;; checked-references-app? : app -> boolean   `(server #:references "checked")`: a create or update
+;; whose literal reference names a resource the server does not hold is refused (a study server
+;; stored an Observation of `Patient/nope` without a word)
+(define (checked-references-app? a) (equal? (hash-ref (app-metadata a) 'references #f) "checked"))
+
+;; unheld-references : app request -> (listof string) | #f   the body's relative literal references
+;; (`Type/id`, a version dropped) to a type the server serves whose resource it does not hold; a
+;; reference to a type it does not serve, a contained (`#x`), absolute or urn: one is not decided
+(define (unheld-references a req)
+  (define raw (current-request-json))
+  (define js (if (and (hash? raw) (equal? (hash-ref raw 'resourceType #f) (format "~a" (request-type req))))
+                 raw
+                 (node->jsexpr (request-body req))))
+  (define refs
+    (remove-duplicates
+     (let walk ([v js])
+       (cond [(hash? v) (append (let ([r (hash-ref v 'reference #f)]) (if (string? r) (list r) '()))
+                                (append-map walk (hash-values v)))]
+             [(list? v) (append-map walk v)]
+             [else '()]))))
+  (define missing
+    (for*/list ([r (in-list refs)]
+                [m (in-value (regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]{1,64})(?:/_history/[^/]+)?$" r))]
+                #:when m
+                [repo (in-value (hash-ref (app-repositories a) (string->symbol (cadr m)) #f))]
+                #:when (and repo (repository-read repo))
+                #:unless ((repository-read repo) (caddr m)))
+      (format "~a/~a" (cadr m) (caddr m))))
+  (and (pair? missing) missing))
 
 ;; advertised-search-names : app|#f type -> (listof string)   the search parameters /metadata lists
 (define (advertised-search-names a type)

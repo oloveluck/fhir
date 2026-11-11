@@ -64,12 +64,18 @@
 ;; block-name : block -> string|#f   the name `--block` takes for a block: what its first line
 ;; declares (an FSH entity, a CQL library, a view's or resource's "name"), else #f
 (define (block-name b)
+  (define lines (regexp-split #rx"\n" (caddr b)))
   (define first (cadr b))
-  (cond [(regexp-match #px"^\\s*(?:Profile|Instance|RuleSet|Extension|ValueSet|CodeSystem|Logical|Invariant|Alias):\\s*([A-Za-z0-9_.-]+)" first) => cadr]
-        [(regexp-match #px"^\\s*library\\s+\"?([A-Za-z0-9_]+)" first) => cadr]
-        [(regexp-match #px"\"name\":\\s*\"([^\"]+)\"" first) => cadr]
-        [(regexp-match #px"^\\s*map\\s+\"[^\"]*\"\\s*=\\s*\"?([A-Za-z0-9_]+)" first) => cadr]
-        [else #f]))
+  (or
+   ;; a leading SQL or Racket comment naming it: `-- bp-summary`, `;; egfr`
+   (let ([m (regexp-match #px"^\\s*(?:--|;;)\\s*([A-Za-z][A-Za-z0-9_-]*)\\s*$" first)]) (and m (cadr m)))
+   ;; the first FSH entity (after any Alias lines)
+   (for/or ([l (in-list lines)])
+     (let ([m (regexp-match #px"^\\s*(?:Profile|Instance|RuleSet|Extension|ValueSet|CodeSystem|Logical|Invariant|Resource|Mapping):\\s*([A-Za-z0-9_.-]+)" l)])
+       (and m (cadr m))))
+   (let ([m (regexp-match #px"^\\s*library\\s+\"?([A-Za-z0-9_]+)" first)]) (and m (cadr m)))
+   (let ([m (regexp-match #px"\"name\":\\s*\"([^\"]+)\"" first)]) (and m (cadr m)))
+   (let ([m (regexp-match #px"^\\s*map\\s+\"[^\"]*\"\\s*=\\s*\"?([A-Za-z0-9_]+)" first)]) (and m (cadr m)))))
 
 ;; guide-block-text : text 'list|n|name -> string|#f
 (define (guide-block-text text which)

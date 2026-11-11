@@ -1589,9 +1589,10 @@
                                           (hash-set base1 'changed (take (change-paths c) (min 30 (length (change-paths c)))))))
                          ;; a change refused for its errors says those alone: its references are
                          ;; checked again when it is staged clean (a refusal demo read as noise)
-                         ;; — except when only checking (keep:=false): then everything there is to fix
+                         ;; — when only checking (keep:=false), they are said once for the whole stage
+                         ;; (`references`, after the errors): each reading repeated the same patient
                          (define ws (append (hash-ref warned (change-resource c) '())
-                                            (if (or (null? (change-errors c)) (not keep?)) (hash-ref dangling (change-resource c) '()) '())))
+                                            (if (and (null? (change-errors c)) keep?) (hash-ref dangling (change-resource c) '()) '())))
                          (if (null? ws) base (hash-set base 'warnings ws)))
               'errors errors
               'next (cond [nothing? (format "nothing to commit: the ~a resource(s) are stored as they are" (length changes))]
@@ -1601,7 +1602,9 @@
                           [(zero? errors) (format "~a writes the ~a change(s) to ~a" (call-text "commit" (list (cons 'stage id))) (count (lambda (c) (not (eq? (change-action c) 'unchanged))) changes)
                                                   (let ([p (data-store-path h)]) (if p (format "the store ~a" (shown-path h (path->string (path->complete-path p)))) (hub-data-label h))))]
                           [else (format "fix the errors, then stage again: a stage with errors is not committed (~a discards this one)" (call-text "stage" (list (cons 'drop id))))])))
-      (if (and (positive? unchanged-count) (not nothing?)) (hash-set answer 'unchanged unchanged-count) answer))))
+      (define refs (if keep? '() (remove-duplicates (append* (for/list ([c (in-list changes)]) (hash-ref dangling (change-resource c) '()))))))
+      (define answer1 (if (pair? refs) (hash-set answer 'references refs) answer))
+      (if (and (positive? unchanged-count) (not nothing?)) (hash-set answer1 'unchanged unchanged-count) answer1))))
 
 ;; reverted-correction : hub current staged -> string | #f   an update that puts back the values the
 ;; newest commit changed — staging the original file again after a correction would quietly undo it

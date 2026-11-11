@@ -106,13 +106,13 @@
                   (list (hasheq 'versionId 1 'reason "intake: ann's first HbA1c" 'agent "claude-code 2.0 via fhir-mcp")
                         (hasheq 'versionId 2 'reason "lab corrected the value" 'agent "claude-code 2.0 via fhir-mcp")))
     ;; trail holds no values: the guide's join with history gives each version's value and reason
-    (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text (cadr (regexp-match #px"```\n(SELECT t.versionId.*?)```" (learn-text "workspace"))))) 'rows)
+    (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text (cadr (regexp-match #px"```\n((?:-- [^\n]*\n)?SELECT t.versionId.*?)```" (learn-text "workspace"))))) 'rows)
                   (list (hasheq 'versionId 1 'value 8 'reason "intake: ann's first HbA1c" 'agent "claude-code 2.0 via fhir-mcp" 'recorded (hash-ref (car (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT recorded FROM trail WHERE id = 'a1' AND versionId = 1")) 'rows)) 'recorded))
                         (hasheq 'versionId 2 'value 8.4 'reason "lab corrected the value" 'agent "claude-code 2.0 via fhir-mcp" 'recorded (hash-ref (car (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT recorded FROM trail WHERE id = 'a1' AND versionId = 2")) 'rows)) 'recorded))))
     ;; the guide's view (its JSON, as the guide writes it): values come out through a view
     (call "write" (hasheq 'path "a1c.view.json" 'text (cadr (regexp-match #px"```json\n([{]\"resourceType\": \"ViewDefinition\", \"name\": \"a1c\".*?)```" (learn-text "workspace")))))
     ;; the guide's "each stored value with where it came from": the view joined to its trail row
-    (let ([rows (hash-ref (call "query" (hasheq 'language "sql" 'text (cadr (regexp-match #px"```\n(SELECT v.id, v.value.*?)```" (learn-text "workspace"))))) 'rows)])
+    (let ([rows (hash-ref (call "query" (hasheq 'language "sql" 'text (cadr (regexp-match #px"```\n((?:-- [^\n]*\n)?SELECT v.id, v.value.*?)```" (learn-text "workspace"))))) 'rows)])
       (define a1 (findf (lambda (r) (equal? (hash-ref r 'id) "a1")) rows))
       (check-equal? (hash-ref a1 'value) 8.4)
       (check-equal? (hash-ref a1 'reason) "lab corrected the value")
@@ -121,7 +121,7 @@
     (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT version, value FROM a1c_history WHERE id = 'a1' ORDER BY version")) 'rows)
                   (list (hasheq 'version "1" 'value 8) (hasheq 'version "2" 'value 8.4)))
     ;; the guide's view-history ⋈ trail join: both versions, each with its reason and source line
-    (let ([rows (hash-ref (call "query" (hasheq 'language "sql" 'text (cadr (regexp-match #px"```\n(SELECT v.id, CAST.*?)```" (learn-text "workspace"))))) 'rows)])
+    (let ([rows (hash-ref (call "query" (hasheq 'language "sql" 'text (cadr (regexp-match #px"```\n((?:-- [^\n]*\n)?SELECT v.id, CAST.*?)```" (learn-text "workspace"))))) 'rows)])
       (define a1 (filter (lambda (r) (equal? (hash-ref r 'id) "a1")) rows))
       (check-equal? (map (lambda (r) (list (hash-ref r 'version) (hash-ref r 'value) (hash-ref r 'reason))) a1)
                     '((1 8 "intake: ann's first HbA1c") (2 8.4 "lab corrected the value"))))

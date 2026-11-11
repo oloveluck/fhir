@@ -22,7 +22,10 @@ A whole program for one measurement, in order (blood pressure, each step a recip
 at its line), the data (`stage fsh=@readings.fsh`, `commit stage=latest reason=… agent=…`), the table
 (`write path=bp.view.json …`, then `query language=sql text=@summary.sql as=csv`), a correction
 (`describe ref=Observation/bp-a1 as=source`, edit, `stage`, `commit … reason=…`) and its history
-(`describe ref=Observation/bp-a1/_history as=trail`).
+(`describe ref=Observation/bp-a1/_history as=trail`). Each block below saves as a file by its name:
+`raco fhir guide workspace --block BloodPressureRule > bp-rule.fsh`, `--block Reading > readings.fsh`,
+`--block bp > bp.view.json`, `--block patients > patients.view.json`, `--block bp-summary-by-name >
+summary.sql` (`--blocks` lists every name).
 
 | File | Language | `run` gives | Guide |
 |---|---|---|---|
@@ -120,6 +123,7 @@ patient with a name a person reads —
 a summary per patient — readings, means, and whether the mean is at or above 140/90 — is
 
 ```
+-- bp-summary
 SELECT patient, count(*) AS readings, printf('%.1f', avg(systolic)) AS mean_systolic,
        printf('%.1f', avg(diastolic)) AS mean_diastolic,
        CASE WHEN avg(systolic) >= 140 OR avg(diastolic) >= 90 THEN 'yes' ELSE 'no' END AS at_or_above_140_90
@@ -128,6 +132,7 @@ FROM bp GROUP BY patient ORDER BY patient
 and the same by name, the table a person reads (the patients view joined on the reading's patient):
 
 ```
+-- bp-summary-by-name
 SELECT p.name, count(*) AS readings, printf('%.1f', avg(b.systolic)) AS mean_systolic,
        printf('%.1f', avg(b.diastolic)) AS mean_diastolic,
        CASE WHEN avg(b.systolic) >= 140 OR avg(b.diastolic) >= 90 THEN 'yes' ELSE 'no' END AS at_or_above_140_90
@@ -139,6 +144,7 @@ version, for a reading's corrections), and the mean
 systolic by gender is
 
 ```
+-- bp-by-gender
 SELECT p.gender, count(*) AS n, printf('%.1f', avg(b.systolic)) AS mean_systolic
 FROM bp b JOIN patients p ON p.id = b.patient GROUP BY p.gender
 ```
@@ -366,7 +372,9 @@ too (its outcome, its text). The trail is data like any other:
 - SQL: `trail` — one row per version a commit wrote (`type, id, versionId, recorded, agent, reason,
   source, sha1, at, provenance`; `versionId` an integer, the rest text; `recorded` is when the commit
   wrote it, not when the fact happened; `source` the file and `sha1` its text's SHA-1 (all 40 hex digits, as `sha1sum` prints it); `at` the file and line the version
-  was written from, `../src/a1c.fsh:12`, file names relative to the workspace), so "where did every
+  was written from, `../src/a1c.fsh:12`, file names relative to the workspace: for a created value, the
+  rule that set it — `* valueQuantity`, else the first `* component` or `* insert` — and for a
+  resource with no value (a Patient), its `Instance:` line; for a correction, the rule it changed), so "where did every
   lab value come from" is
   `SELECT * FROM trail WHERE type = 'Observation'`. `trail` is itself a ViewDefinition over
   Provenance (SQL on FHIR, run as your views are), so it holds no values: a VIEW of the values joins
@@ -386,6 +394,7 @@ Each stored value with where it came from — the question an audit asks — is 
 `trail.versionId` is an integer):
 
 ```
+-- a1c-trail
 SELECT v.id, v.value, v.taken, t.recorded, t.agent, t.reason, t.source
 FROM a1c v JOIN trail t ON t.type = 'Observation' AND t.id = v.id AND t.versionId = CAST(v.version AS INTEGER)
 ORDER BY v.id
@@ -395,6 +404,7 @@ The view's history (`a1c_history`: the view over every stored version) joins the
 every version of each reading with its value and why it was written:
 
 ```
+-- a1c-versions
 SELECT v.id, CAST(v.version AS INTEGER) AS version, v.value, t.reason, t.at
 FROM a1c_history v JOIN trail t ON t.type = 'Observation' AND t.id = v.id AND t.versionId = CAST(v.version AS INTEGER)
 ORDER BY v.id, version
@@ -405,6 +415,7 @@ of the type's subject, value and date). For a one-off with no view, `history` an
 hold the JSONB: `->>` reads a path out of it —
 
 ```
+-- a1c-history
 SELECT t.versionId, h.resource ->> '$.valueQuantity.value' AS value, t.reason, t.agent, t.recorded
 FROM trail t JOIN history h ON h.type = t.type AND h.id = t.id AND h.versionId = t.versionId
 WHERE t.type = 'Observation' AND t.id = 'a1' ORDER BY t.versionId

@@ -10,7 +10,7 @@
 ;;; Validation is `raco fhir-validate` (fhir-validation), serving `raco fhir-server` (fhir-server); the
 ;;; languages have their own: raco fhirpath | cql | fsh | vcl | fml.
 
-(require racket/list racket/match (only-in racket/string string-join) (only-in racket/file make-directory*)
+(require racket/list racket/match (only-in racket/path find-relative-path) (only-in racket/string string-join) (only-in racket/file make-directory*)
          (only-in fhir/parallel parallel-map)
          (only-in json jsexpr->string read-json)
          (only-in fhir/serialize/read-json read-fhir-json)
@@ -114,12 +114,33 @@
     [(text-of topic) => display]
     [else (usage-error "fhir" usages "guide" (format "no guide ~a (topics: ~a)" topic (string-join (map car topics) ", ")))]))
 
+;; cmd-check-files : (listof string) -> void   every language file's problem in one run (`raco make`
+;; stops at the first failing module); exit 1 when any has one
+(define (cmd-check-files args)
+  (for ([a (in-list args)] #:unless (or (file-exists? a) (directory-exists? a)))
+    (usage-error "fhir" usages "check-files" (format "no file or directory ~a" a)))
+  (define files ((dynamic-require 'fhir/check-files 'files-to-check) (if (null? args) (list ".") args)))
+  (define check (dynamic-require 'fhir/check-files 'check-file))
+  (define shown (lambda (p) (let ([r (path->string (find-relative-path (simplify-path (current-directory)) p))])
+                              (if (regexp-match? #rx"^[.][.]/[.][.]/" r) (path->string p) r))))
+  (define failed
+    (for/list ([f (in-list files)])
+      (define problem (check f))
+      (cond [problem (eprintf "~a\n\n" problem) (shown f)]
+            [else (printf "ok  ~a\n" (shown f)) #f])))
+  (define bad (filter values failed))
+  (printf "~a file~a checked, ~a with a problem~a\n" (length files) (if (= 1 (length files)) "" "s") (length bad)
+          (if (null? bad) "" (format ": ~a" (string-join bad ", "))))
+  (when (null? files) (printf "(no #lang .fsh, .map, .fml, .cql or .vcl file found)\n"))
+  (unless (null? bad) (exit 1)))
+
 (define usages
   '(("regen"         "raco fhir regen [r6|r4|r5|all]   regenerate the type tower(s) from fhir-spec")
     ("check"         "raco fhir check [r6|r4|r5|all]   committed towers match a fresh regen")
     ("roundtrip"     "raco fhir roundtrip <file.json> [Type]")
     ("roundtrip-tck" "raco fhir roundtrip-tck [r4|r5]")
     ("snapshot"      "raco fhir snapshot <sd.json>")
+    ("check-files"   "raco fhir check-files [dir|file …]   compile every #lang .fsh/.map/.cql/.vcl file (default: this directory) and report each one's problem, all in one run")
     ("new"           "raco fhir new pipeline <dir>   copy the Racket pipeline template (FSH + FML + CQL + main.rkt) to <dir>")
     ("guide"         "raco fhir guide [topic [--blocks | --block N|name]]   print a guide (workspace, fhir, cql, fsh, fml, fhirpath, vcl, sql-on-fhir, capability, …), its code blocks, or one to save")))
 
@@ -141,6 +162,7 @@
                  (dynamic-require `(submod ,(string->symbol (string-append "fhir/tests/example-roundtrip-" v)) main) #f)))
           (cmd "snapshot" (lambda (as) (needs-file as) (cmd-snapshot (arg as 0))))
           (cmd "guide" (lambda (as) (cmd-guide (arg as 0) (if (pair? as) (cdr as) '()))))
+          (cmd "check-files" (lambda (as) (cmd-check-files as)))
           (cmd "new" (lambda (as)
                        (unless (and (arg as 0) (arg as 1)) (usage-error "fhir" usages "new"))
                        (cmd-new (arg as 0) (arg as 1))))))

@@ -71,7 +71,10 @@ A whole file — declarations, the handler and how to call it — is the worked 
   client that sends `Prefer: handling=strict` gets a 400 naming the parameter instead, and
   `(server #:search-handling "strict")` makes every search strict, whatever the client prefers — for
   a server where a misspelt or undeclared patient filter (`subject` where `patient` is declared) must
-  never answer every patient's data. A searchset carries each entry's `fullUrl` and a `self` link
+  never answer every patient's data. `(server #:references "checked")` refuses (422) a create or update
+  whose literal reference (`Patient/nope`) names a resource of a served type the server does not hold
+  — by default it is stored as sent; a reference to a type the server does not serve is not decided.
+  A searchset carries each entry's `fullUrl` and a `self` link
   (from the request's Host), so it validates as FHIR. A stored type also answers `_include=Observation:subject` (and `_revinclude`) over its declared reference
   parameters, the included resources marked `search.mode` include; the statement does not list them
   (`searchInclude`). A reference parameter takes FHIR's type modifier:
@@ -140,7 +143,8 @@ answers 64.7 and true. `#:min` and `#:max` are inclusive: `systolic=40` and `sys
 `39.9` is refused.
 
 Values arrive converted to their declared type, from a GET query or a POSTed Parameters alike: a
-whole decimal (`60.0`) is taken as an `integer` and a number as a `decimal`; text that does not read
+whole decimal (`60.0`) is taken as an `integer`, and any number — `75` as well as `75.0`, in a query or
+as a POSTed `valueInteger` — as a `decimal`; text that does not read
 as the type (`60.5` for an integer, `abc` for a decimal) is refused with a 400.
 
 - An input or output is `[name type min max]`, `max` a number or `*`. Its type is a FHIR primitive —
@@ -309,6 +313,11 @@ Common UCUM codes for a result, each with a display for `unit` (learn://fhir lis
 | HbA1c | `%` | `%` |
 | BMI | `kg/m2` | `kg/m2` |
 | blood pressure | `mm[Hg]` | `mmHg` |
+| heart rate | `/min` | `beats/min` |
+| an ECG interval (QT, QTc, PR, QRS) | `ms` | `ms` |
+
+Common LOINC codes for those: blood pressure panel 85354-9 (systolic 8480-6, diastolic 8462-4), heart
+rate 8867-4, QT interval 8634-8, QTc interval 8636-3, BMI 39156-5, HbA1c 4548-4, creatinine 2160-0.
 
 A code that is not UCUM is a validation warning naming the nearest one; the `unit` is free text.
 `GET /$creatinine-si?creatinine=1.1` answers `{"name": "creatinine", "valueQuantity": {"value": 97.2,
