@@ -19,7 +19,7 @@
 ;;; with prop:exn:srclocs so DrRacket and errortrace point at the source). `exn->diagnostic` turns
 ;;; a parser's exception — a brag parse error, a lexer's no-match, anything else — into one.
 
-(require racket/contract racket/match racket/string racket/list racket/path (only-in json write-json))
+(require racket/contract racket/match racket/string racket/list racket/path (only-in racket/file file->string) (only-in json write-json))
 
 (provide
  (struct-out loc) (struct-out diagnostic) (struct-out exn:fail:diagnostic)
@@ -97,8 +97,16 @@
         (list (srcloc (loc-source l) (loc-line l) (and (loc-column l) (sub1 (loc-column l))) (loc-position l) (loc-span l)))
         '())))
 
+;; raise-diagnostic : diagnostic -> !   as an exn whose message is the text rendering; when the
+;; source is a file that can be read (a `#lang` module being built), with its line and a caret under
+;; the column, as the command-line tools print it (`raco make` showed the line number alone)
 (define (raise-diagnostic d)
-  (raise (exn:fail:diagnostic (diagnostic->string (with-shown-source d)) (current-continuation-marks) d)))
+  (define l (diagnostic-loc d))
+  (define src (and l (loc-source l)))
+  (define text (and (or (string? src) (path? src)) (loc-line l)
+                    (with-handlers ([exn:fail? (lambda (_) #f)])
+                      (and (file-exists? src) (file->string src)))))
+  (raise (exn:fail:diagnostic (diagnostic->string (with-shown-source d) #:text text) (current-continuation-marks) d)))
 
 ;; with-shown-source : diagnostic -> diagnostic   the message names an absolute source path relative to
 ;; the current directory when that is shorter (a `#lang` build error printed

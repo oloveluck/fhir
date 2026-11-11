@@ -107,8 +107,8 @@ With two views — `bp.view.json`, one row per blood pressure, and `patients.vie
    {"name": "version", "path": "meta.versionId"},
    {"name": "patient", "path": "subject.getReferenceKey(Patient)"},
    {"name": "date", "path": "effective.ofType(dateTime)"},
-   {"name": "systolic", "path": "component.where(code.coding.exists(code = '8480-6')).value.ofType(Quantity).value.first()"},
-   {"name": "diastolic", "path": "component.where(code.coding.exists(code = '8462-4')).value.ofType(Quantity).value.first()"}]}]}
+   {"name": "systolic", "path": "component.where(code.coding.exists(system = 'http://loinc.org' and code = '8480-6')).value.ofType(Quantity).value.first()"},
+   {"name": "diastolic", "path": "component.where(code.coding.exists(system = 'http://loinc.org' and code = '8462-4')).value.ofType(Quantity).value.first()"}]}]}
 ```
 a summary per patient — readings, means, and whether the mean is at or above 140/90 — is
 
@@ -163,11 +163,14 @@ the whole header value (`Bearer …`). It is never kept in a file.
 `data: fhir.db` (what `fhir-mcp init` writes) is a SQLite FHIR store, created on first use: every
 resource as JSONB with its versions and the search indexes FHIR's search parameters define. Only
 `commit` writes it (one transaction per stage; a resource with an id keeps it); every language,
-FHIR search and SQL read it; a capability app the workspace runs serves it. In SQL each stored type
-is a table of `id`, `versionId`, `lastUpdated` and `resource` (JSONB: `resource ->> '$.birthDate'`,
-`json_each(resource, '$.name')`), beside the views and earlier results; `resources` is every type at
-once (`type, id, versionId, lastUpdated, resource`), `history` every version (the same columns), and
-`trail` the commits (below). A column SQLite does not know is answered with the nearest and each
+FHIR search and SQL read it; a capability app the workspace runs serves it. In SQL, a table of
+values is a VIEW: a `*.view.json` ViewDefinition (SQL on FHIR, learn://sql-on-fhir) whose columns are
+FHIRPath, checked against the type and read in the workspace's FHIR version; each view is a table
+(and `<view>_history` over every version), beside earlier results and `trail` (the commits, itself a
+view; below). The raw store is there for what no view says: each stored type is a table of `id`,
+`versionId`, `lastUpdated` and `resource` (JSONB: `resource ->> '$.birthDate'`,
+`json_each(resource, '$.name')`), `resources` is every type at once (`type, id, versionId,
+lastUpdated, resource`), and `history` every version (the same columns). A column SQLite does not know is answered with the nearest and each
 named table's columns. Import FHIR JSON with
 `raco fhir-server load fhir.db <dir|bundle.json>`.
 
@@ -194,7 +197,7 @@ Many readings of one shape are one parameterized RuleSet and one line each (the 
 keeps every line, and each version's `at` names the line that wrote it):
 
 ```fsh
-RuleSet: Reading(id, patient, date, sys, dia)
+RuleSet: Reading(patient, date, sys, dia)
 * code = http://loinc.org#85354-9 "Blood pressure panel"
 * status = #final
 * subject = Reference(Patient/{patient})
@@ -204,8 +207,8 @@ RuleSet: Reading(id, patient, date, sys, dia)
 * component[1].code = http://loinc.org#8462-4
 * component[1].valueQuantity = {dia} 'mm[Hg]'
 ```
-with, per reading, `Instance: bp-a1` / `InstanceOf: Observation` / `* insert Reading(bp-a1, a,
-2025-01-10, 142, 91)`.
+with, per reading, `Instance: bp-a1` / `InstanceOf: Observation` / `* insert Reading(a, 2025-01-10,
+142, 91)` (the Instance names its id; the RuleSet takes only what varies).
 
 Keep DATA out of the workspace's `.fsh` files: they are the project (profiles, value sets, a few
 examples), and every one of them is compiled and checked together, so a patient written there twice
@@ -286,19 +289,16 @@ Check an expression on stored data before making it a rule: `query("fhirpath", "
 "Observation")` answers it per resource.
 
 ### Correcting a stored resource
-`describe("Observation/bp-a1", as: "fsh")` answers the resource as an FSH Instance; change the line
-that is wrong and stage the whole text again — the stage shows the change (`… 150 → 140`) and the
-commit writes version 2 with its reason. When the data was written through a RuleSet
-(`* insert Reading(bp-a1, a, 2025-01-10, 150, 95)`), take `as: "source"` instead: it answers the
-Instance as it was written, with the RuleSets it inserts, so the change is one argument of its
-`insert` line, and the history's `at` names that line. The file goes beside the workspace, as data files do (a
-`.fsh` file in the workspace is part of its project, checked with the rules). The Instance is
-written from the stored JSON, so its rules come in element-name order with explicit indexes
-(`category[0]`), not as first written: find the line by its path before editing.
-`describe("Observation/bp-a1", as: "source")` gives the Instance as it was written, if you would
-rather edit that:
+`describe("Observation/bp-a1", as: "source")` answers the Instance as it was written, with the
+RuleSets it inserts; change the line that is wrong (for a reading written through a RuleSet, one
+argument of its `insert` line: `* insert Reading(a, 2025-01-10, 150, 95)`) and stage the whole text
+again — the stage shows the change (`… 150 → 140`), the commit writes version 2 with its reason, and
+the history's `at` names the line changed. The file goes beside the workspace, as data files do (a
+`.fsh` file in the workspace is part of its project, checked with the rules). For data that came in
+without a source (a JSON file, a server), `as: "fsh"` writes an Instance from the stored JSON instead:
+its rules in element-name order with explicit indexes (`category[0]`), so find the line by its path.
 ```
-raco fhir-mcp call describe ref=Observation/bp-a1 as=fsh > ../bp-a1.fsh     # edit it
+raco fhir-mcp call describe ref=Observation/bp-a1 as=source > ../bp-a1.fsh  # edit it
 raco fhir-mcp call stage fsh=@../bp-a1.fsh
 raco fhir-mcp call commit stage=latest reason="typo: systolic 150 should have been 140"
 ```
@@ -330,29 +330,31 @@ too (its outcome, its text). The trail is data like any other:
   wrote it, not when the fact happened; `source` the file and `sha1` its text's SHA-1 (all 40 hex digits, as `sha1sum` prints it); `at` the file and line the version
   was written from, `../src/a1c.fsh:12`, file names relative to the workspace), so "where did every
   lab value come from" is
-  `SELECT * FROM trail WHERE type = 'Observation'`; and `history` (every version of every resource),
-  `Provenance`, `AuditEvent` for anything else. `trail` holds no values: join it with `history` on
-  type, id and version for them, e.g. each version of a1 with its value and why it was written:
+  `SELECT * FROM trail WHERE type = 'Observation'`. `trail` is itself a ViewDefinition over
+  Provenance (SQL on FHIR, run as your views are), so it holds no values: a VIEW of the values joins
+  it. Values come out of resources through views — FHIRPath columns, checked against the type —
+  rather than JSON paths in SQL. A view `a1c.view.json`:
 
-```
-SELECT t.versionId, h.resource ->> '$.valueQuantity.value' AS value, t.reason, t.agent, t.recorded
-FROM trail t JOIN history h ON h.type = t.type AND h.id = t.id AND h.versionId = t.versionId
-WHERE t.type = 'Observation' AND t.id = 'a1' ORDER BY t.versionId
-```
-
-Each stored value with where it came from — the question an audit asks — is the type's table joined
-to `trail` on its current version:
-
-```
-SELECT o.id, o.resource ->> '$.valueQuantity.value' AS value, o.resource ->> '$.effectiveDateTime' AS taken,
-       t.recorded, t.agent, t.reason, t.source
-FROM Observation o JOIN trail t ON t.type = 'Observation' AND t.id = o.id AND t.versionId = o.versionId
-ORDER BY o.id
+```json
+{"resourceType": "ViewDefinition", "name": "a1c", "status": "active", "resource": "Observation",
+ "select": [{"column": [{"name": "id", "path": "getResourceKey()"},
+                        {"name": "version", "path": "meta.versionId"},
+                        {"name": "value", "path": "value.ofType(Quantity).value"},
+                        {"name": "taken", "path": "effective.ofType(dateTime)"}]}]}
 ```
 
-A view's history (`<view>_history`) joins the trail the same way; a view column read from
-`meta.versionId` is text, so cast it (`trail.versionId` is an integer) — every version of each
-reading with its value and why it was written:
+Each stored value with where it came from — the question an audit asks — is the view joined to
+`trail` on its current version (a column read from `meta.versionId` is text, so cast it;
+`trail.versionId` is an integer):
+
+```
+SELECT v.id, v.value, v.taken, t.recorded, t.agent, t.reason, t.source
+FROM a1c v JOIN trail t ON t.type = 'Observation' AND t.id = v.id AND t.versionId = CAST(v.version AS INTEGER)
+ORDER BY v.id
+```
+
+The view's history (`a1c_history`: the view over every stored version) joins the trail the same way —
+every version of each reading with its value and why it was written:
 
 ```
 SELECT v.id, CAST(v.version AS INTEGER) AS version, v.value, t.reason, t.at
@@ -360,18 +362,30 @@ FROM a1c_history v JOIN trail t ON t.type = 'Observation' AND t.id = v.id AND t.
 ORDER BY v.id, version
 ```
 
+`describe ref=Observation as=trail` answers the same table without a view of your own (built-in views
+of the type's subject, value and date). For a one-off with no view, `history` and each type's table
+hold the JSONB: `->>` reads a path out of it —
+
+```
+SELECT t.versionId, h.resource ->> '$.valueQuantity.value' AS value, t.reason, t.agent, t.recorded
+FROM trail t JOIN history h ON h.type = t.type AND h.id = t.id AND h.versionId = t.versionId
+WHERE t.type = 'Observation' AND t.id = 'a1' ORDER BY t.versionId
+```
+
+— but a view says it once, names the element as FHIR does, and is checked against the type.
+
 The trail says when and by whom the DATA was written, not the clinical facts: a lab value's own time
 is its `effectiveDateTime` (and `issued`), and who produced it is its own `performer` — write them
 in the FSH (`* performer = Reference(Organization/city-lab)`, `* issued = "2025-06-02T10:00:00Z"`),
 where search, CQL and views see them. The trail's `source` is the file the data was written from
 (named relative to the workspace, or in full when outside it).
 
-A Provenance written by a commit, for SQL (`p.resource ->> '$.<path>'`): `target[n].reference`
+A Provenance written by a commit (for a view of your own over Provenance; `trail` reads these): `target[n].reference`
 (`Type/id/_history/v`), `recorded`, `agent[0].who.display` (the client: `claude-code … via fhir-mcp`,
 `raco fhir-mcp call`, `FHIR_MCP_AGENT`, or commit's `agent`; an agent written as a reference —
-`agent="Practitioner/dr-ng"` — is `agent[0].who.reference`, and `trail.agent` reads either), `reason[0].text` (commit's `reason`),
+`agent="Practitioner/dr-ng"` — is `agent[0].who.reference`, and `trail.agent` reads either), `reason[0].text` (commit's `reason`; in R5, `why`),
 `activity.coding[0].code` (`CREATE` or `UPDATE` when all are one), `entity[0].what.display` (the source
-in one line, with its SHA-1) and `contained[0]` (a DocumentReference holding the source text:
+file), `entity[0].what.identifier` (its SHA-1: system `urn:ietf:rfc:3174`) and `contained[0]` (a DocumentReference holding the source text:
 `content[0].attachment.data`, base64, and `.hash`). An AuditEvent: `action` (`C`, `U`, `E`),
 `recorded`, `outcome` (`0` success, `8` failure; R5 `outcome.code.code`), `agent[0].who.display`,
 `entity[n].what`.

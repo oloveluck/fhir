@@ -46,6 +46,8 @@
           [type-predicate-of   (-> symbol? (or/c #f procedure?))]
           [type-constructor-of (-> symbol? (or/c #f procedure?))]
           [type-registered?    (-> symbol? boolean?)]
+          [pin-registered-types! (-> void?)]
+          [unpin-registered-types! (-> void?)]
           [all-types           (-> (listof symbol?))]))
 
 ;; constraint is the validation evidence: a regexp, a (cons lo hi) range, 'parsed, or 'abstract/'type.
@@ -93,9 +95,21 @@
 
 (define type-registry (make-hasheq))
 
+;; One process may load two towers (a workspace's R4, and the R6 a ViewDefinition model is built
+;; over): types are registered by NAME, so the later tower replaced the earlier's Provenance,
+;; Observation … and R4 data was read with R6 types (`Provenance.reason`, an R4 element, vanished
+;; from a view). `pin-registered-types!` makes the types registered now win: a later registration
+;; of a pinned name is ignored, a new name (ViewDefinition) is added. A workspace pins its own tower.
+(define pinned (make-hasheq))
 (define (register-type! name spec #:schema [schema #f] #:predicate [pred #f] #:constructor [ctor #f])
-  (hash-set! type-registry name (type-info spec schema pred ctor))
+  (unless (hash-ref pinned name #f)
+    (hash-set! type-registry name (type-info spec schema pred ctor)))
   (void))
+;; pin-registered-types! : -> void   the types registered now are kept against later registrations
+(define (pin-registered-types!)
+  (for ([k (in-list (hash-keys type-registry))]) (hash-set! pinned k #t)))
+;; unpin-registered-types! : -> void   later registrations replace again (before loading another tower)
+(define (unpin-registered-types!) (hash-clear! pinned))
 
 (define (type-entry name) (hash-ref type-registry name #f))
 (define (type-spec-of name)        (let ([e (type-entry name)]) (and e (type-info-spec e))))

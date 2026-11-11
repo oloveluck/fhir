@@ -36,7 +36,8 @@ one line, `file:line:col severity: message`, with "did you mean …" for a missp
 **A Racket program, in brief** (the workspace below is not needed): `raco fhir new pipeline my-pipeline`
 copies a working template (an FSH profile, an FML map, a CQL library, `main.rkt`, a sample input and
 `tests.rkt`); `cd my-pipeline && raco test tests.rkt` checks it all, `racket main.rkt qr.json` runs it;
-then change the files — "A Racket program" at the end and the `fhir-authoring` skill say how.
+then change the files — `raco fhir guide racket` is the whole route on one page (each piece checked,
+the API, errors, versions); "A Racket program" at the end and the `fhir-authoring` skill say more.
 
 ## Set up
 ```sh
@@ -45,7 +46,8 @@ raco fhir-mcp init my-workspace   # [--fhir-version 5.0.0]; `fhir-mcp init` once
 writes `workspace.yaml` (FHIR 4.0.1, `data: fhir.db`), a `.mcp.json` that registers the server for
 Claude Code, and a `CLAUDE.md`. The data is **`fhir.db`, a SQLite FHIR store**: every resource as
 JSONB with its version history and search indexes, written only through `stage` and `commit`,
-searched with FHIR search, and open to SQL (`resource ->> '$.gender'`). `data:` may instead name a
+searched with FHIR search, and open to SQL through views (SQL on FHIR ViewDefinitions: each
+`*.view.json` is a table, its columns FHIRPath). `data:` may instead name a
 directory of JSON files or a FHIR server's base url. To import JSON files:
 `raco fhir-server load fhir.db <dir|bundle.json>`. Elsewhere: `claude mcp add fhir -- fhir-mcp --workspace <dir>`.
 Without an MCP client, every tool runs from the shell, each call its own process; stages and results
@@ -93,7 +95,8 @@ file's.
 
 ## The guides
 `raco fhir-mcp guide` lists them and `raco fhir-mcp guide <topic>` prints one (`raco fhir guide <topic>`
-is the same, for the Racket route); an MCP client reads the
+is the same, for the Racket route); `--blocks` after the topic lists its code blocks and `--block N`
+prints one, to save a recipe as a file (`raco fhir guide cql --block 3 > LatestA1c.cql`); an MCP client reads the
 same text as `learn://<topic>`. Read `fhir` (resources, codes, quantities, references) and
 `workspace` (the tools) first, then the language you write:
 
@@ -248,9 +251,10 @@ query {"language": "sql", "text": "SELECT a1c.patient, a1c.value FROM a1c JOIN D
 {"columns": ["patient", "value"], "rows": [{"patient": "ann", "value": 9.4}]}
 ```
 
-SQL reads the stored resources too: each resource type is a table of `id`, `versionId`,
-`lastUpdated` and `resource`, the resource as JSONB (`->>` takes a value out of it, `json_each`
-walks a list):
+Values come out of resources through views, as the `a1c` view above did: FHIRPath columns, checked
+against the type, read in the workspace's FHIR version (learn://sql-on-fhir). For a one-off that no
+view says, each resource type is also a table of `id`, `versionId`, `lastUpdated` and `resource`,
+the resource as JSONB (`->>` takes a value out of it, `json_each` walks a list):
 
 ```call
 query {"language": "sql", "text": "SELECT resource ->> '$.gender' AS gender, count(*) AS n FROM Patient GROUP BY gender ORDER BY gender"}
@@ -302,7 +306,9 @@ its source (file, SHA-1, the data as of when).
 A file `<name>.capability.rkt` in `#lang fhir/capability` declares a server: `(resource Patient
 #:interactions (read create search-type) #:search-params ([gender token]))`, existing operations by
 reference (`(operation "StructureMap/$transform")` serves FML transformations, `$validate`, `$expand`,
-`$evaluate-measure`), and operations of your own with a Racket handler, which can call any of the
+`$evaluate-measure`; each needs the module that implements it required first —
+`(require (only-in fhir/conformance/operations $validate))` then `(operation $validate)`, which checks
+in the server's own FHIR, R6), and operations of your own with a Racket handler, which can call any of the
 languages. `write` checks it (problems at their lines), `run` serves it on a free port over the
 workspace's `fhir.db` — what the workspace commits, the server serves, and what the server writes,
 the workspace's search and SQL see — and `apply("$yourOperation", inputs)` calls the running server.

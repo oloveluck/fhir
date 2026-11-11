@@ -1379,6 +1379,60 @@ slips in round 19's own changes and one older defect; each fix has a test doing 
   options table and the type conversion are stated; the fsh skill says `check` takes every
   subfolder and `.map` file.
 
+## New users, round 21 (2026-11-11)
+The twentieth rerun (every task first time, 6–15 calls, right answers, no source read) found one real
+inconsistency; the round also found two silent defects while answering the agents' questions. Each
+fix has a test doing it:
+- **A capability server validates in its own FHIR, R6**: `$validate` and the store's write checks read
+  R5 by default and said `All OK (FHIR R5 (5.0.0))` on an R6 server. The app's metadata carries the R6
+  core package (`r6-sd-packages`) and `dispatch` sets `current-sd-packages` from it (outside settings
+  win); `All OK (FHIR R6 (6.0.0-ballot4))`. capability-guide-test.
+- **`write … enforce=true` under a type already listed** wrote a second `Observation:` line; YAML kept the
+  last, so the new profile (or the old) was silently not enforced. The new canonical joins the type's
+  line, and the reader keeps both when a type is named twice (fhir/lang/workspace). bp-rule-test.
+- **CQL without FHIRHelpers compared raw FHIR values**: `Patient.gender = 'female'` answered false for a
+  female patient; now a translation error naming the include (cql/CLAUDE.md). cql tests/helpers-test.
+- **FHIR JSON in each type's element order** (`fhir/serialize/fhir-json`: the registered tower's field
+  order, `_x` after `x`, unknown keys last; by name without a tower): a Quantity reads value, unit,
+  system, code. `racket x.fsh|.map|.vcl` prints it indented.
+- **`#lang` build errors show the line and a caret** (`raise-diagnostic` reads the source file when it
+  can); `raco make` still adds Racket's own `compilation context…` lines.
+- **Guides as files**: `raco fhir guide <topic> --blocks` lists a guide's code blocks, `--block N` prints
+  one (`raco fhir-mcp guide` too); `raco fhir guide racket` is the Racket route on one page
+  (`fhir-mcp/learn/racket.md`; fhir-examples' intake-pipeline-test runs its command blocks as written).
+- Smaller: a misspelt interaction gets the nearest (`search` -> `search-type`, a prefix counts); "found no
+  subject" says to add a rule for it; the capability guide's smallest server serves `$validate` and its
+  decimal outputs are numbers throughout, with one operation using every input option (tested, 57.5);
+  learn://workspace's `bp` view matches system and code as the rule does, its `Reading` RuleSet takes no
+  unused id, and the correction recipe starts from `as=source`; the CQL guide says how to read an empty
+  answer and what needs FHIRHelpers.
+
+## SQL on FHIR where tables are made (2026-11-11)
+An audit of where the toolkit flattens FHIR into tables found hand-written JSON SQL doing a
+ViewDefinition's job, and under it a load-order defect; both fixed, each with a test doing it:
+- **One process, one tower per name** (`fhir/model/registry`): types register by NAME, and the
+  sql-on-fhir engine's ViewDefinition model is built over R6 — loading it replaced an R4 workspace's
+  Provenance, Observation, MedicationRequest … with R6's, so a correct R4 view was refused (`no element
+  MedicationRequest.medicationCodeableConcept`) and R4-only elements read as nothing; which tower won
+  depended on what loaded last. `pin-registered-types!` keeps the types registered now against later
+  registrations (a new name, ViewDefinition, is still added); the hub pins its tower when it
+  configures (`unpin-registered-types!` before loading another). `fhir-mcp/tests/views-test.rkt` fails
+  without the pin.
+- **The workspace's own tables are ViewDefinitions** (`fhir-mcp/mcp/views.rkt`, run by the
+  sql-on-fhir engine like a workspace's `*.view.json`): `trail` is `trail-view` over Provenance (a
+  `forEach` over the versioned targets; type/id/versionId by FHIRPath, the reason R4's `reason.text`,
+  R5's `why`) — it was ~20 lines of `->>`, `json_each` and string slicing in a SQLite view;
+  `describe … as=trail` joins `values-view` (generated per type from the elements the workspace's
+  tower gives it: subject, value[x] else components joined by " / ", the first date the type has)
+  and `names-view` to it — it was COALESCEs of JSON paths that fitted Observations only.
+- **The SHA-1 is its own element**: a Provenance's source is `entity.what.display` (the file) and
+  `entity.what.identifier` (system `urn:ietf:rfc:3174`, hex); the display carried both and SQL cut
+  them apart. R5 Provenances carry the reason as `why` (R5 has no `reason`).
+- **Docs lead with views**: the fhir skill, learn://workspace (the audit queries go through the guide's
+  `a1c` view, its JSON read by trail-test), fhir-serving and the capability guide; the JSONB tables
+  are the escape hatch for a one-off. Search indexing (SearchParameters), CQL results and the raw
+  store views stay as they are: they are not flattening for analysis.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

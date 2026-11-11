@@ -88,7 +88,7 @@
   (cond [(not core) (and (null? pkgs) "R5 (5.0.0)")]
         [(regexp-match? #rx"r4[.]core" core) "R4 (4.0.1)"]
         [(regexp-match? #rx"r5[.]core" core) "R5 (5.0.0)"]
-        [else "R6"]))
+        [else "R6 (6.0.0-ballot4)"]))
 
 (register-operation! $validate)
 

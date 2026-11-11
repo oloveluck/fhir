@@ -19,7 +19,7 @@
                      fhir/r6/types)             ; populate the phase-1 registry for validation
          ;; runtime bindings the emitted template references (resolve at the user module's phase 0)
          (only-in "derive.rkt" derive-capability-statement derive-operation-definition)
-         (only-in "runtime.rkt" build-app current-repository-factory with-declared-locations)
+         (only-in "runtime.rkt" build-app current-repository-factory with-declared-locations r6-sd-packages)
          (only-in "store.rkt" store-file-factory temporary-store-factory)
          (only-in fhir/serialize/fhir-json fhir-json->string)
          (only-in fhir/serialize/to-json node->jsexpr))
@@ -151,7 +151,9 @@
                        #:repositories (list #,@repo-pair-stxs)
                        #:operations (append #,@entry-list-stxs)
                        #:metadata #,(let ([h (server-option (car servers) '#:search-handling)])
-                                      (if h #`(hasheq 'search-handling #,h) #'(hash))))))))
+                                      (if h
+                                          #`(hasheq 'search-handling #,h 'sd-packages (r6-sd-packages))
+                                          #'(hasheq 'sd-packages (r6-sd-packages)))))))))
         (provide app capability-statement operation-definitions #,@op-names)
         (module+ main
           (displayln (fhir-json->string (node->jsexpr capability-statement) #:indent 2))))]))

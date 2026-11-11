@@ -26,7 +26,10 @@
          (only-in fhir/data-source current-data-source data-source? data-source-all data-source-read data-source-search
                   directory->data-source resources->data-source empty-data-source bundle-resources)
          (only-in fhir/rest-data-source rest->data-source rest-write! rest-url?)
-         "search-index.rkt" "sql.rkt" "trail.rkt"
+         "search-index.rkt" "sql.rkt" "trail.rkt" "views.rkt"
+         (only-in fhir/model/registry pin-registered-types! unpin-registered-types! type-registered?)
+         (only-in fhir/model/introspect full-field-specs)
+         (only-in fhir/model/schema field-spec? field-spec-name)
          (only-in net/url string->url post-pure-port)
          (only-in db sqlite3-connect query-value query-list disconnect)
          (only-in fhir/sd/sd-index current-sd-packages resolve-canonical-raw sd-index-available?)
@@ -87,7 +90,11 @@
                                                               [packages (append (ws-config-packages (workspace-config ws)) (hub-extra-packages h))]))))
   (define-values (pkgs missing) (workspace-packages ws*))
   (define core (workspace-core-package ws*))
+  ;; the workspace's own tower, pinned: a language loaded later that brings another (sql-on-fhir's
+  ;; ViewDefinition model is built over R6) adds its new types and replaces none of these
+  (unpin-registered-types!)
   (dynamic-require (if (workspace-r4? ws*) 'fhir/r4/schemas 'fhir/r5/schemas) #f)
+  (pin-registered-types!)
   (define-values (ds label data-warnings) (open-data ws* (append pkgs (if core (list core) '()))))
   (set-hub-ws! h ws*)
   (set-hub-packages! h (append pkgs (if core (list core) '())))
@@ -318,16 +325,30 @@
   (define f (build-path (hub-root h) "workspace.yaml"))
   (define text (if (file-exists? f) (file->string f) ""))
   (define lines (for/list ([sd (in-list sds)]) (format "  ~a: ~a" (hash-ref sd 'type) (hash-ref sd 'url))))
+  ;; a type already listed takes the new canonical on its own line (`Observation: a b`); a second
+  ;; `Observation:` line was what YAML would read as the only one
+  (define (add-to-listed text sd)
+    (define rx (pregexp (format "(?m:^(  ~a:[^\n#]*?)[ \t]*(#[^\n]*)?$)" (regexp-quote (hash-ref sd 'type)))))
+    (and (regexp-match? #px"(?m:^profiles:)" text) (regexp-match? rx text)
+         (regexp-replace rx text (lambda (all head comment)
+                                   (if (regexp-match? (regexp (regexp-quote (hash-ref sd 'url))) head) all
+                                       (string-append head " " (hash-ref sd 'url) (if comment (string-append "  " comment) "")))))))
+  (define-values (text* rest-sds)
+    (for/fold ([t text] [rest '()]) ([sd (in-list sds)])
+      (define t2 (add-to-listed t sd))
+      (if t2 (values t2 rest) (values t (append rest (list sd))))))
+  (define rest-lines (for/list ([sd (in-list rest-sds)]) (format "  ~a: ~a" (hash-ref sd 'type) (hash-ref sd 'url))))
   (define block (string-append "profiles:                    # rules the data keeps: FSH profiles (or an IG's) by type\n"
-                               (string-join lines "\n") "\n"))
+                               (string-join rest-lines "\n") "\n"))
   (define new-text
     (cond
-      [(regexp-match? #px"(?m:^profiles:)" text)
-       (regexp-replace #px"(?m:^profiles:[^\n]*$)" text (lambda (head) (string-append head "\n" (string-join lines "\n"))))]
+      [(null? rest-sds) text*]
+      [(regexp-match? #px"(?m:^profiles:)" text*)
+       (regexp-replace #px"(?m:^profiles:[^\n]*$)" text* (lambda (head) (string-append head "\n" (string-join rest-lines "\n"))))]
       ;; init's commented template: filled in place (it was left, and a second `profiles:` appended)
-      [(regexp-match? #px"(?m:^# profiles:[^\n]*\n(?:#   [^\n]*\n)?)" text)
-       (regexp-replace #px"(?m:^# profiles:[^\n]*\n(?:#   [^\n]*\n)?)" text (lambda (_) block))]
-      [else (string-append text (if (or (string=? text "") (regexp-match? #rx"\n$" text)) "" "\n") block)]))
+      [(regexp-match? #px"(?m:^# profiles:[^\n]*\n(?:#   [^\n]*\n)?)" text*)
+       (regexp-replace #px"(?m:^# profiles:[^\n]*\n(?:#   [^\n]*\n)?)" text* (lambda (_) block))]
+      [else (string-append text* (if (or (string=? text* "") (regexp-match? #rx"\n$" text*)) "" "\n") block)]))
   (call-with-output-file f (lambda (o) (write-string new-text o)) #:exists 'truncate/replace)
   (configure! h (hub-root h))
   (refresh! h)
@@ -653,6 +674,37 @@
       (hash-set answer 'note (format "named ~a: a result's name is a SQL table's (letters, digits and _); result://~a reads it too" (hash-ref opts 'name) asked))
       answer))
 
+;; ---- the workspace's own tables, as ViewDefinitions (views.rkt) -----------------------------------
+;; current-extra-tables : (parameter (listof (cons name thunk)))   tables one call adds (describe's trail)
+(define current-extra-tables (make-parameter '()))
+
+;; view-table : view resources -> table   a ViewDefinition's rows over the resources, by the
+;; sql-on-fhir engine (loaded on first use; the workspace's tower is pinned, so it reads them as the
+;; workspace's FHIR version does), in the view's column order
+(define (view-table v resources)
+  (define rows ((dynamic-require 'sql-on-fhir/operations 'view-rows) v resources))
+  (define cols (for*/list ([sel (in-list (hash-ref v 'select))] [c (in-list (hash-ref sel 'column '()))]) (hash-ref c 'name)))
+  (table cols rows))
+
+;; builtin-tables : hub -> (listof (cons name thunk))   `trail`: each version a commit wrote, from the
+;; Provenances (trail-view); a workspace view or result of that name wins
+(define (builtin-tables h)
+  (list (cons "trail" (lambda () (view-table (trail-view (ws-config-fhir-version (workspace-config (hub-ws h))))
+                                             ((data-source-all (hub-data h)) "Provenance"))))))
+
+;; element? : type -> (symbol -> boolean)   whether the type has an element, as the workspace's tower
+;; defines it (`value` for value[x]: `valueQuantity` …)
+(define (element? type)
+  (define names (if (type-registered? (string->symbol type))
+                    (for/list ([f (in-list (full-field-specs (string->symbol type)))] #:when (field-spec? f))
+                      (symbol->string (field-spec-name f)))
+                    '()))
+  (lambda (e)
+    (define s (symbol->string e))
+    (for/or ([n (in-list names)])
+      (or (equal? n s)
+          (and (> (string-length n) (string-length s)) (string-prefix? n s) (char-upper-case? (string-ref n (string-length s))))))))
+
 ;; run-sql : hub sql -> run-result   SQL over the workspace's tables (sql.rkt): each ViewDefinition
 ;; file's rows, named by its file (`patients.view.json` is `patients`) and by its `name`, and every
 ;; earlier result whose rows are a table (`r1`, `r2`, …: a CQL run's defines per patient, a view's
@@ -705,7 +757,8 @@
             (for/list ([u+st (in-list tabular)] #:when (hash-ref (stored-options (cdr u+st)) 'name #f))
               (cons (hash-ref (stored-options (cdr u+st)) 'name) (result-table (cdr u+st))))))
   (define t (with-handlers ([exn:fail:user? (lambda (e) (error 'sql (regexp-replace #rx"^sql: " (exn-message e) "")))])
-              (sql-query text (make-immutable-hash (append results history-views views)) #:database (data-store-path h))))
+              (sql-query text (make-immutable-hash (append (builtin-tables h) (current-extra-tables) results history-views views))
+                         #:database (data-store-path h))))
   (run-result "table" (table-columns t) (table-rows t) (hasheq 'rows (length (table-rows t)))))
 
 ;; run-search : "Type?params" options -> run-result   FHIR search where the data source can run it
@@ -943,7 +996,9 @@
               (define name (if (pair? (cddr m))
                                (string-append (string-downcase (cadr m)) "_" (string-replace (caddr m) "-" "_") "_history")
                                (string-append (string-downcase (cadr m)) "_trail")))
-              (define csv (hub-describe h (hash-ref (hub-query h "sql" (apply trail-sql (cdr m)) (hasheq 'name name)) 'result)
+              (define csv (hub-describe h (hash-ref (parameterize ([current-extra-tables (apply trail-tables h (cdr m))])
+                                                      (hub-query h "sql" (apply trail-sql h (cdr m)) (hasheq 'name name)))
+                                                    'result)
                                         (for/hasheq ([k (in-list '(as columns sort limit))] #:when (hash-ref args k #f))
                                           (values k (if (eq? k 'as) "csv" (hash-ref args k))))))
               ;; CSV only (a `#` note line after it was a junk row in a CSV tool); `source`/`at` are the
@@ -1004,12 +1059,13 @@
                                         ;; the commit's time, as the trail and the Provenance say it
                                         (cons 'recorded (hash-ref pv 'recorded #f))
                                         (cons 'agent (let ([a (hash-ref pv 'agent '())]) (and (pair? a) (let ([w (hash-ref (car a) 'who (hasheq))]) (or (hash-ref w 'display #f) (hash-ref w 'reference #f))))))
-                                        (cons 'reason (let ([r (hash-ref pv 'reason '())]) (and (pair? r) (hash-ref (car r) 'text #f))))
+                                        (cons 'reason (or (let ([r (hash-ref pv 'reason '())]) (and (pair? r) (hash-ref (car r) 'text #f)))
+                                                          (hash-ref pv 'why #f)))
                                         ;; the source as the trail keeps it (relative to the workspace), its
                                         ;; SHA-1 apart, and where in it this version was written — the same
                                         ;; values as SQL's `trail` (one form everywhere)
-                                        (cons 'source (let ([d (provenance-display pv)]) (and d (car (display-parts d)))))
-                                        (cons 'sha1 (let ([d (provenance-display pv)]) (and d (cdr (display-parts d)))))
+                                        (cons 'source (provenance-display pv))
+                                        (cons 'sha1 (provenance-sha1 pv))
                                         (cons 'at (or (target-at pv (format "~a/~a/_history/~a" type id (vid cur))) (source-line pv id))))
                                   '()))]
                  #:when (cdr kv))
@@ -1019,19 +1075,20 @@
   (define base (hasheq 'resource (format "~a/~a" type id) 'versions (reverse entries)))
   (if (at-root? h) base (hash-set base 'paths (format "source and at are relative to the workspace, ~a" (from-here (hub-root h))))))
 
-;; provenance-display : Provenance -> string|#f   its source's one-line display (`../src/a.fsh sha1:…`)
+;; provenance-display : Provenance -> string|#f   its source, as written (`../src/a.fsh`)
 (define (provenance-display pv)
   (let ([en (hash-ref pv 'entity '())]) (and (pair? en) (hash-ref (hash-ref (car en) 'what (hasheq)) 'display #f))))
-;; display-parts : string -> (cons source sha1|#f)   as SQL's trail splits it
-(define (display-parts d)
-  (define m (regexp-match #px"^(.*) sha1:(\\S+)$" d))
-  (if m (cons (cadr m) (caddr m)) (cons d #f)))
+;; provenance-sha1 : Provenance -> string|#f   the source's SHA-1, its identifier (as the trail view reads it)
+(define (provenance-sha1 pv)
+  (let* ([en (hash-ref pv 'entity '())]
+         [id (and (pair? en) (hash-ref (hash-ref (car en) 'what (hasheq)) 'identifier #f))])
+    (and (hash? id) (equal? (hash-ref id 'system #f) sha1-system) (hash-ref id 'value #f))))
 ;; target-at : Provenance Type/id/_history/v -> string|#f   the source line the commit wrote this version from
 (define (target-at pv ref)
   (for*/first ([t (in-list (hash-ref pv 'target '()))]
                #:when (equal? (hash-ref t 'reference #f) ref)
                [e (in-list (hash-ref t 'extension '()))]
-               #:when (equal? (hash-ref e 'url #f) "urn:fhir-mcp:source-line"))
+               #:when (equal? (hash-ref e 'url #f) source-line-url))
     (hash-ref e 'valueString #f)))
 
 ;; trim-definition : resource -> resource   a StructureDefinition without its snapshot (the elements
@@ -1089,42 +1146,39 @@
                  "\n")
     (let ([next (+ offset (length page))])
       (if (< next (length rows)) (format "\n… ~a more rows: ~a" (- (length rows) next) (call-text "describe" (list (cons 'ref uri) (cons 'as "csv") (cons 'offset next)))) "")))))
-;; trail-sql : type [id] -> sql   each stored resource of the type at its current version, with the
+;; trail-tables : hub type [id] -> (listof (cons name thunk))   what trail-sql joins, each a
+;; ViewDefinition's rows: `trail_values` (values-view: the type's subject, value and date — over the
+;; current resources, or every version of one), `patient_names` (names-view)
+(define (trail-tables h type [id #f])
+  (define resources
+    (if id
+        (filter (lambda (r) (equal? (hash-ref r 'id #f) id))
+                (if (data-store-path h) (history-resources (data-store-path h) type)
+                    ((data-source-all (hub-data h)) type)))
+        ((data-source-all (hub-data h)) type)))
+  (list (cons "trail_values" (lambda () (view-table (values-view type (element? type)) resources)))
+        (cons "patient_names" (lambda () (view-table (names-view) ((data-source-all (hub-data h)) "Patient"))))))
+
+;; trail-sql : hub type [id] -> sql   each stored resource of the type at its current version, with the
 ;; trail (who, when, why, from which file and line) — or, given an id, every version of that one
-;; resource, newest first. `value` reads a value[x], else the components' values in order (a blood
-;; pressure: `120 mm[Hg] / 80 mm[Hg]`); `name` is the subject's (a Patient's own name for a Patient).
-(define (trail-sql type [id #f])
-  (define (q s) (string-replace s "'" "''"))
-  (define value-of
-    (string-append
-     "COALESCE((x.resource ->> '$.valueQuantity.value') || ' ' || COALESCE(x.resource ->> '$.valueQuantity.code', x.resource ->> '$.valueQuantity.unit', ''), "
-     "x.resource ->> '$.valueString', x.resource ->> '$.valueCodeableConcept.coding[0].code', "
-     "CASE x.resource ->> '$.valueBoolean' WHEN 1 THEN 'true' WHEN 0 THEN 'false' END, "
-     "(SELECT group_concat(COALESCE((c.value ->> '$.valueQuantity.value') || ' ' || COALESCE(c.value ->> '$.valueQuantity.code', c.value ->> '$.valueQuantity.unit', ''), "
-     "c.value ->> '$.valueString', c.value ->> '$.valueCodeableConcept.coding[0].code'), ' / ') "
-     "FROM json_each(x.resource, '$.component') c))"))
-  (define subject-of "COALESCE(x.resource ->> '$.subject.reference', x.resource ->> '$.patient.reference')")
-  (define name-of
-    (string-append
-     "(SELECT trim(COALESCE(p.resource ->> '$.name[0].given[0]', '') || ' ' || COALESCE(p.resource ->> '$.name[0].family', p.resource ->> '$.name[0].text', ''))"
-     " FROM resources p WHERE p.type = 'Patient' AND p.id = "
-     (if (equal? type "Patient") "x.id" (string-append "substr(" subject-of ", 9)"))
-     (if (equal? type "Patient") "" (string-append " AND " subject-of " LIKE 'Patient/%'"))
-     ")"))
+;; resource, newest first. The columns are views' (views.rkt): `value` reads a value[x], else the
+;; components' values in order (a blood pressure: `120 mm[Hg] / 80 mm[Hg]`); `name` is the subject's
+;; (a Patient's own name for a Patient). Only what the type has is a column.
+(define (trail-sql h type [id #f])
+  (define has? (element? type))
+  (define patient? (equal? type "Patient"))
+  (define subject? (or (has? 'subject) (has? 'patient)))
   (string-append
-   "SELECT x.id, "
-   (if (equal? type "Patient") "" (string-append subject-of " AS subject, "))
-   name-of " AS name, "
-   value-of " AS value, "
-   "COALESCE(x.resource ->> '$.effectiveDateTime', x.resource ->> '$.effectivePeriod.start', x.resource ->> '$.issued', "
-   "x.resource ->> '$.authoredOn', x.resource ->> '$.recordedDate', x.resource ->> '$.birthDate') AS date, "
-   (if id "x.versionId, " "t.versionId, ")
-   "t.recorded, t.agent, t.reason, t.source, t.at, t.provenance "
-   (if id
-       (format "FROM history x LEFT JOIN trail t ON t.type = '~a' AND t.id = x.id AND t.versionId = CAST(x.versionId AS INTEGER) WHERE x.type = '~a' AND x.id = '~a' ORDER BY CAST(x.versionId AS INTEGER) DESC"
-               (q type) (q type) (q id))
-       (format "FROM ~a x LEFT JOIN trail t ON t.type = '~a' AND t.id = x.id AND t.versionId = CAST(x.versionId AS INTEGER) ORDER BY x.id"
-               type (q type)))))
+   "SELECT v.id, "
+   (if subject? "v.subject, " "")
+   (cond [patient? "v.name, "] [subject? "n.name, "] [else ""])
+   (if (or (has? 'value) (has? 'component)) "v.value, " "")
+   (if (for/or ([e '(effective issued authoredOn recordedDate birthDate)]) (has? e)) "v.date, " "")
+   "CAST(v.versionId AS INTEGER) AS versionId, t.recorded, t.agent, t.reason, t.source, t.at, t.provenance "
+   "FROM trail_values v "
+   (if (and subject? (not patient?)) "LEFT JOIN patient_names n ON v.subject = 'Patient/' || n.id " "")
+   (format "LEFT JOIN trail t ON t.type = '~a' AND t.id = v.id AND t.versionId = CAST(v.versionId AS INTEGER) " (string-replace type "'" "''"))
+   (if id "ORDER BY CAST(v.versionId AS INTEGER) DESC" "ORDER BY v.id")))
 
 ;; sorted-rows : rows (string | #f) columns uri -> rows
 (define (sorted-rows rows sort-by cols uri)
@@ -1604,7 +1658,7 @@
                           (source-at ch))))
   ;; who the trail names: the `agent` asked for, else the client (FHIR_MCP_AGENT from the shell)
   (define agent (or agent-asked (unbox current-agent)))
-  (define trail (if (null? targets) '() (write-trail! h (list (provenance targets src reason agent (now-instant))
+  (define trail (if (null? targets) '() (write-trail! h (list (provenance (ws-config-fhir-version c) targets src reason agent (now-instant))
                                                                (commit-audit (ws-config-fhir-version c) targets agent (now-instant))))))
   (configure! h (hub-root h))                              ; the data read again
   ;; each write with the version it made (`Observation/bp-a1/_history/2`), so a correction's v2 is seen
@@ -1695,7 +1749,11 @@
 (define (with-missing-hint e)
   (match (regexp-match #px"[(]found no ([A-Za-z]+) matching ([^)]+)[)]" e)
     [(list whole elem what) (string-replace e whole (format "(found no ~a matching ~a: add a ~a with ~a)" elem what elem what))]
-    [_ e]))
+    [_ (match (regexp-match #px"[(]found no ([A-Za-z.]+)[)]" e)
+         ;; an element the rule needs and the instance does not write: `(found no subject)` -> `: add a
+         ;; rule for subject (* subject = …)` (the stage had named the line, not the fix)
+         [(list whole path) (string-replace e whole (format "(found no ~a: add a rule for it, * ~a = …)" path path))]
+         [_ e])]))
 
 ;; rule-line : fsh-text instance-line path|#f -> line|#f   the first rule of that instance writing the
 ;; element: the whole path (`* component[0].valueQuantity = …`), else ever shorter prefixes of it

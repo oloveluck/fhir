@@ -23,8 +23,9 @@ A resource declared without `#:repository` is kept in a SQLite FHIR store when t
 `--store` file, `(server #:store "fhir.db")` (beside the module), or a workspace's `fhir.db` when the
 workspace runs the app (`<name>.capability.rkt`, learn://capability) — and in a temporary one,
 removed when the server stops, otherwise. The
-store keeps each resource as SQLite JSONB (`resource ->> '$.gender'` in SQL), with its history and
-search indexes.
+store keeps each resource as SQLite JSONB, with its history and search indexes. For tables of
+values, a workspace over the same store (`data: fhir.db`) reads it through SQL on FHIR views
+(learn://sql-on-fhir); `raco fhir-server sql` reads the raw JSONB (`resource ->> '$.gender'`).
 
 Exposes the FHIR REST grammar: `GET /metadata` (the derived CapabilityStatement), resource CRUD
 (`GET/POST/PUT/DELETE /{Type}[/{id}]`), vread (`/{Type}/{id}/_history/{vid}`),

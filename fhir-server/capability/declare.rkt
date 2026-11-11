@@ -26,7 +26,8 @@
          (only-in net/uri-codec uri-unreserved-encode)
          (only-in fhir/r6/fhir-version fhir-version)
          (only-in "interaction-codes.rkt"
-                  type-interaction? system-interaction? search-param-type? search-param-types))
+                  type-interaction? system-interaction? search-param-type? search-param-types
+                  type-level-interactions))
 
 (provide
  (struct-out parsed-operation)
@@ -112,7 +113,7 @@
      (for ([ix (in-list interactions)])
        (define code (syntax-e ix))
        (unless (or (type-interaction? code) (system-interaction? code))
-         (decl-error 'resource (format "unknown restful interaction ~a" code) ix)))
+         (decl-error 'resource (interaction-message code) ix)))
      ;; each search-param is [name type] or [name type "fhirpath-expression"]
      (define sp-triples
        (for/list ([s (in-list (if (attribute sp) (syntax->list #'(sp ...)) '()))])
@@ -203,6 +204,18 @@
       (format " (did you mean ~a?)" (string-join (map (lambda (t) (format "`~a`" t)) (take prefixed (min 2 (length prefixed)))) " or "))
       (did-you-mean name parameter-type-names)))
 
+;; interaction-message : symbol -> string   an unknown interaction, with the nearest (a prefix counts:
+;; `search` -> `search-type`, too far by edit distance) and the interactions a resource takes
+(define (interaction-message code)
+  (define names (map symbol->string type-level-interactions))
+  (define c (symbol->string code))
+  (define prefixed (filter (lambda (n) (string-prefix? n (string-append c "-"))) names))
+  (format "unknown restful interaction ~a~a; a resource takes ~a" code
+          (if (pair? prefixed)
+              (format " (did you mean ~a?)" (string-join (map (lambda (n) (format "`~a`" n)) prefixed) " or "))
+              (did-you-mean c names))
+          (string-join names ", ")))
+
 ;; search-type-message : symbol -> string   an unknown search-parameter type, with the nearest and the
 ;; types there are (`tokn`: did you mean `token`?)
 (define (search-type-message t)
@@ -286,6 +299,11 @@
                                                                      #:repository r))))
   (check-exn exn:fail:user? (lambda () (parse-resource #'(resource Patient #:interactions (frob)
                                                                      #:repository r))))
+  ;; `search` is `search-type` (a new user wrote it; it was "unknown restful interaction search")
+  (check-exn #rx"unknown restful interaction search \\(did you mean `search-type`\\?\\); a resource takes read, vread"
+             (lambda () (parse-resource #'(resource Patient #:interactions (read search) #:repository r))))
+  (check-exn #rx"interaction histroy-type \\(did you mean `history-type`\\?\\)"
+             (lambda () (parse-resource #'(resource Patient #:interactions (histroy-type) #:repository r))))
   ;; parse-operation yields rc-operation + its OperationDefinition + entries; strips the $;
   ;; validates param types
   (define po (parse-operation #'(operation $expand #:on ValueSet #:in ([url uri 1 1])

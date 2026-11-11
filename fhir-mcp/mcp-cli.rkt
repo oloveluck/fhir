@@ -17,7 +17,7 @@
          racket/list racket/string racket/port racket/file json
          (only-in fhir/subcommands run-subcommands usage-error)
          "mcp/server.rkt" "mcp/tools.rkt" "mcp/workspace.rkt" "mcp/verbs.rkt"
-         (only-in "mcp/resources.rkt" current-result-resources learn-topics learn-text)
+         racket/match (only-in "mcp/resources.rkt" current-result-resources learn-topics learn-text guide-blocks guide-block-text)
          (only-in "mcp/trail.rkt" current-agent))
 
 (define flags "[--workspace <dir>] [--package <tgz|name>]… [--data <dir|file|url>]")
@@ -27,7 +27,7 @@
     ("call"  ,(format "raco fhir-mcp call <tool> ['<json>' | -] [key=value | key=@file | key:=<json>]… ~a   run one tool: arguments as a JSON object (- reads it from stdin) and/or one by one, a file's text with @" flags))
     ("batch" ,(format "raco fhir-mcp batch [<file> | -] ~a   many calls in one process: one per line, `<tool> key=value key=@file key:=<json> …` (quoted as a shell would; # starts a comment; a line starting with ! is expected to fail), each answer after a `### <line>` header" flags))
     ("init"  "raco fhir-mcp init [<dir>] [--fhir-version 4.0.1|5.0.0]   make a directory a workspace an agent can use: workspace.yaml (data: fhir.db, a SQLite FHIR store), .mcp.json, CLAUDE.md")
-    ("guide" "raco fhir-mcp guide [<topic>]   a guide (learn://<topic>) as text; without a topic, the topics")))
+    ("guide" "raco fhir-mcp guide [<topic> [--blocks | --block N]]   a guide (learn://<topic>) as text, its code blocks listed, or one (to save as a file); without a topic, the topics")))
 
 ;; An Opts is (opts workspace packages data rest)
 (struct opts (workspace packages data rest))
@@ -188,13 +188,26 @@
   (printf "The data is ~a, a SQLite FHIR store: stage and commit write it; raco fhir-server load ~a <dir> imports FHIR JSON.\nFrom an MCP client (Claude Code reads .mcp.json in ~a), or from the shell: raco fhir-mcp call <tool> … (run in ~a, or with --workspace ~a).\nGuides: raco fhir-mcp guide workspace (the MCP client reads them as learn://workspace).\n"
           (path->string (build-path dir "fhir.db")) (path->string (build-path dir "fhir.db")) dir dir dir))
 
+;; guide-which : args cmd -> 'list | n | #f   `--blocks`, `--block N`, else the whole guide
+(define (guide-which as cmd)
+  (match as
+    ['() #f]
+    [(list "--blocks") 'list]
+    [(list "--block" n) #:when (and (string->number n) (exact-positive-integer? (string->number n))) (string->number n)]
+    [_ (usage-error cmd usages "guide" (format "after the topic: --blocks, or --block N (got ~a)" (string-join as " ")))]))
+
 ;; guide-command : args -> void   learn://<topic> printed, or the topics with what each covers
 (define (guide-command args)
   (define topic (and (pair? args) (car args)))
+  (define which (guide-which (if (pair? args) (cdr args) '()) "fhir-mcp"))
   (cond
     [(not topic)
      (for ([t (in-list learn-topics)]) (printf "~a  ~a\n" (car t) (cdr t)))
-     (printf "\nraco fhir-mcp guide <topic> prints one; an MCP client reads it as learn://<topic>\n")]
+     (printf "\nraco fhir-mcp guide <topic> prints one (--blocks lists its code blocks, --block N prints one to save as a file); an MCP client reads it as learn://<topic>\n")]
+    [(and which (learn-text topic))
+     => (lambda (text) (define out (guide-block-text text which))
+          (if out (display out)
+              (usage-error "fhir-mcp" usages "guide" (format "~a has ~a code blocks (--blocks lists them)" topic (length (guide-blocks text))))))]
     [(learn-text topic) => display]
     [else (usage-error "fhir-mcp" usages "guide"
                        (format "no guide ~a (topics: ~a)" topic (string-join (map car learn-topics) ", ")))]))

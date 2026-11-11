@@ -196,8 +196,11 @@
                      params
                      (and (member (str "allowRemoteWrites" "false") '("true" "yes")) #t)
                      (pairs "models")
-                     (for/hash ([(type urls) (in-hash (pairs "profiles"))])
-                       (values type (string-split urls)))
+                     ;; a type named twice keeps both lines' profiles (YAML would keep the last: a
+                     ;; profile added under a type already listed was silently not enforced)
+                     (let ([v (get "profiles")])
+                       (for/fold ([h (hash)]) ([p (in-list (if (list? v) v '()))] #:when (and (pair? p) (string? (cdr p))))
+                         (hash-update h (car p) (lambda (us) (remove-duplicates (append us (string-split (cdr p))))) '())))
                      (if (equal? (str "audit" "commits") "all") "all" "commits"))
           (append warnings unknown version-warning
                   (if (member (str "audit" "commits") '("all" "commits")) '()
@@ -271,6 +274,9 @@
   (check-true (ws-config-allow-remote-writes? c))
   (check-equal? (ws-config-models c) (hash "Clinic" "http://example.org/clinic patient=Member birthDate=born"))
   (check-equal? (ws-config-profiles c) (hash "Observation" '("http://example.org/fhir/StructureDefinition/a1c" "http://example.org/fhir/StructureDefinition/lab")))
+  ;; a type on two lines keeps both
+  (let-values ([(c2 _w) (parse-workspace-config "profiles:\n  Observation: http://x/a\n  Observation: http://x/b\n")])
+    (check-equal? (ws-config-profiles c2) (hash "Observation" '("http://x/a" "http://x/b"))))
   (check-equal? (ws-config-audit c) "all")
   (check-equal? (length ws) 1)
   (check-regexp-match #rx"unknown key `mystery`" (car ws))

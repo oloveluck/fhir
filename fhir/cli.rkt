@@ -10,7 +10,7 @@
 ;;; Validation is `raco fhir-validate` (fhir-validation), serving `raco fhir-server` (fhir-server); the
 ;;; languages have their own: raco fhirpath | cql | fsh | vcl | fml.
 
-(require racket/list (only-in racket/string string-join) (only-in racket/file make-directory*)
+(require racket/list racket/match (only-in racket/string string-join) (only-in racket/file make-directory*)
          (only-in fhir/parallel parallel-map)
          (only-in json jsexpr->string read-json)
          (only-in fhir/serialize/read-json read-fhir-json)
@@ -90,15 +90,27 @@
 ;; raco fhir guide [topic] — a guide (the workspace, a language, FHIR itself) printed: the same text
 ;; as `raco fhir-mcp guide`, under the family's own command (the Racket route needs no MCP server;
 ;; the guides are kept by fhir-mcp, loaded only when asked for)
-(define (cmd-guide topic)
+(define (cmd-guide topic [more '()])
   (define (need name)
     (dynamic-require 'fhir/mcp/resources name
                      (lambda () (eprintf "guide: the guides come with the fhir-mcp package: raco pkg install fhir-mcp\n") (exit 1))))
   (define topics (need 'learn-topics))
   (define text-of (need 'learn-text))
+  ;; `--blocks` lists the guide's code blocks, `--block N` prints one (a recipe to save as a file)
+  (define which
+    (match more
+      ['() #f]
+      [(list "--blocks") 'list]
+      [(list "--block" n) #:when (exact-positive-integer? (string->number n)) (string->number n)]
+      [_ (usage-error "fhir" usages "guide" (format "after the topic: --blocks, or --block N (got ~a)" (string-join more " ")))]))
   (cond
     [(not topic) (for ([t (in-list topics)]) (printf "~a  ~a\n" (car t) (cdr t)))
-                 (printf "\nraco fhir guide <topic> prints one\n")]
+                 (printf "\nraco fhir guide <topic> prints one (--blocks lists its code blocks, --block N prints one)\n")]
+    [(and which (text-of topic))
+     => (lambda (text)
+          (define out ((need 'guide-block-text) text which))
+          (if out (display out)
+              (usage-error "fhir" usages "guide" (format "~a has ~a code blocks (--blocks lists them)" topic (length ((need 'guide-blocks) text))))))]
     [(text-of topic) => display]
     [else (usage-error "fhir" usages "guide" (format "no guide ~a (topics: ~a)" topic (string-join (map car topics) ", ")))]))
 
@@ -109,7 +121,7 @@
     ("roundtrip-tck" "raco fhir roundtrip-tck [r4|r5]")
     ("snapshot"      "raco fhir snapshot <sd.json>")
     ("new"           "raco fhir new pipeline <dir>   copy the Racket pipeline template (FSH + FML + CQL + main.rkt) to <dir>")
-    ("guide"         "raco fhir guide [topic]   print a guide: workspace, fhir, cql, fsh, fml, fhirpath, vcl, sql-on-fhir, capability, …")))
+    ("guide"         "raco fhir guide [topic [--blocks | --block N]]   print a guide (workspace, fhir, cql, fsh, fml, fhirpath, vcl, sql-on-fhir, capability, …), its code blocks, or one to save")))
 
 (module+ main
   (define (arg as n) (and (> (length as) n) (list-ref as n)))
@@ -128,7 +140,7 @@
                  (unless (member v '("r4" "r5")) (usage-error "fhir" usages "roundtrip-tck"))
                  (dynamic-require `(submod ,(string->symbol (string-append "fhir/tests/example-roundtrip-" v)) main) #f)))
           (cmd "snapshot" (lambda (as) (needs-file as) (cmd-snapshot (arg as 0))))
-          (cmd "guide" (lambda (as) (cmd-guide (arg as 0))))
+          (cmd "guide" (lambda (as) (cmd-guide (arg as 0) (if (pair? as) (cdr as) '()))))
           (cmd "new" (lambda (as)
                        (unless (and (arg as 0) (arg as 1)) (usage-error "fhir" usages "new"))
                        (cmd-new (arg as 0) (arg as 1))))))

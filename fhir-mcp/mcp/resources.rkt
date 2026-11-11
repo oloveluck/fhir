@@ -31,11 +31,46 @@
   ;; workspace server holds, listed and read as resources
   [current-result-resources (parameter/c (or/c #f (cons/c procedure? procedure?)))]
   [learn-text         (-> string? (or/c string? #f))]
+  ;; guide-blocks : text -> (listof (list lang first-line body))   a guide's fenced code blocks, in order
+  [guide-blocks       (-> string? (listof list?))]
+  ;; guide-block-text : text 'list|n -> string|#f   what `guide <topic> --blocks | --block N` prints:
+  ;; the numbered code blocks (a line each), or block N alone, to save as a file
+  [guide-block-text   (-> string? (or/c 'list exact-positive-integer?) (or/c string? #f))]
   [resources          (-> (listof hash?))]
   [resource-templates (-> (listof hash?))]
   [read-resource      (-> string? (or/c hash? #f))]       ; a content entry, or #f for an unknown uri
   [prompts            (-> (listof hash?))]
   [get-prompt         (-> string? hash? (or/c hash? #f))]))
+
+;; guide-blocks : text -> (listof (list lang first-line body))   every ``` fenced block (a recipe copied
+;; to a file was cut out of the printed guide by hand, with sed)
+(define (guide-blocks text)
+  ;; a line walk: an opening fence with its language, the lines, the closing fence
+  (let loop ([lines (regexp-split #rx"\n" text)] [open #f] [body '()] [acc '()])
+    (cond
+      [(null? lines) (reverse acc)]
+      [(regexp-match #px"^```([A-Za-z0-9-]*)" (car lines))
+       => (lambda (m)
+            (if open
+                (let* ([b (reverse body)]
+                       [first (or (for/first ([l (in-list b)] #:unless (string=? (string-trim l) "")) l) "")])
+                  (loop (cdr lines) #f '() (cons (list open first (string-append (string-join b "\n") "\n")) acc)))
+                (loop (cdr lines) (cadr m) '() acc)))]
+      [open (loop (cdr lines) open (cons (car lines) body) acc)]
+      [else (loop (cdr lines) #f body acc)])))
+
+;; guide-block-text : text 'list|n -> string|#f
+(define (guide-block-text text which)
+  (define bs (guide-blocks text))
+  (cond [(eq? which 'list)
+         (string-append
+          (string-join (for/list ([b (in-list bs)] [i (in-naturals 1)])
+                         (format "~a  ~a~a" i (if (string=? (car b) "") "" (format "[~a] " (car b)))
+                                 (let ([l (cadr b)]) (if (> (string-length l) 90) (string-append (substring l 0 89) "…") l))))
+                       "\n")
+          "\n")]
+        [(<= which (length bs)) (caddr (list-ref bs (sub1 which)))]
+        [else #f]))
 
 ;; ---- guides: the repository's skills, when the package sits in it ---------------------------------
 (define-runtime-path skills-dir "../../.claude/skills")
@@ -60,7 +95,8 @@
     ("fml" . "FHIR Mapping Language: converting between structures; cheat sheet, links to the mapping language specification")
     ("sql-on-fhir" . "SQL on FHIR ViewDefinitions: tables from resources; cheat sheet, links to the specification")
     ("capability" . "FHIR servers you declare (#lang fhir/capability): resources, interactions, search parameters, operations (new ones, and $validate, $expand, $transform … by reference); served over the workspace's SQLite store; cheat sheet, worked example")
-    ("search" . "FHIR search syntax for query(\"search\"); link to the FHIR search specification")))
+    ("search" . "FHIR search syntax for query(\"search\"); link to the FHIR search specification")
+    ("racket" . "FHIR in a Racket program, no server: the pipeline template, each piece checked, the API main.rkt uses, errors, versions")))
 ;; learn-text : topic -> string|#f   a language's own guide (`<id>/workspace`'s `guide`, kept and
 ;; tested in the language's repository), else learn/<topic>.md here (the workspace, search, and the
 ;; languages that do not provide one yet)

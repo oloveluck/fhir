@@ -12,16 +12,19 @@ One file: a SQLite store beside it, two resources, one operation of your own. Th
 is what each part can say.
 ```racket
 #lang fhir/capability
+(require (only-in fhir/conformance/operations $validate)) ; an existing operation: required, then served
 (server #:store "study.db" #:search-handling "strict")   ; patient data: refuse a filter it cannot apply
 (resource Patient #:interactions (read create search-type) #:search-params ([gender token] [birthdate date]))
 (resource Observation #:interactions (read create search-type) #:search-params ([patient reference] [code token]))
 (define (double-handler in req)                           ; `in`: each input's name -> its list of values
   (Parameters (parameter (ParametersParameter (name "doubled") (valueDecimal (* 2 (car (hash-ref in "x"))))))))
 (operation $double #:system #:in ([x decimal 1 1]) #:out ([doubled decimal 1 1]) #:handler double-handler)
+(operation $validate)                                     ; POST /Patient/$validate, /Observation/$validate
 ```
 `racket study.capability.rkt` prints its CapabilityStatement; `raco fhir-server serve
 study.capability.rkt --port 0` serves it (the first line printed is its url); `GET /$double?x=2.5`
-answers `5.0`. The server speaks FHIR **R6** (`6.0.0-ballot4` in `/metadata`) whatever FHIR version a
+answers `5.0`; `POST /Patient/$validate` with a Patient answers `All OK (FHIR R6 (6.0.0-ballot4))` or
+its problems. The server speaks FHIR **R6** (`6.0.0-ballot4` in `/metadata`) whatever FHIR version a
 workspace uses; its clients send JSON that R4 and R6 write alike for most resources. After editing the
 file, stop the server (its pid is in the first line) and serve it again: the store keeps the data.
 
@@ -91,6 +94,29 @@ A whole file — declarations, the handler and how to call it — is the worked 
 | `#:min n` / `#:max n` | a number refused outside the range |
 | `#:documentation "…"` | what the input means (its unit), in the OperationDefinition |
 
+One operation using every option — the eGFR equation (CKD-EPI 2021), its inputs typed, documented,
+bounded and bound, its output a Quantity:
+```racket
+(define (egfr-handler in req)
+  (define (input k) (car (hash-ref in k)))          ; each declared input, already typed
+  (define scr (input "creatinine")) (define age (input "age")) (define female? (equal? (input "sex") "female"))
+  (define r (/ scr (if female? 0.7 0.9)))
+  (define v (* 142 (expt (min r 1) (if female? -0.241 -0.302)) (expt (max r 1) -1.200)
+               (expt 0.9938 age) (if female? 1.012 1)))
+  (Parameters (parameter (ParametersParameter (name "egfr")
+                           (valueQuantity (Quantity (value (/ (round (* v 10)) 10.0)) (unit "mL/min/1.73m2")
+                                                    (system "http://unitsofmeasure.org") (code "mL/min/{1.73_m2}")))))))
+(operation $egfr #:system
+  #:in ([creatinine decimal 1 1 #:min 0.1 #:max 20 #:documentation "Serum creatinine, mg/dL"]
+        [age integer 1 1 #:min 18 #:max 120 #:documentation "Age in years"]
+        [sex code 1 1 #:binding "(http://hl7.org/fhir/administrative-gender)(female;male)"
+             #:documentation "The equation's sex: female or male"])
+  #:out ([egfr Quantity 1 1 #:documentation "Estimated GFR, mL/min/1.73m2"])
+  #:handler egfr-handler)
+```
+`GET /$egfr?creatinine=1.1&age=60&sex=female` answers 57.5 mL/min/1.73m2; `creatinine=0&sex=other`
+is a 400 with one issue per input (below its range; not in the binding), before the handler runs.
+
 Values arrive converted to their declared type, from a GET query or a POSTed Parameters alike: a
 whole decimal (`60.0`) is taken as an `integer` and a number as a `decimal`; text that does not read
 as the type (`60.5` for an integer, `abc` for a decimal) is refused with a 400.
@@ -128,7 +154,7 @@ as the type (`60.5` for an integer, `abc` for a decimal) is refused with a 400.
 the server's `#:url`. The handler returns a resource built with the R6 forms
   (`(Parameters (parameter (ParametersParameter (name "x") (valueString "…"))))`). A repeating field
   takes all its values in ONE form — two outputs are
-  `(Parameters (parameter (ParametersParameter (name "egfr") (valueDecimal "57.5")) (ParametersParameter (name "stage") (valueString "G3a"))))`,
+  `(Parameters (parameter (ParametersParameter (name "egfr") (valueDecimal 57.5)) (ParametersParameter (name "stage") (valueString "G3a"))))`,
   not two `(parameter …)` forms (that is a "duplicate field" error). To refuse a request
   (400), return an OperationOutcome whose issue code is `invalid`:
   `(OperationOutcome (issue (OperationOutcomeIssue (severity "error") (code "invalid") (diagnostics "…"))))`;
@@ -144,6 +170,8 @@ the server's `#:url`. The handler returns a resource built with the R6 forms
 - `$validate` takes the resource in a Parameters (`resource`) or as the bare POST body, and reads it
   as sent: a misspelt element or a bad date is reported, as `raco fhir-validate` reports it. It
   answers 200 either way, its findings in the OperationOutcome (its result IS an OperationOutcome).
+- It validates in the server's own FHIR, R6 (`All OK (FHIR R6 (6.0.0-ballot4))`), as a create or
+  update does before writing; `raco fhir-validate --fhir-version 6.0.0` gives the same answer offline.
 
 ### Creates and existing operations
 - A create answers 201 with an absolute `Location` (`http://host:port/Patient/<id>/_history/1`). The
@@ -211,7 +239,9 @@ file removed when the server stops.
 `raco fhir-server sql fhir.db "SELECT id, resource ->> '$.gender' AS gender FROM Patient"` reads the
 store as CSV, read-only: a view per stored type (`id, versionId, lastUpdated, resource`), `resources`
 (every type: `type, id, versionId, lastUpdated, resource`) and `history` (every version, the same
-columns); `resource` is the JSON (`resource ->> '$.birthDate'`).
+columns); `resource` is the JSON (`resource ->> '$.birthDate'`). For tables of values you will ask
+for again, make the store a workspace's data (`data: fhir.db` in workspace.yaml) and write SQL on FHIR
+views: each `*.view.json` is a table, its columns FHIRPath (learn://sql-on-fhir).
 
 A server needs no workspace: the file, `raco fhir-server serve`, and any HTTP client. A smoke test
 on a free port — start it, wait for its first line, read the url from it:
@@ -259,8 +289,8 @@ Common UCUM codes for a result, each with a display for `unit` (learn://fhir lis
 
 A code that is not UCUM is a validation warning naming the nearest one; the `unit` is free text.
 `GET /$creatinine-si?creatinine=1.1` answers `{"name": "creatinine", "valueQuantity": {"value": 97.2,
-"unit": "µmol/L", "system": "http://unitsofmeasure.org", "code": "umol/L"}}` (the decimal is built
-as a string, as FHIR keeps its digits; the unit is the display, the code is UCUM's).
+"unit": "µmol/L", "system": "http://unitsofmeasure.org", "code": "umol/L"}}` (the value is the
+rounded Racket real; the unit is the display, the code is UCUM's; elements in FHIR's order).
 
 ## The languages inside a server
 A handler is Racket, and every language of the workspace is a library in it:

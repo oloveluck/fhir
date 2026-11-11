@@ -14,7 +14,8 @@
 ;;; 'text, 'path, 'language, 'result, 'entry (a define), 'over.
 ;;; An Agent is a string: "claude-code 2.0.1 via fhir-mcp".
 
-(require racket/contract racket/string racket/list json file/sha1 net/base64)
+(require racket/contract racket/string racket/list json file/sha1 net/base64
+         (only-in "views.rkt" sha1-system source-line-url))
 
 (provide
  (contract-out
@@ -22,9 +23,9 @@
   [current-agent box?]
   ;; agent-from-client : clientInfo -> string
   [agent-from-client (-> any/c string?)]
-  ;; provenance : targets source reason agent now -> Provenance
+  ;; provenance : fhir-version targets source reason agent now -> Provenance
   ;;   targets: (listof (list reference action)) — "Type/id[/_history/v]", 'create | 'update
-  [provenance (-> (listof list?) hash? (or/c string? #f) string? string? hash?)]
+  [provenance (-> string? (listof list?) hash? (or/c string? #f) string? string? hash?)]
   ;; commit-audit : fhir-version targets agent now -> AuditEvent   the transaction that wrote them
   [commit-audit (-> string? (listof list?) string? string? hash?)]
   ;; execution-audit : fhir-version what source outcome agent now -> AuditEvent   a run, query or apply
@@ -60,18 +61,21 @@
                                               'data (base64 (string->bytes/utf-8 text))
                                               'hash (base64 (sha1-bytes (open-input-bytes (string->bytes/utf-8 text))))))))))
 
-;; source-label : Source -> string   one line: what the data was made from
+;; source-label : Source -> string   one line: what the data was made from (its SHA-1 is apart:
+;; `source-sha1`, the Provenance entity's identifier — a view reads each as a column of its own)
 (define (source-label src)
-  (define sha (let ([t (hash-ref src 'text #f)]) (if (string? t) (string-append " sha1:" (text-sha1 t)) "")))
   (case (hash-ref src 'kind "resources")
-    [("fsh") (if (hash-ref src 'path #f) (format "~a~a" (hash-ref src 'path) sha) (string-append "FSH written in the stage" sha))]
-    [("file") (format "~a~a" (hash-ref src 'path "a file") sha)]
-    [("result") (format "~a of ~a~a~a" (hash-ref src 'result "a result") (or (hash-ref src 'path #f) (hash-ref src 'language "a query"))
-                        (let ([e (hash-ref src 'entry #f)]) (if (string? e) (format " (~a)" e) ""))
-                        sha)]
-    [("query") (format "a ~a query~a" (hash-ref src 'language "?") sha)]
+    [("fsh") (or (hash-ref src 'path #f) "FSH written in the stage")]
+    [("file") (format "~a" (hash-ref src 'path "a file"))]
+    [("result") (format "~a of ~a~a" (hash-ref src 'result "a result") (or (hash-ref src 'path #f) (hash-ref src 'language "a query"))
+                        (let ([e (hash-ref src 'entry #f)]) (if (string? e) (format " (~a)" e) "")))]
+    [("query") (format "a ~a query" (hash-ref src 'language "?"))]
     [("operation") (format "the operation ~a" (hash-ref src 'operation "?"))]
     [else "resources given in the stage"]))
+
+;; source-sha1 : Source -> hex string|#f   the SHA-1 of the source text, when there is one
+(define (source-sha1 src) (let ([t (hash-ref src 'text #f)]) (and (string? t) (text-sha1 t))))
+
 
 (define (activity targets)
   (define actions (remove-duplicates (map cadr targets)))
@@ -86,8 +90,6 @@
       (hasheq 'reference agent)
       (hasheq 'display agent)))
 
-;; source-line-url : the extension a Provenance target carries: where in the source it was written
-(define source-line-url "urn:fhir-mcp:source-line")
 
 ;; target-reference : (list ref action [at]) -> Reference   the version written, and the source's
 ;; file and line that wrote it when known (`patients.fsh:30`)
@@ -97,8 +99,11 @@
       (hasheq 'reference (car t) 'extension (list (hasheq 'url source-line-url 'valueString at)))
       (hasheq 'reference (car t))))
 
-(define (provenance targets src reason agent now)
+(define (provenance v targets src reason agent now)
   (define doc (source-document src))
+  (define what (for/fold ([w (if doc (hasheq 'reference "#source" 'display (source-label src)) (hasheq 'display (source-label src)))])
+                         ([sha (in-value (source-sha1 src))] #:when sha)
+                 (hash-set w 'identifier (hasheq 'system sha1-system 'value sha))))
   (define act (activity targets))
   (for/fold ([p (hasheq 'resourceType "Provenance"
                         'target (for/list ([t (in-list targets)]) (target-reference t))
@@ -107,12 +112,11 @@
                                              'who (agent-who agent))))])
             ([kv (in-list (list (cons 'contained (and doc (list doc)))
                                 (cons 'activity act)
-                                (cons 'reason (and reason (list (hasheq 'text reason))))
+                                ;; why: R4's reason (a CodeableConcept's text); R5 has no `reason`, its `why`
+                                ;; (markdown) says it
+                                (cons (if (r4? v) 'reason 'why) (and reason (if (r4? v) (list (hasheq 'text reason)) reason)))
                                 (cons 'entity (and (not (equal? (hash-ref src 'kind "resources") "resources"))
-                                                   (list (hasheq 'role "source"
-                                                                 'what (if doc
-                                                                           (hasheq 'reference "#source" 'display (source-label src))
-                                                                           (hasheq 'display (source-label src)))))))))]
+                                                   (list (hasheq 'role "source" 'what what))))))]
             #:when (cdr kv))
     (hash-set p (car kv) (cdr kv))))
 
@@ -148,7 +152,7 @@
   (define text (hash-ref src 'text #f))
   (audit-event v "E" (if (equal? (hash-ref src 'language #f) "search") "search-type" "operation") (eq? outcome #t)
                (and (string? outcome) outcome) agent now
-               (list (for/fold ([e (hasheq 'what (hasheq 'display (format "~a: ~a" what (source-label src))))])
+               (list (for/fold ([e (hasheq 'what (hasheq 'display (format "~a: ~a~a" what (source-label src) (let ([h (source-sha1 src)]) (if h (string-append " sha1:" h) "")))))])
                                ([kv (in-list (list (cons 'query (and (string? text) (base64 (string->bytes/utf-8 text))))))]
                                 #:when (cdr kv))
                        (hash-set e (car kv) (cdr kv))))))
@@ -158,7 +162,7 @@
   (check-equal? (agent-from-client (hasheq 'name "claude-code" 'version "2.0.1")) "claude-code 2.0.1 via fhir-mcp")
   (check-equal? (agent-from-client #f) "fhir-mcp")
   (define fsh "Instance: ann\nInstanceOf: Patient\n* gender = #female\n")
-  (define p (provenance (list (list "Patient/ann/_history/1" 'create)) (hasheq 'kind "fsh" 'text fsh 'language "fsh")
+  (define p (provenance "4.0.1" (list (list "Patient/ann/_history/1" 'create)) (hasheq 'kind "fsh" 'text fsh 'language "fsh")
                         "intake from the clinic's form" "claude-code via fhir-mcp" "2026-11-09T12:00:00Z"))
   (check-equal? (hash-ref p 'target) (list (hasheq 'reference "Patient/ann/_history/1")))
   (check-equal? (hash-ref (car (hash-ref p 'reason)) 'text) "intake from the clinic's form")
@@ -169,8 +173,16 @@
   (check-equal? (bytes->string/utf-8 (base64-decode (string->bytes/utf-8 (hash-ref att 'data)))) fsh)
   (check-equal? (hash-ref att 'contentType) "text/fsh")
   (check-equal? (hash-ref (hash-ref (car (hash-ref p 'entity)) 'what) 'reference) "#source")
+  ;; the source and its SHA-1 apart (a view reads each as a column; the display carried both)
+  (check-equal? (hash-ref (hash-ref (car (hash-ref p 'entity)) 'what) 'display) "FSH written in the stage")
+  (check-equal? (hash-ref (hash-ref (car (hash-ref p 'entity)) 'what) 'identifier)
+                (hasheq 'system "urn:ietf:rfc:3174" 'value (text-sha1 fsh)))
+  ;; R5 has no Provenance.reason: the reason is its `why`
+  (define p5 (provenance "5.0.0" (list (list "Patient/ann/_history/1" 'create)) (hasheq 'kind "fsh" 'text fsh) "intake" "x" "t"))
+  (check-equal? (hash-ref p5 'why) "intake")
+  (check-false (hash-ref p5 'reason #f))
   ;; mixed creates and updates: no single activity; resources given directly: no source entity
-  (define p2 (provenance (list (list "Patient/a/_history/2" 'update) (list "Patient/b/_history/1" 'create)) (hasheq 'kind "resources") #f "x" "t"))
+  (define p2 (provenance "4.0.1" (list (list "Patient/a/_history/2" 'update) (list "Patient/b/_history/1" 'create)) (hasheq 'kind "resources") #f "x" "t"))
   (check-false (hash-ref p2 'activity #f))
   (check-false (hash-ref p2 'entity #f))
   ;; AuditEvents in each version's shape

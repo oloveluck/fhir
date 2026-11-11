@@ -60,7 +60,7 @@
      (when (and (null? names) (null? (tables-named sql types)))
        (raise-user-error 'sql (format "the statement names none of the tables: ~a" (string-join (sort (append (hash-keys tables) types) string<?) ", "))))
      (for ([n (in-list names)]) (load-table! c n ((hash-ref tables n)) #:temp? (and store #t)))
-     (define named (remove-duplicates (append names (tables-named sql (append types '("resources" "history" "trail"))))))
+     (define named (remove-duplicates (append names (tables-named sql (append types '("resources" "history"))))))
      (define r (with-handlers ([exn:fail:sql? (lambda (e) (raise-user-error 'sql (with-columns (sql-message e) c named)))])
                  (query c (regexp-replace #px";\\s*$" (string-trim sql) ""))))
      (define cols (for/list ([h (in-list (rows-result-headers r))]) (cdr (assq 'name h))))
@@ -102,27 +102,7 @@
   (append (filter values
                   (list (view! "resources" "CREATE TEMP VIEW resources AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_resources")
                         ;; every version of every resource, the current one included: what changed, when
-                        (view! "history" "CREATE TEMP VIEW history AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_history")
-                        ;; the trail, one row per version a commit wrote: who, when, why, from what —
-                        ;; every Provenance's targets unfolded (`Type/id/_history/v`), no json_each to write
-                        (view! "trail" (string-append
-                                        "CREATE TEMP VIEW trail AS SELECT "
-                                        "substr(t.value ->> '$.reference', 1, instr(t.value ->> '$.reference', '/') - 1) AS type, "
-                                        "substr(t.value ->> '$.reference', instr(t.value ->> '$.reference', '/') + 1, "
-                                        "  instr(t.value ->> '$.reference', '/_history/') - instr(t.value ->> '$.reference', '/') - 1) AS id, "
-                                        "CAST(substr(t.value ->> '$.reference', instr(t.value ->> '$.reference', '/_history/') + 10) AS INTEGER) AS versionId, "
-                                        "p.resource ->> '$.recorded' AS recorded, "
-                                        "coalesce(p.resource ->> '$.agent[0].who.display', p.resource ->> '$.agent[0].who.reference') AS agent, "
-                                        "p.resource ->> '$.reason[0].text' AS reason, "
-                                        "CASE WHEN instr(p.resource ->> '$.entity[0].what.display', ' sha1:') > 0 "
-                                        "  THEN substr(p.resource ->> '$.entity[0].what.display', 1, instr(p.resource ->> '$.entity[0].what.display', ' sha1:') - 1) "
-                                        "  ELSE p.resource ->> '$.entity[0].what.display' END AS source, "
-                                        "CASE WHEN instr(p.resource ->> '$.entity[0].what.display', ' sha1:') > 0 "
-                                        "  THEN substr(p.resource ->> '$.entity[0].what.display', instr(p.resource ->> '$.entity[0].what.display', ' sha1:') + 6) END AS sha1, "
-                                        "t.value ->> '$.extension[0].valueString' AS at, "
-                                        "'Provenance/' || p.id AS provenance "
-                                        "FROM main.fhir_resources p, json_each(p.resource, '$.target') t "
-                                        "WHERE p.resource_type = 'Provenance' AND instr(t.value ->> '$.reference', '/_history/') > 0"))))
+                        (view! "history" "CREATE TEMP VIEW history AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_history")))
           types))
 (define (q s) (string-append "\"" (string-replace s "\"" "\"\"") "\""))
 

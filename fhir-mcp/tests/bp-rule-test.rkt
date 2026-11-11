@@ -59,7 +59,7 @@
     (check-equal? (errors-of (bp "nodia" #:dia #f))
                   '("fsh:1: Observation: bp-diastolic: A blood pressure (LOINC 85354-9) has a diastolic component (LOINC 8462-4) in mm[Hg] (found no component matching '8462-4': add a component with '8462-4')"))
     (check-equal? (errors-of (bp "nosubj" #:subject #f))
-                  '("fsh:1: Observation: bp-subject: A blood pressure (LOINC 85354-9) has a subject (found no subject)"))
+                  '("fsh:1: Observation: bp-subject: A blood pressure (LOINC 85354-9) has a subject (found no subject: add a rule for it, * subject = …)"))
     ;; `'mmHg'` is not UCUM: a warning at its line (it was refused by the rule alone, unexplained)
     (check-equal? (car (hash-ref (car (hash-ref (call "stage" (hasheq 'fsh (bp "mmhg" #:sys "130 'mmHg'"))) 'changes)) 'warnings))
                   "fsh:7: Observation.component.value[x].code: `mmHg` is not a UCUM unit (mercury is written mm[Hg])")
@@ -76,6 +76,8 @@
                   '("fsh:7: Observation: bp-systolic: A blood pressure (LOINC 85354-9) has a systolic component (LOINC 8480-6) in mm[Hg] (found component[0].valueQuantity = 120 (no unit))"))
     ;; another Observation is not a blood pressure: the rule does not apply
     (check-equal? (errors-of "Instance: a1c\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#4548-4\n* valueQuantity = 6.1 '%'\n") '())
+    ;; the guide's correction recipe starts from the source as written (as=source), not as=fsh
+    (check-regexp-match #rx"call describe ref=Observation/bp-a1 as=source > [.][.]/bp-a1[.]fsh" (learn-text "workspace"))
     ;; correcting a stored reading: its FSH, one line changed, staged again
     (call "commit" (hasheq 'stage (hash-ref (call "stage" (hasheq 'fsh (bp "bp-a1"))) 'stage) 'reason "intake"))
     (define-values (fsh _e) ((tool-run (hash-ref tools "describe")) (hasheq 'ref "Observation/bp-a1" 'as "fsh")))
@@ -100,8 +102,8 @@
     ;; its line; the trail's value reads a blood pressure's components (it was empty)
     (define rs (cadr (regexp-match #px"```fsh\n(RuleSet: Reading.*?)```" (learn-text "workspace"))))
     (define readings (string-append rs "\n"
-                                    "Instance: bp-r1\nInstanceOf: Observation\n* insert Reading(bp-r1, a, 2025-01-10, 142, 91)\n\n"
-                                    "Instance: bp-r2\nInstanceOf: Observation\n* insert Reading(bp-r2, a, 2025-02-10, 128, 82)\n"))
+                                    "Instance: bp-r1\nInstanceOf: Observation\n* insert Reading(a, 2025-01-10, 142, 91)\n\n"
+                                    "Instance: bp-r2\nInstanceOf: Observation\n* insert Reading(a, 2025-02-10, 128, 82)\n"))
     (define rst (call "stage" (hasheq 'fsh readings 'files (hasheq 'fsh "readings.fsh"))))
     (check-equal? (for/list ([c (in-list (hash-ref rst 'changes))]) (list (hash-ref c 'resource) (hash-ref c 'errors '())))
                   '(("Observation/bp-r1" ()) ("Observation/bp-r2" ())))
@@ -114,14 +116,14 @@
     ;; the reading's source text stages again: its RuleSet comes with it (it failed: RuleSet not found)
     (define-values (src-text _e3) ((tool-run (hash-ref tools "describe")) (hasheq 'ref "Observation/bp-r1" 'as "source")))
     (check-regexp-match #rx"^RuleSet: Reading[(]" src-text)
-    (check-regexp-match #rx"\nInstance: bp-r1\nInstanceOf: Observation\n[*] insert Reading[(]bp-r1, a, 2025-01-10, 142, 91[)]" src-text)
+    (check-regexp-match #rx"\nInstance: bp-r1\nInstanceOf: Observation\n[*] insert Reading[(]a, 2025-01-10, 142, 91[)]" src-text)
     (define again (call "stage" (hasheq 'fsh (string-replace src-text "142, 91" "141, 91"))))
     (check-equal? (map (lambda (c) (list (hash-ref c 'resource) (hash-ref c 'errors '()))) (hash-ref again 'changes))
                   '(("Observation/bp-r1" ())))
     ;; committed, the correction's `at` is the insert line that changed (it was the Instance header)
     (call "commit" (hasheq 'stage (hash-ref again 'stage) 'reason "typo"))
     (define insert-at (for/first ([l (in-list (regexp-split #rx"\n" src-text))] [i (in-naturals 1)]
-                                  #:when (regexp-match? #rx"^[*] insert Reading[(]bp-r1" l))
+                                  #:when (regexp-match? #rx"^[*] insert Reading[(]a, 2025-01-10" l))
                         i))
     (check-regexp-match (pregexp (format ":~a$" insert-at))
                         (hash-ref (car (hash-ref (call "describe" (hasheq 'ref "Observation/bp-r1/_history")) 'versions)) 'at))
@@ -179,4 +181,18 @@
   (check-equal? (length (regexp-match* #px"(?m:^profiles:)" yaml)) 1 yaml)
   (check-false (regexp-match? #px"(?m:^# profiles:)" yaml) yaml)
   (check-regexp-match #px"(?m:^profiles:.*\n  Patient: http://example.org/fhir/StructureDefinition/r$)" yaml)
+  ;; a second profile of a type already listed joins its line (a second `Patient:` line was what YAML
+  ;; kept alone, so the first profile was silently no longer enforced), and both hold
+  (with-hub h3
+    (lambda ()
+      ((tool-run (hash-ref t3 "write")) (hasheq 'path "r2.fsh" 'text "Profile: R2\nParent: Patient\nId: r2\n* gender 1..1\n" 'enforce #t))))
+  (define yaml2 (file->string (build-path d3 "workspace.yaml")))
+  (check-equal? (length (regexp-match* #px"(?m:^  Patient:)" yaml2)) 1 yaml2)
+  (check-regexp-match #px"(?m:^  Patient: http://example.org/fhir/StructureDefinition/r http://example.org/fhir/StructureDefinition/r2$)" yaml2)
+  (with-hub h3
+    (lambda ()
+      (define-values (text _e) ((tool-run (hash-ref t3 "stage")) (hasheq 'fsh "Instance: p\nInstanceOf: Patient\n* active = true\n")))
+      (define errs (hash-ref (car (hash-ref (string->jsexpr text) 'changes)) 'errors '()))
+      (check-true (for/or ([e errs]) (regexp-match? #rx"birthDate" e)) text)
+      (check-true (for/or ([e errs]) (regexp-match? #rx"gender" e)) text)))
   (delete-directory/files d3))

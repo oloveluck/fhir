@@ -23,6 +23,8 @@
          (only-in fhirpath/render item->json)
          (only-in fhirpath/eval eval-fhirpath)
          (only-in fhirpath/parser/parse parse-fhirpath)
+         (only-in fhir/sd/sd-index current-sd-packages)
+         (only-in fhir/spec-package spec-package-path)
          (only-in "derive.rkt" op-code->canonical)
          (only-in "json-patch.rkt" apply-json-patch exn:fail:json-patch?)
          fhir/kernel/operation-entry)
@@ -39,6 +41,7 @@
  (struct-out search-result/ignored)
  current-app
  strict-search-app?
+ r6-sd-packages
  ;; current-request-json : (parameter jsexpr|#f)   the request body AS SENT (the HTTP layer sets it
  ;; while dispatching): validation and operations read it, since the typed node is parsed leniently
  ;; and has dropped whatever it did not know (a misspelt element, a value it could not parse)
@@ -196,7 +199,15 @@
 (define current-app (make-parameter #f))
 
 (define (dispatch a req)
-  (parameterize ([current-app a]) (dispatch* a req)))
+  ;; an app's own FHIR version for validation (a capability app is R6: its `$validate` and its
+  ;; write checks read R5 by default, and said so in "All OK (FHIR R5 …)") — outside settings win
+  (define pkgs (and (not (current-sd-packages)) (hash-ref (app-metadata a) 'sd-packages #f)))
+  (parameterize ([current-app a] [current-sd-packages (or pkgs (current-sd-packages))]) (dispatch* a req)))
+
+;; r6-sd-packages : -> (listof path)|#f   the R6 core package, what a capability app validates in
+(define (r6-sd-packages)
+  (define p (spec-package-path "hl7.fhir.r6.core.tgz" #:optional? #t))
+  (and p (list p)))
 (define (dispatch* a req)
   (case (request-kind req)
     [(read vread create update delete search history-instance history-type patch) (dispatch-interaction a req)]

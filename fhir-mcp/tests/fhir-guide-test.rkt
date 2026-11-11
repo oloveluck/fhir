@@ -19,3 +19,24 @@
   (check-regexp-match #rx"(?m:^workspace  )" text))
 (let-values ([(code _t) (run "fhir" "guide" "nope")])
   (check-equal? code 2))
+
+;; a recipe saved as a file in one command (a rerun's agent cut it out of the printed guide with sed):
+;; `--blocks` lists the code blocks, `--block N` prints one, the same from both commands
+(let-values ([(code listing) (run "fhir" "guide" "cql" "--blocks")])
+  (check-equal? code 0)
+  (define n (for/first ([l (in-list (regexp-split #rx"\n" listing))] #:when (regexp-match? #rx"library LatestA1c" l))
+              (string->number (car (regexp-match #px"^[0-9]+" l)))))
+  (check-true (exact-positive-integer? n) listing)
+  (let-values ([(c1 a) (run "fhir" "guide" "cql" "--block" (number->string n))]
+               [(c2 b) (run "fhir-mcp" "guide" "cql" "--block" (number->string n))])
+    (check-equal? (list c1 c2) '(0 0))
+    (check-equal? a b)
+    (check-regexp-match #rx"^library LatestA1c version '1'\n" a)
+    (check-false (regexp-match? #rx"```" a))))
+(let-values ([(code _t) (run "fhir" "guide" "cql" "--block" "999")])
+  (check-equal? code 2))
+;; the CQL guide's own instruction (`--block N > LatestA1c.cql`) names the recipe's block
+(let* ([n (cadr (regexp-match #px"raco fhir guide cql --block ([0-9]+) > LatestA1c[.]cql" (learn-text "cql")))])
+  (let-values ([(code text) (run "fhir" "guide" "cql" "--block" n)])
+    (check-equal? code 0)
+    (check-regexp-match #rx"^library LatestA1c " text)))
