@@ -100,19 +100,28 @@
                   (list (hasheq 'patient "a" 'readings 3 'mean_systolic "140.0" 'mean_diastolic "91.0" 'at_or_above_140_90 "yes")))
     ;; the guide's RuleSet for many readings: one line each, held to the rule, each version's trail at
     ;; its line; the trail's value reads a blood pressure's components (it was empty)
-    (define rs (cadr (regexp-match #px"```fsh\n(RuleSet: Reading.*?)```" (learn-text "workspace"))))
-    (define readings (string-append rs "\n"
-                                    "Instance: bp-r1\nInstanceOf: Observation\n* insert Reading(a, 2025-01-10, 142, 91)\n\n"
-                                    "Instance: bp-r2\nInstanceOf: Observation\n* insert Reading(a, 2025-02-10, 128, 82)\n"))
+    ;; the guide's whole readings.fsh, staged as it is (its ids renamed: bp-a1 is this test's own)
+    (define readings (string-replace (cadr (regexp-match #px"```fsh\n(RuleSet: Reading.*?)```" (learn-text "workspace"))) "bp-a" "bp-r"))
+    (define (line-of rx) (for/first ([l (in-list (regexp-split #rx"\n" readings))] [i (in-naturals 1)] #:when (regexp-match? rx l)) i))
     (define rst (call "stage" (hasheq 'fsh readings 'files (hasheq 'fsh "readings.fsh"))))
     (check-equal? (for/list ([c (in-list (hash-ref rst 'changes))]) (list (hash-ref c 'resource) (hash-ref c 'errors '())))
-                  '(("Observation/bp-r1" ()) ("Observation/bp-r2" ())))
+                  '(("Patient/a" ()) ("Observation/bp-r1" ()) ("Observation/bp-r2" ())))
     (call "commit" (hasheq 'stage (hash-ref rst 'stage) 'reason "readings"))
     (define-values (trail-csv _e1) ((tool-run (hash-ref tools "describe")) (hasheq 'ref "Observation/bp-r1/_history" 'as "trail")))
     (check-regexp-match #rx"^id,subject,name,value,date,versionId,recorded,agent,reason,source,at,provenance\n" trail-csv)
-    (check-regexp-match #rx"\nbp-r1,Patient/a,,142 mm\\[Hg\\] / 91 mm\\[Hg\\],2025-01-10,1,[^,]+,[^,]*,readings,[^,]*readings[.]fsh,[^,]*readings[.]fsh:13," trail-csv)   ; its insert line, where the values are
+    (check-regexp-match (pregexp (format "\nbp-r1,Patient/a,Alice Abara,142 mm\\[Hg\\] / 91 mm\\[Hg\\],2025-01-10,1,[^,]+,[^,]*,readings,[^,]*readings[.]fsh,[^,]*readings[.]fsh:~a,"
+                                 (line-of #rx"insert Reading[(]a, 2025-01-10")))
+                        trail-csv)   ; its insert line, where the values are
     (define-values (cols-csv _e2) ((tool-run (hash-ref tools "describe")) (hasheq 'ref "Observation" 'as "trail" 'columns "id,value,at" 'sort "-id")))
-    (check-regexp-match #rx"^id,value,at\nbp-r2,128 mm\\[Hg\\] / 82 mm\\[Hg\\],[^,\n]*readings[.]fsh:17\n" cols-csv)
+    (check-regexp-match (pregexp (format "^id,value,at\nbp-r2,128 mm\\[Hg\\] / 82 mm\\[Hg\\],[^,\n]*readings[.]fsh:~a\n" (line-of #rx"insert Reading[(]a, 2025-02-10")))
+                        cols-csv)
+    ;; the guide's patients view and the summary by name: the table a person reads (the agent wrote
+    ;; the view and its name column itself)
+    (call "write" (hasheq 'path "patients.view.json"
+                          'text (cadr (regexp-match #px"```json\n([{]\"resourceType\": \"ViewDefinition\", \"name\": \"patients\".*?)```" (learn-text "workspace")))))
+    (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text (cadr (regexp-match #px"```\n(SELECT p.name, count.*?)```" (learn-text "workspace"))))) 'rows)
+                  (list (hasheq 'name "Alice Abara" 'readings 5 'mean_systolic "138.0" 'mean_diastolic "89.2" 'at_or_above_140_90 "no")))
+    (void (call "write" (hasheq 'path "patients.view.json" 'text "")))
     ;; the reading's source text stages again: its RuleSet comes with it (it failed: RuleSet not found)
     (define-values (src-text _e3) ((tool-run (hash-ref tools "describe")) (hasheq 'ref "Observation/bp-r1" 'as "source")))
     (check-regexp-match #rx"^RuleSet: Reading[(]" src-text)

@@ -32,6 +32,10 @@
 ;; A Layout is a hasheq key -> (cons position child-type|#f): a registered type's elements in their
 ;; defined order, with the type of each complex element (to lay out what it holds).
 ;; layout-of : symbol|#f -> Layout|#f   #f when no tower registers the type (the fallback order)
+;; A type's generated schema lists its elements in the specification's order but its choice members
+;; (`medicationCodeableConcept`) after all the others, so where the core StructureDefinition can be
+;; read (fhir/sd/sd-index, loaded only then), its snapshot gives each element's place, a choice
+;; member taking its `[x]` element's; else the schema's order stands.
 (define layouts (make-hasheq))
 (define (layout-of type)
   (and type
@@ -39,10 +43,38 @@
                   (lambda ()
                     (and (type-schema-of type)
                          (with-handlers ([exn:fail? (lambda (e) #f)])
-                           (for/hasheq ([fs (in-list (full-field-specs type))] [i (in-naturals)]
-                                        #:when (field-spec? fs))
+                           (define spec-order (sd-element-order type))
+                           (define specs (filter field-spec? (full-field-specs type)))
+                           (for/hasheq ([fs (in-list specs)] [i (in-naturals)])
                              (define ft (field-spec-ftype fs))
-                             (values (field-spec-name fs) (cons i (and (ftype-type? ft) (ftype-type-name ft)))))))))))
+                             (define name (field-spec-name fs))
+                             (define pos (or (and spec-order (spec-position spec-order (symbol->string name))) (+ 10000 i)))
+                             (values name (cons pos (and (ftype-type? ft) (ftype-type-name ft)))))))))))
+
+;; sd-element-order : type -> (hash name -> index) | #f   the type's own elements in its core
+;; StructureDefinition's snapshot (`Observation.value[x]` -> "value[x]"), when it can be read
+(define (sd-element-order type)
+  (with-handlers ([exn:fail? (lambda (e) #f)])
+    (define resolve (dynamic-require 'fhir/sd/sd-index 'resolve-sd-raw (lambda () #f)))
+    (define sd (and resolve (resolve (symbol->string type))))
+    (define elements (and (hash? sd) (hash-ref (hash-ref sd 'snapshot (hasheq)) 'element #f)))
+    (and (list? elements)
+         (let ([prefix (string-append (symbol->string type) ".")])
+           (for/fold ([h (hash)]) ([e (in-list elements)] [i (in-naturals)])
+             (define p (hash-ref e 'path ""))
+             (if (and (string-prefix? p prefix) (not (regexp-match? #rx"[.]" (substring p (string-length prefix)))))
+                 (hash-set h (substring p (string-length prefix)) i)
+                 h))))))
+
+;; spec-position : order name -> index|#f   a name's place; a choice member's (`valueQuantity`) is its
+;; `value[x]`'s
+(define (spec-position order name)
+  (or (hash-ref order name #f)
+      (for/or ([k (in-hash-keys order)])
+        (define base (and (regexp-match? #rx"\\[x\\]$" k) (substring k 0 (- (string-length k) 3))))
+        (and base (string-prefix? name base) (> (string-length name) (string-length base))
+             (char-upper-case? (string-ref name (string-length base)))
+             (hash-ref order k)))))
 
 ;; typed-order : Layout (listof symbol) -> (listof symbol)   resourceType, the type's elements in
 ;; order (each `_x` after its `x`), then keys the type does not define, by name
@@ -114,3 +146,11 @@
   (check-equal? (fhir-json->string (hasheq 'resourceType "Patient" '_birthDate (hasheq 'id "x") 'birthDate "2000" 'gender "male"
                                            'name (list (hasheq 'given '("A") 'family "B"))))
                 "{\"resourceType\":\"Patient\",\"name\":[{\"family\":\"B\",\"given\":[\"A\"]}],\"gender\":\"male\",\"birthDate\":\"2000\",\"_birthDate\":{\"id\":\"x\"}}"))
+;; a choice element in its place (the schema lists choice members last): effective[x] before issued,
+;; value[x] before interpretation
+(module+ test
+  (check-regexp-match #rx"\"effectiveDateTime\".*\"issued\".*\"valueQuantity\".*\"interpretation\""
+                      (fhir-json->string (hasheq 'resourceType "Observation" 'status "final" 'code (hasheq 'text "x")
+                                                 'issued "2025-01-01T00:00:00Z" 'effectiveDateTime "2025-01-01"
+                                                 'interpretation (list (hasheq 'text "H"))
+                                                 'valueQuantity (hasheq 'value 1)))))

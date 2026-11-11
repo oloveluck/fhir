@@ -66,7 +66,7 @@
                     ("1" "created" "intake: ann's first HbA1c" "claude-code 2.0 via fhir-mcp")))
     ;; each version names the line of its source that made it: a create the Instance's first line, a
     ;; correction the rule it changed (`* valueQuantity = 8.4 '%'`, line 6, not the header)
-    (check-equal? (map (lambda (v) (hash-ref v 'at #f)) (hash-ref hist 'versions)) '("fsh:6" "fsh:5"))
+    (check-equal? (map (lambda (v) (hash-ref v 'at #f)) (hash-ref hist 'versions)) '("fsh:6" "fsh:10"))   ; v1, a create: its valueQuantity line, where the value is
     ;; staging the original text again would undo the correction: said, with what and why it undoes;
     ;; and the patient stored as it is comes back as a count, not a listed "unchanged" change
     (define again (call "stage" (hasheq 'fsh (string-append "Instance: ann\nInstanceOf: Patient\n* gender = #female\n\n" (a1c 8.0 "%")))))
@@ -153,8 +153,13 @@
     ;; and Above 9 for the patient id and a yes/no flag)
     (define recipe (cadr (regexp-match #px"```cql\n(library LatestA1c.*?)```" (learn-text "cql"))))
     (call "write" (hasheq 'path "LatestA1c.cql" 'text recipe))
-    (check-regexp-match #rx"columns=\"Latest Number,Latest Unit,Latest Date,Above 9,Name\""
-                        (hash-ref (call "run" (hasheq 'path "LatestA1c.cql")) 'table))
+    (define recipe-run (call "run" (hasheq 'path "LatestA1c.cql")))
+    (check-regexp-match #rx"run[(]\"LatestA1c[.]cql\"[)] as=csv columns=\"Name,Latest Number,Latest Unit,Latest Date,Above 9\""
+                        (hash-ref recipe-run 'table))
+    ;; a Quantity define is summarised as numbers are, with its unit (it read {"other": n})
+    (define latest-tally (hash-ref (hash-ref (hash-ref recipe-run 'summary) 'defines) '|Latest Value|))
+    (check-true (and (hash-has-key? latest-tally 'quantities) (hash-has-key? latest-tally 'mean) (equal? (hash-ref latest-tally 'unit #f) "%"))
+                (format "~s" latest-tally))
     (void (call "write" (hasheq 'path "LatestA1c.cql" 'text "")))
     (void (call "write" (hasheq 'path "Above.cql" 'text "")))))
 

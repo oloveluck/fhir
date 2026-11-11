@@ -45,8 +45,9 @@
 ;; guide-blocks : text -> (listof (list lang first-line body))   every ``` fenced block (a recipe copied
 ;; to a file was cut out of the printed guide by hand, with sed)
 (define (guide-blocks text)
-  ;; a line walk: an opening fence with its language, the lines, the closing fence
-  (let loop ([lines (regexp-split #rx"\n" text)] [open #f] [body '()] [acc '()])
+  ;; a line walk: an opening fence with its language, the lines, the closing fence; each block keeps
+  ;; the heading it sits under (the listing names it: a first line alone said little)
+  (let loop ([lines (regexp-split #rx"\n" text)] [open #f] [body '()] [acc '()] [heading ""])
     (cond
       [(null? lines) (reverse acc)]
       [(regexp-match #px"^```([A-Za-z0-9-]*)" (car lines))
@@ -54,10 +55,11 @@
             (if open
                 (let* ([b (reverse body)]
                        [first (or (for/first ([l (in-list b)] #:unless (string=? (string-trim l) "")) l) "")])
-                  (loop (cdr lines) #f '() (cons (list open first (string-append (string-join b "\n") "\n")) acc)))
-                (loop (cdr lines) (cadr m) '() acc)))]
-      [open (loop (cdr lines) open (cons (car lines) body) acc)]
-      [else (loop (cdr lines) #f body acc)])))
+                  (loop (cdr lines) #f '() (cons (list open first (string-append (string-join b "\n") "\n") heading) acc) heading))
+                (loop (cdr lines) (cadr m) '() acc heading)))]
+      [open (loop (cdr lines) open (cons (car lines) body) acc heading)]
+      [(regexp-match #px"^#+\\s+(.*)$" (car lines)) => (lambda (m) (loop (cdr lines) #f body acc (cadr m)))]
+      [else (loop (cdr lines) #f body acc heading)])))
 
 ;; guide-block-text : text 'list|n -> string|#f
 (define (guide-block-text text which)
@@ -65,8 +67,9 @@
   (cond [(eq? which 'list)
          (string-append
           (string-join (for/list ([b (in-list bs)] [i (in-naturals 1)])
-                         (format "~a  ~a~a" i (if (string=? (car b) "") "" (format "[~a] " (car b)))
-                                 (let ([l (cadr b)]) (if (> (string-length l) 90) (string-append (substring l 0 89) "…") l))))
+                         (format "~a  ~a~a~a" i (if (string=? (car b) "") "" (format "[~a] " (car b)))
+                                 (if (string=? (cadddr b) "") "" (format "(~a) " (cadddr b)))
+                                 (let ([l (cadr b)]) (if (> (string-length l) 80) (string-append (substring l 0 79) "…") l))))
                        "\n")
           "\n")]
         [(<= which (length bs)) (caddr (list-ref bs (sub1 which)))]

@@ -247,7 +247,8 @@ A server needs no workspace: the file, `raco fhir-server serve`, and any HTTP cl
 on a free port — start it, wait for its first line, read the url from it:
 ```sh
 raco fhir-server serve clinic.capability.rkt --port 0 --store fhir.db --log > serve.log 2>&1 &
-until grep -q '^FHIR server on' serve.log; do sleep 0.5; done
+for i in $(seq 60); do grep -q '^FHIR server on' serve.log && break; sleep 0.5; done   # 30 s at most
+grep -q '^FHIR server on' serve.log || { cat serve.log; exit 1; }   # it did not start: the reason is in the log
 BASE=$(sed -n 's/^FHIR server on \(http[^ ]*\).*/\1/p' serve.log)
 curl -s $BASE/metadata | head -c 200
 curl -s -X POST $BASE/Patient -H 'Content-Type: application/fhir+json' \
@@ -304,7 +305,17 @@ A handler is Racket, and every language of the workspace is a library in it:
 
 ## Common problems
 - The capability language types resources with FHIR R6; data in an R4 store is read leniently, so an
-  element R6 renamed or dropped is not served.
+  element R6 renamed or dropped is not served. What a client sends in R4's shape is the same in R6 for
+  Patient (name, gender, birthDate, identifier, address, telecom) and for an Observation's status,
+  code, subject, effective[x], value[x], component and interpretation. It differs for: a
+  MedicationRequest/MedicationStatement's medication (R4 `medicationCodeableConcept` or
+  `medicationReference`, R6 `medication` a CodeableReference: `{"concept": {…}}`), an Encounter's
+  `class` (R4 a Coding, R6 a list of CodeableConcepts), Provenance's `reason` (R6 `authorization` and
+  `why`) and AllergyIntolerance's `type` (R6 a CodeableConcept). `$validate` names each element R6
+  does not know (`element 'medicationCodeableConcept' is not defined`), so validate first.
+- `$validate` holds a resource to R6's own rules, warnings included: a minimal Observation is warned
+  `obs-12: All observations SHOULD have a performer` (a warning, not an error: the create still
+  succeeds).
 - One app per file; one `(server …)`. Declarations may come in any order; a handler must not use `app`.
 - The store indexes a resource when it is written, by the writer's search parameters: a parameter
   only the app declares (with its own FHIRPath) finds what the app wrote, not what the workspace

@@ -42,6 +42,13 @@
              #:when (regexp-match? (pregexp (string-append "(?i:(?<![A-Za-z0-9_])\"?" (regexp-quote n) "\"?(?![A-Za-z0-9_]))")) sql))
     n))
 
+;; tables-read : sql (listof name) -> (listof name)   those named as a table: after FROM, JOIN or a
+;; comma in a FROM list
+(define (tables-read sql names)
+  (for/list ([n (in-list names)]
+             #:when (regexp-match? (pregexp (string-append "(?i:(?:\\bfrom|\\bjoin|,)\\s+\"?" (regexp-quote n) "\"?(?![A-Za-z0-9_]))")) sql))
+    n))
+
 ;; reading? : sql -> boolean   one statement that reads
 (define (reading? sql)
   (define s (string-trim (regexp-replace #px";\\s*$" (string-trim sql) "")))
@@ -60,7 +67,9 @@
      (when (and (null? names) (null? (tables-named sql types)))
        (raise-user-error 'sql (format "the statement names none of the tables: ~a" (string-join (sort (append (hash-keys tables) types) string<?) ", "))))
      (for ([n (in-list names)]) (load-table! c n ((hash-ref tables n)) #:temp? (and store #t)))
-     (define named (remove-duplicates (append names (tables-named sql (append types '("resources" "history"))))))
+     ;; the tables the statement reads (after FROM or JOIN): a column named `patient` is not the
+     ;; `Patient` table (SQL names ignore case), so a column hint listed a table never named
+     (define named (tables-read sql (remove-duplicates (append names (tables-named sql (append types '("resources" "history")))))))
      (define r (with-handlers ([exn:fail:sql? (lambda (e) (raise-user-error 'sql (with-columns (sql-message e) c named)))])
                  (query c (regexp-replace #px";\\s*$" (string-trim sql) ""))))
      (define cols (for/list ([h (in-list (rows-result-headers r))]) (cdr (assq 'name h))))
@@ -136,6 +145,9 @@
 
 (module+ test
   (require rackunit)
+  ;; a column named like a table is not that table (the hint listed Patient's columns for `patient`)
+  (check-equal? (tables-read "SELECT patient, avg(systolc) FROM bp GROUP BY patient" '("bp" "Patient")) '("bp"))
+  (check-equal? (tables-read "SELECT * FROM a JOIN \"Patient\" p ON p.id = a.x, b" '("a" "Patient" "b")) '("a" "Patient" "b"))
   (define patients (table '("id" "gender" "birth")
                           (list (hasheq 'id "a" 'gender "female" 'birth "1960-01-01")
                                 (hasheq 'id "b" 'gender "male" 'birth "1990-01-01")

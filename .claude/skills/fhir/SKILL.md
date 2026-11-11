@@ -15,14 +15,14 @@ one line, `file:line:col severity: message`, with "did you mean …" for a missp
 | you are … | start with |
 |---|---|
 | asking questions of health data, storing it under rules, keeping its trail | this skill: the workspace (MCP tools, or `raco fhir-mcp call` from the shell) |
-| writing a Racket program (an FML map, an FSH profile and a CQL library required side by side) | "A Racket program" at the end (a quickstart), then the `fhir-authoring` skill — the workspace sections are not needed |
+| writing a Racket program (an FML map, an FSH profile and a CQL library required side by side) | `raco fhir guide racket` (the route on one page: template, checks, API, errors), then "A Racket program" at the end and the `fhir-authoring` skill — the workspace sections are not needed |
 | building a FHIR server with your own operations | "Build a FHIR server" below, and `raco fhir-mcp guide capability` |
 | using one language from the command line | its own skill: `cql`, `fsh`, `fml`, `fhirpath`, `vcl`, `sql-on-fhir` |
 
 **Which call answers which question** (each one a tested recipe):
 | question | where |
 |---|---|
-| is the latest HbA1c above 9 %, per patient (and "never tested") | `raco fhir-mcp guide cql`, "the latest value per patient" (copy its library as `LatestA1c.cql`); the table: `run path=LatestA1c.cql as=csv columns="Name,Latest Number,Latest Date,Above 9"` |
+| is the latest HbA1c above 9 %, per patient (and "never tested") | `raco fhir-mcp guide cql`, "the latest value per patient" (copy its library as `LatestA1c.cql`); the table: `run path=LatestA1c.cql as=csv columns="Name,Latest Number,Latest Date,Above 9,Ever Above 9"` (latest and ever, side by side) |
 | was any result above a threshold | a FHIR search: `query language=search text="Observation?code=…&value-quantity=gt9"`; per patient beside the latest, the CQL guide's `Ever Above 9` |
 | whose mean blood pressure is at or above 140/90 | `raco fhir-mcp guide workspace`, the `bp` view and its summary SQL — read clinically as systolic ≥ 140 OR diastolic ≥ 90 |
 | where did each stored value come from (who, when, why, which file and line) | `describe ref=Observation as=trail` (one resource's versions: `ref=Observation/a1/_history as=trail`) |
@@ -30,8 +30,8 @@ one line, `file:line:col severity: message`, with "did you mean …" for a missp
 | a rule every resource of a type must meet | "Constraints and the trail" below; the rules cookbook in `raco fhir-mcp guide workspace` |
 | correct a stored value with a reason | the correction recipe in `raco fhir-mcp guide workspace` |
 | a table of values to join or chart | a ViewDefinition (`raco fhir-mcp guide sql-on-fhir`), then `query language=sql` |
-| a FHIR server with an operation of your own | "Build a FHIR server" below |
-| a Racket program: map, validate, decide | "A Racket program" at the end |
+| a FHIR server with an operation of your own | "Build a FHIR server" below; a whole operation (the eGFR equation, every input option): `raco fhir guide capability`, "One operation using every option" |
+| a Racket program: map, validate, decide | `raco fhir guide racket`; "A Racket program" at the end |
 
 **A Racket program, in brief** (the workspace below is not needed): `raco fhir new pipeline my-pipeline`
 copies a working template (an FSH profile, an FML map, a CQL library, `main.rkt`, a sample input and
@@ -53,8 +53,24 @@ directory of JSON files or a FHIR server's base url. To import JSON files:
 Without an MCP client, every tool runs from the shell, each call its own process; stages and results
 are kept in the workspace (`.fhir-mcp/`), so one call's stage is committed by the next and a result
 is described or joined in SQL later. Arguments are a JSON object and/or `key=value`, `key=@file`
-(a file's text: no escaping FSH, CQL or SQL into JSON) and `key:=<json>`:
+(a file's text: no escaping FSH, CQL or SQL into JSON) and `key:=<json>`.
 
+Each call is a process of its own (1–4 s of startup), so a session is a **batch**: one call per line
+in one process, quoted as a shell would, each answer under a `### <line>` header, every line run
+(exit 1 if any failed; a line starting with `!` is expected to fail); `--workspace` applies to every
+line. The whole cohort session — data in, table out, trail — is one batch:
+```sh
+raco fhir guide cql --block 3 > LatestA1c.cql            # the latest-value recipe, as a file
+cat > session.txt <<'CALLS'
+write path=LatestA1c.cql text=@LatestA1c.cql
+stage fsh=@patients.fsh
+commit stage=latest reason="intake" agent="clinic intake desk"
+run path=LatestA1c.cql as=csv columns="Name,Latest Number,Latest Date,Above 9,Ever Above 9"
+describe ref=Observation as=trail
+CALLS
+raco fhir-mcp batch session.txt --workspace ws       # from the folder holding ws/ and patients.fsh
+```
+One call at a time works too, for a step you want to look at before the next:
 ```sh
 raco fhir-mcp call stage fsh=@patients.fsh --workspace ws
 raco fhir-mcp call commit stage=latest reason="intake" --workspace ws        # or stage=stage-1
@@ -62,15 +78,6 @@ raco fhir-mcp call write path=Diabetes.cql text=@Diabetes.cql --workspace ws
 raco fhir-mcp call run path=Diabetes.cql --workspace ws                      # result://Diabetes
 raco fhir-mcp call query language=sql text=@summary.sql name=summary --workspace ws
 raco fhir-mcp call describe ref=result://summary as=csv --workspace ws
-```
-Each call is a process of its own (1–4 s of startup): for more than two calls, prefer
-`raco fhir-mcp batch calls.txt`
-(or `-` for stdin) runs one call per line — `stage fsh=@patients.fsh`, `commit stage=latest
-reason="intake"`, quoted as a shell would — in one process, each answer under a `### <line>`
-header, every line run (exit 1 if any failed). Its `--workspace` applies to every line:
-```sh
-printf '%s\n' 'stage fsh=@patients.fsh' 'commit stage=latest reason="intake"' \
-  'query language=sql text="SELECT count(*) AS n FROM Patient"' | raco fhir-mcp batch - --workspace ws
 ```
 
 A run is named by its file and a query by its `name` (as a SQL table: letters, digits, `_`); the
@@ -317,12 +324,17 @@ yourself and give `apply` its url (`apply … url=` needs no workspace: it only 
 After editing the app, stop the server (the pid it printed) and serve it again. The store: `(server
 #:store "study.db")` in the file names one beside it; `--store fhir.db` on the command line overrides
 it (here, the workspace's own store, so the workspace sees what the server writes).
+A server with no workspace needs no `--store`: `(server #:store "study.db")` in the file is the
+store, beside it.
 ```
-raco fhir-server serve study.capability.rkt --port 8080 --store fhir.db &       # check it first: racket study.capability.rkt
+racket study.capability.rkt                                      # its CapabilityStatement: the file checked
+raco fhir-server serve study.capability.rkt --port 0 --log &      # prints its url and pid first; data in study.db
+raco fhir-server serve study.capability.rkt --port 8080 --store fhir.db &   # or over a workspace's store
 raco fhir-mcp call apply operation='$egfr' url=http://localhost:8080 inputs:='{"creatinine": 1.1, "age": 60, "sex": "female"}'
 ```
-`raco fhir-mcp guide capability` has the cheat sheet and a worked example (a clinic server with a
-`$bmi` operation), tested as written.
+`raco fhir guide capability` has the cheat sheet, the smallest server, a whole operation using every
+input option (the eGFR equation: `--blocks` lists the blocks, `--block 3` prints it), a worked example
+and a smoke test, tested as written.
 
 ## When something is off
 - A problem line names the file, line and column: fix it there and `write` again.

@@ -27,15 +27,25 @@ raco cql Intake.cql --data patient.json --now 2026-01-01         # the library's
 ## The API `main.rkt` uses
 | require | binding | what it is |
 |---|---|---|
+| `json` | `(call-with-input-file "qr.json" read-json)` | the input: FHIR JSON as a hash, what `transform` takes |
 | `"fsh/intake.fsh"` | `(canonical-of "IntakePatient")` | a definition's url, by name or id |
-| `"qr2patient.map"` | `(transform qr #:validate url)` | FHIR JSON in, FHIR JSON out; invalid -> `exn:fail:operation` naming the map's rule |
-| `"Intake.cql"` | `(evaluate (list patient) #:define "Is 65 Or Older" #:now "2026-01-01")` | the define's Racket value (`#t`, a number); without `#:define`, a hash of all |
+| `"qr2patient.map"` | `(transform qr #:validate url)` | FHIR JSON (a hash, or a typed node) in, FHIR JSON out; invalid -> `exn:fail:operation` naming the map's rule |
+| `"Intake.cql"` | `(evaluate (list patient) #:define "Is 65 Or Older" #:now "2026-01-01")` | the define's Racket value (`#t`, a number); without `#:define`, a hash of all; `#:now #f` (the default) is today |
 | `cql/value` | `(render v)` | a value as text to print (`"true"`, JSON, `"null"`) |
 | `fhir/serialize/fhir-json` | `(write-fhir-json js #:indent 2)` | FHIR JSON as FHIR writes it: `resourceType` first, then each element in its type's order |
 | `fhir/operation` | `exn:fail:operation?` | the error `#:validate` and `ensure-valid` raise: one handler for both |
 | `fhir/conformance/operations` | `(ensure-valid r #:profile url)` | any resource, validated; names the element |
 
 `racket <file>.fsh` (or `.map`, `.vcl`) prints what the file compiles to, as FHIR JSON.
+
+## What checks what
+- `raco make` (and `racket main.rkt`) compiles each `#lang` file in its language: an FSH rule on an
+  element the type lacks, an FML rule writing an element the target lacks, a CQL name that does not
+  resolve all fail the build at their line. It does NOT validate the FSH examples (that needs the
+  whole project): an invalid example builds. `raco fsh check fsh` validates them, each problem at its
+  line; keep an example meant to fail in its own folder (`raco fsh check fsh-invalid --context fsh`).
+- The template's `tests.rkt` is all of it as one gate (`raco test tests.rkt`): copy it beside files
+  you wrote yourself (`raco fhir new pipeline tmp`, take `tmp/tests.rkt`) and change its expectations.
 
 ## When it fails
 - `raco make` stops at the first failing module and shows its line and a caret:

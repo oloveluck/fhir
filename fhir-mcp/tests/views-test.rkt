@@ -49,6 +49,9 @@
                   '(("MedicationRequest" "rx1" 1 "intake") ("Patient" "ann" 1 "intake")))
     (check-equal? (hash-ref (car trail) 'source) "FSH written in the stage")
     (check-equal? (hash-ref (car trail) 'sha1) (text-sha1 fsh))
+    ;; a resource is answered in FHIR's element order (status, intent, medication…, subject), not by name
+    (let-values ([(text _e) ((tool-run (hash-ref tools "describe")) (hasheq 'ref "MedicationRequest/rx1"))])
+      (check-regexp-match #rx"^[{]\"resourceType\":\"MedicationRequest\",\"id\":\"rx1\".*\"status\".*\"intent\".*\"medicationCodeableConcept\".*\"subject\"" text))
     ;; describe as=trail: the type's values view joined to the names and the trail
     (define csv (call "describe" (hasheq 'ref "MedicationRequest" 'as "trail")))
     (check-regexp-match #rx"^id,subject,name,date,versionId,recorded,agent,reason,source,at,provenance\n" csv)
@@ -58,3 +61,30 @@
 (check-equal? (hash-ref (trail-view "4.0.1") 'resource) "Provenance")
 (check-equal? (hash-ref (values-view "Observation" (lambda (e) (memq e '(value)))) 'name) "observation_values")
 (delete-directory/files dir)
+
+;; called from the folder above the workspace (`--workspace ws`), the trail's source and line read from
+;; there: `data.fsh:5`, a file that opens, not the workspace's `../data.fsh:5`
+(let ()
+  (define top (make-temporary-directory "views-top-~a"))
+  (define ws (build-path top "ws"))
+  (make-directory ws)
+  (void (init-workspace! ws))
+  (define fsh "Instance: p1\nInstanceOf: Patient\n* gender = #male\n\nInstance: o1\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#4548-4\n* subject = Reference(Patient/p1)\n* valueQuantity = 6.4 '%'\n")
+  (with-output-to-file (build-path top "data.fsh") (lambda () (display fsh)))
+  (define h2 (open-hub ws))
+  (define tools2 (for/hash ([t (in-list (workspace-tools h2))]) (values (tool-name t) t)))
+  (define (call2 name args) (let-values ([(text _e) ((tool-run (hash-ref tools2 name)) args)]) text))
+  (parameterize ([current-directory top])
+    (with-hub h2
+      (lambda ()
+        (define st (string->jsexpr (call2 "stage" (hasheq 'fsh fsh 'files (hasheq 'fsh "data.fsh")))))
+        (call2 "commit" (hasheq 'stage (hash-ref st 'stage) 'reason "intake"))
+        (define csv (call2 "describe" (hasheq 'ref "Observation" 'as "trail")))
+        ;; the value's own line (valueQuantity, line 10), from here
+        (check-regexp-match #rx"\no1,Patient/p1,,6[.]4 %,[^,]*,1,[^,]+,[^,]*,intake,data[.]fsh,data[.]fsh:10," csv))))
+  (parameterize ([current-directory ws])
+    (with-hub h2
+      (lambda ()
+        ;; from the workspace itself, the trail's own form
+        (check-regexp-match #rx",[.][.]/data[.]fsh,[.][.]/data[.]fsh:10," (call2 "describe" (hasheq 'ref "Observation" 'as "trail"))))))
+  (delete-directory/files top))

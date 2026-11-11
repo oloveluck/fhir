@@ -1407,6 +1407,29 @@ fix has a test doing it:
   unused id, and the correction recipe starts from `as=source`; the CQL guide says how to read an empty
   answer and what needs FHIRHelpers.
 
+## New users, round 22 (2026-11-11)
+The twenty-first rerun (every task first time, 10–14 calls, right answers, no source read; three of the
+four saved a guide recipe with `--block N`) left small things; each fix has a test doing it:
+- **The trail opens from where you are**: `describe ref=<Type> as=trail` called from another folder
+  shows `source`/`at` relative to it when the file is there (`paths-from-here!`; SQL's `trail` keeps the
+  workspace's form). A created value's `at` is the rule that set it (`* valueQuantity`, else the first
+  component), not the Instance header. views-test, skill-batch-test.
+- **FHIR JSON in the specification's order, choices included**: the generated schemas list choice members
+  last, so `fhir-json` places each element by its core StructureDefinition's snapshot when one can be read
+  (`sd-element-order`, sd-index loaded on demand; the schema order otherwise). The shell's answers print
+  resources that way too (verbs.rkt `answer-json`): `apply` showed a Quantity as code, system, unit, value.
+- **Tables a person reads**: the CQL recipe has `Ever Above 9` beside `Above 9` (latest vs ever: "nobody
+  above 9" read as a bug); a run's hint is `run path=… as=csv columns=…` with a name column first; a Quantity
+  define is summarised by count/min/max/mean and unit (cql `tally`); an unknown-column hint lists only the
+  tables the statement reads (`tables-read`: a column `patient` is not the `Patient` table).
+- **Guides**: learn://workspace has the patients view (with a name), the summary by name and one whole
+  `readings.fsh` (RuleSet, a Patient, two readings — staged as is in bp-rule-test), and says referenced
+  patients should be stored; the fhir skill leads the shell route with one batch of the whole session (run
+  as written: skill-batch-test); `--blocks` names each block's section; the capability guide's wait loop
+  gives up after 30 s and prints the log, an R4-to-R6 table for common resources, R6's own warnings
+  (obs-12); learn://racket's API card reads the input (`json`'s `read-json`), says `#:now #f` is today, and
+  says what `raco make` checks and what only `raco fsh check` does.
+
 ## SQL on FHIR where tables are made (2026-11-11)
 An audit of where the toolkit flattens FHIR into tables found hand-written JSON SQL doing a
 ViewDefinition's job, and under it a load-order defect; both fixed, each with a test doing it:

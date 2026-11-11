@@ -551,11 +551,11 @@
   (save-state! h "results" (regexp-replace #rx"^result://" uri "") (lambda () (stored->jsexpr st)))
   uri)
 
-(define (result-json uri r [name #f])
+(define (result-json uri r [name #f] #:path [path #f])
   (define rows (run-result-rows r))
-  (define base (result-json* uri r rows))
+  (define base (result-json* uri r rows path))
   (if name (hash-set base 'name (string-append "result://" name)) base))
-(define (result-json* uri r rows)
+(define (result-json* uri r rows [path #f])
   ;; a search's preview names the resources; their JSON (kept in the result: describe it, stage from
   ;; it) would be most of the answer's tokens
   (define resources? (equal? (run-result-kind r) "resources"))
@@ -577,8 +577,11 @@
   (define cols (run-result-columns r))
   (define with-more (if more (hash-set answer 'more more) answer))
   (if (and (not resources?) (> (length cols) 6))
+      ;; a file's run says it as the run itself (`run path=… as=csv columns=…`, the skill's idiom), a
+      ;; query's result through describe
       (hash-set with-more 'table (format "~a as=csv columns=\"~a\": the rows as CSV, the columns you choose"
-                                         (call-text "describe" (list (cons 'ref uri))) (string-join (readable-columns cols rows) ",")))
+                                         (if path (call-text "run" (list (cons 'path path))) (call-text "describe" (list (cons 'ref uri))))
+                                         (string-join (readable-columns cols rows) ",")))
       with-more))
 
 ;; readable-columns : columns rows -> (listof string)   the columns to suggest for a table a person reads:
@@ -602,7 +605,11 @@
                     (remove "patient" readable)
                     readable))
   (define picked (if (null? named) (map (lambda (c) (format "~a" c)) cols) named))
-  (take picked (min 5 (length picked))))
+  ;; a name column leads, as a person reads a table (`Name,Latest Number,…`; past five columns it was
+  ;; the one left out)
+  (define-values (names others) (partition (lambda (c) (regexp-match? #px"(?i:name)" c)) picked))
+  (define ordered (append names others))
+  (take ordered (min 5 (length ordered))))
 
 ;; options : hash -> Options   the verbs' arguments as a language's options
 (define (options args)
@@ -634,7 +641,7 @@
   (define opts (named (options args) (file-result-name full)))
   (define r (audited h "run" (hasheq 'kind "file" 'path (rel h full) 'language lang 'text text)
                      (lambda () (execute h lang full text opts))))
-  (result-json (store! h (stored lang full text opts r)) r (hash-ref opts 'name #f)))
+  (result-json (store! h (stored lang full text opts r)) r (hash-ref opts 'name #f) #:path (rel h full)))
 
 ;; audited : hub what Source thunk -> value   with `audit: all`, the execution leaves an AuditEvent
 ;; in the data (its outcome, its source text), whether it succeeds or fails
@@ -930,6 +937,26 @@
                                (and (not (regexp-match? #rx"^/|^([.][.]/){3}" r)) r))))
   (or relative (path->string full)))
 
+;; paths-from-here! : hub uri -> void   the result's `source` and `at` cells (a file the trail keeps
+;; relative to the workspace, `../patients.fsh:22`) as seen from the current directory, when the file
+;; is there to open
+(define (paths-from-here! h uri)
+  (define st (hash-ref (hub-results h) uri #f))
+  (when st
+    (define (here v)
+      (match (and (string? v) (regexp-match #px"^(.*?)(:[0-9]+)?$" v))
+        [(list _ file line)
+         (define full (if (absolute-path? file) (string->path file) (build-path (hub-root h) file)))
+         (if (file-exists? full) (string-append (from-here full) (or line "")) v)]
+        [_ v]))
+    (define r (stored-result st))
+    (define rows (for/list ([row (in-list (run-result-rows r))])
+                   (if (hash? row)
+                       (for/fold ([row row]) ([k '(source at)] #:when (hash-has-key? row k))
+                         (hash-set row k (here (hash-ref row k))))
+                       row)))
+    (hash-set! (hub-results h) uri (struct-copy stored st [result (run-result (run-result-kind r) (run-result-columns r) rows (run-result-summary r))]))))
+
 ;; shown-path : hub string -> string   a path the trail keeps (workspace-relative or absolute) as a
 ;; message shows it: relative to the current directory when that is shorter
 (define (shown-path h stored)
@@ -996,9 +1023,14 @@
               (define name (if (pair? (cddr m))
                                (string-append (string-downcase (cadr m)) "_" (string-replace (caddr m) "-" "_") "_history")
                                (string-append (string-downcase (cadr m)) "_trail")))
-              (define csv (hub-describe h (hash-ref (parameterize ([current-extra-tables (apply trail-tables h (cdr m))])
-                                                      (hub-query h "sql" (apply trail-sql h (cdr m)) (hasheq 'name name)))
-                                                    'result)
+              (define uri (hash-ref (parameterize ([current-extra-tables (apply trail-tables h (cdr m))])
+                                      (hub-query h "sql" (apply trail-sql h (cdr m)) (hasheq 'name name)))
+                                    'result))
+              ;; called from elsewhere, a source file and its line read from where the call was made
+              ;; (`patients.fsh:22`, not the workspace's `../patients.fsh:22`): this answer is for
+              ;; opening; SQL's `trail` keeps the one form
+              (unless (at-root? h) (paths-from-here! h uri))
+              (define csv (hub-describe h uri
                                         (for/hasheq ([k (in-list '(as columns sort limit))] #:when (hash-ref args k #f))
                                           (values k (if (eq? k 'as) "csv" (hash-ref args k))))))
               ;; CSV only (a `#` note line after it was a junk row in a CSV tool); `source`/`at` are the
@@ -1649,8 +1681,12 @@
                               (for/first ([p (in-list (change-paths ch))]) (car (regexp-split #rx":" p)))))
     ;; a reading written through a RuleSet has its values on its `* insert` line, a create's and a
     ;; correction's alike (a correction pointed at the Instance header)
+    ;; a create's value is at the rule writing it (`* valueQuantity = 9.6 '%'`, else the first
+    ;; component), not at the Instance header ("where did this value come from" is that line)
     (define at (or (and changed-path (rule-line text line changed-path))
                    (and line (insert-line text line))
+                   (and line (eq? (change-action ch) 'create)
+                        (or (rule-line text line "value") (rule-line text line "component")))
                    line))
     (and at (format "~a:~a" (hash-ref src 'path "fsh") at)))
   (define targets (for/list ([w (in-list written)] [ch (in-list todo)] #:when (hash-ref w 'ok #f))

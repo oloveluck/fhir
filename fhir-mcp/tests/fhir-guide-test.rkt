@@ -40,3 +40,10 @@
   (let-values ([(code text) (run "fhir" "guide" "cql" "--block" n)])
     (check-equal? code 0)
     (check-regexp-match #rx"^library LatestA1c " text)))
+;; the fhir skill's `--block 3` for the capability guide is the eGFR operation
+(let-values ([(code text) (run "fhir" "guide" "capability" "--block" "3")])
+  (check-equal? code 0)
+  (check-regexp-match #rx"^[(]define [(]egfr-handler in req[)]" text))
+;; --blocks names each block's section
+(let-values ([(code listing) (run "fhir" "guide" "capability" "--blocks")])
+  (check-regexp-match #rx"(?m:^3  \\[racket\\] \\(Operations: inputs and outputs\\) \\(define \\(egfr-handler)" listing))

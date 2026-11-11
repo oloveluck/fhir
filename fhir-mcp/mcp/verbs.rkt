@@ -13,7 +13,7 @@
 
 (require racket/contract racket/list racket/string json
          (only-in "tools.rkt" tool)
-         (only-in fhir/serialize/fhir-json key-order)
+         (only-in fhir/serialize/fhir-json key-order fhir-json->string)
          (only-in fhir/diagnostic exn:fail:diagnostic? exn:fail:diagnostic-diagnostic diagnostic->jsexpr diagnostic-message)
          (only-in fhir/operation exn:fail:operation? exn:fail:operation-outcome)
          "workspace.rkt")
@@ -36,6 +36,9 @@
 (define (answer-json v)
   (let loop ([v v] [order #f])
     (cond
+      ;; a resource (an operation's Parameters, a described Patient) in FHIR's element order, as the
+      ;; server answers it (`apply` printed a Quantity's code, system, unit, value)
+      [(and (hash? v) (string? (hash-ref v 'resourceType #f))) (fhir-json->string v)]
       [(hash? v)
        (define cols (let ([c (hash-ref v 'columns #f)]) (and (list? c) (andmap string? c) (map string->symbol c))))
        (define ks (hash-keys v))

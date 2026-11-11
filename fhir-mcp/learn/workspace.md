@@ -96,8 +96,8 @@ an object (a CQL Quantity, a Coding) is its JSON text — `json_each` walks a li
 (`r3."Latest Value" ->> '$.value'`); a boolean is 1/0 in SQL (a CQL result's own CSV says
 true/false); a name with a space is quoted (`r3."Poor Control"`); null is NULL.
 
-With two views — `bp.view.json`, one row per blood pressure, and `patients.view.json` (`id`,
-`gender`) —
+With two views — `bp.view.json`, one row per blood pressure, and `patients.view.json`, one row per
+patient with a name a person reads —
 
 ```json
 {"resourceType": "ViewDefinition", "name": "bp", "status": "active", "resource": "Observation",
@@ -110,6 +110,13 @@ With two views — `bp.view.json`, one row per blood pressure, and `patients.vie
    {"name": "systolic", "path": "component.where(code.coding.exists(system = 'http://loinc.org' and code = '8480-6')).value.ofType(Quantity).value.first()"},
    {"name": "diastolic", "path": "component.where(code.coding.exists(system = 'http://loinc.org' and code = '8462-4')).value.ofType(Quantity).value.first()"}]}]}
 ```
+```json
+{"resourceType": "ViewDefinition", "name": "patients", "status": "active", "resource": "Patient",
+ "select": [{"column": [
+   {"name": "id", "path": "getResourceKey()"},
+   {"name": "name", "path": "name.first().select(given.first() + ' ' + family)"},
+   {"name": "gender", "path": "gender"}]}]}
+```
 a summary per patient — readings, means, and whether the mean is at or above 140/90 — is
 
 ```
@@ -117,6 +124,14 @@ SELECT patient, count(*) AS readings, printf('%.1f', avg(systolic)) AS mean_syst
        printf('%.1f', avg(diastolic)) AS mean_diastolic,
        CASE WHEN avg(systolic) >= 140 OR avg(diastolic) >= 90 THEN 'yes' ELSE 'no' END AS at_or_above_140_90
 FROM bp GROUP BY patient ORDER BY patient
+```
+and the same by name, the table a person reads (the patients view joined on the reading's patient):
+
+```
+SELECT p.name, count(*) AS readings, printf('%.1f', avg(b.systolic)) AS mean_systolic,
+       printf('%.1f', avg(b.diastolic)) AS mean_diastolic,
+       CASE WHEN avg(b.systolic) >= 140 OR avg(b.diastolic) >= 90 THEN 'yes' ELSE 'no' END AS at_or_above_140_90
+FROM bp b JOIN patients p ON p.id = b.patient GROUP BY b.patient ORDER BY p.name
 ```
 (`printf('%.1f', …)` writes a mean as a person reads it, `140.0`, where `round(…, 1)` gives a number
 that may print as `140` or `139.66666666666666`; `bp_history` is the same view over every stored
@@ -194,7 +209,8 @@ To keep the valid ones, drop the stage, take the refused resources out of the te
 names its line) and stage again; stage a batch apart when some of it may be refused.
 
 Many readings of one shape are one parameterized RuleSet and one line each (the commit's source
-keeps every line, and each version's `at` names the line that wrote it):
+keeps every line, and each version's `at` names the line that wrote it). A whole `readings.fsh`, to
+save (`raco fhir-mcp guide workspace --blocks` lists the blocks) and stage as it is:
 
 ```fsh
 RuleSet: Reading(patient, date, sys, dia)
@@ -206,9 +222,24 @@ RuleSet: Reading(patient, date, sys, dia)
 * component[0].valueQuantity = {sys} 'mm[Hg]'
 * component[1].code = http://loinc.org#8462-4
 * component[1].valueQuantity = {dia} 'mm[Hg]'
+
+Instance: a
+InstanceOf: Patient
+* name.given = "Alice"
+* name.family = "Abara"
+
+Instance: bp-a1
+InstanceOf: Observation
+* insert Reading(a, 2025-01-10, 142, 91)
+
+Instance: bp-a2
+InstanceOf: Observation
+* insert Reading(a, 2025-02-10, 128, 82)
 ```
-with, per reading, `Instance: bp-a1` / `InstanceOf: Observation` / `* insert Reading(a, 2025-01-10,
-142, 91)` (the Instance names its id; the RuleSet takes only what varies).
+The Instance names its id; the RuleSet takes only what varies. Store the patients the readings name,
+in the same file or before: a reference to a resource neither stored nor staged is staged with a
+warning (`Patient/a is neither in the data nor in this stage`), and a view joining `patients` finds no
+name for it.
 
 Keep DATA out of the workspace's `.fsh` files: they are the project (profiles, value sets, a few
 examples), and every one of them is compiled and checked together, so a patient written there twice
@@ -378,7 +409,10 @@ The trail says when and by whom the DATA was written, not the clinical facts: a 
 is its `effectiveDateTime` (and `issued`), and who produced it is its own `performer` — write them
 in the FSH (`* performer = Reference(Organization/city-lab)`, `* issued = "2025-06-02T10:00:00Z"`),
 where search, CQL and views see them. The trail's `source` is the file the data was written from
-(named relative to the workspace, or in full when outside it).
+(named relative to the workspace, or in full when outside it). `describe ref=<Type> as=trail`, called
+from another folder (`--workspace ws` from the one above), shows `source` and `at` from where it was
+called (`patients.fsh:12`), so the file opens from there; SQL's `trail` keeps the workspace's form.
+A created value's `at` is the rule that set it (`* valueQuantity = …`), else its `* insert` line.
 
 A Provenance written by a commit (for a view of your own over Provenance; `trail` reads these): `target[n].reference`
 (`Type/id/_history/v`), `recorded`, `agent[0].who.display` (the client: `claude-code … via fhir-mcp`,
