@@ -210,7 +210,10 @@
     (check-regexp-match #rx"^fsh:6: .*not-future.*[(]found effectiveDateTime = @2999-01-01[)]$"
                         (errors2 (hr "later2" 72 "/min" "2999-01-01")))
     (check-regexp-match #rx"hr-unit" (errors2 (hr "hz" 1.2 "Hz" "2025-03-01")))
-    (check-regexp-match #rx"not-future" (errors2 (hr "later" 72 "/min" "2999-01-01")))))
+    (check-regexp-match #rx"not-future" (errors2 (hr "later" 72 "/min" "2999-01-01")))
+    ;; a code without its system: refused by `code-system` (the stage alone only warned of it)
+    (check-regexp-match #rx"code-system: Every coding of an observation's code names its code system"
+                        (errors2 (string-replace (hr "nosys" 72 "/min" "2025-03-01") "http://loinc.org#8867-4" "#8867-4")))))
 (delete-directory/files dir2)
 
 ;; in a workspace fresh from init, `enforce` fills init's commented `profiles:` template in place

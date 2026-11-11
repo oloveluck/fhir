@@ -126,7 +126,8 @@
   (define failed
     (for/list ([f (in-list files)])
       (define problem (check f))
-      (cond [problem (eprintf "~a\n\n" problem) (shown f)]
+      (cond [(pair? problem) (printf "ok  ~a — note: ~a\n" (shown f) (cdr problem)) #f]
+            [problem (eprintf "~a\n\n" problem) (shown f)]
             [else (printf "ok  ~a\n" (shown f)) #f])))
   (define bad (filter values failed))
   (printf "~a file~a checked, ~a with a problem~a\n" (length files) (if (= 1 (length files)) "" "s") (length bad)

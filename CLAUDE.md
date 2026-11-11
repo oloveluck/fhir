@@ -1548,6 +1548,30 @@ of our own that did not hold and two quiet data-quality gaps; each fix has a tes
   explain printed `code, system, unit, value`); the skill shows `explain ref=result://<name>`; fml's
   guide has the text-answer gender rule beside the coded one.
 
+## New users, round 28 (2026-11-11)
+The twenty-seventh rerun (every task first time, 7–19 calls, right answers, no source read) found two of
+our claims that did not hold; each fix has a test doing what the agent did:
+- **A `#lang fsh` file of examples whose profile is in another folder** (fsh/CLAUDE.md): run alone it
+  failed with a stack trace through sd.rkt, and `raco fhir check-files` said `ok`. The module now
+  raises one line at the Instance's header with where the profile is (`require that module before this
+  one, or check this folder with raco fsh check bad --context profiles`); required after the profile's
+  module it builds (an InstanceOf found in fhir/registry by name); check-files RUNS each `.fsh` module
+  and prints that as a note (`fhir/check-files`).
+- **The template's `tests.rkt` takes a `.fml` map** (its last check matched `.map:` only).
+- **Smaller**: one unknown operation input beside one missing required input is said as one mistake
+  however far apart they are spelt (`(`hr` was given instead: is it this input?)`, runtime.rkt `lone`);
+  `raco fhir-mcp call|batch --indent` lays JSON answers out in the answer's own key order
+  (`indent-json-text`, mcp-cli.rkt); `--blocks` reads a block's name from the comment after a `#lang`
+  line (`;; smallest`, `;; minimal`, `;; clinic`); the rules cookbook has `code-system` (a code without
+  its system is refused, a stage alone only warns).
+- Docs: the skill's inline SQL batch line (escaped column names, booleans 1/0, empty rows = nobody;
+  skill-batch-test runs it), `agent=Practitioner/x`, trail paths in describe vs SQL, write vs a file put
+  there; learn://racket's smallest `main.rkt` (run as written in intake-pipeline-test), fhir-authoring
+  pointing to it; the capability guide's input types (decimal for measurements), `patient` vs
+  `subject` under strict search, the smallest server by `--block smallest`; the bp summary's "both" line.
+Not done, named: a handler's output names checked against `#:out` when the module loads (only the
+call checks them: the handler is code, its outputs known when it runs).
+
 ## SQL on FHIR where tables are made (2026-11-11)
 An audit of where the toolkit flattens FHIR into tables found hand-written JSON SQL doing a
 ViewDefinition's job, and under it a load-order defect; both fixed, each with a test doing it:

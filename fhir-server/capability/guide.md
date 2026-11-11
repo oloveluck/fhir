@@ -9,9 +9,11 @@ history and search indexes). In a workspace the file is `<name>.capability.rkt`:
 
 ## The smallest server
 One file: a SQLite store beside it, two resources, one operation of your own. The rest of this guide
-is what each part can say.
+is what each part can say. `raco fhir guide capability --block smallest > study.capability.rkt` starts
+a file from it (`--blocks` lists the others by name).
 ```racket
 #lang fhir/capability
+;; smallest
 (require (only-in fhir/conformance/operations $validate)) ; an existing operation: required, then served
 (server #:store "study.db" #:search-handling "strict"    ; patient data: refuse a filter it cannot apply
         #:references "checked")                           ; and an Observation of a patient it does not hold
@@ -72,7 +74,9 @@ A whole file — declarations, the handler and how to call it — is the worked 
   client that sends `Prefer: handling=strict` gets a 400 naming the parameter instead, and
   `(server #:search-handling "strict")` makes every search strict, whatever the client prefers — for
   a server where a misspelt or undeclared patient filter (`subject` where `patient` is declared) must
-  never answer every patient's data. `(server #:references "checked")` refuses (422) a create or update
+  never answer every patient's data. `patient` and `subject` are two parameters (FHIR defines both on
+  Observation: `patient` reads subject when it is a Patient): a strict server refuses the one it does
+  not declare, so declare both when clients send both. `(server #:references "checked")` refuses (422) a create or update
   whose literal reference (`Patient/nope`) names a resource of a served type the server does not hold
   — by default it is stored as sent; a reference to a type the server does not serve is not decided.
   A searchset carries each entry's `fullUrl` and a `self` link
@@ -148,7 +152,10 @@ so `GET /OperationDefinition/<code>` always says what the operation returns.
 Values arrive converted to their declared type, from a GET query or a POSTed Parameters alike: a
 whole decimal (`60.0`) is taken as an `integer`, and any number — `75` as well as `75.0`, in a query or
 as a POSTed `valueInteger` — as a `decimal`; text that does not read
-as the type (`60.5` for an integer, `abc` for a decimal) is refused with a 400.
+as the type (`60.5` for an integer, `abc` for a decimal) is refused with a 400. Declare a measurement
+(a QT interval, a heart rate, a weight) `decimal`, and keep `integer` for counts. A given input the
+operation does not take beside a required one missing is said as one mistake: parameter 'heartRate' is required (`hr` was given instead: is it this
+input?).
 
 - An input or output is `[name type min max]`, `max` a number or `*`. Its type is a FHIR primitive —
   `integer`, `decimal`, `boolean`, `string`, `code`, `date`, `dateTime`, `uri` (also `positiveInt`,
@@ -219,6 +226,7 @@ operation of its own.
 
 ```racket
 #lang fhir/capability
+;; clinic
 (require (only-in fhir/conformance/operations $validate)
          (only-in fml/operations))                 ; loads StructureMap/$transform, served below
 
@@ -245,7 +253,7 @@ operation of its own.
 
 In a workspace, as `clinic.capability.rkt`:
 - `write` answers its problems: with `Observaton` for `Observation`,
-  `clinic.capability.rkt:9:11 error: resource: unknown resource type Observaton`.
+  `clinic.capability.rkt:10:11 error: resource: unknown resource type Observaton`.
 - `run` serves it and answers its url and what it serves; the server reads and writes the
   workspace's `fhir.db`, so `stage`/`commit`, search, CQL and SQL see the same data.
 - `apply("$bmi", {"weight": 80, "height": 180})` calls the running app: `{"bmi": 24.7}` in a

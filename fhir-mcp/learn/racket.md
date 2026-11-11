@@ -16,6 +16,29 @@ The four files, each a module: `fsh/intake.fsh` (the profile and a valid example
 holds an example meant to fail), `qr2patient.map` (FML), `Intake.cql` (the question), `main.rkt`
 (the program). Change them; `raco test tests.rkt` again.
 
+## The program at its smallest
+The pipeline itself is three calls; the template's `main.rkt` adds what a command line and its tests
+want around them. At its smallest (`raco fhir guide racket --block minimal > main.rkt`):
+```racket
+#lang racket/base
+;; minimal
+(require json
+         (only-in fhir/serialize/fhir-json write-fhir-json)
+         (only-in cql/value render)
+         (only-in "fsh/intake.fsh" canonical-of)       ; each language file is a module
+         (only-in "qr2patient.map" transform)
+         (only-in "Intake.cql" evaluate))
+
+(define qr (call-with-input-file (vector-ref (current-command-line-arguments) 0) read-json))
+(define patient (transform qr #:validate (canonical-of "IntakePatient")))   ; invalid: raises at the map's rule
+(write-fhir-json patient #:indent 2) (newline)
+(printf "65 or older: ~a\n" (render (evaluate (list patient) #:define "Is 65 Or Older")))
+```
+`racket main.rkt qr.json` prints the Patient and the answer. The template's `main.rkt` adds, each
+optional: `(provide intake)` with the three calls in a function (what `tests.rkt` drives), `--now` to
+fix the day, a one-line error for a missing file, and an invalid Patient as a message with exit 1
+instead of a stack trace.
+
 ## Check each piece, in the order the data flows
 ```sh
 raco fsh check fsh                                               # profile + examples, problems at their rules

@@ -24,4 +24,12 @@
 (check-regexp-match #rx"Name,Latest Result,Latest Date,Above 9,Ever Above 9\nMaria Lopez,8[.]9 %,2025-06-02,no,yes" out)
 (check-regexp-match #rx"\nmaria-a1,Patient/maria,Maria Lopez,9[.]6 %,2025-01-10,1,[^,]+,clinic intake desk,intake,patients[.]fsh,patients[.]fsh:12," out)
 (check-regexp-match #rx"### 5 line[(]s[)], 0 failed" out)
+;; the skill's inline SQL line, as written (column names escaped, a boolean as 1), laid out by --indent
+(define sql-line (cadr (regexp-match #px"```\n(query language=sql text=\"SELECT [^\n]*)\n```" skill)))
+(with-output-to-file (build-path dir "q.txt") (lambda () (displayln sql-line)))
+(define out2
+  (parameterize ([current-directory dir])
+    (with-output-to-string (lambda () (check-true (system "raco fhir-mcp batch q.txt --workspace ws --indent"))))))
+(check-regexp-match #rx"\"rows\": \\[\\]" out2)                ; Maria's latest is 8.9: nobody above 9, and she has one
+(check-regexp-match #rx"\n  \"columns\": \\[\"Name\"\\]" out2)
 (delete-directory/files dir)

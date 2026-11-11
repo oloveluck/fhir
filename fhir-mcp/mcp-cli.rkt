@@ -20,7 +20,7 @@
          racket/match (only-in "mcp/resources.rkt" current-result-resources learn-topics learn-text guide-blocks guide-block-text)
          (only-in "mcp/trail.rkt" current-agent))
 
-(define flags "[--workspace <dir>] [--package <tgz|name>]… [--data <dir|file|url>]")
+(define flags "[--workspace <dir>] [--package <tgz|name>]… [--data <dir|file|url>] [--indent]")
 (define usages
   `(("serve" ,(format "raco fhir-mcp [serve] ~a   the server over stdin/stdout" flags))
     ("tools" ,(format "raco fhir-mcp tools ~a   the tools and their schemas" flags))
@@ -29,16 +29,17 @@
     ("init"  "raco fhir-mcp init [<dir>] [--fhir-version 4.0.1|5.0.0]   make a directory a workspace an agent can use: workspace.yaml (data: fhir.db, a SQLite FHIR store), .mcp.json, CLAUDE.md")
     ("guide" "raco fhir-mcp guide [<topic> [--blocks | --block N|name]]   a guide (learn://<topic>) as text, its code blocks listed, or one (to save as a file); without a topic, the topics")))
 
-;; An Opts is (opts workspace packages data rest)
-(struct opts (workspace packages data rest))
+;; An Opts is (opts workspace packages data rest indent?)
+(struct opts (workspace packages data rest indent?))
 (define (read-flags args)
-  (let loop ([as args] [o (opts #f '() #f '())])
+  (let loop ([as args] [o (opts #f '() #f '() #f)])
     (match-args as o loop)))
 (define (match-args as o loop)
   (cond [(null? as) (struct-copy opts o [packages (reverse (opts-packages o))] [rest (reverse (opts-rest o))])]
         [(and (equal? (car as) "--workspace") (pair? (cdr as))) (loop (cddr as) (struct-copy opts o [workspace (cadr as)]))]
         [(and (equal? (car as) "--package") (pair? (cdr as))) (loop (cddr as) (struct-copy opts o [packages (cons (cadr as) (opts-packages o))]))]
         [(and (equal? (car as) "--data") (pair? (cdr as))) (loop (cddr as) (struct-copy opts o [data (cadr as)]))]
+        [(equal? (car as) "--indent") (loop (cdr as) (struct-copy opts o [indent? #t]))]
         [else (loop (cdr as) (struct-copy opts o [rest (cons (car as) (opts-rest o))]))]))
 
 ;; with-workspace : opts (hub tools -> any) -> any   the hub opened, its context and results in place
@@ -75,7 +76,7 @@
       (define t (findf (lambda (x) (equal? (tool-name x) name)) tools))
       (unless t (usage-error "fhir-mcp" usages "call" (format "no tool ~a (raco fhir-mcp tools lists them)" name)))
       (define-values (text err?) (call-tool t arguments))
-      (displayln text)
+      (displayln (if (opts-indent? o) (indent-json-text text) text))
       (exit (if (or err? (reports-errors? text)) 1 0)))))
 
 ;; batch-command : args -> void   each line of the file (or stdin) a call, in ONE process: the
@@ -117,7 +118,7 @@
                         [ok? ""]
                         [else "[exit 1] "])
                   l0)
-          (displayln out)
+          (displayln (if (opts-indent? o) (indent-json-text out) out))
           (flush-output)
           (cons (if ok? 0 1) expect-fail?)))
       (define failed (for/sum ([x (in-list statuses)]) (car x)))
@@ -127,6 +128,63 @@
               (if (zero? failed) ""
                   (format ": ~a" (string-join (for/list ([l (in-list lines)] [x (in-list statuses)] #:unless (zero? (car x))) l) "; "))))
       (exit (if (zero? failed) 0 1)))))
+
+;; indent-json-text : text -> text   a JSON answer laid out two spaces a level, its keys in the order
+;; the answer wrote them (re-reading it as a jsexpr would lose that order); an array or object of
+;; scalars short enough stays on one line; text that is not JSON (CSV) as it is. A long stage or history
+;; answer on one line was hard to read in a terminal (a rerun's agent asked for --indent)
+(define (indent-json-text text)
+  (cond
+    [(not (with-handlers ([exn:fail? (lambda (_) #f)]) (string->jsexpr text) #t)) text]
+    [else
+     (define in (open-input-string text))
+     ;; tokens: strings kept whole, punctuation, and runs of other characters (numbers, literals)
+     (define (next-token)
+       (define c (peek-char in))
+       (cond
+         [(eof-object? c) c]
+         [(char-whitespace? c) (read-char in) (next-token)]
+         [(char=? c #\") (let loop ([acc (list (read-char in))])
+                            (define d (read-char in))
+                            (cond [(char=? d #\\) (loop (list* (read-char in) d acc))]
+                                  [(char=? d #\") (list->string (reverse (cons d acc)))]
+                                  [else (loop (cons d acc))]))]
+         [(memv c '(#\{ #\} #\[ #\] #\, #\:)) (string (read-char in))]
+         [else (let loop ([acc '()])
+                 (define d (peek-char in))
+                 (if (or (eof-object? d) (char-whitespace? d) (memv d '(#\{ #\} #\[ #\] #\, #\:)))
+                     (list->string (reverse acc))
+                     (loop (cons (read-char in) acc))))]))
+     (define tokens (let loop ([acc '()]) (define t (next-token)) (if (eof-object? t) (reverse acc) (loop (cons t acc)))))
+     ;; a value: (values text rest), laid out at depth d
+     (define (pad d) (make-string (* 2 d) #\space))
+     (define (value ts d)
+       (define t (car ts))
+       (cond
+         [(member t '("{" "["))
+          (define close (if (equal? t "{") "}" "]"))
+          (let loop ([ts (cdr ts)] [items '()])
+            (cond
+              [(equal? (car ts) close)
+               (define parts (reverse items))
+               (define flat (string-append t (string-join parts ", ") close))
+               (values (if (or (null? parts)
+                               (and (< (string-length flat) 72) (not (regexp-match? #rx"[{[].*[{[]" (substring flat 1)))))
+                           flat
+                           (string-append t "\n" (string-join (map (lambda (p) (string-append (pad (add1 d)) p)) parts) ",\n")
+                                          "\n" (pad d) close))
+                       (cdr ts))]
+              [(equal? (car ts) ",") (loop (cdr ts) items)]
+              [(equal? t "{")
+               (define key (car ts))
+               (define-values (v rest) (value (cddr ts) (add1 d)))
+               (loop rest (cons (string-append key ": " v) items))]
+              [else
+               (define-values (v rest) (value ts (add1 d)))
+               (loop rest (cons v items))]))]
+         [else (values t (cdr ts))]))
+     (define-values (out _rest) (value tokens 0))
+     out]))
 
 ;; shell-words : line -> (listof string)   split as a shell would: blanks separate, '…' and "…" quote
 ;; (inside "…", \" and \\ escape), so `text="SELECT * FROM r1"` is one word
@@ -241,4 +299,13 @@
   (check-equal? (hash-ref (hash-ref args 'files) 'fsh) (path->string f))
   (check-equal? (hash-ref args 'reason) "intake")
   (check-equal? (hash-ref args 'n) 3)
-  (delete-file f))
+  (delete-file f)
+  ;; --indent lays a JSON answer out, keys in the answer's order, short scalar lists on one line; the
+  ;; same JSON back; CSV untouched
+  (define answer "{\"stage\":\"stage-1\",\"changes\":[{\"ref\":\"Observation/a1\",\"changed\":[\"value: 150 → 140\",\"note: \\\"x, y\\\"\"]}],\"errors\":0,\"tags\":[1,2]}")
+  (define laid (indent-json-text answer))
+  (check-equal? laid (string-append "{\n  \"stage\": \"stage-1\",\n  \"changes\": [\n    {\n      \"ref\": \"Observation/a1\",\n"
+                                    "      \"changed\": [\"value: 150 → 140\", \"note: \\\"x, y\\\"\"]\n    }\n  ],\n"
+                                    "  \"errors\": 0,\n  \"tags\": [1, 2]\n}"))
+  (check-equal? (string->jsexpr laid) (string->jsexpr answer))
+  (check-equal? (indent-json-text "a,b\n1,2") "a,b\n1,2"))

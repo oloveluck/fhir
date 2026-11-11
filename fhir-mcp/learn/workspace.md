@@ -125,6 +125,7 @@ a summary per patient — readings, means, and whether the mean is at or above 1
 ```
 -- bp-summary
 -- at_or_above_140_90: the mean systolic >= 140 OR the mean diastolic >= 90 (either one)
+-- (for both at once, write AND in the CASE)
 SELECT patient, count(*) AS readings, printf('%.1f', avg(systolic)) AS mean_systolic,
        printf('%.1f', avg(diastolic)) AS mean_diastolic,
        CASE WHEN avg(systolic) >= 140 OR avg(diastolic) >= 90 THEN 'yes' ELSE 'no' END AS at_or_above_140_90
@@ -287,7 +288,8 @@ Observation through. `X.exists() and X.all(…)` says "there is one, and EVERY o
 `X.where(…).exists()` alone, a second systolic in kPa beside one in mm[Hg] would pass, and
 `value.exists()` in the `where` refuses a unit with no number (a mean over the readings would leave it
 out without a word). The rule is about Observations coded LOINC 85354-9: a blood pressure coded
-otherwise (no system, a misspelt one) is not held to it — to require the code too, give the profile
+otherwise (no system, a misspelt one) is not held to it (a stage warns of a code without its system;
+the cookbook's `code-system` refuses it) — to require the code too, give the profile
 `* code = http://loinc.org#85354-9` and claim it only for blood pressures. A refusal quotes the rule's `Description` and what the rule found, at the rule that wrote it:
 `fsh:7: Observation: hr-range: A heart rate (LOINC 8867-4) is between 20 and 250 /min (found
 valueQuantity = 300 '/min')` — line 7 is the instance's `* valueQuantity = 300 '/min'`. "Found"
@@ -304,7 +306,7 @@ it is about. Write the FHIRPath in FSH's `Expression:`, the fix in `Description:
 Profile: VitalsRules
 Parent: Observation
 Id: vitals-rules
-* obeys hr-range and hr-unit and not-future
+* obeys hr-range and hr-unit and not-future and code-system
 
 Invariant: hr-range
 Description: "A heart rate (LOINC 8867-4) is between 20 and 250 /min"
@@ -320,6 +322,11 @@ Invariant: not-future
 Description: "An observation is not dated in the future"
 Severity: #error
 Expression: "effective.ofType(dateTime).exists() implies effective.ofType(dateTime) <= now()"
+
+Invariant: code-system
+Description: "Every coding of an observation's code names its code system (http://loinc.org#85354-9, not #85354-9)"
+Severity: #error
+Expression: "code.coding.all(system.exists())"
 ```
 
 - a value in a range: `value.ofType(Quantity).where(value >= lo and value <= hi).exists()`;
@@ -328,6 +335,9 @@ Expression: "effective.ofType(dateTime).exists() implies effective.ofType(dateTi
 - a required part: `component.where(code.coding.where(system = … and code = …).exists()).exists()`
   (the blood-pressure rule above);
 - not in the future: `effective.ofType(dateTime) <= now()`;
+- a code with its system: `code.coding.all(system.exists())` — a rule keyed on LOINC (the
+  blood-pressure rule) passes a code written without its system by; this refuses it (a stage only
+  warns of it);
 - a code from a value set: no invariant — bind it in FSH, `* code from <ValueSet> (required)`;
 - required elements and fixed values: no invariant either — `* subject 1..1`, `* status = #final`.
 

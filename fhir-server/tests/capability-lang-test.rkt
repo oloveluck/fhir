@@ -297,6 +297,11 @@
   (check-true (for/or ([i (in-list (hash-ref o13c 'issue))])
                 (regexp-match? #rx"^parameter 'x' is required [(]`xx` was given: a misspelling of it[?][)]$" (hash-ref i 'diagnostics)))
               (format "~s" o13c))
+  ;; one unknown input and one required input missing, spelt far apart (`hr` for `heartRate`): linked
+  (define-values (s13d o13d) (handle app "GET" "/$r" '((zz . "5")) ""))
+  (check-true (for/or ([i (in-list (hash-ref o13d 'issue))])
+                (regexp-match? #rx"^parameter 'x' is required [(]`zz` was given instead: is it this input[?][)]$" (hash-ref i 'diagnostics)))
+              (format "~s" o13d))
   ;; a handler that raises: a 500 that says which handler and how to refuse instead
   (define-values (s14 o14) (handle app "GET" "/$r" '((x . "0")) ""))
   (check-equal? s14 500)

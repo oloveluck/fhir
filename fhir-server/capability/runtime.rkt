@@ -595,9 +595,18 @@
   ;; an input the definition does not name is refused, as an unknown keyword is in-process (a
   ;; misspelt `weigth` would otherwise be dropped and the operation answer without it); `_format`
   ;; and the other `_` parameters are HTTP's
-  (define unknown (for/list ([k (in-list (sort (hash-keys in) string<?))]
-                             #:unless (member k names)
-                             #:unless (regexp-match? #rx"^_" k))
+  (define unknown-keys (for/list ([k (in-list (sort (hash-keys in) string<?))]
+                                  #:unless (member k names)
+                                  #:unless (regexp-match? #rx"^_" k))
+                        k))
+  ;; one unknown input given and one required input missing: the one was meant for the other, however
+  ;; far apart they are spelt (`hr` for `heartRate` read as two unrelated problems)
+  (define missing-required (for/list ([p (in-list ins)]
+                                      #:when (let ([m (single (navigate (list p) 'min))]) (and m (let ([v (item->system m)]) (and (integer? v) (>= v 1)))))
+                                      #:when (null? (hash-ref in (leaf->string (single (navigate (list p) 'name))) '())))
+                             p))
+  (define lone (and (= 1 (length unknown-keys)) (= 1 (length missing-required)) (car unknown-keys)))
+  (define unknown (for/list ([k (in-list unknown-keys)])
                     (format "parameter '~a' is not an input of $~a~a" k
                             (leaf->string (single (navigate (list op-def) 'code)))
                             (let ([near (did-you-mean k names)])
@@ -608,7 +617,7 @@
   (define problems
     (append unknown
             (for*/list ([p (in-list ins)]
-                        [problem (in-value (or (validate-one p in) (validate-binding p in)))]
+                        [problem (in-value (or (validate-one p in lone) (validate-binding p in)))]
                         #:when problem)
               problem)))
   problems)
@@ -670,7 +679,7 @@
                  (and (pair? contains) (for/list ([c (in-list contains)]) (hash-ref c 'code)))))))
 
 ;; returns a problem string, or #f if the parameter is satisfied
-(define (validate-one p in)
+(define (validate-one p in [lone #f])
   (define name (leaf->string (single (navigate (list p) 'name))))
   (define minv (let ([m (single (navigate (list p) 'min))]) (if m (item->system m) 0)))
   (define maxv (leaf->string (single (navigate (list p) 'max))))
@@ -683,7 +692,10 @@
                               #:unless (equal? k name)
                               #:when (not (string=? (did-you-mean k (list name)) "")))
                     k))
-     (format "parameter '~a' is required~a" name (if near (format " (`~a` was given: a misspelling of it?)" near) ""))]
+     (format "parameter '~a' is required~a" name
+             (cond [near (format " (`~a` was given: a misspelling of it?)" near)]
+                   [lone (format " (`~a` was given instead: is it this input?)" lone)]
+                   [else ""]))]
     [(and (integer? minv) (< n minv))
      (format "parameter '~a' requires at least ~a value(s), got ~a" name minv n)]
     [(and (equal? maxv "1") (> n 1))

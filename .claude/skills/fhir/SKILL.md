@@ -74,6 +74,13 @@ describe ref=Observation as=trail
 CALLS
 raco fhir-mcp batch session.txt --workspace ws       # from the folder holding ws/ and patients.fsh
 ```
+SQL fits on a batch line in double quotes, its column names escaped (`\"`) and its strings in single
+quotes; a CQL `true`/`false` is 1/0 in SQL; an empty `rows` means nobody matched:
+```
+query language=sql text="SELECT \"Name\" FROM LatestA1c WHERE \"Above 9\" = 'yes' OR \"No HbA1c\" = 1"
+```
+Longer SQL reads better as a file (`text=@summary.sql`). `--indent` lays each JSON answer out, one
+key a line (`raco fhir-mcp batch session.txt --indent`).
 One call at a time works too, for a step you want to look at before the next:
 ```sh
 raco fhir-mcp call stage fsh=@patients.fsh --workspace ws
@@ -86,7 +93,9 @@ raco fhir-mcp call describe ref=result://summary as=csv --workspace ws
 
 A run is named by its file and a query by its `name` (as a SQL table: letters, digits, `_`); the
 name means the latest result of it, in SQL (`FROM Diabetes`) and in `result://`, in any case.
-`write text=@file` copies the file into the workspace: edit the workspace's copy, or write it again.
+`write text=@file` copies the file into the workspace and answers its problems; putting the file
+there yourself works too (it is read as it is, and `check` answers its problems): either way, the
+workspace's copy is the one used.
 `--workspace` defaults to the current directory. A call prints the tool's answer (JSON, or text) and exits 0; 1 when the tool failed or its answer
 counts errors (`"errors": 2`: a stage that cannot be committed, a check with errors); 2 for a usage
 error. `describe ref=stages` lists the stages not committed; `stage drop=stage-3` discards one
@@ -97,7 +106,7 @@ the text itself, not a JSON string.
 
 Keep data files like `patients.fsh` outside the workspace directory: the workspace's own `.fsh`
 files are its project (profiles, value sets, a few examples), compiled and checked together, so a
-patient written there and staged too is a duplicate id. The trail names the agent `raco fhir-mcp call` unless `commit … agent="intake desk"` (or `FHIR_MCP_AGENT`) names who is writing. A capability
+patient written there and staged too is a duplicate id. The trail names the agent `raco fhir-mcp call` unless `commit … agent="intake desk"` (or `FHIR_MCP_AGENT`) names who is writing; `agent=Practitioner/dr-ng` makes it a reference to that resource (the Provenance's `agent.who`). `describe … as=trail` shows a source file from where you call it (`patients.fsh`); SQL's `trail` keeps the workspace's own form (`../patients.fsh`), the same from anywhere. A capability
 app that `run` serves lives as long as the process that ran it: from the shell, serve it with
 `raco fhir-server serve app.capability.rkt --port 8080 --store fhir.db`.
 Not installed: the README's "Getting the tools" (Racket 9, then `raco pkg install` of the repositories).

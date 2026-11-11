@@ -82,6 +82,9 @@ default, full snapshots opt-in.
 
 ## The languages together in one program
 
+`raco fhir guide racket` is the one page for this route (the template, a smallest `main.rkt`, each
+piece checked, the API, what checks what, FHIR versions); this section is the reference detail.
+
 **The API a pipeline uses**, one line each (the rest of this section is the detail):
 | from | binding | what it is |
 |---|---|---|
