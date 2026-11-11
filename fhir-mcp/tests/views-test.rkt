@@ -81,7 +81,10 @@
         (call2 "commit" (hasheq 'stage (hash-ref st 'stage) 'reason "intake"))
         (define csv (call2 "describe" (hasheq 'ref "Observation" 'as "trail")))
         ;; the value's own line (valueQuantity, line 10), from here
-        (check-regexp-match #rx"\no1,Patient/p1,,6[.]4 %,[^,]*,1,[^,]+,[^,]*,intake,data[.]fsh,data[.]fsh:10," csv))))
+        (check-regexp-match #rx"\no1,Patient/p1,,6[.]4 %,[^,]*,1,[^,]+,[^,]*,intake,data[.]fsh,data[.]fsh:10," csv)
+        ;; the history answers the same form (it said `../data.fsh` beside the CSV's `data.fsh`)
+        (define v (car (hash-ref (string->jsexpr (call2 "describe" (hasheq 'ref "Observation/o1/_history"))) 'versions)))
+        (check-equal? (list (hash-ref v 'source) (hash-ref v 'at)) '("data.fsh" "data.fsh:10")))))
   (parameterize ([current-directory ws])
     (with-hub h2
       (lambda ()

@@ -46,6 +46,13 @@ raco cql Intake.cql --data patient.json --now 2026-01-01         # the library's
   line; keep an example meant to fail in its own folder (`raco fsh check fsh-invalid --context fsh`).
 - The template's `tests.rkt` is all of it as one gate (`raco test tests.rkt`): copy it beside files
   you wrote yourself (`raco fhir new pipeline tmp`, take `tmp/tests.rkt`) and change its expectations.
+  It drives `main.rkt` through what the template's provides, so a `main.rkt` of your own keeps that
+  shape: `(provide intake)` with `(intake qr #:now [now #f])` answering two values, the Patient (FHIR
+  JSON) and the answer's text, and the command line in a `(module+ main …)` (a plain script runs
+  when `tests.rkt` requires it). A missing element is reported at its Instance's first line (no rule
+  wrote it), so an expectation for it names that line.
+- A run of `main.rkt` takes about 3 s after `raco make`: loading the FHIR types and the core
+  package, not the work itself. A program that handles many inputs pays it once.
 
 ## When it fails
 - `raco make` stops at the first failing module and shows its line and a caret:

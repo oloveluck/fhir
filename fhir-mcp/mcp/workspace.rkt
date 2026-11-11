@@ -305,8 +305,8 @@
                        (hash-set answer* 'copied
                                  ;; both named from where the call was made: the same file name in two
                                  ;; places read as one file
-                                 (format "~a was copied to ~a (the workspace's file): edit that one, or write again after editing ~a"
-                                         from (from-here full) from))
+                                 ;; short: a batch writing several files repeated a sentence each time
+                                 (format "~a (a copy: edit it, or write again)" (from-here full)))
                        answer*))
   ;; the configuration only when it is what was written
   (if config? (hash-set answer** 'config (config-json h)) answer**))
@@ -607,8 +607,13 @@
   (define picked (if (null? named) (map (lambda (c) (format "~a" c)) cols) named))
   ;; a name column leads, as a person reads a table (`Name,Latest Number,…`; past five columns it was
   ;; the one left out)
+  ;; then text (a result with its unit, a date, yes/no) before plain numbers, which a text column
+  ;; often says better (`Latest Result` 8.9 % beside `Latest Number` 8.9)
   (define-values (names others) (partition (lambda (c) (regexp-match? #px"(?i:name)" c)) picked))
-  (define ordered (append names others))
+  (define (numeric? c) (let ([vs (filter (lambda (v) (not (eq? v 'null))) (map (lambda (r) (cell r c)) rows))])
+                         (and (pair? vs) (andmap number? vs))))
+  (define-values (numbers texts) (partition numeric? others))
+  (define ordered (append names texts numbers))
   (take ordered (min 5 (length ordered))))
 
 ;; options : hash -> Options   the verbs' arguments as a language's options
@@ -937,18 +942,23 @@
                                (and (not (regexp-match? #rx"^/|^([.][.]/){3}" r)) r))))
   (or relative (path->string full)))
 
+;; path-from-here : hub string -> string   a trail path (`../patients.fsh:12`, relative to the
+;; workspace) as seen from the current directory, when the file is there to open; else as given
+(define (path-from-here h v)
+  (match (and (string? v) (regexp-match #px"^(.*?)(:[0-9]+)?$" v))
+    [(list _ file line)
+     (define full (with-handlers ([exn:fail? (lambda (_) #f)])
+                    (if (absolute-path? file) (string->path file) (build-path (hub-root h) file))))
+     (if (and full (file-exists? full)) (string-append (from-here full) (or line "")) v)]
+    [_ v]))
+
 ;; paths-from-here! : hub uri -> void   the result's `source` and `at` cells (a file the trail keeps
 ;; relative to the workspace, `../patients.fsh:22`) as seen from the current directory, when the file
 ;; is there to open
 (define (paths-from-here! h uri)
   (define st (hash-ref (hub-results h) uri #f))
   (when st
-    (define (here v)
-      (match (and (string? v) (regexp-match #px"^(.*?)(:[0-9]+)?$" v))
-        [(list _ file line)
-         (define full (if (absolute-path? file) (string->path file) (build-path (hub-root h) file)))
-         (if (file-exists? full) (string-append (from-here full) (or line "")) v)]
-        [_ v]))
+    (define (here v) (path-from-here h v))
     (define r (stored-result st))
     (define rows (for/list ([row (in-list (run-result-rows r))])
                    (if (hash? row)
@@ -1050,7 +1060,7 @@
               (define block (instance-block (text-answer-text whole) (caddr m)))
               (if block (text-answer block) whole))]
         [(regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)/_history$" ref)
-         => (lambda (m) (describe-history h (cadr m) (caddr m)))]
+         => (lambda (m) (history-from-here h (describe-history h (cadr m) (caddr m))))]
         [(regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)$" ref)
          => (lambda (m) (shown (or ((data-source-read (current-data-source)) (cadr m) (caddr m))
                                    (registered-resource (cadr m) (caddr m))
@@ -1104,8 +1114,18 @@
         (hash-set e (car kv) (cdr kv)))))
   ;; `source`/`at` are the trail's own paths (relative to the workspace, as SQL's `trail` has them):
   ;; say where that is when the call was made from elsewhere (a rerun's agent, in the folder above)
-  (define base (hasheq 'resource (format "~a/~a" type id) 'versions (reverse entries)))
-  (if (at-root? h) base (hash-set base 'paths (format "source and at are relative to the workspace, ~a" (from-here (hub-root h))))))
+  (hasheq 'resource (format "~a/~a" type id) 'versions (reverse entries)))
+
+;; history-from-here : hub history -> history   what `describe … /_history` answers: called from another
+;; folder, each version's `source` and `at` read from there, as the trail CSV's do (the JSON said
+;; `../bp-a1.fsh` and the CSV beside it `bp-a1.fsh`); SQL's `trail` keeps the workspace's form
+(define (history-from-here h hist)
+  (if (at-root? h)
+      hist
+      (hash-set hist 'versions
+                (for/list ([v (in-list (hash-ref hist 'versions '()))])
+                  (for/fold ([v v]) ([k '(source at)] #:when (string? (hash-ref v k #f)))
+                    (hash-set v k (path-from-here h (hash-ref v k))))))))
 
 ;; provenance-display : Provenance -> string|#f   its source, as written (`../src/a.fsh`)
 (define (provenance-display pv)
@@ -1490,9 +1510,15 @@
         (define line (and fsh (hash-ref r 'id #f) (instance-line fsh (hash-ref r 'id))))
         ;; at the rule that wrote the element the error is about, when the instance has one; else at
         ;; the instance's header (a missing element has no rule to point at)
+        ;; a list missing an item (`found no component matching '8462-4'`) is at the last rule writing
+        ;; that list, where the item goes (it was the header: "add after line 8" took a second look)
+        (define (missing-line e)
+          (define m (regexp-match #px"[(]found no ([A-Za-z]+) matching " e))
+          (and m (last-rule-line fsh line (cadr m))))
         (if line
-            (map (lambda (e) (format "~a:~a: ~a" (or (argument-file args 'fsh) "fsh")   ; the file as the user named it
-                                     (or (rule-line fsh line (error-element e)) line) (with-missing-hint e)))
+            (map (lambda (e) (define after (missing-line e))
+                   (format "~a:~a: ~a" (or (argument-file args 'fsh) "fsh")   ; the file as the user named it
+                           (or after (rule-line fsh line (error-element e)) line) (with-missing-hint e (and after #t))))
                  (remove-duplicates errors))
             (map with-missing-hint (remove-duplicates errors))))
       (when (null? rs) (error 'stage "nothing to stage"))
@@ -1508,8 +1534,11 @@
       (define dangling (dangling-references h rs))
       ;; nothing would change: no stage (one with nothing to commit was made, and numbered)
       (define nothing? (and (zero? errors) (andmap (lambda (c) (eq? (change-action c) 'unchanged)) changes)))
-      (define id (if nothing? 'null (format "stage-~a" (next-number h "stages" "stage-" (hub-stages h)))))
-      (unless nothing?
+      ;; keep:=false checks only: the answer without a stage (a refusal shown on purpose needed a
+      ;; second call to drop the stage it left)
+      (define keep? (not (eq? (hash-ref args 'keep #t) #f)))
+      (define id (if (or nothing? (not keep?)) 'null (format "stage-~a" (next-number h "stages" "stage-" (hub-stages h)))))
+      (unless (or nothing? (not keep?))
         (hash-set! (hub-stages h) id (staged changes source))
         (save-state! h "stages" id (lambda () (staged->jsexpr (staged changes source)))))
       (define unchanged-count (count (lambda (c) (eq? (change-action c) 'unchanged)) changes))
@@ -1531,6 +1560,9 @@
                          (if (null? ws) base (hash-set base 'warnings ws)))
               'errors errors
               'next (cond [nothing? (format "nothing to commit: the ~a resource(s) are stored as they are" (length changes))]
+                          [(not keep?) (if (zero? errors)
+                                           "checked only (keep:=false): nothing was staged; stage it again without keep to commit it"
+                                           "checked only (keep:=false): nothing was staged")]
                           [(zero? errors) (format "~a writes the ~a change(s) to ~a" (call-text "commit" (list (cons 'stage id))) (count (lambda (c) (not (eq? (change-action c) 'unchanged))) changes)
                                                   (let ([p (data-store-path h)]) (if p (format "the store ~a" (shown-path h (path->string (path->complete-path p)))) (hub-data-label h))))]
                           [else (format "fix the errors, then stage again: a stage with errors is not committed (~a discards this one)" (call-text "stage" (list (cons 'drop id))))])))
@@ -1782,14 +1814,24 @@
 ;; with-missing-hint : error -> error   something missing says what to add, beside where:
 ;; `(found no component matching '8462-4')` -> `…; add a component with '8462-4'` (a rerun's agent
 ;; was told the instance's line, not what the fix was)
-(define (with-missing-hint e)
+(define (with-missing-hint e [after? #f])
   (match (regexp-match #px"[(]found no ([A-Za-z]+) matching ([^)]+)[)]" e)
-    [(list whole elem what) (string-replace e whole (format "(found no ~a matching ~a: add a ~a with ~a)" elem what elem what))]
+    [(list whole elem what) (string-replace e whole (format "(found no ~a matching ~a: add a ~a with ~a~a)" elem what elem what (if after? " after this line" "")))]
     [_ (match (regexp-match #px"[(]found no ([A-Za-z.]+)[)]" e)
          ;; an element the rule needs and the instance does not write: `(found no subject)` -> `: add a
          ;; rule for subject (* subject = …)` (the stage had named the line, not the fix)
          [(list whole path) (string-replace e whole (format "(found no ~a: add a rule for it, * ~a = …)" path path))]
          [_ e])]))
+
+;; last-rule-line : fsh-text instance-line element -> line|#f   the last rule of that instance writing
+;; the element (`* component[1].valueQuantity = …` for `component`), where a missing item goes
+(define (last-rule-line text start element)
+  (define rx (pregexp (string-append "^\\s*\\*\\s+" (regexp-quote element) "(?:\\[[^\\]]*\\])?(?:[.\\s=]|$)")))
+  (for/last ([l (in-list (drop (regexp-split #rx"\n" text) start))]
+             [i (in-naturals (add1 start))]
+             #:break (regexp-match? #px"^(?:Instance|Profile|Extension|ValueSet|CodeSystem|Logical|Resource|RuleSet|Invariant|Mapping|Alias):" l)
+             #:when (regexp-match? rx l))
+    i))
 
 ;; rule-line : fsh-text instance-line path|#f -> line|#f   the first rule of that instance writing the
 ;; element: the whole path (`* component[0].valueQuantity = …`), else ever shorter prefixes of it

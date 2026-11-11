@@ -1430,6 +1430,32 @@ four saved a guide recipe with `--block N`) left small things; each fix has a te
   (obs-12); learn://racket's API card reads the input (`json`'s `read-json`), says `#:now #f` is today, and
   says what `raco make` checks and what only `raco fsh check` does.
 
+## New users, round 23 (2026-11-11)
+The twenty-second rerun (every task first time, 7–14 calls, right answers, no source read; the server
+agent's task now matched the guide's eGFR example, so round 24's asks for a QTc operation instead).
+Each fix has a test doing it:
+- **One path form in what describe answers**: `describe … /_history` from another folder shows `source`
+  and `at` from there, as the trail CSV does (`history-from-here`, `path-from-here`); SQL's `trail`
+  keeps the workspace's form (the guide says so).
+- **A missing item is placed where it goes**: "found no component matching '8462-4'" is at the last rule
+  writing `component`, "add a component with '8462-4' after this line" (`last-rule-line`); "found no
+  subject" stays at the header.
+- **`stage … keep:=false` checks only**: the same answer, no stage kept (a refusal shown on purpose
+  needed `stage drop=refused` after it).
+- **Guide blocks by name**: `raco fhir guide <topic> --block <name>` takes the first block whose first line
+  has the word (`LatestA1c`, `BloodPressureRule`, `egfr`, a view's `bp`); the docs use names, so a block
+  added above does not break a script. One command in the docs: `raco fhir guide`.
+- **Tables a person reads**: the CQL recipe's `Latest Result` (`8.9 %`, the value with its unit) replaces
+  `Latest Unit`; the run's hint lists a name, then text, then numbers (`Name,Latest Result,Latest
+  Date,Above 9,Ever Above 9`, the guide's own table); CQL `explain` explains each define once (`explained:
+  "above"` on a second use); the `copied` note is short.
+- **Racket route**: `--now` that is not a date is one line (`"01/05/2015" is not a date (2026-01-01) or a
+  DateTime`, a user error); FML says when a `where` dropped what the source matched (`its source matched
+  1 item, but `where linkId = 'gender'` held for none (the first: …)`, recorded in transform.rkt
+  `source-matches`); learn://racket gives the `main.rkt` shape `tests.rkt` drives and the ~3 s startup.
+- Capability guide: the eGFR block is pasted into the smallest server; a create says nothing of
+  warnings (validate first).
+
 ## SQL on FHIR where tables are made (2026-11-11)
 An audit of where the toolkit flattens FHIR into tables found hand-written JSON SQL doing a
 ViewDefinition's job, and under it a load-order defect; both fixed, each with a test doing it:

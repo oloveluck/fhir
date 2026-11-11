@@ -207,10 +207,12 @@ resources (`byType`, the trail's own Provenances and AuditEvents among them), ho
 A stage is all or nothing: one invalid resource refuses the whole stage, so nothing is half-written.
 To keep the valid ones, drop the stage, take the refused resources out of the text (each problem
 names its line) and stage again; stage a batch apart when some of it may be refused.
+To show a rule refusing (or check data before staging it), `stage fsh=@bad.fsh keep:=false` answers the
+same changes, errors and warnings and keeps no stage: nothing to commit, nothing to drop after.
 
 Many readings of one shape are one parameterized RuleSet and one line each (the commit's source
 keeps every line, and each version's `at` names the line that wrote it). A whole `readings.fsh`, to
-save (`raco fhir-mcp guide workspace --blocks` lists the blocks) and stage as it is:
+save (`raco fhir guide workspace --block Reading > readings.fsh`) and stage as it is:
 
 ```fsh
 RuleSet: Reading(patient, date, sys, dia)

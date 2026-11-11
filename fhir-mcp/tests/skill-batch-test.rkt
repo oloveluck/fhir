@@ -21,7 +21,7 @@
   (parameterize ([current-directory dir])
     (check-true (parameterize ([current-output-port (open-output-nowhere)]) (system "raco fhir-mcp init ws")))
     (with-output-to-string (lambda () (check-true (system block))))))
-(check-regexp-match #rx"Name,Latest Number,Latest Date,Above 9,Ever Above 9\nMaria Lopez,8[.]9,2025-06-02,no,yes" out)
+(check-regexp-match #rx"Name,Latest Result,Latest Date,Above 9,Ever Above 9\nMaria Lopez,8[.]9 %,2025-06-02,no,yes" out)
 (check-regexp-match #rx"\nmaria-a1,Patient/maria,Maria Lopez,9[.]6 %,2025-01-10,1,[^,]+,clinic intake desk,intake,patients[.]fsh,patients[.]fsh:12," out)
 (check-regexp-match #rx"### 5 line[(]s[)], 0 failed" out)
 (delete-directory/files dir)

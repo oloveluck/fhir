@@ -35,7 +35,7 @@
   [guide-blocks       (-> string? (listof list?))]
   ;; guide-block-text : text 'list|n -> string|#f   what `guide <topic> --blocks | --block N` prints:
   ;; the numbered code blocks (a line each), or block N alone, to save as a file
-  [guide-block-text   (-> string? (or/c 'list exact-positive-integer?) (or/c string? #f))]
+  [guide-block-text   (-> string? (or/c 'list exact-positive-integer? string?) (or/c string? #f))]
   [resources          (-> (listof hash?))]
   [resource-templates (-> (listof hash?))]
   [read-resource      (-> string? (or/c hash? #f))]       ; a content entry, or #f for an unknown uri
@@ -72,8 +72,11 @@
                                  (let ([l (cadr b)]) (if (> (string-length l) 80) (string-append (substring l 0 79) "…") l))))
                        "\n")
           "\n")]
-        [(<= which (length bs)) (caddr (list-ref bs (sub1 which)))]
-        [else #f]))
+        [(exact-positive-integer? which) (and (<= which (length bs)) (caddr (list-ref bs (sub1 which))))]
+        ;; by name: the first block whose first line has it as a word (`LatestA1c`, `BloodPressureRule`,
+        ;; `egfr`, a view's `bp`), so a script does not break when a guide gains a block above it
+        [else (define rx (pregexp (string-append "(?i:(?<![A-Za-z0-9_-])" (regexp-quote which) "(?![A-Za-z0-9_]))")))
+              (for/first ([b (in-list bs)] #:when (regexp-match? rx (cadr b))) (caddr b))]))
 
 ;; ---- guides: the repository's skills, when the package sits in it ---------------------------------
 (define-runtime-path skills-dir "../../.claude/skills")

@@ -185,7 +185,7 @@
       ;; write from a file elsewhere says it keeps a copy
       (with-output-to-file "genders2.fhirpath" #:exists 'truncate (lambda () (display "Patient.gender")))
       ;; both paths named from here, so the same file name in two places reads as two files
-      (let ([m (regexp-match #rx"^genders2[.]fhirpath was copied to ([^ ]+) [(]the workspace's file[)]: edit that one, or write again after editing genders2[.]fhirpath$"
+      (let ([m (regexp-match #rx"^([^ ]+) [(]a copy: edit it, or write again[)]$"
                              (hash-ref (call e "write" (hasheq 'path "genders2.fhirpath" 'text "Patient.gender" 'files (hasheq 'text "genders2.fhirpath"))) 'copied))])
         (check-not-false m)
         (check-regexp-match #rx"/genders2[.]fhirpath$" (cadr m))

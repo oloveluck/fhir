@@ -141,7 +141,8 @@
                          'fsh (s "FSH Instances, as text: the compact way to write resources")
                          'result (s "a result whose rows hold resources")
                          'path (s "an FSH file (its instances) or a JSON file")
-                         'drop (s "a stage id to discard instead, \"latest\", \"refused\" (every stage with errors) or \"all\" (describe(\"stages\") lists the stages not committed)"))
+                         'drop (s "a stage id to discard instead, \"latest\", \"refused\" (every stage with errors) or \"all\" (describe(\"stages\") lists the stages not committed)")
+                         'keep (hasheq 'type "boolean" 'description "false: check only — the same answer (changes, errors, warnings), and nothing kept to commit or drop"))
                  '())
          (lambda (args) (answer (lambda () (hub-stage! h args)))))
    (tool "commit"

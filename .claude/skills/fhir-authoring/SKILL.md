@@ -18,7 +18,7 @@ error at its line:
   needs the whole project and its packages), not by `raco make`.
 A `#lang fsh` module compiles with the nearest `sushi-config.yaml` (canonical, FHIR version,
 dependencies), as `raco fsh` does, and provides `canonical-of` (a profile's url by its name or id).
-Which FHIR version each language uses: `raco fhir-mcp guide fhir`, "FHIR versions here".
+Which FHIR version each language uses: `raco fhir guide fhir`, "FHIR versions here".
 
 ## `#lang fhir/r6` · `#lang fhir/r4` — author a resource
 
@@ -51,7 +51,7 @@ compile to a **delegating** form macro; `#:base` may be another profile (multi-l
 ## `#lang fsh` — FHIR Shorthand (bidirectional)
 
 The language repositories sit beside this one (`../fsh`, `../cql`, `../fml`, … from the fhir repo;
-`raco fhir guide <language>` — or `raco fhir-mcp guide <language>`, the same text — prints each guide
+`raco fhir guide <language>` — or `raco fhir guide <language>`, the same text — prints each guide
 from the installed package, wherever it is).
 **The fsh repository's own skill (`fsh/.claude/skills/fsh`) is the guide**, with the language
 guide it points to (`fsh/guide.md`). In brief:
@@ -170,11 +170,11 @@ turns one into the text to print — `main.rkt` prints `render`'s. A check repor
 `check-report-diagnostics` come in source order, compile problems first, then each example's.
 `main.rkt` prints the Patient with `(write-fhir-json patient #:indent 2)` (`fhir/serialize/fhir-json`;
 `fhir-json->string` gives the text): `resourceType` first, then `id` and `meta`, as FHIR writes them,
-and the other elements by name (`birthDate`, `gender`, `name` — not the order the specification lists
-them; JSON readers do not care) — `write-json` puts a hash's keys in no order at all.
+and the other elements in the order the specification lists them (a Quantity: value, unit, system,
+code) — `write-json` puts a hash's keys in no order at all.
 Without a birth date the map's Patient breaks the profile, and the error is at the map's rule:
 `the map's Patient is invalid against IntakePatient (…) (FHIR R5 (5.0.0)): … qr2patient.map:14:25: fml validate error: Patient.birthDate: minimum
-required = 1, but found 0 (the rule here wrote nothing: its source matched nothing in the input)` —
+required = 1, but found 0 (the rule here wrote nothing: its source matched 2 items, but `where linkId = 'birthDate'` held for none (the first: …))` —
 the birthDate rule is there, but the QuestionnaireResponse had no `birthDate` item for it to read. `(ensure-valid patient #:profile url)` (`fhir/conformance/operations`)
 validates any resource the same way, naming the element but not the rule; it needs
 `(require (only-in fhir/conformance/operations ensure-valid))` (loading that module registers

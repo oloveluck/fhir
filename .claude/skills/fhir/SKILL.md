@@ -16,20 +16,20 @@ one line, `file:line:col severity: message`, with "did you mean …" for a missp
 |---|---|
 | asking questions of health data, storing it under rules, keeping its trail | this skill: the workspace (MCP tools, or `raco fhir-mcp call` from the shell) |
 | writing a Racket program (an FML map, an FSH profile and a CQL library required side by side) | `raco fhir guide racket` (the route on one page: template, checks, API, errors), then "A Racket program" at the end and the `fhir-authoring` skill — the workspace sections are not needed |
-| building a FHIR server with your own operations | "Build a FHIR server" below, and `raco fhir-mcp guide capability` |
+| building a FHIR server with your own operations | "Build a FHIR server" below, and `raco fhir guide capability` |
 | using one language from the command line | its own skill: `cql`, `fsh`, `fml`, `fhirpath`, `vcl`, `sql-on-fhir` |
 
 **Which call answers which question** (each one a tested recipe):
 | question | where |
 |---|---|
-| is the latest HbA1c above 9 %, per patient (and "never tested") | `raco fhir-mcp guide cql`, "the latest value per patient" (copy its library as `LatestA1c.cql`); the table: `run path=LatestA1c.cql as=csv columns="Name,Latest Number,Latest Date,Above 9,Ever Above 9"` (latest and ever, side by side) |
+| is the latest HbA1c above 9 %, per patient (and "never tested") | `raco fhir guide cql`, "the latest value per patient" (copy its library as `LatestA1c.cql`); the table: `run path=LatestA1c.cql as=csv columns="Name,Latest Result,Latest Date,Above 9,Ever Above 9"` (latest and ever, side by side) |
 | was any result above a threshold | a FHIR search: `query language=search text="Observation?code=…&value-quantity=gt9"`; per patient beside the latest, the CQL guide's `Ever Above 9` |
-| whose mean blood pressure is at or above 140/90 | `raco fhir-mcp guide workspace`, the `bp` view and its summary SQL — read clinically as systolic ≥ 140 OR diastolic ≥ 90 |
+| whose mean blood pressure is at or above 140/90 | `raco fhir guide workspace`, the `bp` view and its summary SQL — read clinically as systolic ≥ 140 OR diastolic ≥ 90 |
 | where did each stored value come from (who, when, why, which file and line) | `describe ref=Observation as=trail` (one resource's versions: `ref=Observation/a1/_history as=trail`) |
 | what changed in a resource, version by version | `describe ref=Observation/a1/_history` |
-| a rule every resource of a type must meet | "Constraints and the trail" below; the rules cookbook in `raco fhir-mcp guide workspace` |
-| correct a stored value with a reason | the correction recipe in `raco fhir-mcp guide workspace` |
-| a table of values to join or chart | a ViewDefinition (`raco fhir-mcp guide sql-on-fhir`), then `query language=sql` |
+| a rule every resource of a type must meet | "Constraints and the trail" below; the rules cookbook in `raco fhir guide workspace` |
+| correct a stored value with a reason | the correction recipe in `raco fhir guide workspace` |
+| a table of values to join or chart | a ViewDefinition (`raco fhir guide sql-on-fhir`), then `query language=sql` |
 | a FHIR server with an operation of your own | "Build a FHIR server" below; a whole operation (the eGFR equation, every input option): `raco fhir guide capability`, "One operation using every option" |
 | a Racket program: map, validate, decide | `raco fhir guide racket`; "A Racket program" at the end |
 
@@ -60,12 +60,12 @@ in one process, quoted as a shell would, each answer under a `### <line>` header
 (exit 1 if any failed; a line starting with `!` is expected to fail); `--workspace` applies to every
 line. The whole cohort session — data in, table out, trail — is one batch:
 ```sh
-raco fhir guide cql --block 3 > LatestA1c.cql            # the latest-value recipe, as a file
+raco fhir guide cql --block LatestA1c > LatestA1c.cql            # the latest-value recipe, as a file
 cat > session.txt <<'CALLS'
 write path=LatestA1c.cql text=@LatestA1c.cql
 stage fsh=@patients.fsh
 commit stage=latest reason="intake" agent="clinic intake desk"
-run path=LatestA1c.cql as=csv columns="Name,Latest Number,Latest Date,Above 9,Ever Above 9"
+run path=LatestA1c.cql as=csv columns="Name,Latest Result,Latest Date,Above 9,Ever Above 9"
 describe ref=Observation as=trail
 CALLS
 raco fhir-mcp batch session.txt --workspace ws       # from the folder holding ws/ and patients.fsh
@@ -86,7 +86,9 @@ name means the latest result of it, in SQL (`FROM Diabetes`) and in `result://`,
 `--workspace` defaults to the current directory. A call prints the tool's answer (JSON, or text) and exits 0; 1 when the tool failed or its answer
 counts errors (`"errors": 2`: a stage that cannot be committed, a check with errors); 2 for a usage
 error. `describe ref=stages` lists the stages not committed; `stage drop=stage-3` discards one
-(`drop=all`, every one); a dropped stage's id is never given to a new one. A tool answering text (`describe … as=fsh`, `as=csv`, `as=source`) prints
+(`drop=all`, every one; `drop=refused`, every one with errors); a dropped stage's id is never given
+to a new one. `stage … keep:=false` checks only: the same answer, no stage kept (a refusal shown on
+purpose leaves nothing to drop). A tool answering text (`describe … as=fsh`, `as=csv`, `as=source`) prints
 the text itself, not a JSON string.
 
 Keep data files like `patients.fsh` outside the workspace directory: the workspace's own `.fsh`
@@ -101,9 +103,9 @@ reads it); `write` saves a file and answers its problems in the same call, `chec
 file's.
 
 ## The guides
-`raco fhir-mcp guide` lists them and `raco fhir-mcp guide <topic>` prints one (`raco fhir guide <topic>`
-is the same, for the Racket route); `--blocks` after the topic lists its code blocks and `--block N`
-prints one, to save a recipe as a file (`raco fhir guide cql --block 3 > LatestA1c.cql`); an MCP client reads the
+`raco fhir guide` lists them and `raco fhir guide <topic>` prints one (`raco fhir-mcp guide <topic>`
+prints the same text: this skill writes `raco fhir guide` throughout); `--blocks` after the topic lists its code blocks and `--block <name>`
+(a word of the block's first line) or `--block N` prints one, to save a recipe as a file (`raco fhir guide cql --block LatestA1c > LatestA1c.cql`); an MCP client reads the
 same text as `learn://<topic>`. Read `fhir` (resources, codes, quantities, references) and
 `workspace` (the tools) first, then the language you write:
 
@@ -295,7 +297,7 @@ FHIRPath invariants for anything more complex) and name it in workspace.yaml —
 claims it in `meta.profile`; a stage that breaks it lists the rule and cannot commit; `check`
 holds the workspace's FSH examples to it, `check(data: true)` everything already stored, counting
 violations by rule. `write path=rules.fsh text=@rules.fsh enforce:=true` writes the profile AND names it
-in workspace.yaml. `raco fhir-mcp guide workspace` has what to copy: a rules cookbook (a range, a
+in workspace.yaml. `raco fhir guide workspace` has what to copy: a rules cookbook (a range, a
 unit, not in the future), a complete blood-pressure rule (systolic and diastolic in mm[Hg], a
 subject), and the correction recipe (`describe … as=fsh`, edit, stage, commit with a reason) — each
 tested as written.
@@ -333,7 +335,7 @@ raco fhir-server serve study.capability.rkt --port 8080 --store fhir.db &   # or
 raco fhir-mcp call apply operation='$egfr' url=http://localhost:8080 inputs:='{"creatinine": 1.1, "age": 60, "sex": "female"}'
 ```
 `raco fhir guide capability` has the cheat sheet, the smallest server, a whole operation using every
-input option (the eGFR equation: `--blocks` lists the blocks, `--block 3` prints it), a worked example
+input option (the eGFR equation: `--block egfr` prints it), a worked example
 and a smoke test, tested as written.
 
 ## When something is off

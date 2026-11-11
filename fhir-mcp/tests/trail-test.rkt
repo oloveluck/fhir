@@ -145,7 +145,7 @@
                                                               "define \"Label\": if exists \"Results\" then 'tested' else 'never tested'\n"
                                                               "define \"Twice\": Count(\"Results\") * 2\n")))
     (define wide (call "run" (hasheq 'path "Wide.cql")))
-    (check-regexp-match #rx"columns=\"patient,Count,Label,Twice\"" (hash-ref wide 'table))   ; the yes/no flag left out
+    (check-regexp-match #rx"columns=\"patient,Label,Count,Twice\"" (hash-ref wide 'table))   ; the yes/no flag left out
     (define count-tally (hash-ref (hash-ref (hash-ref wide 'summary) 'defines) 'Count))
     (check-true (and (hash-has-key? count-tally 'min) (hash-has-key? count-tally 'max) (hash-has-key? count-tally 'mean)) (format "~s" count-tally))
     (void (call "write" (hasheq 'path "Wide.cql" 'text "")))
@@ -154,7 +154,7 @@
     (define recipe (cadr (regexp-match #px"```cql\n(library LatestA1c.*?)```" (learn-text "cql"))))
     (call "write" (hasheq 'path "LatestA1c.cql" 'text recipe))
     (define recipe-run (call "run" (hasheq 'path "LatestA1c.cql")))
-    (check-regexp-match #rx"run[(]\"LatestA1c[.]cql\"[)] as=csv columns=\"Name,Latest Number,Latest Unit,Latest Date,Above 9\""
+    (check-regexp-match #rx"run[(]\"LatestA1c[.]cql\"[)] as=csv columns=\"Name,Latest Result,Latest Date,Above 9,Ever Above 9\""
                         (hash-ref recipe-run 'table))
     ;; a Quantity define is summarised as numbers are, with its unit (it read {"other": n})
     (define latest-tally (hash-ref (hash-ref (hash-ref recipe-run 'summary) 'defines) '|Latest Value|))

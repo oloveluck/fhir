@@ -36,14 +36,18 @@
 (let-values ([(code _t) (run "fhir" "guide" "cql" "--block" "999")])
   (check-equal? code 2))
 ;; the CQL guide's own instruction (`--block N > LatestA1c.cql`) names the recipe's block
-(let* ([n (cadr (regexp-match #px"raco fhir guide cql --block ([0-9]+) > LatestA1c[.]cql" (learn-text "cql")))])
+(let* ([n (cadr (regexp-match #px"raco fhir guide cql --block ([A-Za-z0-9]+) > LatestA1c[.]cql" (learn-text "cql")))])
   (let-values ([(code text) (run "fhir" "guide" "cql" "--block" n)])
     (check-equal? code 0)
     (check-regexp-match #rx"^library LatestA1c " text)))
-;; the fhir skill's `--block 3` for the capability guide is the eGFR operation
-(let-values ([(code text) (run "fhir" "guide" "capability" "--block" "3")])
+;; the fhir skill's `--block egfr` for the capability guide is the eGFR operation (by name: a number
+;; shifts when a guide gains a block)
+(let-values ([(code text) (run "fhir" "guide" "capability" "--block" "egfr")])
   (check-equal? code 0)
   (check-regexp-match #rx"^[(]define [(]egfr-handler in req[)]" text))
 ;; --blocks names each block's section
 (let-values ([(code listing) (run "fhir" "guide" "capability" "--blocks")])
   (check-regexp-match #rx"(?m:^3  \\[racket\\] \\(Operations: inputs and outputs\\) \\(define \\(egfr-handler)" listing))
+(let-values ([(code text) (run "fhir-mcp" "guide" "workspace" "--block" "BloodPressureRule")])
+  (check-equal? code 0)
+  (check-regexp-match #rx"^Profile: BloodPressureRule\n" text))

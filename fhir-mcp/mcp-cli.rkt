@@ -27,7 +27,7 @@
     ("call"  ,(format "raco fhir-mcp call <tool> ['<json>' | -] [key=value | key=@file | key:=<json>]… ~a   run one tool: arguments as a JSON object (- reads it from stdin) and/or one by one, a file's text with @" flags))
     ("batch" ,(format "raco fhir-mcp batch [<file> | -] ~a   many calls in one process: one per line, `<tool> key=value key=@file key:=<json> …` (quoted as a shell would; # starts a comment; a line starting with ! is expected to fail), each answer after a `### <line>` header" flags))
     ("init"  "raco fhir-mcp init [<dir>] [--fhir-version 4.0.1|5.0.0]   make a directory a workspace an agent can use: workspace.yaml (data: fhir.db, a SQLite FHIR store), .mcp.json, CLAUDE.md")
-    ("guide" "raco fhir-mcp guide [<topic> [--blocks | --block N]]   a guide (learn://<topic>) as text, its code blocks listed, or one (to save as a file); without a topic, the topics")))
+    ("guide" "raco fhir-mcp guide [<topic> [--blocks | --block N|name]]   a guide (learn://<topic>) as text, its code blocks listed, or one (to save as a file); without a topic, the topics")))
 
 ;; An Opts is (opts workspace packages data rest)
 (struct opts (workspace packages data rest))
@@ -193,8 +193,8 @@
   (match as
     ['() #f]
     [(list "--blocks") 'list]
-    [(list "--block" n) #:when (and (string->number n) (exact-positive-integer? (string->number n))) (string->number n)]
-    [_ (usage-error cmd usages "guide" (format "after the topic: --blocks, or --block N (got ~a)" (string-join as " ")))]))
+    [(list "--block" n) (if (exact-positive-integer? (string->number n)) (string->number n) n)]
+    [_ (usage-error cmd usages "guide" (format "after the topic: --blocks, or --block N or a name (got ~a)" (string-join as " ")))]))
 
 ;; guide-command : args -> void   learn://<topic> printed, or the topics with what each covers
 (define (guide-command args)
@@ -203,11 +203,11 @@
   (cond
     [(not topic)
      (for ([t (in-list learn-topics)]) (printf "~a  ~a\n" (car t) (cdr t)))
-     (printf "\nraco fhir-mcp guide <topic> prints one (--blocks lists its code blocks, --block N prints one to save as a file); an MCP client reads it as learn://<topic>\n")]
+     (printf "\nraco fhir-mcp guide <topic> prints one (--blocks lists its code blocks, --block N or --block <name> prints one to save as a file); an MCP client reads it as learn://<topic>\n")]
     [(and which (learn-text topic))
      => (lambda (text) (define out (guide-block-text text which))
           (if out (display out)
-              (usage-error "fhir-mcp" usages "guide" (format "~a has ~a code blocks (--blocks lists them)" topic (length (guide-blocks text))))))]
+              (usage-error "fhir-mcp" usages "guide" (format "~a has no block ~a (--blocks lists its ~a blocks)" topic (cadr (member "--block" args)) (length (guide-blocks text))))))]
     [(learn-text topic) => display]
     [else (usage-error "fhir-mcp" usages "guide"
                        (format "no guide ~a (topics: ~a)" topic (string-join (map car learn-topics) ", ")))]))

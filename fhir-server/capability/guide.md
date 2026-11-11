@@ -115,7 +115,9 @@ bounded and bound, its output a Quantity:
   #:handler egfr-handler)
 ```
 `GET /$egfr?creatinine=1.1&age=60&sex=female` answers 57.5 mL/min/1.73m2; `creatinine=0&sex=other`
-is a 400 with one issue per input (below its range; not in the binding), before the handler runs.
+is a 400 with one issue per input (below its range; not in the binding), before the handler runs. The block is the
+declarations and the handler, not a file: paste it after the smallest server's `(resource …)` forms
+(its `#lang` line, `require` and `(server …)` come once, at the top).
 
 Values arrive converted to their declared type, from a GET query or a POSTed Parameters alike: a
 whole decimal (`60.0`) is taken as an `integer` and a number as a `decimal`; text that does not read
@@ -315,7 +317,8 @@ A handler is Racket, and every language of the workspace is a library in it:
   does not know (`element 'medicationCodeableConcept' is not defined`), so validate first.
 - `$validate` holds a resource to R6's own rules, warnings included: a minimal Observation is warned
   `obs-12: All observations SHOULD have a performer` (a warning, not an error: the create still
-  succeeds).
+  succeeds). A create answers 201 with the stored resource and says nothing of warnings; to see them,
+  `POST /<Type>/$validate` the same body first.
 - One app per file; one `(server …)`. Declarations may come in any order; a handler must not use `app`.
 - The store indexes a resource when it is written, by the writer's search parameters: a parameter
   only the app declares (with its own FHIRPath) finds what the app wrote, not what the workspace

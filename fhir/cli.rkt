@@ -101,16 +101,16 @@
     (match more
       ['() #f]
       [(list "--blocks") 'list]
-      [(list "--block" n) #:when (exact-positive-integer? (string->number n)) (string->number n)]
-      [_ (usage-error "fhir" usages "guide" (format "after the topic: --blocks, or --block N (got ~a)" (string-join more " ")))]))
+      [(list "--block" n) (if (exact-positive-integer? (string->number n)) (string->number n) n)]
+      [_ (usage-error "fhir" usages "guide" (format "after the topic: --blocks, or --block N or a name (got ~a)" (string-join more " ")))]))
   (cond
     [(not topic) (for ([t (in-list topics)]) (printf "~a  ~a\n" (car t) (cdr t)))
-                 (printf "\nraco fhir guide <topic> prints one (--blocks lists its code blocks, --block N prints one)\n")]
+                 (printf "\nraco fhir guide <topic> prints one (--blocks lists its code blocks, --block N or --block <name> prints one)\n")]
     [(and which (text-of topic))
      => (lambda (text)
           (define out ((need 'guide-block-text) text which))
           (if out (display out)
-              (usage-error "fhir" usages "guide" (format "~a has ~a code blocks (--blocks lists them)" topic (length ((need 'guide-blocks) text))))))]
+              (usage-error "fhir" usages "guide" (format "~a has no block ~a (--blocks lists its ~a blocks)" topic (cadr more) (length ((need 'guide-blocks) text))))))]
     [(text-of topic) => display]
     [else (usage-error "fhir" usages "guide" (format "no guide ~a (topics: ~a)" topic (string-join (map car topics) ", ")))]))
 
@@ -121,7 +121,7 @@
     ("roundtrip-tck" "raco fhir roundtrip-tck [r4|r5]")
     ("snapshot"      "raco fhir snapshot <sd.json>")
     ("new"           "raco fhir new pipeline <dir>   copy the Racket pipeline template (FSH + FML + CQL + main.rkt) to <dir>")
-    ("guide"         "raco fhir guide [topic [--blocks | --block N]]   print a guide (workspace, fhir, cql, fsh, fml, fhirpath, vcl, sql-on-fhir, capability, …), its code blocks, or one to save")))
+    ("guide"         "raco fhir guide [topic [--blocks | --block N|name]]   print a guide (workspace, fhir, cql, fsh, fml, fhirpath, vcl, sql-on-fhir, capability, …), its code blocks, or one to save")))
 
 (module+ main
   (define (arg as n) (and (> (length as) n) (list-ref as n)))
