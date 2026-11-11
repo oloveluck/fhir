@@ -811,6 +811,12 @@
                   (if (member base names)
                       (format "`~a`: the modifier is not supported" n)
                       (format "`~a`: ~a does not search on it~a" n type (did-you-mean base names))))]))
+  ;; reverse chaining and chaining can never be applied here: refused, not answered as if absent (a
+  ;; `_has` search answered every patient beside its note, and a reader of the rows got a wrong list)
+  (define never (filter (lambda (n) (or (regexp-match? #rx"^_has:" n) (regexp-match? #rx"[.]" n))) ignored))
+  (when (pair? never)
+    (error 'search (format "not supported: ~a — ask \"has a …\" or \"has none\" with CQL (exists [Observation: …], the CQL guide's \"No HbA1c\") or SQL over a view"
+                           (string-join (map why never) "; "))))
   (when (and (pair? ignored) (hash-ref opts 'strict #f))
     (error 'search (format "not applied: ~a (~a searches on ~a and _id, _lastUpdated, _count, _sort)"
                            (string-join (map why ignored) "; ") type (string-join names ", "))))
@@ -1560,7 +1566,7 @@
         (for/list ([r (in-list rs)])
           (define current (and (hash-ref r 'id #f) ((data-source-read (current-data-source)) (hash-ref r 'resourceType) (hash-ref r 'id))))
           (define paths (if current (json-diff current r) '()))
-          (hash-set! warned r (append (at-line r (validation-issues r '("warning")))
+          (hash-set! warned r (append (at-line r (append (validation-issues r '("warning")) (systemless-codes r)))
                                       (let ([w (and current (pair? paths) (reverted-correction h current r))]) (if w (list w) '()))))
           (change r (cond [(not current) 'create] [(null? paths) 'unchanged] [else 'update]) paths (at-line r (validation-errors r)))))
       (define errors (for/sum ([c (in-list changes)]) (length (change-errors c))))
@@ -1605,6 +1611,28 @@
       (define refs (if keep? '() (remove-duplicates (append* (for/list ([c (in-list changes)]) (hash-ref dangling (change-resource c) '()))))))
       (define answer1 (if (pair? refs) (hash-set answer 'references refs) answer))
       (if (and (positive? unchanged-count) (not nothing?)) (hash-set answer1 'unchanged unchanged-count) answer1))))
+
+;; systemless-codes : resource -> (listof string)   a warning for each coding with a code and no
+;; system: a rule keyed on the system (`implies` over `system = 'http://loinc.org'`), a view and a
+;; token search all pass it by, so a blood pressure coded `#85354-9` escaped its rule and dropped out of
+;; the summary without a word. The system a code's shape suggests is named (LOINC: digits-digit).
+(define (systemless-codes r)
+  (define (system-for code)
+    (cond [(regexp-match? #px"^[0-9]{1,7}-[0-9]$" code) " (a LOINC code: `http://loinc.org`, in FSH `$LOINC#…` or `http://loinc.org#…`)"]
+          [(regexp-match? #px"^[0-9]{6,18}$" code) " (a SNOMED CT code? `http://snomed.info/sct`)"]
+          [else ""]))
+  (let walk ([v r] [path (hash-ref r 'resourceType "")])
+    (cond
+      [(hash? v)
+       (append
+        (if (and (string? (hash-ref v 'code #f)) (not (hash-ref v 'system #f))
+                 (regexp-match? #rx"[.]coding[[]" path))
+            (list (format "~a: the code `~a` has no system: rules, views and searches matched on its system pass it by — add it~a"
+                          path (hash-ref v 'code) (system-for (hash-ref v 'code))))
+            '())
+        (append* (for/list ([(k x) (in-hash v)] #:unless (memq k '(text div))) (walk x (format "~a.~a" path k)))))]
+      [(list? v) (append* (for/list ([x (in-list v)] [i (in-naturals)]) (walk x (format "~a[~a]" path i))))]
+      [else '()])))
 
 ;; reverted-correction : hub current staged -> string | #f   an update that puts back the values the
 ;; newest commit changed — staging the original file again after a correction would quietly undo it

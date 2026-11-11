@@ -1529,6 +1529,25 @@ planting mistakes on purpose, two gaps in the capability language; each fix has 
 - Docs: the skill lists `as=csv columns= sort= name= keep:= strict:=`; the guide's 140/90 SQL says in a
   comment that it reads systolic OR diastolic; the capability guide says outputs are held to `#:out`.
 
+## New users, round 27 (2026-11-11)
+The twenty-sixth rerun (every task first time, 4–15 calls, right answers, no source read) found a claim
+of our own that did not hold and two quiet data-quality gaps; each fix has a test doing what the agent did:
+- **The template's `tests.rkt` names its layout at its top** (`profiles-folder`, `invalid-folder`,
+  `input-file`, `main-file`) and says in one line when one is not there — "run it as it is" held only
+  for the template's own folder names (an agent's `profiles/` got `directory-list: could not open
+  directory`); learn://racket says what is required (the `#lang` lines, an invalid example in its own
+  folder) and what is the template's choice.
+- **A code without its system is said at stage time** (workspace.rkt `systemless-codes`): a blood pressure
+  coded `#85354-9` passed the guide's rule (keyed on LOINC) and dropped out of the views without a word;
+  each such coding is a warning naming the system its shape suggests (LOINC digits-digit, SNOMED digits).
+- **Reverse chaining and chaining are refused** (run-search): answered without them the search listed
+  every patient beside a note; `ignored` stays for what a strict search would refuse.
+- **Servers**: the smallest server declares `#:references "checked"`; the banner says the store is
+  created on the first request when the file is not there yet.
+- Smaller: a Quantity or Coding inside an answer reads in FHIR's order (verbs.rkt `answer-json`: an
+  explain printed `code, system, unit, value`); the skill shows `explain ref=result://<name>`; fml's
+  guide has the text-answer gender rule beside the coded one.
+
 ## SQL on FHIR where tables are made (2026-11-11)
 An audit of where the toolkit flattens FHIR into tables found hand-written JSON SQL doing a
 ViewDefinition's job, and under it a load-order defect; both fixed, each with a test doing it:

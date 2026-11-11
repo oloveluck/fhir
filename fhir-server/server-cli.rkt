@@ -90,7 +90,10 @@
                               "strict (a parameter the app does not declare is refused, 400)"
                               "lenient (a parameter the app does not declare is ignored, and said in the Bundle; (server #:search-handling \"strict\") refuses it)"))
   (printf "store: ~a\n" (if (null? stores) "a temporary SQLite file, removed when the server stops (--store keeps one)"
-                             (string-join (map path->string stores) ", ")))
+                             ;; created with the first request that touches it (a server stopped
+                             ;; before any left no file, and the file the banner named was not there)
+                             (string-append (string-join (map path->string stores) ", ")
+                                            (if (ormap file-exists? stores) "" " (created on the first request)"))))
   (flush-output)                                          ; said at once, even when the output is a file
   (with-handlers ([exn:break? (lambda (_) (stop))]) (sync/enable-break never-evt)))
 

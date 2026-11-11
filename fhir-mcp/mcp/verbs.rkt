@@ -42,10 +42,19 @@
       [(hash? v)
        (define cols (let ([c (hash-ref v 'columns #f)]) (and (list? c) (andmap string? c) (map string->symbol c))))
        (define ks (hash-keys v))
-       (define keys (if order
-                        (append (filter (lambda (k) (hash-has-key? v k)) order)
-                                (sort (filter (lambda (k) (not (memq k order))) ks) symbol<?))
-                        (key-order ks)))          ; resourceType, id, meta first, as FHIR writes them
+       ;; a Quantity or Coding inside an answer (an explain's value) in FHIR's element order too
+       (define datatype-order
+         (cond [(and (hash-has-key? v 'value) (or (hash-has-key? v 'unit) (hash-has-key? v 'code))
+                     (andmap (lambda (k) (memq k '(value comparator unit system code))) ks))
+                '(value comparator unit system code)]
+               [(and (hash-has-key? v 'code) (hash-has-key? v 'system)
+                     (andmap (lambda (k) (memq k '(system version code display userSelected))) ks))
+                '(system version code display userSelected)]
+               [else #f]))
+       (define keys (cond [order (append (filter (lambda (k) (hash-has-key? v k)) order)
+                                         (sort (filter (lambda (k) (not (memq k order))) ks) symbol<?))]
+                          [datatype-order (filter (lambda (k) (hash-has-key? v k)) datatype-order)]
+                          [else (key-order ks)]))          ; resourceType, id, meta first, as FHIR writes them
        (string-append
         "{"
         (string-join (for/list ([k (in-list keys)])
@@ -154,3 +163,9 @@
                  '("stage"))
          (lambda (args) (answer (lambda () (hub-commit! h (need args 'stage) (let ([r (hash-ref args 'reason #f)]) (and (string? r) r))
                                                        #:agent (let ([a (hash-ref args 'agent #f)]) (and (string? a) a)))))))))
+
+(module+ test
+  (require rackunit)
+  ;; a Quantity inside an answer reads value, unit, system, code (an explain printed them alphabetically)
+  (check-equal? (answer-json (hasheq 'value (hasheq 'code "%" 'system "http://unitsofmeasure.org" 'unit "%" 'value 8.9)))
+                "{\"value\":{\"value\":8.9,\"unit\":\"%\",\"system\":\"http://unitsofmeasure.org\",\"code\":\"%\"}}"))

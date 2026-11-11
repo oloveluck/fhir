@@ -13,7 +13,8 @@ is what each part can say.
 ```racket
 #lang fhir/capability
 (require (only-in fhir/conformance/operations $validate)) ; an existing operation: required, then served
-(server #:store "study.db" #:search-handling "strict")   ; patient data: refuse a filter it cannot apply
+(server #:store "study.db" #:search-handling "strict"    ; patient data: refuse a filter it cannot apply
+        #:references "checked")                           ; and an Observation of a patient it does not hold
 (resource Patient #:interactions (read create search-type) #:search-params ([gender token] [birthdate date]))
 (resource Observation #:interactions (read create search-type) #:search-params ([patient reference] [code token]))
 (define (double-handler in req)                           ; `in`: each input's name -> its list of values

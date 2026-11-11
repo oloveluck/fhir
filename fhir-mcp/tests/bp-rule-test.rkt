@@ -85,6 +85,15 @@
     ;; EVERY systolic in mm[Hg]: a second one in kPa beside a good one is refused (a rerun found the gap)
     (check-equal? (errors-of (string-append (bp "mixed") "* component[2].code = http://loinc.org#8480-6\n* component[2].valueQuantity = 20 'kPa'\n"))
                   '("fsh:11: Observation: bp-systolic: A blood pressure (LOINC 85354-9) has a systolic component (LOINC 8480-6), a number in mm[Hg] (found component[2].valueQuantity = 20 'kPa')"))
+    ;; a blood pressure coded without its system escapes the rule (keyed on LOINC) and the views: the
+    ;; stage says so, with the system the code's shape suggests (an agent's `#85354-9` passed silently)
+    (let* ([fsh (string-append "Instance: nosys\nInstanceOf: Observation\n* status = #final\n* code = #85354-9\n"
+                               "* subject = Reference(Patient/a)\n* component[0].code = http://loinc.org#8480-6\n* component[0].valueQuantity = 150 'mm[Hg]'\n")]
+           [a (call "stage" (hasheq 'fsh fsh 'keep #f))]
+           [ws (hash-ref (car (hash-ref a 'changes)) 'warnings '())])
+      (check-equal? (hash-ref (car (hash-ref a 'changes)) 'errors '()) '())
+      (check-regexp-match #rx"code[.]coding[[]0[]]: the code `85354-9` has no system: rules, views and searches matched on its system pass it by — add it [(]a LOINC code: `http://loinc.org`"
+                          (string-join ws "\n")))
     ;; a unit with no number is refused too (a rerun's agent staged one: the summary's mean would
     ;; have left the reading out without a word)
     (check-equal? (errors-of (string-append

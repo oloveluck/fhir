@@ -56,9 +56,16 @@ In tests (the template's `tests.rkt` uses each):
   whole project): an invalid example builds. `raco fsh check fsh` validates them, each problem at its
   line; keep an example meant to fail in its own folder (`raco fsh check fsh-invalid --context fsh`).
 - The template's `tests.rkt` is all of it as one gate (`raco test tests.rkt`): copy it beside files
-  you wrote yourself (`raco fhir new pipeline tmp`, take `tmp/tests.rkt`) and run it as it is: it reads
-  what to expect from the files — the Instances in `fsh-invalid/`, the birth date (the answer written as
-  a `valueDate`, whatever its linkId) in `qr.json` — so it needs no edit for other names.
+  you wrote yourself (`raco fhir new pipeline tmp`, take `tmp/tests.rkt`) and set the four names at its
+  top to your layout (`profiles-folder`, `invalid-folder`, `input-file`, `main-file`; a name that is not
+  there is one line saying which). The rest it reads from the files — the Instances of the invalid folder,
+  the birth date (the answer written as a `valueDate`, whatever its linkId) — so instance names and
+  linkIds need no edit.
+- What is required and what is the template's choice: each file a program requires starts with its
+  `#lang` line; an example meant to fail lives in a folder of its own (checked with `--context` on the
+  profiles' folder — beside the profile it would fail the profile's own check); `main.rkt` provides
+  `intake` only because `tests.rkt` drives it. The folder names, file names and the define's name are
+  yours to choose.
   It drives `main.rkt` through what the template's provides, so a `main.rkt` of your own keeps that
   shape: `(provide intake)` with `(intake qr #:now [now #f])` answering two values, the Patient (FHIR
   JSON) and the answer's text, and the command line in a `(module+ main …)` (a plain script runs

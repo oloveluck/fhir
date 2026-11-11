@@ -92,10 +92,12 @@
     (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT resource ->> '$.action' AS action, count(*) AS n FROM AuditEvent GROUP BY 1 ORDER BY 1")) 'rows)
                   (list (hasheq 'action "C" 'n 1) (hasheq 'action "E" 'n 2) (hasheq 'action "U" 'n 1)))
     ;; a parameter search cannot apply is said, not dropped: `_has` answered every patient, silently
-    (define has (call "query" (hasheq 'language "search" 'text "Patient?_has:Observation:subject:code=4548-4&gendr=female")))
-    (check-equal? (length (hash-ref has 'ignored)) 2)
-    (check-regexp-match #rx"reverse chaining [(]_has[)] is not supported" (car (hash-ref has 'ignored)))
-    (check-regexp-match #rx"`gendr`: Patient does not search on it [(]did you mean `gender`[?][)]" (cadr (hash-ref has 'ignored)))
+    ;; reverse chaining is refused, not answered as every patient
+    (check-regexp-match #rx"not supported: `_has:Observation:subject:code`: reverse chaining [(]_has[)] is not supported"
+                        (hash-ref (call "query" (hasheq 'language "search" 'text "Patient?_has:Observation:subject:code=4548-4") #:ok? #f) 'error))
+    (define has (call "query" (hasheq 'language "search" 'text "Patient?gendr=female")))
+    (check-equal? (length (hash-ref has 'ignored)) 1)
+    (check-regexp-match #rx"`gendr`: Patient does not search on it [(]did you mean `gender`[?][)]" (car (hash-ref has 'ignored)))
     (check-regexp-match #rx"WITHOUT these parameters" (hash-ref has 'note))
     (check-false (hash-ref (call "query" (hasheq 'language "search" 'text "Patient?gender=female")) 'ignored #f))
     (check-regexp-match #rx"not applied: `gendr`.*Patient searches on .*birthdate"

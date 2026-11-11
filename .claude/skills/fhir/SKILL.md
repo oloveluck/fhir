@@ -23,7 +23,7 @@ one line, `file:line:col severity: message`, with "did you mean …" for a missp
 | question | where |
 |---|---|
 | is the latest HbA1c above 9 %, per patient (and "never tested") | `raco fhir guide cql`, "the latest value per patient" (copy its library as `LatestA1c.cql`); the table: `run path=LatestA1c.cql as=csv columns="Name,Latest Result,Latest Date,Above 9,Ever Above 9"` (latest and ever, side by side; add `No HbA1c` for who was never tested) |
-| which patients have no HbA1c at all | the same library's `"No HbA1c"` define (CQL), not a search: FHIR search has no "has none", and a `_has` search is not supported (the answer lists it under `ignored`; `raco fhir guide search`) |
+| which patients have no HbA1c at all | the same library's `"No HbA1c"` define (CQL), not a search: FHIR search has no "has none", and a `_has` search is refused (`raco fhir guide search`) |
 | was any result above a threshold | a FHIR search: `query language=search text="Observation?code=…&value-quantity=gt9"`; per patient beside the latest, the CQL guide's `Ever Above 9` |
 | whose mean blood pressure is at or above 140/90 | `raco fhir guide workspace`, the `bp` view and its summary SQL — read clinically as systolic ≥ 140 OR diastolic ≥ 90 |
 | where did each stored value come from (who, when, why, which file and line) | `describe ref=Observation as=trail` (one resource's versions: `ref=Observation/a1/_history as=trail`) |
@@ -348,6 +348,7 @@ and a smoke test, tested as written.
 ## When something is off
 - A problem line names the file, line and column: fix it there and `write` again.
 - An answer you did not expect: `explain(ref: "result://r2", subject: "Patient/bob", entry: "Poor Control")`
+  (a run is named by its file, so `explain ref=result://LatestA1c subject=Patient/maria entry="Above 9"`)
   walks the CQL down to the retrieve and says which resources it kept.
 - A stage with errors lists them per resource; nothing is written until they are gone.
 

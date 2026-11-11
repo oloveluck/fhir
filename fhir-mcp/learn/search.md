@@ -23,8 +23,9 @@ le, sa, eb and ap. A comma means or, and repeating a parameter means and.
 A parameter the search cannot apply — a name the type does not search on, a misspelling, an
 unsupported modifier, chaining (`subject.name=…`) or reverse chaining (`_has:Observation:…`) — is
 left out, and the answer says so at its top: `ignored` lists each one (with the nearest name), and
-`note` says the answer is the search WITHOUT them. Read it before trusting the count:
-`Patient?_has:Observation:subject:code=4548-4` answers every patient. With `strict:=true`
-(`query language=search text="…" strict:=true`) such a search is refused instead.
+`note` says the answer is the search WITHOUT them. With `strict:=true` (`query language=search
+text="…" strict:=true`) such a search is refused instead. Chaining and reverse chaining
+(`Patient?_has:Observation:subject:code=4548-4`) are always refused: answered without them, the
+search would list every patient.
 "Which patients have an HbA1c" (or have none) is a CQL question — `exists [Observation: …]`, or the
 `"No HbA1c"` define of `raco fhir guide cql --block LatestA1c` — or SQL over a view.
