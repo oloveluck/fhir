@@ -29,6 +29,8 @@ want around them. At its smallest (`raco fhir guide racket --block minimal > mai
          (only-in "qr2patient.map" transform)
          (only-in "Intake.cql" evaluate))
 
+;; FHIR versions: the map and the validation read R5, the library FHIR 4.0.1 (`using FHIR`): a
+;; Patient's name, gender and birthDate are the same in both
 (define qr (call-with-input-file (vector-ref (current-command-line-arguments) 0) read-json))
 (define patient (transform qr #:validate (canonical-of "IntakePatient")))   ; invalid: raises at the map's rule
 (write-fhir-json patient #:indent 2) (newline)
@@ -37,7 +39,9 @@ want around them. At its smallest (`raco fhir guide racket --block minimal > mai
 `racket main.rkt qr.json` prints the Patient and the answer. The template's `main.rkt` adds, each
 optional: `(provide intake)` with the three calls in a function (what `tests.rkt` drives), `--now` to
 fix the day, a one-line error for a missing file, and an invalid Patient as a message with exit 1
-instead of a stack trace.
+instead of a stack trace. Racket's `command-line` takes options before the file only (`--now X
+qr.json`); the template's moves them in front, so `qr.json --now X` works too. A map file is `.map` or
+`.fml`, either works (the template's is `.map`).
 
 ## Check each piece, in the order the data flows
 ```sh

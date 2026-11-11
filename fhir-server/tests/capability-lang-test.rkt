@@ -212,6 +212,10 @@
   ;; only "strict" or "lenient"
   (check-exn #rx"#:search-handling must be \"strict\" or \"lenient\""
              (lambda () (compile-capability '(server #:search-handling "loose") '(define x 1))))
+  ;; the server is R6 whatever #:fhir-version says: a statement labelled 4.0.1 is refused (a rerun's
+  ;; agent had /metadata saying 4.0.1 while $validate answered R6)
+  (check-exn #rx"#:fhir-version \"4[.]0[.]1\": a capability server speaks FHIR R6"
+             (lambda () (compile-capability '(server #:fhir-version "4.0.1") '(define x 1))))
   (delete-directory/files dir))
 
 ;; ---- an operation's inputs are typed by its declaration, the same over GET and POST
@@ -302,6 +306,10 @@
   (check-true (for/or ([i (in-list (hash-ref o13d 'issue))])
                 (regexp-match? #rx"^parameter 'x' is required [(]`zz` was given instead: is it this input[?][)]$" (hash-ref i 'diagnostics)))
               (format "~s" o13d))
+  ;; …said once: no second issue saying `zz` (or `xx`) is not an input
+  (for ([o (list o13c o13d)])
+    (check-false (for/or ([i (in-list (hash-ref o 'issue))]) (regexp-match? #rx"is not an input" (hash-ref i 'diagnostics)))
+                 (format "~s" o)))
   ;; a handler that raises: a 500 that says which handler and how to refuse instead
   (define-values (s14 o14) (handle app "GET" "/$r" '((x . "0")) ""))
   (check-equal? s14 500)

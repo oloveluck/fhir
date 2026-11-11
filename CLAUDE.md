@@ -1572,6 +1572,25 @@ our claims that did not hold; each fix has a test doing what the agent did:
 Not done, named: a handler's output names checked against `#:out` when the module loads (only the
 call checks them: the handler is code, its outputs known when it runs).
 
+## New users, round 29 (2026-11-11)
+The twenty-eighth rerun (every task first time, 6–20 calls, right answers) found one option that said
+what the server did not do and one of round 28's claims that did not hold; each fix has a test:
+- **`(server #:fhir-version "4.0.1")` is refused** at the option (declare.rkt): `/metadata` said
+  4.0.1 while `$validate` answered R6. A capability server is R6; only its own version is accepted.
+- **A misspelt operation input is one issue**: the "required (`hr` was given instead …)" problem
+  claims the unknown input, whose own "is not an input" issue is dropped (runtime.rkt `claimed`).
+- **The blood-pressure rule refuses `#85354-9`** (`bp-coded`: a 85354-9 coding names LOINC); a
+  systolic-only reading coded without its system went through with a warning.
+- **`raco fhir check-files`** prints `needs context  bad/bad.fsh — `IntakePatient` is defined in
+  …` for an example whose profile another folder defines (it printed "ok … note: … compile error").
+- Docs: the skill's rule and correction rows point to learn://workspace's whole-program paragraph,
+  SQL as a file first; the capability guide says outputs are checked when an operation runs (call each
+  once) and how to choose ids (`update`, PUT); learn://racket's smallest main.rkt names its FHIR
+  versions, `.map` or `.fml`, options before the file; fsh's guide says a missing element is at the
+  Instance's line; learn://workspace on adapting the rule to another panel.
+- The cohort agent's task now differs from the guide's worked example (eGFR below 60, not HbA1c above
+  9), so the rerun tests adapting the recipe, not copying it.
+
 ## SQL on FHIR where tables are made (2026-11-11)
 An audit of where the toolkit flattens FHIR into tables found hand-written JSON SQL doing a
 ViewDefinition's job, and under it a load-order defect; both fixed, each with a test doing it:

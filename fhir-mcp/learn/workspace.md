@@ -265,7 +265,12 @@ one a reading broke:
 Profile: BloodPressureRule
 Parent: Observation
 Id: bp-rule
-* obeys bp-subject and bp-systolic and bp-diastolic
+* obeys bp-coded and bp-subject and bp-systolic and bp-diastolic
+
+Invariant: bp-coded
+Description: "A blood-pressure code 85354-9 names LOINC as its system (http://loinc.org#85354-9)"
+Severity: #error
+Expression: "code.coding.where(code = '85354-9').all(system = 'http://loinc.org')"
 
 Invariant: bp-subject
 Description: "A blood pressure (LOINC 85354-9) has a subject"
@@ -287,9 +292,10 @@ Named for `Observation` in `profiles`, it holds every blood pressure to the rule
 Observation through. `X.exists() and X.all(…)` says "there is one, and EVERY one is in mm[Hg]": with
 `X.where(…).exists()` alone, a second systolic in kPa beside one in mm[Hg] would pass, and
 `value.exists()` in the `where` refuses a unit with no number (a mean over the readings would leave it
-out without a word). The rule is about Observations coded LOINC 85354-9: a blood pressure coded
-otherwise (no system, a misspelt one) is not held to it (a stage warns of a code without its system;
-the cookbook's `code-system` refuses it) — to require the code too, give the profile
+out without a word). The rule is about Observations coded LOINC 85354-9, and `bp-coded` refuses `85354-9` written
+without LOINC's system (`#85354-9` passed the other three by, keyed on the system); a blood pressure
+coded otherwise (a misspelt code) is not held to it — the cookbook's `code-system` refuses any code
+without its system — to require the code too, give the profile
 `* code = http://loinc.org#85354-9` and claim it only for blood pressures. A refusal quotes the rule's `Description` and what the rule found, at the rule that wrote it:
 `fsh:7: Observation: hr-range: A heart rate (LOINC 8867-4) is between 20 and 250 /min (found
 valueQuantity = 300 '/min')` — line 7 is the instance's `* valueQuantity = 300 '/min'`. "Found"
@@ -297,6 +303,12 @@ follows the rule: what the part after `implies` tests, the item of an `all(…)`
 its index (`found component[0].valueQuantity = 20 'kPa'`), or what is missing (`found no
 component matching '8462-4'`, at the instance's first line);
 write the description as the fix the author needs.
+
+To adapt the rule to another panel (a lipid panel, a set of vitals), copy the block and replace the
+codes and the unit: each component invariant reads "the panel's code (`85354-9`) implies a component
+coded X (`8480-6`) exists, and every such component is a number in unit U (`mm[Hg]`)" — the same
+`where` written three times is the panel test, the component test and the value test. One invariant
+per component keeps a refusal saying which one is wrong.
 
 ### Rules cookbook
 Each rule is an invariant on a profile named in `profiles`; `X implies Y` keeps it to the resources

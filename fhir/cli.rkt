@@ -126,7 +126,9 @@
   (define failed
     (for/list ([f (in-list files)])
       (define problem (check f))
-      (cond [(pair? problem) (printf "ok  ~a — note: ~a\n" (shown f) (cdr problem)) #f]
+      ;; a file that needs another module required first is not a failure: said apart, not as `ok`
+      ;; beside a compile error (a rerun's agent read "ok … note: … compile error" as a contradiction)
+      (cond [(pair? problem) (printf "needs context  ~a — ~a\n" (shown f) (cdr problem)) #f]
             [problem (eprintf "~a\n\n" problem) (shown f)]
             [else (printf "ok  ~a\n" (shown f)) #f])))
   (define bad (filter values failed))

@@ -30,6 +30,8 @@ answers `5.0`; `POST /Patient/$validate` with a Patient answers `All OK (FHIR R6
 its problems. The server speaks FHIR **R6** (`6.0.0-ballot4` in `/metadata`) whatever FHIR version a
 workspace uses; its clients send JSON that R4 and R6 write alike for most resources. After editing the
 file, stop the server (its pid is in the first line) and serve it again: the store keeps the data.
+A create's id is the server's (read it from `Location`); add `update` to a resource's interactions
+to choose readable ids with `PUT /Patient/ann`.
 
 ## Official references
 - CapabilityStatement: https://hl7.org/fhir/R4/capabilitystatement.html
@@ -40,7 +42,7 @@ file, stop the server (its pid is in the first line) and serve it again: the sto
 ## Cheat sheet
 ```
 (server #:url "http://example.org/clinic" #:store "fhir.db"      ; one per app; also #:name, #:description,
-        #:description "The clinic's FHIR server"                  ;   #:status, #:date, #:mode, #:format, #:fhir-version
+        #:description "The clinic's FHIR server"                  ;   #:status, #:date, #:mode, #:format (always FHIR R6)
         #:search-handling "strict")                               ; refuse a filter it cannot apply (default lenient)
 (resource Patient #:interactions (read create update delete search-type history-instance)
           #:search-params ([gender token] [family string "name.family"]))
@@ -147,7 +149,9 @@ exact value and round only what you return (a rounded 64.96 is 65.0, and `(< 65.
 answers 64.7 and true. `#:min` and `#:max` are inclusive: `systolic=40` and `systolic=300` are taken,
 `39.9` is refused. What the handler answers is held to its `#:out`: an output it does not declare, a
 required one it leaves out, or one of another type (`valueString` for a `decimal`) is a 500 naming each,
-so `GET /OperationDefinition/<code>` always says what the operation returns.
+so `GET /OperationDefinition/<code>` always says what the operation returns. The handler is code, so
+this is checked when the operation RUNS, not when the file loads: after serving, call each operation
+once (an output spelt `prolong` for `prolonged` is a 500 naming both on the first call).
 
 Values arrive converted to their declared type, from a GET query or a POSTed Parameters alike: a
 whole decimal (`60.0`) is taken as an `integer`, and any number — `75` as well as `75.0`, in a query or

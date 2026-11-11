@@ -99,6 +99,12 @@
        (decl-error 'server (format "#:search-handling must be \"strict\" or \"lenient\", got ~s" (syntax-e #'sh)) #'sh))
      (when (and (attribute refs) (not (member (syntax-e #'refs) '("checked" "unchecked"))))
        (decl-error 'server (format "#:references must be \"checked\" or \"unchecked\", got ~s" (syntax-e #'refs)) #'refs))
+     ;; the server's types, search and validation are R6: a statement saying 4.0.1 would be a label on
+     ;; an R6 server (`/metadata` said 4.0.1 while $validate answered "All OK (FHIR R6 …)")
+     (when (and (attribute fv) (not (equal? (syntax-e #'fv) fhir-version)))
+       (decl-error 'server (format "#:fhir-version ~s: a capability server speaks FHIR R6 (~a) — its types, search and validation are R6 — so leave #:fhir-version out (an R4 workspace's data is read leniently)"
+                                   (syntax-e #'fv) fhir-version)
+                   #'fv))
      (define fmts (if (attribute fmt) (syntax->datum #'(fmt ...)) '("application/fhir+json")))
      #`(rc-server #,mode-v
                   #,(if (attribute status) (syntax-e #'status) "active")

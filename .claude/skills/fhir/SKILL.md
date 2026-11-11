@@ -28,8 +28,8 @@ one line, `file:line:col severity: message`, with "did you mean …" for a missp
 | whose mean blood pressure is at or above 140/90 | `raco fhir guide workspace`, the `bp` view and its summary SQL — read clinically as systolic ≥ 140 OR diastolic ≥ 90 |
 | where did each stored value come from (who, when, why, which file and line) | `describe ref=Observation as=trail` (one resource's versions: `ref=Observation/a1/_history as=trail`) |
 | what changed in a resource, version by version | `describe ref=Observation/a1/_history` |
-| a rule every resource of a type must meet | "Constraints and the trail" below; the rules cookbook in `raco fhir guide workspace` |
-| correct a stored value with a reason | the correction recipe in `raco fhir guide workspace` |
+| a rule every resource of a type must meet | `raco fhir guide workspace`: its opening paragraph "A whole program for one measurement, in order" (rule, refusal, data, summary, correction, history — each step a `--block` name), then the rules cookbook |
+| correct a stored value with a reason | the same paragraph's correction step (`describe … as=source`, edit, stage, commit with a reason) |
 | a table of values to join or chart | a ViewDefinition (`raco fhir guide sql-on-fhir`), then `query language=sql` |
 | a FHIR server with an operation of your own | "Build a FHIR server" below; a whole operation (the eGFR equation, every input option): `raco fhir guide capability`, "One operation using every option" |
 | a Racket program: map, validate, decide | `raco fhir guide racket`; "A Racket program" at the end |
@@ -74,12 +74,13 @@ describe ref=Observation as=trail
 CALLS
 raco fhir-mcp batch session.txt --workspace ws       # from the folder holding ws/ and patients.fsh
 ```
-SQL fits on a batch line in double quotes, its column names escaped (`\"`) and its strings in single
-quotes; a CQL `true`/`false` is 1/0 in SQL; an empty `rows` means nobody matched:
+SQL reads best as a file (`query language=sql text=@cohort.sql`, the SQL as you would write it); on a
+batch line it goes in double quotes, its column names escaped (`\"`) and its strings in single quotes.
+A CQL `true`/`false` is 1/0 in SQL (`true`/`false` in a run's CSV); an empty `rows` means nobody matched:
 ```
 query language=sql text="SELECT \"Name\" FROM LatestA1c WHERE \"Above 9\" = 'yes' OR \"No HbA1c\" = 1"
 ```
-Longer SQL reads better as a file (`text=@summary.sql`). `--indent` lays each JSON answer out, one
+`--indent` lays each JSON answer out, one
 key a line (`raco fhir-mcp batch session.txt --indent`).
 One call at a time works too, for a step you want to look at before the next:
 ```sh

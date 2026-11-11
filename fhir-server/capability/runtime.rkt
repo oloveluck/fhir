@@ -614,13 +614,19 @@
                                     [(null? names) " (it takes none)"]
                                     [(<= (length names) 8) (format " (it takes ~a)" (apply string-append (add-between names ", ")))]
                                     [else ""])))))
-  (define problems
-    (append unknown
-            (for*/list ([p (in-list ins)]
-                        [problem (in-value (or (validate-one p in lone) (validate-binding p in)))]
-                        #:when problem)
-              problem)))
-  problems)
+  (define declared-problems
+    (for*/list ([p (in-list ins)]
+                [problem (in-value (or (validate-one p in lone) (validate-binding p in)))]
+                #:when problem)
+      problem))
+  ;; an unknown input a "required" problem already names (`hr` given for `heartRate`, `xx` for `x`) is
+  ;; that one mistake, said once (it was two issues: "required …" and "'hr' is not an input")
+  (define claimed (for*/list ([pr (in-list declared-problems)]
+                              [m (in-value (regexp-match #rx"is required [(]`([^`]+)` was given" pr))]
+                              #:when m)
+                    (cadr m)))
+  (append (for/list ([k (in-list unknown-keys)] [u (in-list unknown)] #:unless (member k claimed)) u)
+          declared-problems))
 
 ;; operation-result? : node -> boolean   an OperationOutcome an operation answers AS ITS RESULT (its
 ;; definition's `return` is an OperationOutcome: $validate) — the HTTP layer answers it 200 whatever
