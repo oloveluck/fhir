@@ -56,3 +56,5 @@ another core package; its error says which. CQL: FHIR 4.0.1. A Patient or most O
 written alike in R4 and R5, so the defaults work for them.
 
 More: the fhir-authoring skill (each `#lang` in detail), `fhir-examples/examples/intake-pipeline/`.
+References: Racket modules and `#lang` (https://docs.racket-lang.org/guide/module-languages.html),
+`raco make` (https://docs.racket-lang.org/raco/make.html), FHIR (https://hl7.org/fhir/R4/).
