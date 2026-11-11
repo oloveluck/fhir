@@ -402,12 +402,59 @@
                                                         (request-code req) (built-value-message (exn-message e))
                                                         (handler-crash-hint (exn-message e)))))])
                     ((operation-handler-proc h) in req)))
+        ;; what a declared operation answers is what it declares (a handler's undeclared output was
+        ;; served 200, so /OperationDefinition no longer said what the operation returns)
+        (define out-problems (if (and od (fhir? r) (eq? (fhir-type r) 'Parameters) (declared-here? od))
+                                 (output-problems od r)
+                                 '()))
+        (cond
+          [(pair? out-problems)
+           (operation-outcome-exception
+            (format "the $~a handler's answer does not match its #:out: ~a — return exactly the declared outputs, each with its declared type"
+                    (request-code req) (string-join out-problems "; ")))]
+          [else
         (when (and (fhir? r) (eq? (fhir-type r) 'OperationOutcome) (operation-handler-op-def h)
                    (returns-outcome? (operation-handler-op-def h))
                    (not (member (outcome-code r) '("exception" "not-found")))
                    (not (hash-ref refusals r #f)))
           (hash-set! results r #t))
-        r])]))
+        r])])]))
+
+;; declared-here? : OperationDefinition -> boolean   an operation an app declares inline (its
+;; canonical is the app's urn) — a registered operation's definition is the package's, not checked here
+(define (declared-here? od)
+  (define u (hash-ref (node->jsexpr od) 'url #f))
+  (and (string? u) (regexp-match? #rx"^urn:fhir-capability:operation:" u)))
+
+;; output-problems : OperationDefinition Parameters -> (listof string)   each output the handler gave
+;; that the definition does not declare (with the nearest), each required one it left out, and each
+;; given with another type than declared (`valueString` for a decimal)
+(define (output-problems od r)
+  ;; read from the definition's JSON (its min is an integer leaf)
+  (define outs (for/list ([p (in-list (hash-ref (node->jsexpr od) 'parameter '()))]
+                          #:when (equal? (hash-ref p 'use #f) "out"))
+                 p))
+  (define (name-of p) (hash-ref p 'name ""))
+  (define (type-of p) (hash-ref p 'type #f))
+  (define (min-of p) (let ([m (hash-ref p 'min 0)]) (if (number? m) m 0)))
+  (define names (map name-of outs))
+  (define js (node->jsexpr r))
+  (define given (for/list ([pp (in-list (hash-ref js 'parameter '()))]) pp))
+  (define given-names (map (lambda (pp) (hash-ref pp 'name "")) given))
+  (append
+   (for/list ([n (in-list (remove-duplicates given-names))] #:unless (member n names))
+     (format "`~a` is not a declared output~a" n
+             (let ([near (did-you-mean n names)])
+               (if (string=? near "") (format " (it declares ~a)" (if (null? names) "none" (string-join names ", "))) near))))
+   (for/list ([p (in-list outs)] #:when (>= (min-of p) 1) #:unless (member (name-of p) given-names))
+     (format "the required output `~a` is missing" (name-of p)))
+   (for*/list ([pp (in-list given)]
+               [p (in-value (findf (lambda (p) (equal? (name-of p) (hash-ref pp 'name ""))) outs))]
+               #:when (and p (type-of p))
+               [t (in-value (type-of p))]
+               [key (in-value (for/first ([k (in-hash-keys pp)] #:when (regexp-match? #rx"^value" (symbol->string k))) (symbol->string k)))]
+               #:when (and key (not (string-ci=? key (string-append "value" t)))))
+     (format "`~a` is declared ~a but given as ~a" (hash-ref pp 'name) t key))))
 ;; handler-crash-hint : message -> string   what to do, by what failed: a value the handler BUILT that
 ;; FHIR refuses (`decimal: "58." does not match …` — the hint used to say to refuse an input), or
 ;; anything else (refuse the input instead of raising)

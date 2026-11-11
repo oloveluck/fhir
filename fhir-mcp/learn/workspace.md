@@ -124,6 +124,7 @@ a summary per patient — readings, means, and whether the mean is at or above 1
 
 ```
 -- bp-summary
+-- at_or_above_140_90: the mean systolic >= 140 OR the mean diastolic >= 90 (either one)
 SELECT patient, count(*) AS readings, printf('%.1f', avg(systolic)) AS mean_systolic,
        printf('%.1f', avg(diastolic)) AS mean_diastolic,
        CASE WHEN avg(systolic) >= 140 OR avg(diastolic) >= 90 THEN 'yes' ELSE 'no' END AS at_or_above_140_90
@@ -133,6 +134,7 @@ and the same by name, the table a person reads (the patients view joined on the 
 
 ```
 -- bp-summary-by-name
+-- at_or_above_140_90: the mean systolic >= 140 OR the mean diastolic >= 90 (either one)
 SELECT p.name, count(*) AS readings, printf('%.1f', avg(b.systolic)) AS mean_systolic,
        printf('%.1f', avg(b.diastolic)) AS mean_diastolic,
        CASE WHEN avg(b.systolic) >= 140 OR avg(b.diastolic) >= 90 THEN 'yes' ELSE 'no' END AS at_or_above_140_90

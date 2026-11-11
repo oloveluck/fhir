@@ -345,6 +345,24 @@
                              "(operation $x #:system #:in ([age int 1 1 #:min 18 #:max 120]) #:handler h)\n"))
   (define mixed (load-error))
   (check-regexp-match #rx"operation: unknown parameter type int [(]did you mean `integer`" mixed)
+  ;; two mistakes in ONE form are both said: a bad interaction and a misspelt search-parameter type in
+  ;; one resource, two bad parameter types (an #:in and an #:out) in one operation (the second of each
+  ;; showed only after the first was fixed)
+  (write-app! (string-append "#lang fhir/capability\n(server)\n"
+                             "(resource Observation #:interactions (read search) #:search-params ([code token] [subject refrence]))\n"
+                             "(define (h in req) (Parameters))\n"
+                             "(operation $x #:system #:in ([q float 1 1]) #:out ([o strng 1 1]) #:handler h)\n"))
+  (define per-form (load-error))
+  (check-regexp-match #rx"unknown restful interaction search" per-form)
+  (check-regexp-match #rx"unknown search-param type refrence" per-form)
+  (check-regexp-match #rx"unknown parameter type float" per-form)
+  (check-regexp-match #rx"unknown parameter type strng [(]did you mean `string`[?][)]" per-form)
+  ;; two outputs in two (parameter …) forms: the error says to put them in one
+  (write-app! (string-append "#lang fhir/capability\n(server)\n"
+                             "(define (h in req) (Parameters (parameter (ParametersParameter (name \"a\") (valueDecimal 1))) (parameter (ParametersParameter (name \"b\") (valueBoolean #t)))))\n"
+                             "(operation $x #:system #:out ([a decimal 1 1] [b boolean 1 1]) #:handler h)\n"))
+  (check-regexp-match #rx"duplicate field Parameters[.]parameter: a repeating field takes all its values in ONE form, [(]parameter A B …[)]"
+                      (with-handlers ([exn:fail? exn-message]) (parameterize ([current-namespace (make-base-namespace)]) (dynamic-require src 'app)) "no error"))
   ;; an operation named as a value with no require says which module provides it (Racket said
   ;; `$validate: unbound identifier`, nothing more)
   (write-app! "#lang fhir/capability\n(server)\n(resource Patient #:interactions (read))\n(operation $validate)\n")
@@ -423,4 +441,37 @@
   (check-equal? s3 201)
   (check-exn #rx"#:references must be \"checked\" or \"unchecked\""
              (lambda () (compile-capability '(server #:references "strict") '(define x 1))))
+  (delete-directory/files dir))
+
+;; ---- what an operation answers is what it declares: an undeclared output, a missing required one
+;; and one of another type are a 500 naming each (a handler's extra `prolonged` was served 200, so the
+;; OperationDefinition no longer said what the operation returns)
+(let ()
+  (define dir (make-temporary-directory "cap-out-~a"))
+  (define src (build-path dir "o.rkt"))
+  (void (call-with-output-file src
+          (lambda (o)
+            (write-string (string-append
+                           "#lang fhir/capability\n(server)\n"
+                           "(define (ok in req) (Parameters (parameter (ParametersParameter (name \"qtc\") (valueDecimal 447.2)))))\n"
+                           "(define (extra in req) (Parameters (parameter (ParametersParameter (name \"qtc\") (valueDecimal 447.2)) (ParametersParameter (name \"prolonged\") (valueBoolean #f)))))\n"
+                           "(define (wrong in req) (Parameters (parameter (ParametersParameter (name \"qtc\") (valueString \"447\")))))\n"
+                           "(define (none in req) (Parameters (parameter (ParametersParameter (name \"qtcc\") (valueDecimal 1)))))\n"
+                           "(operation $ok #:system #:out ([qtc decimal 1 1]) #:handler ok)\n"
+                           "(operation $extra #:system #:out ([qtc decimal 1 1]) #:handler extra)\n"
+                           "(operation $wrong #:system #:out ([qtc decimal 1 1]) #:handler wrong)\n"
+                           "(operation $none #:system #:out ([qtc decimal 1 1]) #:handler none)\n")
+                          o))))
+  (define app (dynamic-require src 'app))
+  (define handle (dynamic-require 'fhir/http/router 'handle))
+  (define (call op) (let-values ([(s b) (handle app "GET" (string-append "/$" op) '() "")]) (values s (if (equal? (hash-ref b 'resourceType #f) "OperationOutcome") (hash-ref (car (hash-ref b 'issue)) 'diagnostics) b))))
+  (let-values ([(s b) (call "ok")]) (check-equal? s 200))
+  (let-values ([(s m) (call "extra")])
+    (check-equal? s 500)
+    (check-regexp-match #rx"the [$]extra handler's answer does not match its #:out: `prolonged` is not a declared output [(]it declares qtc[)]" m))
+  (let-values ([(s m) (call "wrong")])
+    (check-equal? s 500)
+    (check-regexp-match #rx"`qtc` is declared decimal but given as valueString" m))
+  (let-values ([(s m) (call "none")])
+    (check-regexp-match #rx"`qtcc` is not a declared output [(]did you mean `qtc`[?][)]; the required output `qtc` is missing" m))
   (delete-directory/files dir))

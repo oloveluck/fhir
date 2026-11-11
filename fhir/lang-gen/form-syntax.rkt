@@ -108,10 +108,16 @@
      (define spec (hash-ref schema fname #f))
      (unless spec
        (raise-syntax-error type (format "unknown field ~a.~a" type fname) f #'field))
-     (when (hash-ref present fname #f)
-       (raise-syntax-error type (format "duplicate field ~a.~a" type fname) f #'field))
-     (hash-set! present fname #t)
      (define kind (fs-kind spec))
+     (when (hash-ref present fname #f)
+       ;; a repeating field takes all its values in one form — two `(parameter …)` forms was the
+       ;; usual way in (a raw "duplicate field" said nothing of the fix)
+       (raise-syntax-error type (if (memq kind '(single optional))
+                                    (format "duplicate field ~a.~a: it holds one value" type fname)
+                                    (format "duplicate field ~a.~a: a repeating field takes all its values in ONE form, (~a A B …), not one (~a …) form per value"
+                                            type fname fname fname))
+                           f #'field))
+     (hash-set! present fname #t)
      (define ftype (fs-ftype spec))
      (define vs (syntax->list #'(v ...)))
      (when (and (memq kind '(single optional)) (> (length vs) 1))

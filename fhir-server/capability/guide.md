@@ -140,7 +140,9 @@ exact value and round only what you return (a rounded 64.96 is 65.0, and `(< 65.
 ```
 `GET /$map?systolic=120&diastolic=80` answers `map` 93.3 and `low` false; `systolic=80&diastolic=57`
 answers 64.7 and true. `#:min` and `#:max` are inclusive: `systolic=40` and `systolic=300` are taken,
-`39.9` is refused.
+`39.9` is refused. What the handler answers is held to its `#:out`: an output it does not declare, a
+required one it leaves out, or one of another type (`valueString` for a `decimal`) is a 500 naming each,
+so `GET /OperationDefinition/<code>` always says what the operation returns.
 
 Values arrive converted to their declared type, from a GET query or a POSTed Parameters alike: a
 whole decimal (`60.0`) is taken as an `integer`, and any number — `75` as well as `75.0`, in a query or

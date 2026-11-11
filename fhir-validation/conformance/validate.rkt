@@ -248,12 +248,24 @@
           (string? (hash-ref v 'code #f))
           (not (ucum-valid? (hash-ref v 'code))))
      (define code (hash-ref v 'code))
-     (define near (did-you-mean code (filter ucum-valid? common-units)))
+     ;; a common non-UCUM spelling first (`msec` is `ms`, `bpm` is `/min`), else the nearest by name
+     (define known (assoc (string-downcase code) ucum-spellings))
+     (define near (if known (format " (did you mean `~a`?)" (cdr known)) (did-you-mean code (filter ucum-valid? common-units))))
      ;; a warning: published examples write `m^2` (mCODE), and the never-over-report gate holds
      (list (issue "warning" "code-invalid" (string-append loc ".code")
                   (format "`~a` is not a UCUM unit~a" code
                           (if (equal? near "") (string-append " (" (ucum-hint code) ")") near))))]
     [else '()]))
+;; ucum-spellings : common clinical spellings that are not UCUM, with the UCUM code each means
+(define ucum-spellings
+  '(("msec" . "ms") ("millisec" . "ms") ("millisecond" . "ms") ("milliseconds" . "ms")
+    ("sec" . "s") ("secs" . "s") ("second" . "s") ("seconds" . "s")
+    ("mins" . "min") ("minute" . "min") ("minutes" . "min") ("hr" . "h") ("hrs" . "h") ("hour" . "h") ("hours" . "h")
+    ("day" . "d") ("days" . "d") ("week" . "wk") ("weeks" . "wk") ("year" . "a") ("years" . "a") ("yr" . "a") ("yrs" . "a")
+    ("bpm" . "/min") ("beats/min" . "/min") ("breaths/min" . "/min") ("/minute" . "/min")
+    ("kgs" . "kg") ("lbs" . "[lb_av]") ("lb" . "[lb_av]") ("in" . "[in_i]") ("inch" . "[in_i]")
+    ("degc" . "Cel") ("°c" . "Cel") ("c" . "Cel") ("degf" . "[degF]") ("°f" . "[degF]")
+    ("mmol/mol" . "mmol/mol") ("percent" . "%") ("cc" . "mL") ("ml" . "mL")))
 ;; ucum-hint : code -> string   what UCUM writes differently, when the nearest name does not say it
 (define (ucum-hint code)
   (cond [(regexp-match? #rx"(?i:hg)" code) "mercury is written mm[Hg]"]
@@ -1042,3 +1054,10 @@
   (check-equal? (compact-json (hasheq 'system "http://unitsofmeasure.org" 'code "mm[Hg]")) "'mm[Hg]' (no number)")
   (check-equal? (compact-json (hasheq 'value 120)) "120 (no unit)")
   (check-equal? (compact-json (hasheq 'system "http://loinc.org" 'code "8480-6")) "http://loinc.org#8480-6"))
+
+(module+ test
+  ;; a common clinical spelling names the UCUM code it means
+  (define (warn code) (issue-msg (car (ucum-issues "Quantity" "x" (hasheq 'value 1 'system "http://unitsofmeasure.org" 'code code)))))
+  (check-regexp-match #rx"`msec` is not a UCUM unit [(]did you mean `ms`[?][)]" (warn "msec"))
+  (check-regexp-match #rx"`bpm` is not a UCUM unit [(]did you mean `/min`[?][)]" (warn "bpm"))
+  (check-regexp-match #rx"mercury is written mm\\[Hg\\]" (warn "mmHg")))

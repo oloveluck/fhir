@@ -62,6 +62,6 @@
 (let-values ([(code listing) (run "fhir" "guide" "workspace" "--blocks")])
   (check-regexp-match #rx"--block bp-summary-by-name " listing))
 (let-values ([(code text) (run "fhir" "guide" "workspace" "--block" "bp-summary-by-name")])
-  (check-regexp-match #rx"^-- bp-summary-by-name\nSELECT p[.]name" text))
+  (check-regexp-match #px"^-- bp-summary-by-name\n(?:-- [^\n]*\n)*SELECT p[.]name" text))
 (let-values ([(code listing) (run "fhir" "guide" "fsh" "--blocks")])
   (check-regexp-match #rx"(?m:^1  --block [A-Za-z])" listing))

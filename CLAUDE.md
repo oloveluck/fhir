@@ -1507,6 +1507,28 @@ and two missing tools; each fix has a test doing what the agent did:
   date); learn://workspace says what `at` points to for each kind of resource; the capability guide's
   UCUM table has heart rate and ECG intervals with their LOINC codes, and says any number is a decimal.
 
+## New users, round 26 (2026-11-11)
+The twenty-fifth rerun (every task first time, 4–20 calls, right answers, no source read) found, by
+planting mistakes on purpose, two gaps in the capability language; each fix has a test doing it:
+- **An operation answers what it declares** (capability/runtime.rkt `output-problems`, for operations an
+  app declares inline — `urn:fhir-capability:operation:` canonicals; a registered one is the package's):
+  an output the handler gives that `#:out` does not declare (with the nearest), a required one it leaves
+  out, or one of another type (`valueString` for a decimal) is a 500 naming each — an undeclared
+  `prolonged` was served 200 and the OperationDefinition no longer said what the operation returns.
+- **Every mistake of a form at once** (declare.rkt `within-form`/`checked`): a resource's bad interaction
+  and its misspelt search-parameter type, an operation's bad `#:in` and `#:out` types, are all said;
+  each form raised its first (the round-12 collection was per form).
+- **`duplicate field Parameters.parameter`** says the fix (lang-gen/form-syntax.rkt: a repeating field
+  takes all its values in ONE form, `(parameter A B …)`).
+- **UCUM spellings**: `msec` is `ms`, `bpm` is `/min`, `sec`, `hr`, `lbs`, `degC` … (validate.rkt
+  `ucum-spellings`), before the nearest-by-name suggestion.
+- **Racket route**: the template's `main.rkt` takes `--now` before or after the file and says a missing
+  file in one line (exit 2; fhir-authoring shows it whole, the test compares); `tests.rkt` says what
+  `main.rkt` must provide when it lacks `intake`; the fhir skill's Racket section is a pointer to `raco
+  fhir guide racket`, the one page.
+- Docs: the skill lists `as=csv columns= sort= name= keep:= strict:=`; the guide's 140/90 SQL says in a
+  comment that it reads systolic OR diastolic; the capability guide says outputs are held to `#:out`.
+
 ## SQL on FHIR where tables are made (2026-11-11)
 An audit of where the toolkit flattens FHIR into tables found hand-written JSON SQL doing a
 ViewDefinition's job, and under it a load-order defect; both fixed, each with a test doing it:

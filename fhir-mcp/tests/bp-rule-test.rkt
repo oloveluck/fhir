@@ -122,7 +122,7 @@
                                            'stage)))
     (define view (cadr (regexp-match #px"```json\n([{]\"resourceType\": \"ViewDefinition\", \"name\": \"bp\".*?)```" (learn-text "workspace"))))
     (call "write" (hasheq 'path "bp.view.json" 'text view))
-    (define summary (cadr (regexp-match #px"```\n((?:-- [^\n]*\n)?SELECT patient, count.*?)```" (learn-text "workspace"))))
+    (define summary (cadr (regexp-match #px"```\n((?:-- [^\n]*\n)*SELECT patient, count.*?)```" (learn-text "workspace"))))
     (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text summary)) 'rows)
                   (list (hasheq 'patient "a" 'readings 3 'mean_systolic "140.0" 'mean_diastolic "91.0" 'at_or_above_140_90 "yes")))
     ;; the guide's RuleSet for many readings: one line each, held to the rule, each version's trail at
@@ -146,7 +146,7 @@
     ;; the view and its name column itself)
     (call "write" (hasheq 'path "patients.view.json"
                           'text (cadr (regexp-match #px"```json\n([{]\"resourceType\": \"ViewDefinition\", \"name\": \"patients\".*?)```" (learn-text "workspace")))))
-    (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text (cadr (regexp-match #px"```\n((?:-- [^\n]*\n)?SELECT p.name, count.*?)```" (learn-text "workspace"))))) 'rows)
+    (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text (cadr (regexp-match #px"```\n((?:-- [^\n]*\n)*SELECT p.name, count.*?)```" (learn-text "workspace"))))) 'rows)
                   (list (hasheq 'name "Alice Abara" 'readings 5 'mean_systolic "138.0" 'mean_diastolic "89.2" 'at_or_above_140_90 "no")))
     (void (call "write" (hasheq 'path "patients.view.json" 'text "")))
     ;; the reading's source text stages again: its RuleSet comes with it (it failed: RuleSet not found)

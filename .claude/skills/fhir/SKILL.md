@@ -54,7 +54,10 @@ directory of JSON files or a FHIR server's base url. To import JSON files:
 Without an MCP client, every tool runs from the shell, each call its own process; stages and results
 are kept in the workspace (`.fhir-mcp/`), so one call's stage is committed by the next and a result
 is described or joined in SQL later. Arguments are a JSON object and/or `key=value`, `key=@file`
-(a file's text: no escaping FSH, CQL or SQL into JSON) and `key:=<json>`.
+(a file's text: no escaping FSH, CQL or SQL into JSON) and `key:=<json>`. A table answers as CSV with
+`as=csv`, its columns chosen and ordered with `columns="Name,Latest Result"` and its rows sorted with
+`sort=Name` (`sort=-Name` descending); `name=` names a query's result, `keep:=false` checks a stage
+without keeping it, `strict:=true` refuses a search with a parameter it cannot apply.
 
 Each call is a process of its own (1–4 s of startup), so a session is a **batch**: one call per line
 in one process, quoted as a shell would, each answer under a `### <line>` header, every line run
@@ -357,20 +360,9 @@ Each language also has a command line and a Racket `#lang` (its repository's REA
 modules: the `fhir-authoring` skill; serving FHIR over HTTP: `fhir-serving`.
 
 ## A Racket program
-A QuestionnaireResponse → FML → a Patient validated against an FSH profile → a CQL answer
-(fhir-authoring explains each piece):
-```sh
-raco fhir new pipeline my-pipeline && cd my-pipeline          # a copy of the template
-raco fsh check fsh                                                # the profile and its valid example: exit 0
-raco fsh check fsh-invalid --context fsh || true                  # the example meant to fail, at its line (exit 1)
-raco fml check qr2patient.map --examples qr.json --profile fsh   # the map's result held to the profile
-racket main.rkt --now 2026-01-01 qr.json                          # the Patient, then "65 or older: true"
-raco test tests.rkt                                               # all of the above as one gate
-```
-To write the four files yourself instead: `fsh/intake.fsh` (`#lang fsh`: a Profile with `1..1` rules and
-an Instance — the fsh skill), `qr2patient.map` (`#lang fml`: a group from QuestionnaireResponse to
-Patient, one rule per item — the fml guide's cheat sheet), `Intake.cql` (`#lang cql`: `define "Is 65 Or
-Older": AgeInYears() >= 65` — the cql guide) and `main.rkt` (fhir-authoring shows it whole). The map and
-the validation read FHIR R5 and the CQL library FHIR 4.0.1: a Patient's name, gender and birthDate are
-the same in both. A Racket program needs none of the workspace sections above; go on in `fhir-authoring`, "The languages
-together in one program" (its API card lists every function `main.rkt` uses).
+A QuestionnaireResponse → FML → a Patient validated against an FSH profile → a CQL answer, as Racket
+modules, no workspace: **`raco fhir guide racket` is the whole route on one page** — the template
+(`raco fhir new pipeline my-pipeline`), each piece checked in the order the data flows, `raco fhir
+check-files` (every `#lang` file's problem in one run), the API `main.rkt` uses, the gate (`raco test
+tests.rkt`, which reads its expectations from your files) and what each error means. `fhir-authoring`
+explains each language in a module.

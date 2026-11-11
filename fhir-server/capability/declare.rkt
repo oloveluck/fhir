@@ -47,6 +47,28 @@
 ;; `file:line:col: who: message`, positioned at the sub-form when given (as raise-syntax-error is)
 ;; but raised as a user error: `racket app.rkt` and `raco make` print the line, not a stack of
 ;; this module's frames (`context...: declare.rkt:157 parse-params` was what a new user saw)
+;; within-form : thunk -> any   runs a form's parse collecting every element's mistake (`checked`),
+;; then raises them together, one line each — a resource with a bad interaction and a misspelt
+;; search-parameter type said only the first, so the second took another run
+(define current-form-problems (make-parameter #f))
+(define (within-form thunk)
+  ;; nested (an operation's #:in inside the operation's form): the outer form collects
+  (if (current-form-problems) (thunk) (within-form* thunk)))
+(define (within-form* thunk)
+  (define b (box '()))
+  (define vs (parameterize ([current-form-problems b]) (call-with-values thunk list)))
+  (unless (null? (unbox b))
+    (raise (exn:fail:user (string-join (reverse (unbox b)) "\n") (current-continuation-marks))))
+  (apply values vs))
+;; checked : thunk fallback -> any   one element's check; inside within-form a mistake is kept and the
+;; fallback stands in for the element
+(define (checked thunk fallback)
+  (define b (current-form-problems))
+  (if b
+      (with-handlers ([exn:fail:user? (lambda (e) (set-box! b (cons (exn-message e) (unbox b))) (fallback))])
+        (thunk))
+      (thunk)))
+
 (define (decl-error who msg form [sub #f])
   (define at (or sub form))
   (define where (and (syntax-source at)
@@ -111,22 +133,29 @@
               (~optional (~seq #:repository repo))
               (~optional (~seq #:profile profile:str))) ...)
      (define tsym (syntax-e #'type))
-     (unless (type-registered? tsym)
-       (decl-error 'resource (format "unknown resource type ~a" tsym) #'type))
      (define interactions (syntax->list #'(i ...)))
+     (define-values (_ok sp-triples)
+      (within-form
+       (lambda ()
+     (checked (lambda () (unless (type-registered? tsym)
+                           (decl-error 'resource (format "unknown resource type ~a" tsym) #'type)))
+              void)
      (for ([ix (in-list interactions)])
        (define code (syntax-e ix))
-       (unless (or (type-interaction? code) (system-interaction? code))
-         (decl-error 'resource (interaction-message code) ix)))
+       (checked (lambda () (unless (or (type-interaction? code) (system-interaction? code))
+                             (decl-error 'resource (interaction-message code) ix)))
+                void))
      ;; each search-param is [name type] or [name type "fhirpath-expression"]
-     (define sp-triples
+     (values #t
        (for/list ([s (in-list (if (attribute sp) (syntax->list #'(sp ...)) '()))])
+        (checked (lambda ()
          (syntax-parse s
            [(sp-name:id sp-type:id (~optional sp-expr:str))
             (unless (search-param-type? (syntax-e #'sp-type))
               (decl-error 'resource (search-type-message (syntax-e #'sp-type)) #'sp-type))
             #`(list '#,#'sp-name '#,#'sp-type #,(if (attribute sp-expr) (syntax-e #'sp-expr) #f))]
-           [_ (decl-error 'resource "search-param must be [name type] or [name type \"expr\"]" s)])))
+           [_ (decl-error 'resource "search-param must be [name type] or [name type \"expr\"]" s)]))
+                 (lambda () #'#f)))))))
      (define interactions-stx #`(list #,@(for/list ([ix (in-list interactions)]) #`'#,ix)))
      (define sps-stx #`(list #,@sp-triples))
      ;; #:repository is optional — default to a generic in-memory repository built from the declaration
@@ -178,8 +207,9 @@
      (unless (or system? type? instance?)
        (decl-error 'operation "no invocation level (need #:on, #:system, or #:level)" stx))
      (define resource-types (if on-type (list (symbol->string on-type)) '()))
-     (define in-params  (parse-params (attribute in-spec) "in"))
-     (define out-params (parse-params (attribute out-spec) "out"))
+     ;; #:in and #:out together: every bad parameter of the operation in one answer
+     (define-values (in-params out-params)
+       (within-form (lambda () (values (parse-params (attribute in-spec) "in") (parse-params (attribute out-spec) "out")))))
      (define target-stx (if on-type (symbol->string on-type) #f))
      (define entries
        (append
@@ -233,7 +263,10 @@
   (cond
     [(not spec) '()]
     [else
+     (within-form
+      (lambda ()
      (for/list ([p (in-list (syntax->list spec))])
+      (checked (lambda ()
        (syntax-parse p
          [(pname:id ptype:id pmin:nat pmax (~alt (~optional (~seq #:binding vs:str))
                                                  (~optional (~seq #:documentation doc:str))
@@ -265,7 +298,8 @@
                       #,(if (attribute doc) #'doc #f)
                       #,(if (attribute lo) #'lo #f)
                       #,(if (attribute hi) #'hi #f))]
-         [_ (decl-error 'operation "parameter must be [name type min max], with #:binding \"<ValueSet url or VCL>\" (a code), #:documentation \"…\" (what it is, its unit) and #:min/#:max (a number's range) when wanted" p)]))]))
+         [_ (decl-error 'operation "parameter must be [name type min max], with #:binding \"<ValueSet url or VCL>\" (a code), #:documentation \"…\" (what it is, its unit) and #:min/#:max (a number's range) when wanted" p)]))
+               (lambda () #'#f)))))]))
 
 ;; binding-url : string syntax -> string
 ;; `#:binding` names a ValueSet by url, or says the codes inline as VCL — `"(http://hl7.org/fhir/
