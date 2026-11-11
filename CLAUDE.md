@@ -1591,6 +1591,31 @@ what the server did not do and one of round 28's claims that did not hold; each 
 - The cohort agent's task now differs from the guide's worked example (eGFR below 60, not HbA1c above
   9), so the rerun tests adapting the recipe, not copying it.
 
+## New users, round 30 (2026-11-11)
+The twenty-ninth rerun (every task first time; the cohort task now eGFR, not the guide's HbA1c) found a
+wrong answer by probing: a CQL quantity literal in a unit that is not UCUM. Each fix has a test:
+- **CQL refuses a unit that is not UCUM** (cql/CLAUDE.md): `< 60 'mL/min/1.73m2'` translated, every
+  comparison was null, and the recipe's yes/no said "no" for a patient at 48. The suggestion table
+  (`ucum-suggestion`: common spellings, then the nearest clinical unit) moved from fhir-validation's
+  validate.rkt to `fhirpath/ucum`, one definition for the validator, FSH and CQL; the latest-value
+  recipe's `Above 9` answers `unknown` when its comparison is null.
+- **`(server #:warnings "refuse")`** (store/validated.rkt `refuse-warnings?`, read from the app's
+  metadata): a write whose only problems are warnings (a Quantity in `msec`) is a 422; default stored.
+- **`raco fhir-server check <app.rkt>`**: one line per resource and operation, or the mistakes (exit 1)
+  — `racket app.rkt` printed 150 lines of CapabilityStatement to say it compiles.
+- **A refused check-only stage says its errors alone** (no `references`): two reruns' agents read the
+  dangling-reference note beside a rule's refusal as noise (round 25 had listed them; a clean check
+  still does).
+- **FML: a `where` that held for none is said at its rule's line** (fml/CLAUDE.md), not the nested
+  rule's; `raco fhir check-files` leads a needs-context line with the command to run.
+- **The template's `tests.rkt` finds a layout of other names** (the one folder declaring a Profile, the
+  other holding Instances, the one json naming a QuestionnaireResponse) and says what it used.
+- **Batch lines**: `\n` inside double quotes is a newline (inline FSH read `\n` as `n`).
+- Docs: learn://workspace's `Reading` block is the RuleSet alone, `readings` the sample file, and a
+  `bad-readings` block (the three refusals) is new — `--block` names read `// name` FSH comments; the
+  Racket guide opens with what is required when writing your own; the capability guide on `check`,
+  `#:warnings`, `patient` vs `subject` beside the smallest server; cql's guide on annotation units.
+
 ## SQL on FHIR where tables are made (2026-11-11)
 An audit of where the toolkit flattens FHIR into tables found hand-written JSON SQL doing a
 ViewDefinition's job, and under it a load-order defect; both fixed, each with a test doing it:

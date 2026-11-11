@@ -76,7 +76,8 @@ raco fhir-mcp batch session.txt --workspace ws       # from the folder holding w
 ```
 SQL reads best as a file (`query language=sql text=@cohort.sql`, the SQL as you would write it); on a
 batch line it goes in double quotes, its column names escaped (`\"`) and its strings in single quotes.
-A CQL `true`/`false` is 1/0 in SQL (`true`/`false` in a run's CSV); an empty `rows` means nobody matched:
+A CQL `true`/`false` is 1/0 in SQL (`true`/`false` in a run's CSV); an empty `rows` means nobody matched;
+inline FSH on a batch line writes each line break as `\n` (or use `fsh=@file`):
 ```
 query language=sql text="SELECT \"Name\" FROM LatestA1c WHERE \"Above 9\" = 'yes' OR \"No HbA1c\" = 1"
 ```

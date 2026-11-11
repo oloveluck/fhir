@@ -67,10 +67,10 @@
   (define lines (regexp-split #rx"\n" (caddr b)))
   (define first (cadr b))
   (or
-   ;; a leading SQL or Racket comment naming it: `-- bp-summary`, `;; egfr` — in a Racket module the
+   ;; a leading SQL, Racket or FSH comment naming it: `-- bp-summary`, `;; egfr`, `// readings` — in a Racket module the
    ;; line after `#lang` (`#lang fhir/capability` then `;; smallest`), as a module starts with its #lang
    (for/or ([l (in-list (if (and (regexp-match? #rx"^#lang " first) (pair? (cdr lines))) (list (cadr lines)) (list first)))])
-     (let ([m (regexp-match #px"^\\s*(?:--|;;)\\s*([A-Za-z][A-Za-z0-9_-]*)\\s*$" l)]) (and m (cadr m))))
+     (let ([m (regexp-match #px"^\\s*(?:--|;;|//)\\s*([A-Za-z][A-Za-z0-9_-]*)\\s*$" l)]) (and m (cadr m))))
    ;; the first FSH entity (after any Alias lines)
    (for/or ([l (in-list lines)])
      (let ([m (regexp-match #px"^\\s*(?:Profile|Instance|RuleSet|Extension|ValueSet|CodeSystem|Logical|Invariant|Resource|Mapping):\\s*([A-Za-z0-9_.-]+)" l)])

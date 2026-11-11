@@ -5,6 +5,12 @@ Every language is a Racket `#lang`: a `.fsh`, `.map`, `.cql` or `.vcl` file that
 `raco make`. No workspace, no MCP server. This page is the whole route; each language's own guide
 (`raco fhir guide fsh|fml|cql|vcl`) has the language itself.
 
+Writing your own files rather than the template's, three things are required: each file a program
+requires starts with its `#lang` line; an FSH example meant to fail lives in a folder of its own
+(checked with `--context` on the profiles' folder); and, for the template's `tests.rkt` to drive it,
+`main.rkt` provides `(intake qr #:now)` answering two values, the Patient and the answer's text.
+Folder, file and define names are yours.
+
 ## Start from the template
 ```sh
 raco fhir new pipeline my-pipeline          # a QuestionnaireResponse -> FML -> Patient -> FSH profile -> CQL
@@ -83,9 +89,11 @@ In tests (the template's `tests.rkt` uses each):
   whole project): an invalid example builds. `raco fsh check fsh` validates them, each problem at its
   line; keep an example meant to fail in its own folder (`raco fsh check fsh-invalid --context fsh`).
 - The template's `tests.rkt` is all of it as one gate (`raco test tests.rkt`): copy it beside files
-  you wrote yourself (`raco fhir new pipeline tmp`, take `tmp/tests.rkt`) and set the four names at its
-  top to your layout (`profiles-folder`, `invalid-folder`, `input-file`, `main-file`; a name that is not
-  there is one line saying which). The rest it reads from the files — the Instances of the invalid folder,
+  you wrote yourself (`raco fhir new pipeline tmp`, take `tmp/tests.rkt`). The four names at its top
+  (`profiles-folder`, `invalid-folder`, `input-file`, `main-file`) are the template's; a name that is not
+  there is looked for — the one folder declaring a Profile, the other holding Instances, the one `.json`
+  naming a QuestionnaireResponse — and said (`tests.rkt: no folder fsh, using profiles`); set it when
+  there is more than one. The rest it reads from the files — the Instances of the invalid folder,
   the birth date (the answer written as a `valueDate`, whatever its linkId) — so instance names and
   linkIds need no edit.
 - What is required and what is the template's choice: each file a program requires starts with its

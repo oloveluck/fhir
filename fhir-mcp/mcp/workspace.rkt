@@ -1608,7 +1608,9 @@
                           [(zero? errors) (format "~a writes the ~a change(s) to ~a" (call-text "commit" (list (cons 'stage id))) (count (lambda (c) (not (eq? (change-action c) 'unchanged))) changes)
                                                   (let ([p (data-store-path h)]) (if p (format "the store ~a" (shown-path h (path->string (path->complete-path p)))) (hub-data-label h))))]
                           [else (format "fix the errors, then stage again: a stage with errors is not committed (~a discards this one)" (call-text "stage" (list (cons 'drop id))))])))
-      (define refs (if keep? '() (remove-duplicates (append* (for/list ([c (in-list changes)]) (hash-ref dangling (change-resource c) '()))))))
+      ;; a check that refuses says its errors alone: two reruns' agents read `Patient/pat-a is neither in
+      ;; the data nor in this stage` beside a rule's refusal as noise; a clean check names them
+      (define refs (if (or keep? (positive? errors)) '() (remove-duplicates (append* (for/list ([c (in-list changes)]) (hash-ref dangling (change-resource c) '()))))))
       (define answer1 (if (pair? refs) (hash-set answer 'references refs) answer))
       (if (and (positive? unchanged-count) (not nothing?)) (hash-set answer1 'unchanged unchanged-count) answer1))))
 

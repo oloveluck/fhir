@@ -71,6 +71,25 @@
      (with-handlers ([exn:break? (lambda (_) (stop))]) (sync/enable-break never-evt))]))
 
 ;; raco fhir-server serve <app.rkt> [port] — serve a #lang fhir/capability module's `app` over HTTP
+;; cmd-check : file -> void   the app's declarations compiled, one line per resource and operation (not
+;; the whole CapabilityStatement `racket app.rkt` prints: 150 lines to learn it compiles); a mistake is
+;; its own lines, exit 1. What a handler answers is checked when the operation runs, not here.
+(define (cmd-check file)
+  (define full (path->complete-path file))
+  (define cs
+    (with-handlers ([exn:fail? (lambda (e) (eprintf "~a\n" (exn-message e)) (exit 1))])
+      ((dynamic-require 'fhir/serialize/to-json 'node->jsexpr) (dynamic-require full 'capability-statement))))
+  (define rest1 (let ([r (hash-ref cs 'rest '())]) (if (pair? r) (car r) (hasheq))))
+  (define (codes xs k) (for/list ([x (in-list xs)]) (hash-ref x k "?")))
+  (printf "ok  ~a  (FHIR ~a)\n" file (hash-ref cs 'fhirVersion "?"))
+  (for ([r (in-list (hash-ref rest1 'resource '()))])
+    (define sps (codes (hash-ref r 'searchParam '()) 'name))
+    (printf "  ~a: ~a~a\n" (hash-ref r 'type) (string-join (codes (hash-ref r 'interaction '()) 'code) ", ")
+            (if (null? sps) "" (format "; search by ~a" (string-join sps ", "))))
+    (for ([o (in-list (hash-ref r 'operation '()))]) (printf "    ~a\n" (hash-ref o 'name))))
+  (for ([o (in-list (hash-ref rest1 'operation '()))]) (printf "  ~a (system)\n" (hash-ref o 'name)))
+  (printf "(what an operation answers is checked when it runs: serve it and call each once)\n"))
+
 (define (cmd-serve file port-str [store #f] #:log? [log? #f])
   (define serve-app (dynamic-require 'fhir/http/server 'serve-app))
   ;; --store: every resource declared without a repository lives in that SQLite FHIR store
@@ -178,6 +197,7 @@
 
 (define usages
   '(("serve-ig"         "raco fhir-server serve-ig <ig> [--db store.db] [--port 8080] [--bearer token] [--capability id] [--load file|dir]… [--tz-offset ±hh:mm] [--no-examples] [--no-validate] [--gaps]")
+    ("check"            "raco fhir-server check <app.rkt>   the app's declarations compiled: one line per resource and operation, or its mistakes (exit 1)")
     ("serve"            "raco fhir-server serve <app.rkt> [port | --port n] [--store fhir.db] [--log]   (port 0: a free one, printed; --store: resources declared without a repository kept in that SQLite store, over the module's own #:store; --log: one line per request on stderr)")
     ("load"             "raco fhir-server load <store.db> <file|dir>   (Bundles, resources, .cql libraries)")
     ("sql"              "raco fhir-server sql <store.db> \"SELECT …\"   (read-only; a view per type: id, versionId, lastUpdated, resource; resources, history; CSV out)")
@@ -189,6 +209,7 @@
   (run-subcommands
    "fhir-server" usages
    (hash "serve-ig" (lambda (as) (need as 0 "serve-ig") (cmd-serve-ig as))
+         "check" (lambda (as) (need as 0 "check") (require-files! "fhir-server" usages "check" (list (arg as 0))) (cmd-check (arg as 0)))
          "serve" (lambda (as) (need as 0 "serve") (require-files! "fhir-server" usages "serve" (list (arg as 0)))
                    (define store (let ([m (member "--store" as)]) (and m (pair? (cdr m)) (cadr m))))
                    (define log? (and (member "--log" as) #t))

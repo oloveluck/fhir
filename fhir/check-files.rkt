@@ -65,8 +65,8 @@
                                       (cond
                                         ;; not a problem of this file: the short reason, the hint whole
                                         [(regexp-match #rx"(?:InstanceOf|Parent) `([^`]+)` not found.*`[^`]+` is defined in ([^:]+): require that module before this one, or check this folder with (`[^`]+`)" m)
-                                         => (lambda (x) (cons 'note (format "`~a` is defined in ~a: it runs once that module is required; ~a validates it"
-                                                                            (cadr x) (caddr x) (cadddr x))))]
+                                         => (lambda (x) (cons 'note (format "check it with ~a (`~a` is defined in ~a; the module runs once that one is required)"
+                                                                            (cadddr x) (cadr x) (caddr x))))]
                                         [else m]))])
            (parameterize ([current-module-declare-name (make-resolved-module-path p)])
              (eval expanded))
@@ -95,5 +95,5 @@
   (check-false (check-file (build-path d "profiles" "intake.fsh")))
   (define note (check-file (build-path d "bad" "bad.fsh")))
   (check-equal? (and (pair? note) (car note)) 'note)
-  (check-regexp-match #rx"^`IntakePatient` is defined in .*profiles/intake[.]fsh: it runs once that module is required; `raco fsh check .*bad --context .*profiles` validates it$" (cdr note))
+  (check-regexp-match #rx"^check it with `raco fsh check .*bad --context .*profiles` [(]`IntakePatient` is defined in .*profiles/intake[.]fsh; the module runs once that one is required[)]$" (cdr note))
   (delete-directory/files d))

@@ -151,8 +151,9 @@
                        #:repositories (list #,@repo-pair-stxs)
                        #:operations (append #,@entry-list-stxs)
                        #:metadata #,(let ([h (server-option (car servers) '#:search-handling)]
-                                          [refs (server-option (car servers) '#:references)])
-                                      #`(hasheq 'search-handling #,(or h #f) 'references #,(or refs #f)
+                                          [refs (server-option (car servers) '#:references)]
+                                          [warns (server-option (car servers) '#:warnings)])
+                                      #`(hasheq 'search-handling #,(or h #f) 'references #,(or refs #f) 'warnings #,(or warns #f)
                                                 'sd-packages (r6-sd-packages))))))))
         (provide app capability-statement operation-definitions #,@op-names)
         (module+ main

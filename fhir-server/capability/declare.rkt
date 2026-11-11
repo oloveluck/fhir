@@ -90,6 +90,7 @@
               (~optional (~seq #:store store:str))         ; read by module-begin (server-store)
               (~optional (~seq #:search-handling sh:str))  ; read by module-begin (the app's metadata)
               (~optional (~seq #:references refs:str))     ; read by module-begin (the app's metadata)
+              (~optional (~seq #:warnings warns:str))      ; read by module-begin (the app's metadata)
               (~optional (~seq #:format fmt:str ...))) ...)
      (define mode-v (if (attribute mode) (syntax-e #'mode) "server"))
      (unless (member mode-v '("server" "client"))
@@ -105,6 +106,8 @@
        (decl-error 'server (format "#:fhir-version ~s: a capability server speaks FHIR R6 (~a) — its types, search and validation are R6 — so leave #:fhir-version out (an R4 workspace's data is read leniently)"
                                    (syntax-e #'fv) fhir-version)
                    #'fv))
+     (when (and (attribute warns) (not (member (syntax-e #'warns) '("refuse" "accept"))))
+       (decl-error 'server (format "#:warnings must be \"refuse\" or \"accept\", got ~s" (syntax-e #'warns)) #'warns))
      (define fmts (if (attribute fmt) (syntax->datum #'(fmt ...)) '("application/fhir+json")))
      #`(rc-server #,mode-v
                   #,(if (attribute status) (syntax-e #'status) "active")
@@ -121,11 +124,11 @@
              [(and (keyword? (syntax-e (car xs))) (pair? (cdr xs)) (not (string? (syntax-e (cadr xs)))))
               (decl-error 'server (format "~a takes a string: ~a" (syntax-e (car xs)) (format "~s" (format "~a" (syntax->datum (cadr xs))))) (cadr xs))]
              [(keyword? (syntax-e (car xs)))
-              (if (memq (syntax-e (car xs)) '(#:mode #:status #:fhir-version #:date #:url #:name #:description #:store #:search-handling #:references #:format))
+              (if (memq (syntax-e (car xs)) '(#:mode #:status #:fhir-version #:date #:url #:name #:description #:store #:search-handling #:references #:warnings #:format))
                   (loop (cddr xs))
                   (decl-error 'server (format "unknown option ~a~a" (syntax-e (car xs))
                                               (did-you-mean (keyword->string (syntax-e (car xs)))
-                                                            '("mode" "status" "fhir-version" "date" "url" "name" "description" "store" "search-handling" "references" "format")))
+                                                            '("mode" "status" "fhir-version" "date" "url" "name" "description" "store" "search-handling" "references" "warnings" "format")))
                               (car xs)))]
              [else (loop (cdr xs))]))]))
 

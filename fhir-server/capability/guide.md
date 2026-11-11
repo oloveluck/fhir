@@ -31,7 +31,10 @@ its problems. The server speaks FHIR **R6** (`6.0.0-ballot4` in `/metadata`) wha
 workspace uses; its clients send JSON that R4 and R6 write alike for most resources. After editing the
 file, stop the server (its pid is in the first line) and serve it again: the store keeps the data.
 A create's id is the server's (read it from `Location`); add `update` to a resource's interactions
-to choose readable ids with `PUT /Patient/ann`.
+to choose readable ids with `PUT /Patient/ann`. `raco fhir-server check study.capability.rkt` says
+whether the file compiles in a few lines (one per resource and operation), or its mistakes. Searching
+Observations by patient: `patient` and `subject` are two parameters, and a strict server refuses the
+one it does not declare — declare both when clients send both.
 
 ## Official references
 - CapabilityStatement: https://hl7.org/fhir/R4/capabilitystatement.html
@@ -81,6 +84,9 @@ A whole file — declarations, the handler and how to call it — is the worked 
   not declare, so declare both when clients send both. `(server #:references "checked")` refuses (422) a create or update
   whose literal reference (`Patient/nope`) names a resource of a served type the server does not hold
   — by default it is stored as sent; a reference to a type the server does not serve is not decided.
+  `(server #:warnings "refuse")` refuses (422) a write whose only problems are warnings too — a
+  Quantity in `msec`, which converts to nothing — where by default it is stored (validate first to
+  see them).
   A searchset carries each entry's `fullUrl` and a `self` link
   (from the request's Host), so it validates as FHIR. A stored type also answers `_include=Observation:subject` (and `_revinclude`) over its declared reference
   parameters, the included resources marked `search.mode` include; the statement does not list them

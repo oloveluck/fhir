@@ -456,6 +456,28 @@
              (lambda () (compile-capability '(server #:references "strict") '(define x 1))))
   (delete-directory/files dir))
 
+;; ---- (server #:warnings "refuse"): a write whose only problems are warnings is refused too (an
+;; Observation in `msec` was stored with a 201); by default it is stored
+(let ()
+  (define dir (make-temporary-directory "cap-warn-~a"))
+  (define (app-with server)
+    (define src (build-path dir (format "w~a.rkt" (string-length server))))
+    (void (call-with-output-file src #:exists 'truncate
+            (lambda (o) (write-string (string-append "#lang fhir/capability\n" server "\n"
+                                                     "(resource Observation #:interactions (read create))\n") o))))
+    (dynamic-require src 'app))
+  (define handle (dynamic-require 'fhir/http/router 'handle))
+  (define obs "{\"resourceType\":\"Observation\",\"status\":\"final\",\"code\":{\"text\":\"QT\"},\"performer\":[{\"reference\":\"Practitioner/x\"}],\"valueQuantity\":{\"value\":400,\"unit\":\"msec\",\"system\":\"http://unitsofmeasure.org\",\"code\":\"msec\"}}")
+  (define-values (s1 b1) (handle (app-with "(server #:warnings \"refuse\")") "POST" "/Observation" '() obs))
+  (check-equal? s1 422 (format "~s" b1))
+  (check-regexp-match #rx"its warnings refuse it" (hash-ref (car (hash-ref b1 'issue)) 'diagnostics))
+  (check-true (for/or ([i (in-list (hash-ref b1 'issue))]) (regexp-match? #rx"`msec` is not a UCUM unit [(]did you mean `ms`[?][)]" (hash-ref i 'diagnostics))))
+  (define-values (s2 _b2) (handle (app-with "(server)") "POST" "/Observation" '() obs))
+  (check-equal? s2 201)
+  (check-exn #rx"#:warnings must be \"refuse\" or \"accept\""
+             (lambda () (compile-capability '(server #:warnings "strict") '(define x 1))))
+  (delete-directory/files dir))
+
 ;; ---- what an operation answers is what it declares: an undeclared output, a missing required one
 ;; and one of another type are a 500 naming each (a handler's extra `prolonged` was served 200, so the
 ;; OperationDefinition no longer said what the operation returns)

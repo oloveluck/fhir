@@ -23,7 +23,8 @@ at its line), the data (`stage fsh=@readings.fsh`, `commit stage=latest reason=�
 (`write path=bp.view.json …`, then `query language=sql text=@summary.sql as=csv`), a correction
 (`describe ref=Observation/bp-a1 as=source`, edit, `stage`, `commit … reason=…`) and its history
 (`describe ref=Observation/bp-a1/_history as=trail`). Each block below saves as a file by its name:
-`raco fhir guide workspace --block BloodPressureRule > bp-rule.fsh`, `--block Reading > readings.fsh`,
+`raco fhir guide workspace --block BloodPressureRule > bp-rule.fsh`, `--block bad-readings > bad.fsh`,
+`--block Reading > readings.fsh` (the RuleSet, to add your readings to; `--block readings` is a sample),
 `--block bp > bp.view.json`, `--block patients > patients.view.json`, `--block bp-summary-by-name >
 summary.sql` (`--blocks` lists every name).
 
@@ -217,13 +218,63 @@ A stage is all or nothing: one invalid resource refuses the whole stage, so noth
 To keep the valid ones, drop the stage, take the refused resources out of the text (each problem
 names its line) and stage again; stage a batch apart when some of it may be refused.
 To show a rule refusing (or check data before staging it), `stage fsh=@bad.fsh keep:=false` answers the
-same changes, errors and warnings and keeps no stage: nothing to commit, nothing to drop after.
-
-Many readings of one shape are one parameterized RuleSet and one line each (the commit's source
-keeps every line, and each version's `at` names the line that wrote it). A whole `readings.fsh`, to
-save (`raco fhir guide workspace --block Reading > readings.fsh`) and stage as it is:
+same changes, errors and warnings and keeps no stage: nothing to commit, nothing to drop after. Three
+readings the blood-pressure rule refuses — a systolic alone, values in kPa, no subject — to save
+(`--block bad-readings > bad.fsh`):
 
 ```fsh
+// bad-readings
+Instance: bad-systolic-only
+InstanceOf: Observation
+* status = #final
+* code = http://loinc.org#85354-9 "Blood pressure panel"
+* subject = Reference(Patient/a)
+* effectiveDateTime = "2025-03-01"
+* component[0].code = http://loinc.org#8480-6
+* component[0].valueQuantity = 150 'mm[Hg]'
+
+Instance: bad-kpa
+InstanceOf: Observation
+* status = #final
+* code = http://loinc.org#85354-9 "Blood pressure panel"
+* subject = Reference(Patient/a)
+* effectiveDateTime = "2025-03-02"
+* component[0].code = http://loinc.org#8480-6
+* component[0].valueQuantity = 20 'kPa'
+* component[1].code = http://loinc.org#8462-4
+* component[1].valueQuantity = 12 'kPa'
+
+Instance: bad-no-subject
+InstanceOf: Observation
+* status = #final
+* code = http://loinc.org#85354-9 "Blood pressure panel"
+* effectiveDateTime = "2025-03-03"
+* component[0].code = http://loinc.org#8480-6
+* component[0].valueQuantity = 150 'mm[Hg]'
+* component[1].code = http://loinc.org#8462-4
+* component[1].valueQuantity = 95 'mm[Hg]'
+```
+
+Many readings of one shape are one parameterized RuleSet and one line each (the commit's source
+keeps every line, and each version's `at` names the line that wrote it). The RuleSet alone, to start a
+file of your own readings (`raco fhir guide workspace --block Reading > readings.fsh`, then your
+Patients and one Instance per reading after it):
+
+```fsh
+RuleSet: Reading(patient, date, sys, dia)
+* code = http://loinc.org#85354-9 "Blood pressure panel"
+* status = #final
+* subject = Reference(Patient/{patient})
+* effectiveDateTime = "{date}"
+* component[0].code = http://loinc.org#8480-6
+* component[0].valueQuantity = {sys} 'mm[Hg]'
+* component[1].code = http://loinc.org#8462-4
+* component[1].valueQuantity = {dia} 'mm[Hg]'
+```
+and a whole sample `readings.fsh` with it (`--block readings`), to stage as it is:
+
+```fsh
+// readings
 RuleSet: Reading(patient, date, sys, dia)
 * code = http://loinc.org#85354-9 "Blood pressure panel"
 * status = #final

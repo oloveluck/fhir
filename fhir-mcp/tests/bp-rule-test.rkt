@@ -6,7 +6,7 @@
 
 (require rackunit racket/file racket/string json
          fhir/mcp/workspace fhir/mcp/verbs fhir/mcp/init
-         (only-in fhir/mcp/resources learn-text)
+         (only-in fhir/mcp/resources learn-text guide-block-text)
          (only-in fhir/mcp/tools tool-name tool-run))
 
 (define rule (cadr (regexp-match #px"```fsh\n(Profile: BloodPressureRule.*?)```" (learn-text "workspace"))))
@@ -68,13 +68,17 @@
       (check-equal? (hash-ref a 'errors) 1)
       (check-regexp-match #rx"^checked only" (hash-ref a 'next))
       (check-equal? (hash-ref (car (hash-ref a 'changes)) 'action) "would create")
-      ;; checking only, everything to fix is said: the errors and the reference to nothing stored
+      ;; checking only, a refusal says its errors alone (the reference to nothing stored was noise
+      ;; beside a rule's refusal, two reruns' agents said); a clean check names the reference, once
       (let-values ([(text _e) ((tool-run (hash-ref tools "stage")) (hasheq 'fsh (bp "kpa4" #:sys "20 'kPa'" #:subject "Patient/nobody") 'keep #f))])
         (define a (string->jsexpr text))
         (define c (car (hash-ref a 'changes)))
         (check-equal? (length (hash-ref c 'errors)) 1)
-        ;; said once for the stage, not per change
         (check-false (hash-ref c 'warnings #f))
+        (check-false (hash-ref a 'references #f)))
+      (let-values ([(text _e) ((tool-run (hash-ref tools "stage")) (hasheq 'fsh (bp "ok4" #:subject "Patient/nobody") 'keep #f))])
+        (define a (string->jsexpr text))
+        (check-false (hash-ref (car (hash-ref a 'changes)) 'warnings #f))
         (check-regexp-match #rx"Patient/nobody" (string-join (hash-ref a 'references '()) " ")))
       (check-false (for/or ([st (in-list (append (hash-ref (call "describe" (hasheq 'ref "stages")) 'stages '())
                                                  (hash-ref (call "describe" (hasheq 'ref "stages")) 'refused '())))])
@@ -136,10 +140,21 @@
     (define summary (cadr (regexp-match #px"```\n((?:-- [^\n]*\n)*SELECT patient, count.*?)```" (learn-text "workspace"))))
     (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text summary)) 'rows)
                   (list (hasheq 'patient "a" 'readings 3 'mean_systolic "140.0" 'mean_diastolic "91.0" 'at_or_above_140_90 "yes")))
+    ;; the guide's bad readings (`--block bad-readings`), checked: each refused by its invariant at its
+    ;; rule, and the guide's RuleSet alone (`--block Reading`) is just the RuleSet
+    (define bad (guide-block-text (learn-text "workspace") "bad-readings"))
+    (check-regexp-match #rx"^// bad-readings\n" bad)
+    (let* ([a (call "stage" (hasheq 'fsh bad 'keep #f))]
+           [errs (for/list ([c (in-list (hash-ref a 'changes))]) (cons (hash-ref c 'resource) (string-join (hash-ref c 'errors '()) "\n")))])
+      (check-regexp-match #rx"bp-diastolic" (cdr (assoc "Observation/bad-systolic-only" errs)))
+      (check-regexp-match #rx"bp-systolic.*20 'kPa'" (cdr (assoc "Observation/bad-kpa" errs)))
+      (check-regexp-match #rx"bp-subject" (cdr (assoc "Observation/bad-no-subject" errs)))
+      (check-false (hash-ref a 'references #f)))
+    (check-regexp-match #rx"^RuleSet: Reading[(]patient, date, sys, dia[)]\n([*] [^\n]*\n)+$" (guide-block-text (learn-text "workspace") "Reading"))
     ;; the guide's RuleSet for many readings: one line each, held to the rule, each version's trail at
     ;; its line; the trail's value reads a blood pressure's components (it was empty)
     ;; the guide's whole readings.fsh, staged as it is (its ids renamed: bp-a1 is this test's own)
-    (define readings (string-replace (cadr (regexp-match #px"```fsh\n(RuleSet: Reading.*?)```" (learn-text "workspace"))) "bp-a" "bp-r"))
+    (define readings (string-replace (cadr (regexp-match #px"```fsh\n// readings\n(RuleSet: Reading.*?)```" (learn-text "workspace"))) "bp-a" "bp-r"))
     (define (line-of rx) (for/first ([l (in-list (regexp-split #rx"\n" readings))] [i (in-naturals 1)] #:when (regexp-match? rx l)) i))
     (define rst (call "stage" (hasheq 'fsh readings 'files (hasheq 'fsh "readings.fsh"))))
     (check-equal? (for/list ([c (in-list (hash-ref rst 'changes))]) (list (hash-ref c 'resource) (hash-ref c 'errors '())))

@@ -25,7 +25,7 @@
   `(("serve" ,(format "raco fhir-mcp [serve] ~a   the server over stdin/stdout" flags))
     ("tools" ,(format "raco fhir-mcp tools ~a   the tools and their schemas" flags))
     ("call"  ,(format "raco fhir-mcp call <tool> ['<json>' | -] [key=value | key=@file | key:=<json>]… ~a   run one tool: arguments as a JSON object (- reads it from stdin) and/or one by one, a file's text with @" flags))
-    ("batch" ,(format "raco fhir-mcp batch [<file> | -] ~a   many calls in one process: one per line, `<tool> key=value key=@file key:=<json> …` (quoted as a shell would; # starts a comment; a line starting with ! is expected to fail), each answer after a `### <line>` header" flags))
+    ("batch" ,(format "raco fhir-mcp batch [<file> | -] ~a   many calls in one process: one per line, `<tool> key=value key=@file key:=<json> …` (quoted as a shell would, \\n inside double quotes a newline; # starts a comment; a line starting with ! is expected to fail), each answer after a `### <line>` header" flags))
     ("init"  "raco fhir-mcp init [<dir>] [--fhir-version 4.0.1|5.0.0]   make a directory a workspace an agent can use: workspace.yaml (data: fhir.db, a SQLite FHIR store), .mcp.json, CLAUDE.md")
     ("guide" "raco fhir-mcp guide [<topic> [--blocks | --block N|name]]   a guide (learn://<topic>) as text, its code blocks listed, or one (to save as a file); without a topic, the topics")))
 
@@ -187,7 +187,8 @@
      out]))
 
 ;; shell-words : line -> (listof string)   split as a shell would: blanks separate, '…' and "…" quote
-;; (inside "…", \" and \\ escape), so `text="SELECT * FROM r1"` is one word
+;; (inside "…", \" and \\ escape, and \n is a newline — a batch line is one line, so an inline FSH
+;; text needs it; `fsh="Instance: x\nInstanceOf: …"` read `\n` as `n`), so `text="SELECT * FROM r1"` is one word
 (define (shell-words l)
   (let loop ([cs (string->list l)] [word #f] [out '()] [q #f])
     (define (done) (if word (cons (list->string (reverse word)) out) out))
@@ -196,7 +197,8 @@
       [(and (not q) (char-whitespace? (car cs))) (loop (cdr cs) #f (done) #f)]
       [(and (not q) (memv (car cs) '(#\' #\"))) (loop (cdr cs) (or word '()) out (car cs))]
       [(and q (char=? (car cs) q)) (loop (cdr cs) word out #f)]
-      [(and (eqv? q #\") (char=? (car cs) #\\) (pair? (cdr cs))) (loop (cddr cs) (cons (cadr cs) (or word '())) out q)]
+      [(and (eqv? q #\") (char=? (car cs) #\\) (pair? (cdr cs)))
+       (loop (cddr cs) (cons (case (cadr cs) [(#\n) #\newline] [(#\t) #\tab] [else (cadr cs)]) (or word '())) out q)]
       [else (loop (cdr cs) (cons (car cs) (or word '())) out q)])))
 
 ;; reports-errors? : text -> boolean   an answer that counts errors (a stage that cannot commit, a
@@ -308,4 +310,7 @@
                                     "      \"changed\": [\"value: 150 → 140\", \"note: \\\"x, y\\\"\"]\n    }\n  ],\n"
                                     "  \"errors\": 0,\n  \"tags\": [1, 2]\n}"))
   (check-equal? (string->jsexpr laid) (string->jsexpr answer))
-  (check-equal? (indent-json-text "a,b\n1,2") "a,b\n1,2"))
+  (check-equal? (indent-json-text "a,b\n1,2") "a,b\n1,2")
+  ;; a batch line: \n inside "…" is a newline (inline FSH on one line), \" a quote
+  (check-equal? (shell-words "stage fsh=\"Instance: x\\nInstanceOf: Patient\" note=\"a \\\"b\\\"\"")
+                '("stage" "fsh=Instance: x\nInstanceOf: Patient" "note=a \"b\"")))

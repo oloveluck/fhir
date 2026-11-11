@@ -36,7 +36,7 @@
          (only-in fhirpath/print fhirpath->string)
          (only-in fhir/model/node fhir?)
          (only-in fhirpath/value item->system)
-         (only-in fhirpath/ucum ucum-valid?)
+         (only-in fhirpath/ucum ucum-valid? ucum-suggestion)
          (only-in fhir/serialize/jsexpr-util drop-false)
          (only-in fhir/primitives/temporal calendar-problem)
          (only-in fhirpath/terminology tx-service-validate tx-service-expand))
@@ -237,10 +237,6 @@
 ;; on it. A warning, not an error: HL7's own published examples write `m^2` (mCODE's body surface
 ;; area), and they must validate; the nearest common clinical unit is suggested.
 (define quantity-types '("Quantity" "SimpleQuantity" "Age" "Duration" "Distance" "Count" "MoneyQuantity"))
-(define common-units
-  '("mm[Hg]" "kg" "g" "mg" "ug" "mg/dL" "g/dL" "g/L" "mmol/L" "umol/L" "mmol/mol" "%" "/min" "cm" "m" "mm"
-    "kg/m2" "[in_i]" "[lb_av]" "Cel" "[degF]" "mL" "L" "h" "min" "s" "d" "wk" "mo" "a" "10*3/uL" "10*9/L"
-    "U/L" "[IU]/L" "mL/min/{1.73_m2}" "mL/min" "/[HPF]" "{beats}/min" "{breaths}/min" "kPa" "mosm/kg" "ng/mL" "pg/mL"))
 (define (ucum-issues tc loc v)
   (cond
     [(and (member tc quantity-types) (hash? v)
@@ -248,29 +244,10 @@
           (string? (hash-ref v 'code #f))
           (not (ucum-valid? (hash-ref v 'code))))
      (define code (hash-ref v 'code))
-     ;; a common non-UCUM spelling first (`msec` is `ms`, `bpm` is `/min`), else the nearest by name
-     (define known (assoc (string-downcase code) ucum-spellings))
-     (define near (if known (format " (did you mean `~a`?)" (cdr known)) (did-you-mean code (filter ucum-valid? common-units))))
      ;; a warning: published examples write `m^2` (mCODE), and the never-over-report gate holds
      (list (issue "warning" "code-invalid" (string-append loc ".code")
-                  (format "`~a` is not a UCUM unit~a" code
-                          (if (equal? near "") (string-append " (" (ucum-hint code) ")") near))))]
+                  (format "`~a` is not a UCUM unit~a" code (ucum-suggestion code))))]
     [else '()]))
-;; ucum-spellings : common clinical spellings that are not UCUM, with the UCUM code each means
-(define ucum-spellings
-  '(("msec" . "ms") ("millisec" . "ms") ("millisecond" . "ms") ("milliseconds" . "ms")
-    ("sec" . "s") ("secs" . "s") ("second" . "s") ("seconds" . "s")
-    ("mins" . "min") ("minute" . "min") ("minutes" . "min") ("hr" . "h") ("hrs" . "h") ("hour" . "h") ("hours" . "h")
-    ("day" . "d") ("days" . "d") ("week" . "wk") ("weeks" . "wk") ("year" . "a") ("years" . "a") ("yr" . "a") ("yrs" . "a")
-    ("bpm" . "/min") ("beats/min" . "/min") ("breaths/min" . "/min") ("/minute" . "/min")
-    ("kgs" . "kg") ("lbs" . "[lb_av]") ("lb" . "[lb_av]") ("in" . "[in_i]") ("inch" . "[in_i]")
-    ("degc" . "Cel") ("°c" . "Cel") ("c" . "Cel") ("degf" . "[degF]") ("°f" . "[degF]")
-    ("mmol/mol" . "mmol/mol") ("percent" . "%") ("cc" . "mL") ("ml" . "mL")))
-;; ucum-hint : code -> string   what UCUM writes differently, when the nearest name does not say it
-(define (ucum-hint code)
-  (cond [(regexp-match? #rx"(?i:hg)" code) "mercury is written mm[Hg]"]
-        [else "see https://ucum.org/ucum for its syntax"]))
-
 ;; recurse into a complex value (of concrete type `tc`): nested resource | backbone | datatype jump
 ;; recurse-issues : Index ElementDef type-code loc value tx -> (listof Issue)
 (define (recurse-issues idx ce tc loc v tx)

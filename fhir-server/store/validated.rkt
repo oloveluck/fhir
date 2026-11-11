@@ -16,7 +16,7 @@
          (only-in fhir/conformance/validate validate-issues issue-severity issue-code issue-msg issue-path)
          (only-in "../capability/runtime.rkt" make-repository repository-read repository-vread repository-create
                   repository-update repository-delete repository-search repository-history repository-patch
-                  current-request-json))
+                  current-request-json current-app app-metadata))
 
 (provide
  (contract-out
@@ -36,8 +36,14 @@
       (strip-jnum raw)
       js))
 
+;; refuse-warnings? : -> boolean   `(server #:warnings "refuse")`: a warning refuses the write too (an
+;; Observation in `msec` was stored with a 201; the study wanted no unit that converts to nothing)
+(define (refuse-warnings?)
+  (define a (current-app))
+  (and a (equal? (hash-ref (app-metadata a) 'warnings #f) "refuse")))
 (define (write-errors js [pkgs #f])
-  (define (go) (filter (lambda (i) (member (issue-severity i) '("error" "fatal"))) (validate-issues js)))
+  (define refused (if (refuse-warnings?) '("error" "fatal" "warning") '("error" "fatal")))
+  (define (go) (filter (lambda (i) (member (issue-severity i) refused)) (validate-issues js)))
   (if pkgs (parameterize ([current-sd-packages pkgs]) (go)) (go)))
 
 (define (validation-outcome js issues)
@@ -46,9 +52,11 @@
    (from-json
     (hasheq 'resourceType "OperationOutcome"
             'issue (cons (hasheq 'severity "error" 'code "processing"
-                                 'diagnostics (format "~a does not conform to ~a: nothing was written"
+                                 'diagnostics (format "~a does not conform to ~a: nothing was written~a"
                                                       (hash-ref js 'resourceType "resource")
-                                                      (if (null? claimed) "its base type" (string-join claimed ", "))))
+                                                      (if (null? claimed) "its base type" (string-join claimed ", "))
+                                                      (if (and (refuse-warnings?) (for/and ([i (in-list issues)]) (equal? (issue-severity i) "warning")))
+                                                          " (#:warnings \"refuse\": its warnings refuse it)" "")))
                          (for/list ([i (in-list issues)])
                            (hasheq 'severity (issue-severity i) 'code (issue-code i)
                                    'diagnostics (issue-msg i)
