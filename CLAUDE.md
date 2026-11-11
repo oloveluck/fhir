@@ -1456,6 +1456,36 @@ Each fix has a test doing it:
 - Capability guide: the eGFR block is pasted into the smallest server; a create says nothing of
   warnings (validate first).
 
+## New users, round 24 (2026-11-11)
+The twenty-third rerun (every task first time, 7–18 calls, right answers, no source read; the server task
+was a QTc operation the guide does not contain) found one defect and a gap in our own guide; each fix has
+a test doing what the agent did:
+- **A search says what it did not apply** (workspace.rkt `run-search`): `Patient?_has:Observation:subject:code=4548-4`
+  answered every patient, silently (the store ignores what it cannot apply). The answer now lists
+  `ignored` at its top — reverse chaining, chaining, an unsupported modifier, a name the type does not
+  search on (with the nearest) — and a `note` that the answer is the search without them;
+  `query … strict:=true` refuses such a search (`fhir-search/ignored` over the store, and the file index,
+  whose procedure answers `(values resources ignored)`; `search-param-names`). learn://search says so, and
+  the skill's table sends "has none" to CQL.
+- **The guide's blood-pressure rule wants a number** (`value.exists()` in each component's `where`): a
+  unit with no value passed, and the summary's mean would have left the reading out without a word. The
+  evidence says `'mm[Hg]' (no number)` (validate.rkt `compact-json`; it printed like a Coding). The guide
+  says the rule is about LOINC-coded readings only.
+- **`keep:=false` answers say "would create"**, and list every warning (dangling references too);
+  `commit` answers the `reason` it recorded; `--blocks` prints the name `--block` takes (`block-name`: an
+  FSH entity, a CQL library, a view's `name`), and a name is matched as a block's own name first.
+- **Servers**: `(operation $validate)` without its require says which module provides it
+  (`capability/op-ref.rkt`, expanded with the body: Racket said `$validate: unbound identifier`); strict
+  search's refusal lists `_id, _lastUpdated, _count, _offset, _sort` too; the capability guide has an
+  operation with two outputs, one boolean (`$map`, tested), says `#:min`/`#:max` are inclusive and to
+  decide on the exact value and round only what is returned; the skill shows curl as the fast call.
+- **Racket route**: FML's "where held for none" lists what the tested field held and the nearest
+  (`the linkId there: name, gendr — did you mean 'gendr'?`; `where-evidence`, every matched item kept
+  in `source-matches`); learn://racket lists the diagnostics API for tests; `init` and its CLAUDE.md
+  name `raco fhir guide`; fml's guide writes `raco fml`.
+Not done, named: one command checking every `#lang` file a program requires (`raco test tests.rkt` is
+the one gate); a warning when a CQL library's FHIR version differs from the data's.
+
 ## SQL on FHIR where tables are made (2026-11-11)
 An audit of where the toolkit flattens FHIR into tables found hand-written JSON SQL doing a
 ViewDefinition's job, and under it a load-order defect; both fixed, each with a test doing it:

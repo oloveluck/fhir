@@ -51,3 +51,9 @@
 (let-values ([(code text) (run "fhir-mcp" "guide" "workspace" "--block" "BloodPressureRule")])
   (check-equal? code 0)
   (check-regexp-match #rx"^Profile: BloodPressureRule\n" text))
+;; --blocks shows the name --block takes (an agent guessed `bp`), and that name is the block declaring it
+(let-values ([(code listing) (run "fhir" "guide" "workspace" "--blocks")])
+  (check-regexp-match #rx"(?m:^[0-9]+  --block bp  \\[json\\])" listing)
+  (check-regexp-match #rx"(?m:^[0-9]+  --block BloodPressureRule  \\[fsh\\])" listing))
+(let-values ([(code text) (run "fhir" "guide" "workspace" "--block" "bp")])
+  (check-regexp-match #rx"\"name\": \"bp\"" text))

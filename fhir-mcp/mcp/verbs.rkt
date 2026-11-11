@@ -103,7 +103,8 @@
    (tool "query"
          "Ask once without saving a file. language: fhirpath (an expression; `over` a type or Type/id), cql (an expression, evaluated per patient, or a whole library), vcl (an expression, expanded), search (Type?name=value…, a FHIR search over the data, files included), view (a ViewDefinition as JSON), sql (one SELECT over the tables: each *.view.json by its file name or `name`, earlier results by their names — a run of diabetes.cql is `diabetes`, a query given `name` that name — and as r1, r2 …; group, join, count, average). Answers like run."
          (schema (hash-set* run-props 'language (hasheq 'type "string" 'enum '("fhirpath" "cql" "vcl" "search" "view" "sql"))
-                            'text (s "the expression, library, search, view or SQL statement"))
+                            'text (s "the expression, library, search, view or SQL statement")
+                            'strict (hasheq 'type "boolean" 'description "search: refuse a search with a parameter it cannot apply (by default the answer lists them as `ignored`)"))
                  '("language" "text"))
          (lambda (args) (answer (lambda () (as-csv h args (hub-query h (need args 'language) (need args 'text) args))))))
    (tool "explain"

@@ -36,6 +36,14 @@ raco cql Intake.cql --data patient.json --now 2026-01-01         # the library's
 | `fhir/operation` | `exn:fail:operation?` | the error `#:validate` and `ensure-valid` raise: one handler for both |
 | `fhir/conformance/operations` | `(ensure-valid r #:profile url)` | any resource, validated; names the element |
 
+In tests (the template's `tests.rkt` uses each):
+| require | binding | what it is |
+|---|---|---|
+| `fsh/check` | `(check-fsh-project "fsh")`, `#:context (list "fsh")` | `raco fsh check` as a value: a report; `#:context` = another folder's definitions, its instances left out |
+| `fsh/check` | `(check-report-diagnostics report)` | the report's problems, in source order |
+| `fhir/diagnostic` | `diagnostic-message`, `diagnostic-severity` (`'error`, `'warning`) | one problem's text and level |
+| `fhir/diagnostic` | `(loc-line (diagnostic-loc d))`, `loc-column`, `loc-source` | where it is: the line to assert in a test |
+
 `racket <file>.fsh` (or `.map`, `.vcl`) prints what the file compiles to, as FHIR JSON.
 
 ## What checks what

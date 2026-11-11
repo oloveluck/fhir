@@ -23,6 +23,7 @@ one line, `file:line:col severity: message`, with "did you mean …" for a missp
 | question | where |
 |---|---|
 | is the latest HbA1c above 9 %, per patient (and "never tested") | `raco fhir guide cql`, "the latest value per patient" (copy its library as `LatestA1c.cql`); the table: `run path=LatestA1c.cql as=csv columns="Name,Latest Result,Latest Date,Above 9,Ever Above 9"` (latest and ever, side by side) |
+| which patients have no HbA1c at all | the same library's `"No HbA1c"` define (CQL), not a search: FHIR search has no "has none", and a `_has` search is not supported (the answer lists it under `ignored`; `raco fhir guide search`) |
 | was any result above a threshold | a FHIR search: `query language=search text="Observation?code=…&value-quantity=gt9"`; per patient beside the latest, the CQL guide's `Ever Above 9` |
 | whose mean blood pressure is at or above 140/90 | `raco fhir guide workspace`, the `bp` view and its summary SQL — read clinically as systolic ≥ 140 OR diastolic ≥ 90 |
 | where did each stored value come from (who, when, why, which file and line) | `describe ref=Observation as=trail` (one resource's versions: `ref=Observation/a1/_history as=trail`) |
@@ -332,8 +333,11 @@ store, beside it.
 racket study.capability.rkt                                      # its CapabilityStatement: the file checked
 raco fhir-server serve study.capability.rkt --port 0 --log &      # prints its url and pid first; data in study.db
 raco fhir-server serve study.capability.rkt --port 8080 --store fhir.db &   # or over a workspace's store
+curl -s 'http://localhost:8080/$egfr?creatinine=1.1&age=60&sex=female'    # the fast way: no process to start
 raco fhir-mcp call apply operation='$egfr' url=http://localhost:8080 inputs:='{"creatinine": 1.1, "age": 60, "sex": "female"}'
 ```
+`curl` answers at once; `raco fhir-mcp call apply url=…` takes a few seconds (a Racket process
+starting) and is for a workspace session — the same Parameters either way.
 `raco fhir guide capability` has the cheat sheet, the smallest server, a whole operation using every
 input option (the eGFR equation: `--block egfr` prints it), a worked example
 and a smoke test, tested as written.

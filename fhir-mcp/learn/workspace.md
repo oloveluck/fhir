@@ -264,19 +264,23 @@ Severity: #error
 Expression: "code.coding.where(system = 'http://loinc.org' and code = '85354-9').exists() implies subject.exists()"
 
 Invariant: bp-systolic
-Description: "A blood pressure (LOINC 85354-9) has a systolic component (LOINC 8480-6) in mm[Hg]"
+Description: "A blood pressure (LOINC 85354-9) has a systolic component (LOINC 8480-6), a number in mm[Hg]"
 Severity: #error
-Expression: "code.coding.where(system = 'http://loinc.org' and code = '85354-9').exists() implies (component.where(code.coding.where(system = 'http://loinc.org' and code = '8480-6').exists()).exists() and component.where(code.coding.where(system = 'http://loinc.org' and code = '8480-6').exists()).all(value.ofType(Quantity).where(system = 'http://unitsofmeasure.org' and code = 'mm[Hg]').exists()))"
+Expression: "code.coding.where(system = 'http://loinc.org' and code = '85354-9').exists() implies (component.where(code.coding.where(system = 'http://loinc.org' and code = '8480-6').exists()).exists() and component.where(code.coding.where(system = 'http://loinc.org' and code = '8480-6').exists()).all(value.ofType(Quantity).where(value.exists() and system = 'http://unitsofmeasure.org' and code = 'mm[Hg]').exists()))"
 
 Invariant: bp-diastolic
-Description: "A blood pressure (LOINC 85354-9) has a diastolic component (LOINC 8462-4) in mm[Hg]"
+Description: "A blood pressure (LOINC 85354-9) has a diastolic component (LOINC 8462-4), a number in mm[Hg]"
 Severity: #error
-Expression: "code.coding.where(system = 'http://loinc.org' and code = '85354-9').exists() implies (component.where(code.coding.where(system = 'http://loinc.org' and code = '8462-4').exists()).exists() and component.where(code.coding.where(system = 'http://loinc.org' and code = '8462-4').exists()).all(value.ofType(Quantity).where(system = 'http://unitsofmeasure.org' and code = 'mm[Hg]').exists()))"
+Expression: "code.coding.where(system = 'http://loinc.org' and code = '85354-9').exists() implies (component.where(code.coding.where(system = 'http://loinc.org' and code = '8462-4').exists()).exists() and component.where(code.coding.where(system = 'http://loinc.org' and code = '8462-4').exists()).all(value.ofType(Quantity).where(value.exists() and system = 'http://unitsofmeasure.org' and code = 'mm[Hg]').exists()))"
 ```
 
 Named for `Observation` in `profiles`, it holds every blood pressure to the rule and lets every other
 Observation through. `X.exists() and X.all(…)` says "there is one, and EVERY one is in mm[Hg]": with
-`X.where(…).exists()` alone, a second systolic in kPa beside one in mm[Hg] would pass. A refusal quotes the rule's `Description` and what the rule found, at the rule that wrote it:
+`X.where(…).exists()` alone, a second systolic in kPa beside one in mm[Hg] would pass, and
+`value.exists()` in the `where` refuses a unit with no number (a mean over the readings would leave it
+out without a word). The rule is about Observations coded LOINC 85354-9: a blood pressure coded
+otherwise (no system, a misspelt one) is not held to it — to require the code too, give the profile
+`* code = http://loinc.org#85354-9` and claim it only for blood pressures. A refusal quotes the rule's `Description` and what the rule found, at the rule that wrote it:
 `fsh:7: Observation: hr-range: A heart rate (LOINC 8867-4) is between 20 and 250 /min (found
 valueQuantity = 300 '/min')` — line 7 is the instance's `* valueQuantity = 300 '/min'`. "Found"
 follows the rule: what the part after `implies` tests, the item of an `all(…)` that fails it by
@@ -311,7 +315,8 @@ Expression: "effective.ofType(dateTime).exists() implies effective.ofType(dateTi
 ```
 
 - a value in a range: `value.ofType(Quantity).where(value >= lo and value <= hi).exists()`;
-- a unit: `value.ofType(Quantity).where(system = 'http://unitsofmeasure.org' and code = 'u').exists()`;
+- a unit: `value.ofType(Quantity).where(value.exists() and system = 'http://unitsofmeasure.org' and code = 'u').exists()`
+  (`value.exists()`: a number with that unit, not the unit alone);
 - a required part: `component.where(code.coding.where(system = … and code = …).exists()).exists()`
   (the blood-pressure rule above);
 - not in the future: `effective.ofType(dateTime) <= now()`;

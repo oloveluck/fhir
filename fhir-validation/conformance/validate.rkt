@@ -802,6 +802,10 @@
        ;; a Quantity that is only a number: said so (`{value: 120}` read as nothing in particular)
        [(and (has 'value) (number-ish? (has 'value)) (= (hash-count j) 1))
         (format "~a (no unit)" (compact-json (has 'value)))]
+       ;; a UCUM Quantity with its unit and no number (it printed as a Coding, `…unitsofmeasure.org#mm[Hg]`)
+       [(and (not (has 'value)) (not (has 'display)) (or (has 'code) (has 'unit))
+             (or (has 'unit) (equal? (has 'system) "http://unitsofmeasure.org")))
+        (format "'~a' (no number)" (or (has 'code) (has 'unit)))]
        [(and (has 'code) (string? (has 'code)) (or (has 'system) (has 'display)) (not (has 'value)))
         (format "~a#~a" (or (has 'system) "") (has 'code))]
        [(list? (has 'coding)) (string-join (map compact-json (has 'coding)) ", ")]
@@ -1032,3 +1036,9 @@
                 (snap4 (list (hasheq 'id "DemoR.item:beta.kind" 'path "DemoR.item.kind"
                                      'binding (hasheq 'strength "required" 'valueSet "http://example.org/vs"))))))
   (check-equal? (slice-issues idx5 "DemoR" (car (child-elements idx5 "DemoR")) stray-entry) '()))
+
+(module+ test
+  ;; evidence: a Quantity with a unit and no number is said so, not printed as a Coding
+  (check-equal? (compact-json (hasheq 'system "http://unitsofmeasure.org" 'code "mm[Hg]")) "'mm[Hg]' (no number)")
+  (check-equal? (compact-json (hasheq 'value 120)) "120 (no unit)")
+  (check-equal? (compact-json (hasheq 'system "http://loinc.org" 'code "8480-6")) "http://loinc.org#8480-6"))

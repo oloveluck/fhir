@@ -575,7 +575,14 @@
   ;; `more` only when there is more to read (`"more": null` said nothing); a wide table says how to
   ;; have it compact (11 columns of JSON objects was a long answer for a yes/no question)
   (define cols (run-result-columns r))
-  (define with-more (if more (hash-set answer 'more more) answer))
+  (define with-more0 (if more (hash-set answer 'more more) answer))
+  ;; what a search could not apply is at the top of the answer, where it cannot be missed
+  (define sm (run-result-summary r))
+  (define with-more
+    (if (and (hash? sm) (hash-ref sm 'ignored #f))
+        (hash-set* with-more0 'ignored (hash-ref sm 'ignored) 'note (hash-ref sm 'note "")
+                   'summary (hash-remove (hash-remove sm 'ignored) 'note))
+        with-more0))
   (if (and (not resources?) (> (length cols) 6))
       ;; a file's run says it as the run itself (`run path=… as=csv columns=…`, the skill's idiom), a
       ;; query's result through describe
@@ -618,7 +625,7 @@
 
 ;; options : hash -> Options   the verbs' arguments as a language's options
 (define (options args)
-  (for/hasheq ([k '(entry over parameters name)] #:when (and (hash-ref args k #f) (not (eq? (hash-ref args k) 'null))))
+  (for/hasheq ([k '(entry over parameters name strict)] #:when (and (hash-ref args k #f) (not (eq? (hash-ref args k) 'null))))
     (values k (let ([v (hash-ref args k)]) (if (and (eq? k 'parameters) (hash? v))
                                                (for/hash ([(n x) (in-hash v)]) (values (symbol->string n) (format "~a" x)))
                                                v)))))
@@ -773,21 +780,47 @@
                          #:database (data-store-path h))))
   (run-result "table" (table-columns t) (table-rows t) (hasheq 'rows (length (table-rows t)))))
 
-;; run-search : "Type?params" options -> run-result   FHIR search where the data source can run it
+;; run-search : "Type?params" options -> run-result   FHIR search where the data source can run it.
+;; A parameter the search could not apply (unknown to the type, `_has`, chaining, an unsupported
+;; modifier) is said in the answer (`ignored`, with the nearest name); `strict:=true` refuses such a
+;; search — `Patient?_has:Observation:subject:code=4548-4` answered every patient, silently
 (define (run-search h text opts)
   (define m (regexp-match #px"^\\s*([A-Za-z]+)(?:\\?(.*))?\\s*$" text))
   (unless m (error 'search "a search is Type?name=value&… (Observation?code=http://loinc.org|4548-4)"))
   (define type (cadr m))
   (define params (if (and (caddr m) (not (string=? (caddr m) ""))) (form-urlencoded->alist (caddr m)) '()))
+  (define qps (for/list ([p (in-list params)]) (cons (symbol->string (car p)) (or (cdr p) ""))))
   (define ds (current-data-source))
-  (define found
-    (cond [(data-source-search ds) ((data-source-search ds) type (for/list ([p (in-list params)]) (cons (symbol->string (car p)) (or (cdr p) ""))))]
-          [(null? params) ((data-source-all ds) type)]
-          [(file-search-index h) => (lambda (search) (search type (for/list ([p (in-list params)]) (cons (symbol->string (car p)) (or (cdr p) "")))))]
+  (define store-path (data-store-path h))
+  (define-values (found ignored names)
+    (cond [(and store-path (search-index-available?))
+           (define-values (store catalog) (open-store store-path (hub-packages h)))
+           (define-values (rs ig) ((dynamic-require 'fhir/store/fhir-engine 'fhir-search/ignored) store type qps #:search-params catalog))
+           (values rs ig (search-param-names catalog type))]
+          [(data-source-search ds) (values ((data-source-search ds) type qps) '() '())]
+          [(null? params) (values ((data-source-all ds) type) '() '())]
+          [(file-search-index h)
+           => (lambda (search)
+                (define-values (rs ig) (search type qps))
+                (values rs ig (search-param-names (search-catalog (hub-packages h)) type)))]
           [else (error 'search "searching files needs the fhir-server package (raco pkg install fhir-server); meanwhile ask with FHIRPath: query(\"fhirpath\", \"Observation.where(…)\")")]))
+  (define (why n)
+    (cond [(regexp-match? #rx"^_has:" n) (format "`~a`: reverse chaining (_has) is not supported — ask CQL or SQL (learn://search)" n)]
+          [(regexp-match? #rx"[.]" n) (format "`~a`: chained parameters are not supported — ask CQL or SQL (learn://search)" n)]
+          [else (let* ([base (car (string-split n ":"))])
+                  (if (member base names)
+                      (format "`~a`: the modifier is not supported" n)
+                      (format "`~a`: ~a does not search on it~a" n type (did-you-mean base names))))]))
+  (when (and (pair? ignored) (hash-ref opts 'strict #f))
+    (error 'search (format "not applied: ~a (~a searches on ~a and _id, _lastUpdated, _count, _sort)"
+                           (string-join (map why ignored) "; ") type (string-join names ", "))))
   (run-result "resources" '("resource" "json")
               (for/list ([r (in-list found)]) (hasheq 'resource (format "~a/~a" (hash-ref r 'resourceType "?") (hash-ref r 'id "?")) 'json r))
-              (hasheq 'resources (length found))))
+              (if (null? ignored)
+                  (hasheq 'resources (length found))
+                  (hasheq 'resources (length found)
+                          'ignored (map why ignored)
+                          'note "the answer is the search WITHOUT these parameters; strict:=true refuses such a search"))))
 
 ;; file-search-index : hub -> (type params -> resources) | #f   the data's files indexed for FHIR
 ;; search (search-index.rkt), built on the first search and kept until the data is read again (a
@@ -1547,7 +1580,8 @@
               ;; what changes, and how many are stored as they are (each listed buried the one change)
               'changes (for/list ([c (in-list changes)] #:unless (and (eq? (change-action c) 'unchanged) (not nothing?)))
                          (define base0 (hasheq 'resource (format "~a/~a" (hash-ref (change-resource c) 'resourceType) (hash-ref (change-resource c) 'id "(new id)"))
-                                              'action (symbol->string (change-action c))))
+                                              ;; checked only: what WOULD happen (a refusal demo's "create" read as staged)
+                                              'action (if keep? (symbol->string (change-action c)) (format "would ~a" (change-action c)))))
                          ;; errors only where there are some (`"errors": []` on every clean change was noise)
                          (define base1 (if (null? (change-errors c)) base0 (hash-set base0 'errors (change-errors c))))
                          ;; what an update changes; a create's `action` says it all (`changed: "created"` repeated it)
@@ -1555,14 +1589,15 @@
                                           (hash-set base1 'changed (take (change-paths c) (min 30 (length (change-paths c)))))))
                          ;; a change refused for its errors says those alone: its references are
                          ;; checked again when it is staged clean (a refusal demo read as noise)
+                         ;; — except when only checking (keep:=false): then everything there is to fix
                          (define ws (append (hash-ref warned (change-resource c) '())
-                                            (if (null? (change-errors c)) (hash-ref dangling (change-resource c) '()) '())))
+                                            (if (or (null? (change-errors c)) (not keep?)) (hash-ref dangling (change-resource c) '()) '())))
                          (if (null? ws) base (hash-set base 'warnings ws)))
               'errors errors
               'next (cond [nothing? (format "nothing to commit: the ~a resource(s) are stored as they are" (length changes))]
                           [(not keep?) (if (zero? errors)
                                            "checked only (keep:=false): nothing was staged; stage it again without keep to commit it"
-                                           "checked only (keep:=false): nothing was staged")]
+                                           "checked only (keep:=false): nothing was staged — fix the errors and check again")]
                           [(zero? errors) (format "~a writes the ~a change(s) to ~a" (call-text "commit" (list (cons 'stage id))) (count (lambda (c) (not (eq? (change-action c) 'unchanged))) changes)
                                                   (let ([p (data-store-path h)]) (if p (format "the store ~a" (shown-path h (path->string (path->complete-path p)))) (hub-data-label h))))]
                           [else (format "fix the errors, then stage again: a stage with errors is not committed (~a discards this one)" (call-text "stage" (list (cons 'drop id))))])))
@@ -1730,8 +1765,10 @@
                                                                (commit-audit (ws-config-fhir-version c) targets agent (now-instant))))))
   (configure! h (hub-root h))                              ; the data read again
   ;; each write with the version it made (`Observation/bp-a1/_history/2`), so a correction's v2 is seen
-  (define answer (hasheq 'stage id 'written written
-                         'provenance (if (pair? trail) (car trail) 'null) 'agent agent))
+  ;; and the reason it recorded beside the agent, as the trail will say them
+  (define answer0 (hasheq 'stage id 'written written
+                          'provenance (if (pair? trail) (car trail) 'null) 'agent agent))
+  (define answer (if (and (string? reason) (not (string=? reason ""))) (hash-set answer0 'reason reason) answer0))
   (if (member agent '("raco fhir-mcp call" "raco fhir-mcp batch"))
       (hash-set answer 'note (format "the trail names the agent ~s; name who is writing with commit(agent: …) or FHIR_MCP_AGENT" agent))
       answer))

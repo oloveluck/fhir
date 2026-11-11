@@ -270,7 +270,8 @@
                                               (if (> (length names) 1) "s" "")
                                               (apply string-append (add-between (map (lambda (n) (format "`~a`" n)) names) ", "))
                                               near
-                                              (if (pair? declared) (format " (~a: ~a)" (request-type req) (string-join declared ", ")) ""))))
+                                              ;; and the parameters every type has (a rerun's agent found them by trying)
+                                              (if (pair? declared) (format " (~a: ~a; every type: _id, _lastUpdated, _count, _offset, _sort)" (request-type req) (string-join declared ", ")) ""))))
          (make-searchset r))]
     [(patch)
      ;; JSON Patch (RFC 6902): read, apply atomically, then the repository's own UPDATE — so a patched

@@ -199,7 +199,7 @@
   (check-equal? s1 400)
   (check-regexp-match #rx"search parameter `subject` not supported here" (hash-ref (car (hash-ref o1 'issue)) 'diagnostics))
   ;; … and says what the type does search on
-  (check-regexp-match #rx"[(]Observation: patient[)]" (hash-ref (car (hash-ref o1 'issue)) 'diagnostics))
+  (check-regexp-match #rx"[(]Observation: patient; every type: _id, _lastUpdated, _count, _offset, _sort[)]" (hash-ref (car (hash-ref o1 'issue)) 'diagnostics))
   ;; no store declared: a temporary one, searched as a stored app is (the in-memory search matched
   ;; `patient=Patient/x` by string equality against a Reference, so every Observation or none)
   (for ([p '("x" "y")])
@@ -345,6 +345,11 @@
                              "(operation $x #:system #:in ([age int 1 1 #:min 18 #:max 120]) #:handler h)\n"))
   (define mixed (load-error))
   (check-regexp-match #rx"operation: unknown parameter type int [(]did you mean `integer`" mixed)
+  ;; an operation named as a value with no require says which module provides it (Racket said
+  ;; `$validate: unbound identifier`, nothing more)
+  (write-app! "#lang fhir/capability\n(server)\n(resource Patient #:interactions (read))\n(operation $validate)\n")
+  (check-regexp-match #rx"bad[.]capability[.]rkt:4:11: operation: `[$]validate` is not bound: require it first, [(]require [(]only-in fhir/conformance/operations [$]validate[)][)]"
+                      (load-error))
   (check-false (regexp-match? #rx"#:min and #:max" mixed))
   (check-regexp-match #rx"resource Patient: search parameter `birthDate`: FHIR defines none" mixed)
   ;; a misspelt search-parameter type: the nearest and the types there are, said once (it was said

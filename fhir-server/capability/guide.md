@@ -91,7 +91,7 @@ A whole file — declarations, the handler and how to call it — is the worked 
 |---|---|
 | `[name type min max]` | the name, a FHIR type, the count (`1 1` required, `0 1` optional, `0 *` a list) |
 | `#:binding "<ValueSet url or VCL>"` | a `code` input refused outside the value set |
-| `#:min n` / `#:max n` | a number refused outside the range |
+| `#:min n` / `#:max n` | a number refused outside the range (inclusive: `n` itself is taken) |
 | `#:documentation "…"` | what the input means (its unit), in the OperationDefinition |
 
 One operation using every option — the eGFR equation (CKD-EPI 2021), its inputs typed, documented,
@@ -118,6 +118,26 @@ bounded and bound, its output a Quantity:
 is a 400 with one issue per input (below its range; not in the binding), before the handler runs. The block is the
 declarations and the handler, not a file: paste it after the smallest server's `(resource …)` forms
 (its `#lang` line, `require` and `(server …)` come once, at the top).
+
+Two outputs, one of them yes/no — the mean arterial pressure and whether it is low. Decide on the
+exact value and round only what you return (a rounded 64.96 is 65.0, and `(< 65.0 65)` says no):
+```racket
+(define (map-handler in req)
+  (define sys (car (hash-ref in "systolic"))) (define dia (car (hash-ref in "diastolic")))
+  (define m (/ (+ sys (* 2 dia)) 3))                ; the exact value decides…
+  (Parameters (parameter                            ; both outputs in ONE parameter form
+               (ParametersParameter (name "map") (valueDecimal (/ (round (* m 10)) 10.0)))   ; …the rounded one is shown
+               (ParametersParameter (name "low") (valueBoolean (< m 65))))))
+(operation $map #:system
+  #:in ([systolic decimal 1 1 #:min 40 #:max 300 #:documentation "Systolic pressure, mm[Hg]"]
+        [diastolic decimal 1 1 #:min 20 #:max 200 #:documentation "Diastolic pressure, mm[Hg]"])
+  #:out ([map decimal 1 1 #:documentation "Mean arterial pressure, mm[Hg]"]
+         [low boolean 1 1 #:documentation "true when the mean arterial pressure is below 65 mm[Hg]"])
+  #:handler map-handler)
+```
+`GET /$map?systolic=120&diastolic=80` answers `map` 93.3 and `low` false; `systolic=80&diastolic=57`
+answers 64.7 and true. `#:min` and `#:max` are inclusive: `systolic=40` and `systolic=300` are taken,
+`39.9` is refused.
 
 Values arrive converted to their declared type, from a GET query or a POSTed Parameters alike: a
 whole decimal (`60.0`) is taken as an `integer` and a number as a `decimal`; text that does not read

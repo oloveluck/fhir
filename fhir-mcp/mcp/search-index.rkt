@@ -16,11 +16,13 @@
 
 (provide
  (contract-out
-  ;; build-search-index : resources packages tower -> (type params -> resources)
+  ;; build-search-index : resources packages tower -> (type params -> (values resources ignored))
   ;;   resources: every resource of the data (Bundles' entries included); packages: the .tgz files
   ;;   whose SearchParameters apply, core first; tower: the module that registers the FHIR version
   [build-search-index (-> (listof hash?) (listof path-string?) module-path?
-                          (-> string? (listof (cons/c string? string?)) (listof hash?)))]
+                          (-> string? (listof (cons/c string? string?)) (values (listof hash?) (listof string?))))]
+  ;; search-param-names : catalog type -> (listof string)   the parameters a type searches on
+  [search-param-names (-> hash? string? (listof string?))]
   ;; search-index-available? : -> boolean   is fhir-server installed?
   [search-index-available? (-> boolean?)]
   ;; search-catalog : packages -> catalog   the packages' SearchParameters (core first), memoised
@@ -62,10 +64,16 @@
                             'request (hasheq 'method "PUT" 'url (format "~a/~a" (hash-ref r 'resourceType) (hash-ref r 'id))))))
    #:search-params sps #:tower tower)
   (define originals (for/hash ([r (in-list keyed)]) (values (key r) r)))
-  (define search (from 'fhir/store/fhir-engine 'fhir-search))
+  (define search (from 'fhir/store/fhir-engine 'fhir-search/ignored))
+  ;; -> (values resources ignored): the parameter names the store could not apply
   (lambda (type params)
-    (for/list ([r (in-list (search store type params #:search-params sps))])
-      (hash-ref originals (key r) r))))
+    (define-values (rs ignored) (search store type params #:search-params sps))
+    (values (for/list ([r (in-list rs)]) (hash-ref originals (key r) r)) ignored)))
+
+;; search-param-names : catalog type -> (listof string)   the parameters a type searches on
+(define (search-param-names sps type)
+  (define name (from 'fhir/store/fhir-engine 'search-param-name))
+  (sort (remove-duplicates (map name (hash-ref sps (string->symbol type) '()))) string<?))
 
 (define (key r) (cons (hash-ref r 'resourceType #f) (hash-ref r 'id #f)))
 
@@ -85,7 +93,13 @@
                                             (hasheq 'resource (obs "a2" "bob" "4548-4" 9.1))
                                             (hasheq 'resource (obs "g1" "bob" "2339-0" 100))))))
     (define search (build-search-index data (list core) 'fhir/r4/schemas))
-    (define (ids type params) (sort (map (lambda (r) (hash-ref r 'id)) (search type params)) string<?))
+    (define (found type params) (let-values ([(rs _) (search type params)]) rs))
+    (define (ids type params) (sort (map (lambda (r) (hash-ref r 'id)) (found type params)) string<?))
+    ;; what it could not apply is said, not silently dropped (`_has` answered every patient)
+    (let-values ([(rs ignored) (search "Patient" '(("_has:Observation:subject:code" . "4548-4") ("gender" . "male")))])
+      (check-equal? ignored '("_has:Observation:subject:code"))
+      (check-equal? (map (lambda (r) (hash-ref r 'id)) rs) '("bob")))
+    (check-not-false (member "birthdate" (search-param-names (search-catalog (list core)) "Patient")))
     ;; tokens, references, dates and quantities, by the core package's own SearchParameters
     (check-equal? (ids "Observation" '(("code" . "http://loinc.org|4548-4"))) '("a1" "a2"))
     (check-equal? (ids "Observation" '(("subject" . "Patient/bob") ("code" . "2339-0"))) '("g1"))
@@ -94,4 +108,4 @@
     (check-equal? (ids "Patient" '(("birthdate" . "lt1980-01-01"))) '("ann"))
     (check-equal? (ids "Patient" '(("family" . "ng"))) '("ann"))
     ;; the original resources, not the store's stamped copies
-    (check-false (hash-ref (car (search "Patient" '(("gender" . "male")))) 'meta #f))))
+    (check-false (hash-ref (car (found "Patient" '(("gender" . "male")))) 'meta #f))))

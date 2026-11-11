@@ -61,13 +61,25 @@
       [(regexp-match #px"^#+\\s+(.*)$" (car lines)) => (lambda (m) (loop (cdr lines) #f body acc (cadr m)))]
       [else (loop (cdr lines) #f body acc heading)])))
 
-;; guide-block-text : text 'list|n -> string|#f
+;; block-name : block -> string|#f   the name `--block` takes for a block: what its first line
+;; declares (an FSH entity, a CQL library, a view's or resource's "name"), else #f
+(define (block-name b)
+  (define first (cadr b))
+  (cond [(regexp-match #px"^\\s*(?:Profile|Instance|RuleSet|Extension|ValueSet|CodeSystem|Logical|Invariant|Alias):\\s*([A-Za-z0-9_.-]+)" first) => cadr]
+        [(regexp-match #px"^\\s*library\\s+\"?([A-Za-z0-9_]+)" first) => cadr]
+        [(regexp-match #px"\"name\":\\s*\"([^\"]+)\"" first) => cadr]
+        [(regexp-match #px"^\\s*map\\s+\"[^\"]*\"\\s*=\\s*\"?([A-Za-z0-9_]+)" first) => cadr]
+        [else #f]))
+
+;; guide-block-text : text 'list|n|name -> string|#f
 (define (guide-block-text text which)
   (define bs (guide-blocks text))
   (cond [(eq? which 'list)
          (string-append
           (string-join (for/list ([b (in-list bs)] [i (in-naturals 1)])
-                         (format "~a  ~a~a~a" i (if (string=? (car b) "") "" (format "[~a] " (car b)))
+                         ;; the number, and the name `--block` takes when the block declares one
+                         (format "~a~a  ~a~a~a" i (let ([n (block-name b)]) (if n (format "  --block ~a" n) ""))
+                                 (if (string=? (car b) "") "" (format "[~a] " (car b)))
                                  (if (string=? (cadddr b) "") "" (format "(~a) " (cadddr b)))
                                  (let ([l (cadr b)]) (if (> (string-length l) 80) (string-append (substring l 0 79) "…") l))))
                        "\n")
@@ -75,6 +87,8 @@
         [(exact-positive-integer? which) (and (<= which (length bs)) (caddr (list-ref bs (sub1 which))))]
         ;; by name: the first block whose first line has it as a word (`LatestA1c`, `BloodPressureRule`,
         ;; `egfr`, a view's `bp`), so a script does not break when a guide gains a block above it
+        ;; a block's own name first (`bp` is the view named bp, not the first line mentioning bp)
+        [(for/first ([b (in-list bs)] #:when (equal? (block-name b) which)) (caddr b)) => values]
         [else (define rx (pregexp (string-append "(?i:(?<![A-Za-z0-9_-])" (regexp-quote which) "(?![A-Za-z0-9_]))")))
               (for/first ([b (in-list bs)] #:when (regexp-match? rx (cadr b))) (caddr b))]))
 

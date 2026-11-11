@@ -16,7 +16,8 @@
                        (only-in "derive.rkt" rc-server rc-resource rc-operation rc-param derive-operation-definition)
                        (only-in "runtime.rkt" operation-entry make-default-repository)
                        (only-in fhir/operation operation)
-                       (only-in "operations.rkt" operation->rc operation->od operation->entries declared-operation))
+                       (only-in "operations.rkt" operation->rc operation->od operation->entries declared-operation)
+                       (only-in "op-ref.rkt" op-ref))
          syntax/parse
          racket/list racket/string
          (only-in fhir/model/registry type-registered? primitive-name?)
@@ -148,7 +149,8 @@
     [(_ ref:str)
      (parsed-operation #'(operation->rc (operation ref)) #'(operation->od (operation ref)) #'(operation->entries (operation ref)) #f)]
     [(_ op:id)
-     (parsed-operation #'(operation->rc op) #'(operation->od op) #'(operation->entries op) #f)]
+     ;; through op-ref: an unbound name says which module to require
+     (parsed-operation #'(operation->rc (op-ref op)) #'(operation->od (op-ref op)) #'(operation->entries (op-ref op)) #f)]
     [(_ name:id
         (~alt (~optional (~seq #:on on:id))
               (~optional (~and sysflag #:system))
@@ -323,6 +325,6 @@
   (check-equal? (syntax->datum rrc) '(operation->rc (operation "ValueSet/$expand")))
   (check-equal? (syntax->datum rentries) '(operation->entries (operation "ValueSet/$expand")))
   (define ventries (parsed-operation-entries (parse-operation #'(operation $validate))))
-  (check-equal? (syntax->datum ventries) '(operation->entries $validate))
+  (check-equal? (syntax->datum ventries) '(operation->entries (op-ref $validate)))
   (check-exn exn:fail:user? (lambda () (parse-operation #'(operation $x #:in ([p NoSuch 1 1])
                                                                        #:handler h)))))

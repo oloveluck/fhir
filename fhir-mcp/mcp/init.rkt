@@ -41,7 +41,7 @@
                  "`learn://workspace` first, then the guide of the language you write (`learn://fsh`, `learn://cql`, …).\n"
                  "The loop: `write` a file, fix the problems it answers at their lines, `run` it, `explain` a surprise.\n"
                  "The data is fhir.db (SQLite, resources as JSONB): `stage` then `commit` writes it; `query` searches it or runs SQL on it.\n"
-                 "Without the MCP tools, from the shell: `raco fhir-mcp guide workspace` (or `guide fsh`, `guide cql`, …) prints a\n"
+                 "Without the MCP tools, from the shell: `raco fhir guide workspace` (or `raco fhir guide fsh`, `… cql`, …) prints a\n"
                  "guide, and `raco fhir-mcp call <tool> key=value …` (or `raco fhir-mcp batch -`, one call per line) runs a tool.\n"))
 
 (define (init-workspace! dir #:fhir-version [fv "4.0.1"])

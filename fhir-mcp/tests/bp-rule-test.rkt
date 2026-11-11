@@ -55,9 +55,9 @@
     ;; each refusal says what it found, at the line that wrote it — the failing item by its index, or
     ;; what is missing (a rerun's agent got every component, cut off, at the component's code line)
     (check-equal? (errors-of (bp "kpa" #:sys "20 'kPa'"))
-                  '("fsh:7: Observation: bp-systolic: A blood pressure (LOINC 85354-9) has a systolic component (LOINC 8480-6) in mm[Hg] (found component[0].valueQuantity = 20 'kPa')"))
+                  '("fsh:7: Observation: bp-systolic: A blood pressure (LOINC 85354-9) has a systolic component (LOINC 8480-6), a number in mm[Hg] (found component[0].valueQuantity = 20 'kPa')"))
     (check-equal? (errors-of (bp "nodia" #:dia #f))
-                  '("fsh:7: Observation: bp-diastolic: A blood pressure (LOINC 85354-9) has a diastolic component (LOINC 8462-4) in mm[Hg] (found no component matching '8462-4': add a component with '8462-4' after this line)"))
+                  '("fsh:7: Observation: bp-diastolic: A blood pressure (LOINC 85354-9) has a diastolic component (LOINC 8462-4), a number in mm[Hg] (found no component matching '8462-4': add a component with '8462-4' after this line)"))
     (check-equal? (errors-of (bp "nosubj" #:subject #f))
                   '("fsh:1: Observation: bp-subject: A blood pressure (LOINC 85354-9) has a subject (found no subject: add a rule for it, * subject = …)"))
     ;; keep:=false checks only: the same refusal, and no stage left to drop (a refusal shown on purpose
@@ -67,6 +67,12 @@
       (check-equal? (hash-ref a 'stage) 'null)
       (check-equal? (hash-ref a 'errors) 1)
       (check-regexp-match #rx"^checked only" (hash-ref a 'next))
+      (check-equal? (hash-ref (car (hash-ref a 'changes)) 'action) "would create")
+      ;; checking only, everything to fix is said: the errors and the reference to nothing stored
+      (let-values ([(text _e) ((tool-run (hash-ref tools "stage")) (hasheq 'fsh (bp "kpa4" #:sys "20 'kPa'" #:subject "Patient/nobody") 'keep #f))])
+        (define c (car (hash-ref (string->jsexpr text) 'changes)))
+        (check-equal? (length (hash-ref c 'errors)) 1)
+        (check-regexp-match #rx"Patient/nobody" (string-join (hash-ref c 'warnings '()) " ")))
       (check-false (for/or ([st (in-list (append (hash-ref (call "describe" (hasheq 'ref "stages")) 'stages '())
                                                  (hash-ref (call "describe" (hasheq 'ref "stages")) 'refused '())))])
                      (member "create Observation/kpa3" (hash-ref st 'resources)))))
@@ -75,7 +81,15 @@
                   "fsh:7: Observation.component.value[x].code: `mmHg` is not a UCUM unit (mercury is written mm[Hg])")
     ;; EVERY systolic in mm[Hg]: a second one in kPa beside a good one is refused (a rerun found the gap)
     (check-equal? (errors-of (string-append (bp "mixed") "* component[2].code = http://loinc.org#8480-6\n* component[2].valueQuantity = 20 'kPa'\n"))
-                  '("fsh:11: Observation: bp-systolic: A blood pressure (LOINC 85354-9) has a systolic component (LOINC 8480-6) in mm[Hg] (found component[2].valueQuantity = 20 'kPa')"))
+                  '("fsh:11: Observation: bp-systolic: A blood pressure (LOINC 85354-9) has a systolic component (LOINC 8480-6), a number in mm[Hg] (found component[2].valueQuantity = 20 'kPa')"))
+    ;; a unit with no number is refused too (a rerun's agent staged one: the summary's mean would
+    ;; have left the reading out without a word)
+    (check-equal? (errors-of (string-append
+                              "Instance: nonum\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#85354-9\n"
+                              "* subject = Reference(Patient/a)\n* component[0].code = http://loinc.org#8480-6\n"
+                              "* component[0].valueQuantity.system = \"http://unitsofmeasure.org\"\n* component[0].valueQuantity.code = #mm[Hg]\n"
+                              "* component[1].code = http://loinc.org#8462-4\n* component[1].valueQuantity = 95 'mm[Hg]'\n"))
+                  '("fsh:7: Observation: bp-systolic: A blood pressure (LOINC 85354-9) has a systolic component (LOINC 8480-6), a number in mm[Hg] (found component[0].valueQuantity = 'mm[Hg]' (no number))"))
     ;; a systolic with no unit is there, not missing: its value, at the rule that wrote it (it read
     ;; "found no component[0].valueQuantity matching 'mm[Hg]'", at the instance's header)
     (check-equal? (errors-of (string-append
@@ -83,7 +97,7 @@
                               "* subject = Reference(Patient/a)\n* component[0].code = http://loinc.org#8480-6\n"
                               "* component[0].valueQuantity.value = 120\n"
                               "* component[1].code = http://loinc.org#8462-4\n* component[1].valueQuantity = 80 'mm[Hg]'\n"))
-                  '("fsh:7: Observation: bp-systolic: A blood pressure (LOINC 85354-9) has a systolic component (LOINC 8480-6) in mm[Hg] (found component[0].valueQuantity = 120 (no unit))"))
+                  '("fsh:7: Observation: bp-systolic: A blood pressure (LOINC 85354-9) has a systolic component (LOINC 8480-6), a number in mm[Hg] (found component[0].valueQuantity = 120 (no unit))"))
     ;; another Observation is not a blood pressure: the rule does not apply
     (check-equal? (errors-of "Instance: a1c\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#4548-4\n* valueQuantity = 6.1 '%'\n") '())
     ;; the guide's correction recipe starts from the source as written (as=source), not as=fsh

@@ -18,3 +18,13 @@ Encounter?date=ge2025-01-01&date=lt2026-01-01
 ```
 A token is `system|code`, a reference is `Type/id`, and dates take the prefixes eq, ne, gt, lt, ge,
 le, sa, eb and ap. A comma means or, and repeating a parameter means and.
+
+## What a search does not apply
+A parameter the search cannot apply — a name the type does not search on, a misspelling, an
+unsupported modifier, chaining (`subject.name=…`) or reverse chaining (`_has:Observation:…`) — is
+left out, and the answer says so at its top: `ignored` lists each one (with the nearest name), and
+`note` says the answer is the search WITHOUT them. Read it before trusting the count:
+`Patient?_has:Observation:subject:code=4548-4` answers every patient. With `strict:=true`
+(`query language=search text="…" strict:=true`) such a search is refused instead.
+"Which patients have an HbA1c" (or have none) is a CQL question — `exists [Observation: …]`, or the
+`"No HbA1c"` define of `raco fhir guide cql --block LatestA1c` — or SQL over a view.

@@ -42,6 +42,7 @@
     ;; a valid one commits, claims the profile, and leaves a Provenance naming the version and the reason
     (define ok1 (call "stage" (hasheq 'fsh (string-append "Instance: ann\nInstanceOf: Patient\n* gender = #female\n\n" (a1c 8.0 "%")))))
     (define c1 (call "commit" (hasheq 'stage (hash-ref ok1 'stage) 'reason "intake: ann's first HbA1c")))
+    (check-equal? (hash-ref c1 'reason) "intake: ann's first HbA1c")         ; said back, as the trail records it
     (check-regexp-match #rx"^Provenance/" (hash-ref c1 'provenance))
     (define stored (call "describe" (hasheq 'ref "Observation/a1")))
     (check-equal? (hash-ref (hash-ref stored 'meta) 'profile) '("http://example.org/fhir/StructureDefinition/a1c"))
@@ -90,6 +91,15 @@
     ;; audit: all — the SQL query above left an execution AuditEvent beside the two commits'
     (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT resource ->> '$.action' AS action, count(*) AS n FROM AuditEvent GROUP BY 1 ORDER BY 1")) 'rows)
                   (list (hasheq 'action "C" 'n 1) (hasheq 'action "E" 'n 2) (hasheq 'action "U" 'n 1)))
+    ;; a parameter search cannot apply is said, not dropped: `_has` answered every patient, silently
+    (define has (call "query" (hasheq 'language "search" 'text "Patient?_has:Observation:subject:code=4548-4&gendr=female")))
+    (check-equal? (length (hash-ref has 'ignored)) 2)
+    (check-regexp-match #rx"reverse chaining [(]_has[)] is not supported" (car (hash-ref has 'ignored)))
+    (check-regexp-match #rx"`gendr`: Patient does not search on it [(]did you mean `gender`[?][)]" (cadr (hash-ref has 'ignored)))
+    (check-regexp-match #rx"WITHOUT these parameters" (hash-ref has 'note))
+    (check-false (hash-ref (call "query" (hasheq 'language "search" 'text "Patient?gender=female")) 'ignored #f))
+    (check-regexp-match #rx"not applied: `gendr`.*Patient searches on .*birthdate"
+                        (hash-ref (call "query" (hasheq 'language "search" 'text "Patient?gendr=female" 'strict #t) #:ok? #f) 'error))
     ;; the same, from the `trail` view: one row per version a commit wrote, no json_each to write
     (check-regexp-match #rx"^Provenance/" (hash-ref (car (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT provenance FROM trail LIMIT 1")) 'rows)) 'provenance))
     (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT versionId, reason, agent FROM trail WHERE type = 'Observation' AND id = 'a1' ORDER BY versionId")) 'rows)

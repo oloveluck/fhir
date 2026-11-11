@@ -185,7 +185,7 @@
             [else (usage-error "fhir-mcp" usages "init" (format "unexpected ~a" (car as)))])))
   (for ([r (in-list (init-workspace! dir #:fhir-version fv))])
     (printf "~a ~a\n" (if (eq? (cdr r) 'written) "wrote" "kept ") (path->string (build-path dir (car r)))))
-  (printf "The data is ~a, a SQLite FHIR store: stage and commit write it; raco fhir-server load ~a <dir> imports FHIR JSON.\nFrom an MCP client (Claude Code reads .mcp.json in ~a), or from the shell: raco fhir-mcp call <tool> … (run in ~a, or with --workspace ~a).\nGuides: raco fhir-mcp guide workspace (the MCP client reads them as learn://workspace).\n"
+  (printf "The data is ~a, a SQLite FHIR store: stage and commit write it; raco fhir-server load ~a <dir> imports FHIR JSON.\nFrom an MCP client (Claude Code reads .mcp.json in ~a), or from the shell: raco fhir-mcp call <tool> … (run in ~a, or with --workspace ~a).\nGuides: raco fhir guide workspace (the MCP client reads them as learn://workspace).\n"
           (path->string (build-path dir "fhir.db")) (path->string (build-path dir "fhir.db")) dir dir dir))
 
 ;; guide-which : args cmd -> 'list | n | #f   `--blocks`, `--block N`, else the whole guide
