@@ -24,9 +24,24 @@ the reason at its line, nothing kept), the data (`stage fsh=@readings.fsh`, `com
 (`describe ref=Observation/bp-a1 as=source`, edit, `stage`, `commit … reason=…`) and its history
 (`describe ref=Observation/bp-a1/_history as=trail`). Each block below saves as a file by its name:
 `raco fhir guide workspace --block BloodPressureRule > bp-rule.fsh`, `--block bad-readings > bad.fsh`,
-`--block Reading > readings.fsh` (the RuleSet, to add your readings to; `--block readings` is a sample),
-`--block bp > bp.view.json`, `--block patients > patients.view.json`, `--block bp-summary-by-name >
-summary.sql` (`--blocks` lists every name).
+`--block Reading > readings.fsh` (the RuleSet alone, to add your readings to; `--block readings-sample`
+is a whole sample file), `--block bp > bp.view.json`, `--block patients > patients.view.json`,
+`--block bp-summary-by-name > summary.sql` (`--blocks` lists every name). With those files beside it,
+this session (`--block bp-session > session.txt`) is the program up to the table, in one process —
+`raco fhir-mcp init ws`, then `raco fhir-mcp batch session.txt --workspace ws`:
+
+```
+# bp-session
+write path=bp-rule.fsh text=@bp-rule.fsh enforce:=true
+write path=bp.view.json text=@bp.view.json
+write path=patients.view.json text=@patients.view.json
+!stage fsh=@bad.fsh keep:=false
+stage fsh=@readings.fsh
+commit stage=latest reason="blood-pressure readings" agent="hypertension program"
+query language=sql text=@summary.sql as=csv name=summary
+```
+(`!` marks the line meant to fail: the rule refusing the bad readings.) The correction and its history
+follow in "Correcting a stored resource".
 
 | File | Language | `run` gives | Guide |
 |---|---|---|---|
@@ -271,10 +286,10 @@ RuleSet: Reading(patient, date, sys, dia)
 * component[1].code = http://loinc.org#8462-4
 * component[1].valueQuantity = {dia} 'mm[Hg]'
 ```
-and a whole sample `readings.fsh` with it (`--block readings`), to stage as it is:
+and a whole sample `readings.fsh` with it (`--block readings-sample`), to stage as it is:
 
 ```fsh
-// readings
+// readings-sample
 RuleSet: Reading(patient, date, sys, dia)
 * code = http://loinc.org#85354-9 "Blood pressure panel"
 * status = #final

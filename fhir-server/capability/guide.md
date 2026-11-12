@@ -30,6 +30,8 @@ answers `5.0`; `POST /Patient/$validate` with a Patient answers `All OK (FHIR R6
 its problems. The server speaks FHIR **R6** (`6.0.0-ballot4` in `/metadata`) whatever FHIR version a
 workspace uses; its clients send JSON that R4 and R6 write alike for most resources. After editing the
 file, stop the server (its pid is in the first line) and serve it again: the store keeps the data.
+A server started in the background (`… &`, or by a tool whose every command is its own shell) outlives
+that shell: stop it by the pid in its banner, `kill <pid>`.
 A create's id is the server's (read it from `Location`); add `update` to a resource's interactions
 to choose readable ids with `PUT /Patient/ann`. `raco fhir-server check study.capability.rkt` says
 whether the file compiles in a few lines (one per resource and operation), or its mistakes. Searching

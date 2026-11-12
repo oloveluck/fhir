@@ -68,6 +68,22 @@
 ;; examples/intake-pipeline: an FSH profile, an FML map, a CQL library and main.rkt) to start from;
 ;; the compiled/ folders are left behind. A rerun's agent copied it with a `racket -e` inside `cp`.
 (define templates '(("pipeline" "fhir-examples" "examples" "intake-pipeline")))
+;; raco fhir new tests [dir] — the template's tests.rkt alone, beside files of one's own (it finds their
+;; layout: the folder declaring a Profile, the one holding Instances, the QuestionnaireResponse json);
+;; a rerun's agent generated the whole template to take this one file out of it
+(define (cmd-new-tests dir)
+  (define src (with-handlers ([exn:fail? (lambda (_) #f)])
+                (collection-file-path "tests.rkt" "fhir-examples" "examples" "intake-pipeline")))
+  (unless (and src (file-exists? src))
+    (eprintf "new: the tests are in the fhir-examples package: raco pkg install fhir-examples\n") (exit 1))
+  (define to (build-path dir "tests.rkt"))
+  (when (file-exists? to) (eprintf "new: ~a already exists\n" (path->string to)) (exit 2))
+  (make-directory* dir)
+  (copy-file src to)
+  (printf "~a: the pipeline's gate. Its checks: the profiles' folder checks clean; each example in the\n" (path->string to))
+  (printf "  invalid folder breaks the profile at its line; main.rkt's intake answers on either side of the\n")
+  (printf "  65th birthday and refuses a response with no birth date at the map's rule. It finds your layout\n")
+  (printf "  (or set the names at its top). next: raco test ~a\n" (path->string to)))
 (define (cmd-new kind dir)
   (define spec (assoc kind templates))
   (unless spec (usage-error "fhir" usages "new" (format "no template ~a (there is: ~a)" kind (string-join (map car templates) ", "))))
@@ -144,7 +160,7 @@
     ("roundtrip-tck" "raco fhir roundtrip-tck [r4|r5]")
     ("snapshot"      "raco fhir snapshot <sd.json>")
     ("check-files"   "raco fhir check-files [dir|file …]   compile every #lang .fsh/.map/.cql/.vcl file (default: this directory) and report each one's problem, all in one run")
-    ("new"           "raco fhir new pipeline <dir>   copy the Racket pipeline template (FSH + FML + CQL + main.rkt) to <dir>")
+    ("new"           "raco fhir new pipeline <dir> | tests [dir]   copy the Racket pipeline template (FSH + FML + CQL + main.rkt) to <dir>, or its tests.rkt alone into [dir] (default .)")
     ("guide"         "raco fhir guide [topic [--blocks | --block N|name]]   print a guide (workspace, fhir, cql, fsh, fml, fhirpath, vcl, sql-on-fhir, capability, …), its code blocks, or one to save")))
 
 (module+ main
@@ -167,6 +183,7 @@
           (cmd "guide" (lambda (as) (cmd-guide (arg as 0) (if (pair? as) (cdr as) '()))))
           (cmd "check-files" (lambda (as) (cmd-check-files as)))
           (cmd "new" (lambda (as)
-                       (unless (and (arg as 0) (arg as 1)) (usage-error "fhir" usages "new"))
-                       (cmd-new (arg as 0) (arg as 1))))))
+                       (cond [(equal? (arg as 0) "tests") (cmd-new-tests (or (arg as 1) "."))]
+                             [else (unless (and (arg as 0) (arg as 1)) (usage-error "fhir" usages "new"))
+                                   (cmd-new (arg as 0) (arg as 1))])))))
    (vector->list (current-command-line-arguments))))

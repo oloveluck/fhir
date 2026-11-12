@@ -1634,6 +1634,29 @@ wrong answer; the one quiet risk left and the small things, each with a test:
   says which trail view has values; the capability guide's references are R6's; `raco fsh check`'s
   default-canonical note says how to set it.
 
+## New users, round 32 (2026-11-12)
+The thirty-first rerun (every task first time, 9–16 calls, right answers; the cohort task now potassium)
+found one gap in the UCUM suggestions and one over-reach of round 30's; each fix has a test:
+- **`mEq/L` and `IU` get what UCUM writes** (fhirpath/ucum `ucum-spellings`: `meq/L`, `[IU]/L`, …), in
+  CQL, FSH and the validator; CQL's error is at the quoted unit (cql error.rkt `at-the-name`). Labs
+  write potassium, sodium and chloride in mEq/L; the message pointed at ucum.org.
+- **A refused check keeps the references of what passed** (workspace.rkt): round 30 dropped every
+  dangling-reference warning when any change was refused, so a passing reading's missing patient took a
+  second check. A refused change still says its errors alone.
+- **A refusal's non-UCUM unit says what UCUM writes inline** (`130 'mmHg' (mercury is written mm[Hg])`,
+  validate.rkt `with-conversion`).
+- **The blood-pressure program as one session** (learn://workspace `--block bp-session`, a batch file;
+  `block-name` reads `# name`): every file saved from the guide by name, `init`, `batch` — run as written
+  in `fhir-mcp/tests/bp-session-test.rkt`. The sample file's block is `readings-sample` (it was
+  `readings`, one letter from the RuleSet's `Reading`).
+- **`raco fhir new tests [dir]`**: the template's gate alone, saying what it checks (an agent generated
+  the whole template for one file). learn://racket's smallest `main.rkt` says a missing file in a line.
+- **FML says why a date is unread** (`fhir/serialize/lenient` `drops-message`: `valueDate
+  ("1990-02-30") is no date: February 1990 has 28 days`; it said "not a valid value, or not an element").
+- Docs: the capability guide on stopping a backgrounded server by the banner's pid.
+Not done, named: a lab-neutral, parameterized latest-value recipe (the HbA1c names are listed to
+rename); `check --call` and Quantity inputs with unit conversion on capability servers.
+
 ## SQL on FHIR where tables are made (2026-11-11)
 An audit of where the toolkit flattens FHIR into tables found hand-written JSON SQL doing a
 ViewDefinition's job, and under it a load-order defect; both fixed, each with a test doing it:

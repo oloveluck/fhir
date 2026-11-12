@@ -37,7 +37,9 @@ want around them. At its smallest (`raco fhir guide racket --block minimal > mai
 
 ;; FHIR versions: the map and the validation read R5, the library FHIR 4.0.1 (`using FHIR`): a
 ;; Patient's name, gender and birthDate are the same in both
-(define qr (call-with-input-file (vector-ref (current-command-line-arguments) 0) read-json))
+(define file (vector-ref (current-command-line-arguments) 0))
+(unless (file-exists? file) (eprintf "main.rkt: no file ~a\n" file) (exit 2))
+(define qr (call-with-input-file file read-json))
 (define patient (transform qr #:validate (canonical-of "IntakePatient")))   ; invalid: raises at the map's rule
 (write-fhir-json patient #:indent 2) (newline)
 (printf "65 or older: ~a\n" (render (evaluate (list patient) #:define "Is 65 Or Older")))
@@ -88,8 +90,8 @@ In tests (the template's `tests.rkt` uses each):
   resolve all fail the build at their line. It does NOT validate the FSH examples (that needs the
   whole project): an invalid example builds. `raco fsh check fsh` validates them, each problem at its
   line; keep an example meant to fail in its own folder (`raco fsh check fsh-invalid --context fsh`).
-- The template's `tests.rkt` is all of it as one gate (`raco test tests.rkt`): copy it beside files
-  you wrote yourself (`raco fhir new pipeline tmp`, take `tmp/tests.rkt`). The four names at its top
+- The template's `tests.rkt` is all of it as one gate (`raco test tests.rkt`): put it beside files
+  you wrote yourself with `raco fhir new tests` (it says what it checks). The four names at its top
   (`profiles-folder`, `invalid-folder`, `input-file`, `main-file`) are the template's; a name that is not
   there is looked for — the one folder declaring a Profile, the other holding Instances, the one `.json`
   naming a QuestionnaireResponse — and said (`tests.rkt: no folder fsh, using profiles`); set it when

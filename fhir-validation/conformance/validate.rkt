@@ -771,7 +771,11 @@
 (define (with-conversion part expr)
   (define m (regexp-match #px"^(.* = )(-?[0-9]+(?:[.][0-9]+)?) '([^']+)'$" part))
   (define targets (remove-duplicates (map cadr (regexp-match* #px"code\\s*=\\s*'([^']+)'" expr #:match-select values))))
-  (or (and m
+  (or (and m (not (ucum-valid? (cadddr m)))
+           ;; a unit that is not UCUM: what UCUM writes, in the refusal itself (it was only in a
+           ;; separate warning: `130 'mmHg'` beside "mercury is written mm[Hg]" elsewhere)
+           (string-append part (ucum-suggestion (cadddr m))))
+      (and m
            (for/or ([t (in-list targets)] #:unless (equal? t (cadddr m)) #:when (ucum-valid? t))
              (define v (with-handlers ([exn:fail? (lambda (_) #f)])
                          (ucum-convert (inexact->exact (string->number (caddr m))) (cadddr m) t)))
@@ -1050,6 +1054,8 @@
                 "component[0].valueQuantity = 20 'kPa' (= 150 'mm[Hg]')")
   (check-equal? (with-conversion "valueQuantity = 4 'mmol/L'" "value.where(code = 'mg/dL').exists()")
                 "valueQuantity = 4 'mmol/L'")
+  (check-equal? (with-conversion "component[0].valueQuantity = 130 'mmHg'" "value.where(code = 'mm[Hg]').exists()")
+                "component[0].valueQuantity = 130 'mmHg' (mercury is written mm[Hg])")
   (check-equal? (compact-json (hasheq 'system "http://loinc.org" 'code "8480-6")) "http://loinc.org#8480-6"))
 
 (module+ test

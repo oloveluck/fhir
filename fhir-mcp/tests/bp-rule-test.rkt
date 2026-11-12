@@ -76,6 +76,12 @@
         (check-equal? (length (hash-ref c 'errors)) 1)
         (check-false (hash-ref c 'warnings #f))
         (check-false (hash-ref a 'references #f)))
+      ;; a refused reading beside one that passes: the passing one's reference is still named (hiding
+      ;; every reference when any change was refused cost a rerun's agent a second check)
+      (let-values ([(text _e) ((tool-run (hash-ref tools "stage"))
+                               (hasheq 'fsh (string-append (bp "kpa5" #:sys "20 'kPa'") "\n" (bp "ok5" #:subject "Patient/elsewhere")) 'keep #f))])
+        (define a (string->jsexpr text))
+        (check-equal? (hash-ref a 'references #f) '("subject: Patient/elsewhere is neither in the data nor in this stage")))
       (let-values ([(text _e) ((tool-run (hash-ref tools "stage")) (hasheq 'fsh (bp "ok4" #:subject "Patient/nobody") 'keep #f))])
         (define a (string->jsexpr text))
         (check-false (hash-ref (car (hash-ref a 'changes)) 'warnings #f))
@@ -154,7 +160,7 @@
     ;; the guide's RuleSet for many readings: one line each, held to the rule, each version's trail at
     ;; its line; the trail's value reads a blood pressure's components (it was empty)
     ;; the guide's whole readings.fsh, staged as it is (its ids renamed: bp-a1 is this test's own)
-    (define readings (string-replace (cadr (regexp-match #px"```fsh\n// readings\n(RuleSet: Reading.*?)```" (learn-text "workspace"))) "bp-a" "bp-r"))
+    (define readings (string-replace (cadr (regexp-match #px"```fsh\n// readings-sample\n(RuleSet: Reading.*?)```" (learn-text "workspace"))) "bp-a" "bp-r"))
     (define (line-of rx) (for/first ([l (in-list (regexp-split #rx"\n" readings))] [i (in-naturals 1)] #:when (regexp-match? rx l)) i))
     (define rst (call "stage" (hasheq 'fsh readings 'files (hasheq 'fsh "readings.fsh"))))
     (check-equal? (for/list ([c (in-list (hash-ref rst 'changes))]) (list (hash-ref c 'resource) (hash-ref c 'errors '())))
