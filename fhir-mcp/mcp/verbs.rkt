@@ -146,11 +146,12 @@
                                                       (let ([r (hash-ref args 'resource #f)]) (and (hash? r) r))
                                                       (let ([u (hash-ref args 'url #f)]) (and (string? u) u)))))))
    (tool "stage"
-         "Prepare a write to the data: resources given as JSON or as FSH Instances (`fsh`), the resources of a run (result://rN, an FML transform), an FSH file's example instances, or a JSON file. Each is validated and compared with the data's copy (create, update with what changed as `path: old → new`, unchanged); a resource with an id the data holds is an update. Nothing is written until commit. `drop` discards a stage."
+         "Prepare a write to the data: resources given as JSON or as FSH Instances (`fsh`), the resources of a run (result://rN, an FML transform), an FSH file's example instances, or a JSON file — or the workspace's implementation guide (`path: sushi-config.yaml`): the guide, every definition its files make and their examples, as one. Each is validated and compared with the data's copy (create, update with what changed as `path: old → new`, unchanged); a resource with an id the data holds is an update. A definition takes its guide's version and status, is held to CRMI's Shareable profile, and once active does not change without a new version. Nothing is written until commit. `drop` discards a stage."
          (schema (hasheq 'resources (hasheq 'type "array" 'items (hasheq 'type "object") 'description "FHIR resources (or Bundles)")
                          'fsh (s "FSH Instances, as text: the compact way to write resources")
                          'result (s "a result whose rows hold resources")
-                         'path (s "an FSH file (its instances) or a JSON file")
+                         'path (s "an FSH file (its instances), a JSON file, or sushi-config.yaml (the whole guide)")
+                         'definitions (hasheq 'type "boolean" 'description "true: stage what an FSH text or file defines too (profiles, value sets), not its instances alone")
                          'drop (s "a stage id to discard instead, \"latest\", \"refused\" (every stage with errors) or \"all\" (describe(\"stages\") lists the stages not committed)")
                          'keep (hasheq 'type "boolean" 'description "false: check only — the same answer (changes, errors, warnings), and nothing kept to commit or drop"))
                  '())

@@ -1,7 +1,8 @@
 #lang racket/base
 
-;;; ig-validation-r4-test.rkt — the never-over-report gate on real IGs: every US Core 9.0.0 and IPS
-;;; 2.0.1 example that claims one of its IG's profiles must validate with ZERO errors against it
+;;; ig-validation-r4-test.rkt — the never-over-report gate on real IGs: every US Core 9.0.0, IPS
+;;; 2.0.1 and CRMI 2.0.0 example that claims one of its IG's profiles must validate with ZERO errors
+;;; against it
 ;;; (see ig-validation-harness.rkt). Profiles resolve through the SD index over
 ;;; (list ig-package r4-core). RATCHETED: dirty stays 0, clean never drops.
 
@@ -22,3 +23,7 @@
 
 (check-ig! "US Core 9.0.0" (spec-package-path "hl7.fhir.us.core.tgz") #:clean 216)
 (check-ig! "IPS 2.0.1" (spec-package-path "hl7.fhir.uv.ips.tgz") #:clean 44)
+;; CRMI's Shareable / Publishable / Computable / Executable profiles are what a workspace's own
+;; artifacts are held to: its examples of them must pass here first (its dependencies — the
+;; extensions and terminology packages — are not vendored; what they define fails open)
+(check-ig! "CRMI 2.0.0" (spec-package-path "hl7.fhir.uv.crmi-2.0.0.tgz") #:clean 70)

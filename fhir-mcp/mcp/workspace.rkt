@@ -22,9 +22,12 @@
          (only-in fhir/lang/support language-id-of)
          (only-in fhir/diagnostic diagnostic diagnostic? loc loc-source loc-line loc-column diagnostic-loc diagnostic-severity
                   diagnostic->jsexpr diagnostic-message exn:fail:diagnostic? exn:fail:diagnostic-diagnostic)
-         (only-in fhir/registry register-resources! unregister-source! registered-resource registered-resources registered-kinds)
-         (only-in fhir/data-source current-data-source data-source? data-source-all data-source-read data-source-search
-                  directory->data-source resources->data-source empty-data-source bundle-resources)
+         (only-in fhir/registry register-resources! unregister-source! registered-resource registered-resources registered-kinds
+                  registered-source registered-by)
+         (only-in fhir/data-source current-data-source data-source data-source? data-source-all data-source-read data-source-search
+                  data-source-of-patient directory->data-source resources->data-source empty-data-source bundle-resources)
+         (only-in fhir/spec-package spec-package-path)
+         "artifacts.rkt"
          (only-in fhir/rest-data-source rest->data-source rest-write! rest-url?)
          "search-index.rkt" "sql.rkt" "trail.rkt" "views.rkt"
          (only-in fhir/model/registry pin-registered-types! unpin-registered-types! type-registered?)
@@ -32,7 +35,7 @@
          (only-in fhir/model/schema field-spec? field-spec-name)
          (only-in net/url string->url post-pure-port)
          (only-in db sqlite3-connect query-value query-list disconnect)
-         (only-in fhir/sd/sd-index current-sd-packages resolve-canonical-raw sd-index-available?)
+         (only-in fhir/sd/sd-index current-sd-packages resolve-canonical-raw resolve-sd-raw sd-index-available?)
          (only-in fhir/operation operation operation-definition operation-code operation-url operation-levels
                   operation-resource-types apply-operation exn:fail:operation? exn:fail:operation-outcome
                   add-operation-loader!)
@@ -151,9 +154,32 @@
            [else (values empty-data-source "none" (list (format "workspace.yaml: data ~a does not exist" d)))])]))
 (define (file->jsexpr* p) (call-with-input-file p read-json))
 
+;; The stored definitions as the workspace's programs see them (CRMI artifacts, artifacts.rkt): an
+;; artifact a workspace file defines again is left to that file — the working copy, which every
+;; resolver finds in fhir/registry next — and among the stored versions of one canonical the
+;; current one answers (the active of the highest version, else the highest). Reading by Type/id
+;; is the store's own: a stage diffs against what is stored.
+(define working-views (make-weak-hasheq))        ; data source -> its view (one per source: caches key on it)
+(define (working-copies-first ds)
+  (hash-ref! working-views ds
+             (lambda ()
+               (define (shadowed? r)
+                 (define src (and (string? (hash-ref r 'url #f)) (string? (hash-ref r 'resourceType #f))
+                                  (registered-source (hash-ref r 'resourceType) (hash-ref r 'url))))
+                 (and (pair? src) (eq? (car src) 'workspace)))
+               (define (view type rs)
+                 (if (member type artifact-types)
+                     (current-versions (filter (lambda (r) (not (shadowed? r))) rs))
+                     rs))
+               (data-source (lambda (type) (view type ((data-source-all ds) type)))
+                            (data-source-read ds)
+                            (data-source-of-patient ds)
+                            (let ([search (data-source-search ds)])
+                              (and search (lambda (type params) (view type (search type params)))))))))
+
 (define (with-hub h thunk)
   (parameterize ([current-sd-packages (hub-packages h)]
-                 [current-data-source (hub-data h)])
+                 [current-data-source (working-copies-first (hub-data h))])
     (thunk)))
 
 ;; ---- what the files define ---------------------------------------------------------------------
@@ -1117,9 +1143,13 @@
                                    (registered-resource (cadr m) (caddr m))
                                    (error 'describe (format "no ~a in the data or the workspace" ref)))))]
         [(regexp-match? #rx"://" ref)
-         (define r (or (for/or ([k (in-list (registered-kinds))]) (registered-resource k ref))
+         ;; a canonical: the version asked for among the stored ones (`url|0.1.0`), else the
+         ;; workspace's working copy, the store's current version, the packages
+         (define r (or (and (regexp-match? #rx"[|]" ref) (stored-artifact h ref))
+                       (for/or ([k (in-list (registered-kinds))]) (registered-resource k ref))
+                       (stored-artifact h ref)
                        (and (sd-index-available?) (for/or ([k (in-list conformance-kinds)]) (resolve-canonical-raw k ref)))))
-         (if r (shown (trim-definition r)) (error 'describe (format "no definition ~a in the workspace or the packages" ref)))]
+         (if r (shown (trim-definition r)) (error 'describe (format "no definition ~a in the workspace, the store or the packages" ref)))]
         [(regexp-match #px"^([A-Z][A-Za-z]+)(?:[.](.+))?$" ref)
          => (lambda (m) (describe-element (cadr m) (caddr m) ref))]
         [else (search-definitions ref)]))))
@@ -1421,8 +1451,63 @@
 ;; ---- stage and commit -----------------------------------------------------------------------------
 (define instance? (lambda (r) (not (member (hash-ref r 'resourceType #f) (append conformance-kinds '("Library" "OperationDefinition" "SearchParameter" "CapabilityStatement" "ImplementationGuide" "ViewDefinition"))))))
 
+;; stored-artifact : hub canonical -> artifact | #f   a stored artifact by its url: the version a
+;; `|version` names, else the current one of its stored versions (artifacts.rkt `current-versions`)
+(define (stored-artifact h ref)
+  (define parts (regexp-split #rx"[|]" ref))
+  (define url (car parts))
+  (define version (and (pair? (cdr parts)) (not (string=? (cadr parts) "")) (cadr parts)))
+  (for/or ([type (in-list artifact-types)])
+    (define mine (filter (lambda (r) (equal? (hash-ref r 'url #f) url)) ((data-source-all (hub-data h)) type)))
+    (cond [(null? mine) #f]
+          [version (findf (lambda (r) (equal? (hash-ref r 'version #f) version)) mine)]
+          [else (car (current-versions mine))])))
+
+;; collection-resources : hub -> (listof resource)   the workspace's implementation guide first (as a
+;; CRMI publishable bundle has it), then what it lists: every resource the FSH, CQL, FML, VCL and
+;; JSON files define — its artifacts and its examples. (A capability app's statement is R6 and a
+;; ViewDefinition is no resource of the workspace's FHIR version: not staged yet.)
+(define (collection-resources h)
+  (define guide (registered-by (lambda (s) (equal? s (list 'workspace "ig")))))
+  (when (null? guide) (error 'stage "sushi-config.yaml does not compile to an implementation guide: check it"))
+  (append guide
+          (registered-by (lambda (s) (and (pair? s) (eq? (car s) 'workspace) (pair? (cdr s))
+                                          (member (cadr s) '("fsh" "cql" "fml" "vcl" "fhir")) #t)))))
+
+;; collection-facts : hub -> hash | #f   what the guide states for its artifacts (version, status,
+;; experimental, publisher); #f when the workspace has no sushi-config.yaml
+(define (collection-facts h)
+  (define f (build-path (hub-root h) ig-file-name))
+  (and (file-exists? f) (ig-metadata (file->string f))))
+
+;; artifact-language : hub artifact args -> language | #f   the language that wrote an artifact
+(define (artifact-language h r args)
+  (define src (and (string? (hash-ref r 'url #f)) (registered-source (hash-ref r 'resourceType "") (hash-ref r 'url))))
+  (cond [(string? (hash-ref args 'fsh #f)) "fsh"]
+        [(and (pair? src) (eq? (car src) 'workspace) (pair? (cdr src))) (cadr src)]
+        [(string? (hash-ref args 'path #f)) (workspace-language-of (hash-ref args 'path))]
+        [else #f]))
+
+;; artifact-errors : hub artifact language -> (listof string)   the artifact held to its base type
+;; and to CRMI's Shareable profile of it (R4, with the CRMI package at hand), else to the Shareable
+;; minimum checked directly; a missing element says where it is written
+(define (artifact-errors h r language)
+  (define crmi (and (workspace-r4? (hub-ws h)) (spec-package-path "hl7.fhir.uv.crmi-2.0.0.tgz" #:optional? #t)))
+  (define profile (shareable-profile (hash-ref r 'resourceType "")))
+  (define errors
+    (or (and crmi
+             (parameterize ([current-sd-packages (cons crmi (hub-packages h))])
+               (and (sd-index-available?) (resolve-sd-raw profile)
+                    (validation-issues r '("error" "fatal") #:profile profile))))
+        (append (validation-errors r) (shareable-minimum-errors r))))
+  (map (lambda (e) (with-authoring-hint e language)) (remove-duplicates errors)))
+
 ;; staged-resources : hub args -> (listof resource)
 (define (staged-resources h args)
+  ;; definitions:=true stages what an FSH text or file DEFINES too (profiles, value sets …); without
+  ;; it, its instances alone — data, as before
+  (define definitions? (eq? (hash-ref args 'definitions #f) #t))
+  (define (kept rs) (if definitions? rs (filter instance? rs)))
   (define given (hash-ref args 'resources #f))
   (define path (hash-ref args 'path #f))
   (define result (hash-ref args 'result #f))
@@ -1446,8 +1531,8 @@
                                            (equal? (hash-ref p 'source #f) (path->string tmp))))
                       (format "~a:~a:~a error: ~a" (or (argument-file args 'fsh h) "fsh") (hash-ref p 'line "?") (hash-ref p 'column "?") (hash-ref p 'message ""))))
         (when (pair? own) (error 'stage (string-join own "\n")))
-        (define rs (filter instance? (map (lambda (row) (hash-ref row 'resource)) (run-result-rows r))))
-        (when (null? rs) (error 'stage "the FSH defines no instance"))
+        (define rs (kept (map (lambda (row) (hash-ref row 'resource)) (run-result-rows r))))
+        (when (null? rs) (error 'stage (if definitions? "the FSH defines nothing" "the FSH defines no instance (its definitions are staged with definitions:=true)")))
         rs)
       (lambda () (when (file-exists? tmp) (delete-file tmp)) (refresh! h)))]
     [(list? given) (append-map (lambda (r) (if (hash? r) (bundle-resources r) (error 'stage "each resource is a JSON object"))) given)]
@@ -1461,8 +1546,10 @@
      (match (workspace-language-of full)
        ["fhir" (bundle-resources (call-with-input-file full read-json))]
        ["fsh" (define r (execute h "fsh" full (file->string full) (hasheq)))
-              (filter instance? (map (lambda (row) (hash-ref row 'resource)) (run-result-rows r)))]
-       [_ (error 'stage "stage takes resources, a result of a run, an FSH file's instances or a JSON file")])]
+              (kept (map (lambda (row) (hash-ref row 'resource)) (run-result-rows r)))]
+       ;; the implementation guide: the collection — the guide and everything it lists
+       ["ig" (collection-resources h)]
+       [_ (error 'stage "stage takes resources, a result of a run, an FSH file's instances, a JSON file, or sushi-config.yaml (the whole guide)")])]
     [else (error 'stage "stage takes `resources`, `fsh`, `result` or `path`")]))
 
 ;; json-diff : a b -> (listof string)   where two JSON values differ and how, one line each:
@@ -1489,10 +1576,10 @@
 (define (validation-errors r) (validation-issues r '("error" "fatal")))
 ;; validation-issues : resource severities -> (listof string)   "path: message" for each issue of those
 ;; severities (a stage's warnings: a unit that is not UCUM, said without refusing the change)
-(define (validation-issues r severities)
+(define (validation-issues r severities #:profile [profile #f])
   (with-handlers ([exn:fail:operation? (lambda (e) (if (member "error" severities) (list (format "~a" (exn-message e))) '()))]
                   [exn:fail? (lambda (_) '())])
-    (for/list ([i (in-list (hash-ref (apply-operation "$validate" r) 'issue '()))]
+    (for/list ([i (in-list (hash-ref (if profile (apply-operation "$validate" r #:profile profile) (apply-operation "$validate" r)) 'issue '()))]
                #:when (member (hash-ref i 'severity #f) severities))
       (format "~a: ~a" (let ([e (hash-ref i 'expression (hash-ref i 'location '()))]) (if (pair? e) (car e) "")) (hash-ref i 'diagnostics (hash-ref i 'code ""))))))
 
@@ -1553,7 +1640,25 @@
   (refresh! h)
   (with-hub h
     (lambda ()
-      (define rs (map (lambda (r) (with-profiles h r)) (staged-resources h args)))
+      (define given (staged-resources h args))
+      ;; an artifact (a definition) is staged as part of the workspace's collection: it takes its
+      ;; guide's version, status, experimental flag and publisher where it states none (CRMI 3.5)
+      (define facts (collection-facts h))
+      (when (and (not facts) (ormap artifact? given))
+        (error 'stage "definitions are staged as part of the workspace's implementation guide, whose version is theirs: write sushi-config.yaml (id, canonical, version) first"))
+      (define languages (make-hasheq))               ; staged artifact -> the language that wrote it
+      (define rs
+        (for/list ([r (in-list given)])
+          (cond [(artifact? r)
+                 (define language (artifact-language h r args))
+                 (define stored (and (hash-ref r 'id #f) ((data-source-read (current-data-source)) (hash-ref r 'resourceType) (hash-ref r 'id))))
+                 (define with-facts (with-own-lifecycle (with-collection-facts r facts) stored facts))
+                 ;; FSH and the guide's own file have a place for a title and a description; an
+                 ;; artifact of another language gets them from its name and its leading comment
+                 (define staged (if (member language '("fsh" "ig")) with-facts (with-derived-labels with-facts)))
+                 (hash-set! languages staged language)
+                 staged]
+                [else (with-profiles h r)])))
       (define source (stage-source h args))
       ;; FSH written in the stage: each resource's errors name its instance's line in that text
       (define (at-line r errors)
@@ -1574,13 +1679,30 @@
             (map with-missing-hint (remove-duplicates errors))))
       (when (null? rs) (error 'stage "nothing to stage"))
       (define warned (make-hasheq))                   ; resource -> its validation warnings, at their lines
-      (define changes
+      (define read-stored (data-source-read (current-data-source)))
+      (define changes0
         (for/list ([r (in-list rs)])
-          (define current (and (hash-ref r 'id #f) ((data-source-read (current-data-source)) (hash-ref r 'resourceType) (hash-ref r 'id))))
+          (define current (and (hash-ref r 'id #f) (read-stored (hash-ref r 'resourceType) (hash-ref r 'id))))
           (define paths (if current (json-diff current r) '()))
-          (hash-set! warned r (append (at-line r (append (validation-issues r '("warning")) (systemless-codes r)))
-                                      (let ([w (and current (pair? paths) (reverted-correction h current r))]) (if w (list w) '()))))
-          (change r (cond [(not current) 'create] [(null? paths) 'unchanged] [else 'update]) paths (at-line r (validation-errors r)))))
+          (define artifact (artifact? r))
+          ;; a definition's own codes (an element's type, a filter's property) are not codings
+          (hash-set! warned r (append (at-line r (append (validation-issues r '("warning")) (if artifact '() (systemless-codes r))))
+                                      (let ([w (and current (pair? paths) (not artifact) (reverted-correction h current r))]) (if w (list w) '()))))
+          (define errors (if artifact
+                             ;; held to its Shareable profile, and to what its lifecycle allows (CRMI 3.1)
+                             (append (artifact-errors h r (hash-ref languages r #f)) (if (pair? paths) (lifecycle-errors current r) '()))
+                             (validation-errors r)))
+          (change r (cond [(not current) 'create] [(null? paths) 'unchanged] [else 'update]) paths (at-line r errors))))
+      ;; a released version (active or retired) is kept as an instance of its own when another
+      ;; version of the artifact begins under its id: each version is a different resource (CRMI)
+      (define archives
+        (for*/list ([c (in-list changes0)]
+                    [r (in-value (change-resource c))]
+                    #:when (and (artifact? r) (eq? (change-action c) 'update) (null? (change-errors c)))
+                    [kept (in-value (archive-of (read-stored (hash-ref r 'resourceType) (hash-ref r 'id)) r))]
+                    #:when (and kept (not (read-stored (hash-ref kept 'resourceType) (hash-ref kept 'id)))))
+          (change kept 'create '() '())))
+      (define changes (append changes0 archives))
       (define errors (for/sum ([c (in-list changes)]) (length (change-errors c))))
       (define dangling (dangling-references h rs))
       ;; nothing would change: no stage (one with nothing to commit was made, and numbered)
@@ -1596,14 +1718,15 @@
       (define answer
        (hasheq 'stage id
               ;; what changes, and how many are stored as they are (each listed buried the one change)
-              'changes (for/list ([c (in-list changes)] #:unless (and (eq? (change-action c) 'unchanged) (not nothing?)))
+              ;; (one stored as it is that no longer passes — a rule changed under it — is listed with its errors)
+              'changes (for/list ([c (in-list changes)] #:unless (and (eq? (change-action c) 'unchanged) (not nothing?) (null? (change-errors c))))
                          (define base0 (hasheq 'resource (format "~a/~a" (hash-ref (change-resource c) 'resourceType) (hash-ref (change-resource c) 'id "(new id)"))
                                               ;; checked only: what WOULD happen (a refusal demo's "create" read as staged)
-                                              'action (if keep? (symbol->string (change-action c)) (format "would ~a" (change-action c)))))
+                                              'action (if (or keep? (eq? (change-action c) 'unchanged)) (symbol->string (change-action c)) (format "would ~a" (change-action c)))))
                          ;; errors only where there are some (`"errors": []` on every clean change was noise)
                          (define base1 (if (null? (change-errors c)) base0 (hash-set base0 'errors (change-errors c))))
                          ;; what an update changes; a create's `action` says it all (`changed: "created"` repeated it)
-                         (define base (if (eq? (change-action c) 'create) base1
+                         (define base (if (memq (change-action c) '(create unchanged)) base1
                                           (hash-set base1 'changed (take (change-paths c) (min 30 (length (change-paths c)))))))
                          ;; a change refused for its errors says those alone: its references are
                          ;; checked again when it is staged clean (a refusal demo read as noise)

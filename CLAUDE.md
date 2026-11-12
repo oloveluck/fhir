@@ -544,7 +544,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | VCL | the spec page's 60 examples | `raco test vcl/` | 60/60 parse + fixpoint |
 | round-trip | HL7 examples + R4/R5 core packages | `raco fhir roundtrip-tck r5\|r4` | 2968+77, 4581+72 |
 | **IG examples** | **US Core 9.0.0, IPS 2.0.1 packages** | `tests/ig-examples-r4-test.rkt` | **274/274 parse+round-trip** |
-| **IG validation** | **US Core 9.0.0, IPS 2.0.1: every example vs the IG profiles it claims** | `tests/ig-validation-r4-test.rkt` | **260/260 clean** (0 false positives) |
+| **IG validation** | **US Core 9.0.0, IPS 2.0.1, CRMI 2.0.0: every example vs the IG profiles it claims** | `tests/ig-validation-r4-test.rkt` | **330/330 clean** (0 false positives) |
 | **IG search** | **US Core 9.0.0 examples, R4 core + US Core SearchParameters: each example found by its own values** | `tests/ig-search-r4-test.rkt` | **2368/2368 probes** |
 | **IG server** | **a server generated from US Core 9.0.0: all 255 resources load through validation** | `tests/ig-server-r4-test.rkt` | **0 unmet requirements** (SHALL/SHOULD/MAY; auth aside) |
 | **IG FHIRPath** | **the same IGs: profile invariants on their examples + SearchParameter expressions** | `tests/ig-fhirpath-r4-test.rkt` | **6082 invariant checks, 0 fail** (2 dom-3 spec-conflict errors); **1330/1330 search** |
@@ -1705,6 +1705,35 @@ version control, git as a mirror of a text export. Built so far, step 0:
 - `init` ignores `fhir.db` in git (it ignored only the WAL files: `git add .` took a binary that
   could lack the writes still in the WAL).
 `fhir-mcp/tests/ig-test.rkt` runs the guide's own session.
+Step 1, definitions through stage and commit (CRMI's Submit and Revise):
+- **CRMI 2.0.0 is vendored** (`fhir-spec/hl7.fhir.uv.crmi-2.0.0.tgz`; its dependencies are not:
+  fsh loads the newest extensions and terminology packages it finds into every project). Its 70
+  profiled examples validate against its own profiles (the IG validation gate, 0 false positives).
+- **`stage path=sushi-config.yaml` stages the collection** (workspace.rkt `collection-resources`):
+  the guide first, then every resource the FSH, CQL, FML, VCL and JSON files define — artifacts and
+  examples — one change set; `definitions:=true` stages an FSH file's or text's own definitions.
+  Staging a definition without a guide is refused (its version is the guide's).
+- **An artifact on its way in** (`mcp/artifacts.rkt`, pure, by CRMI's rule numbers): its status is
+  the collection's (draft when the guide states none — a compiler's default `active` is not the
+  author's word), its version, experimental flag and publisher the collection's where it states
+  none (3.5); one that states its own version (a CQL library) keeps its released state while the
+  collection drafts on (`with-own-lifecycle`); a title and description are derived only for
+  languages with no place for them (name; a library's leading comment). It is held to CRMI's
+  Shareable profile of its type through `$validate` with the CRMI package in context (R4; the same
+  minimum checked directly otherwise), each missing element saying where it is written. The
+  lifecycle (3.1, 3.4): an active artifact does not go back to draft, a retired one does not come
+  back, and neither changes content without a new version; retiring changes the status alone.
+- **Each version is its own instance**: when another version begins under an id whose stored
+  instance is active or retired, that instance is kept as `<id>-<version>` (`archive-of`) in the
+  same stage.
+- **Which definition a canonical means** (`working-copies-first`, the data source `with-hub`
+  sets): a stored artifact a workspace file defines again is left to the file (the working copy,
+  found in fhir/registry next); among stored versions of one url the active of the highest version
+  answers, else the highest (`current-versions`). Reads by Type/id are the store's own.
+  `describe ref=<url>` follows that; `<url>|<version>` names a stored version.
+- A stage lists a resource stored unchanged that no longer passes (a rule changed under it) with
+  its errors: staging a new rule says which stored examples it breaks.
+`fhir-mcp/tests/artifacts-test.rkt` runs the whole sequence.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

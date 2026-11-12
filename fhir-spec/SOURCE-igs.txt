@@ -25,3 +25,13 @@ hl7.fhir.us.cqfmeasures-5.0.0.tgz — Quality Measure IG (CQF Measures) 5.0.0 (F
   measure-calculation-service-example CapabilityStatement generates a measure-processing server
   (`raco fhir-server serve-ig hl7.fhir.us.cqfmeasures-5.0.0.tgz --capability measure-calculation-service-example`)
   whose $evaluate-measure runs CQL over the store (fhir-server/tests/measure-server-r4-test.rkt).
+
+hl7.fhir.uv.crmi-2.0.0.tgz — Canonical Resource Management Infrastructure 2.0.0 (STU 2, FHIR 4.0.1,
+  CC0-1.0), from https://packages.fhir.org/hl7.fhir.uv.crmi/2.0.0 (sha1
+  a42d193ec26c3fda29ab0381e964d1fb6309a61b), retrieved 2026-11-12. Its Shareable profiles are what a
+  workspace's artifacts are held to when they are staged, its OperationDefinitions ($draft, $release,
+  $approve, $review, $package, $data-requirements, $resolve, $publish …) define the repository
+  actions (docs/store-as-codebase.md); fhir-validation/tests/ig-validation-r4-test.rkt holds its own
+  examples to its profiles. Its dependencies (hl7.fhir.uv.extensions.r4 5.3.0, hl7.terminology.r4
+  7.2.0) are NOT vendored: fsh loads the newest copy of each it finds into every project's context
+  (ig-config.rkt `implicit-packages`), so putting them here would change every FSH compile.

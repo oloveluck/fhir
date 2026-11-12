@@ -87,6 +87,10 @@
   ;; what a sushi-config.yaml says the workspace is
   [ig-facts (-> string? (values (or/c string? #f) (or/c string? #f) (listof string?) hash? (listof string?)))]
   [ig-file-name string?]
+  ;; ig-metadata : text -> (hash symbol -> value)   what a sushi-config.yaml states for every artifact
+  ;; of its collection: 'version, 'status, 'publisher (strings), 'experimental (boolean) — the keys it
+  ;; gives; none when the file is not YAML
+  [ig-metadata (-> string? hash?)]
   [default-ws-config ws-config?]
   ;; read-workspace-config : path -> (values ws-config (listof string))   the config and its warnings
   [read-workspace-config (-> path-string? (values ws-config? (listof string?)))]
@@ -291,6 +295,25 @@
                   (differs "canonical" (ws-config-canonical c) canonical)
                   (differs "fhirVersion" (ws-config-fhir-version c) version))))
 
+;; ig-metadata : text -> hash
+(define (ig-metadata text)
+  (define y (with-handlers ([exn:fail:yaml? (lambda (_) #f)]) (read-yaml text)))
+  (define (str v) (and (string? v) (not (string=? v "")) v))
+  (define publisher (let ([p (yref y "publisher")])
+                      (cond [(string? p) (str p)]
+                            [(ymap? p) (str (yref p "name"))]
+                            [(and (pair? p) (ymap? (car p))) (str (yref (car p) "name"))]
+                            [else #f])))
+  (for/hasheq ([kv (in-list (list (cons 'version (str (yref y "version")))
+                                  (cons 'status (str (yref y "status")))
+                                  (cons 'publisher publisher)
+                                  (cons 'experimental (let ([e (yref y "experimental")])
+                                                        (cond [(member e '("true" "True" "yes")) #t]
+                                                              [(member e '("false" "False" "no")) 'false]
+                                                              [else #f])))))]
+               #:when (cdr kv))
+    (values (car kv) (if (eq? (cdr kv) 'false) #f (cdr kv)))))
+
 (define (open-workspace dir)
   (define root (simplify-path (path->complete-path dir)))
   (define f (build-path root "workspace.yaml"))
@@ -382,6 +405,10 @@
     (check-equal? globals (hash "Patient" '("http://x/p")))
     (check-regexp-match #rx"6.0.0-ballot3 is not one" (car warnings)))
   (let-values ([(_c _v _d _g warnings) (ig-facts "a: &anchor b\n")]) (check-equal? (length warnings) 1))
+  (check-equal? (ig-metadata "id: x\nversion: 0.2.0\nstatus: draft\nexperimental: true\npublisher:\n  name: Example Clinic\n  url: http://example.org\n")
+                (hasheq 'version "0.2.0" 'status "draft" 'experimental #t 'publisher "Example Clinic"))
+  (check-equal? (ig-metadata "id: x\nexperimental: false\npublisher: Me\n") (hasheq 'experimental #f 'publisher "Me"))
+  (check-equal? (ig-metadata "a: &anchor b\n") (hasheq))
   (define-values (c ws)
     (parse-workspace-config
      (string-append "# a workspace\nfhirVersion: 4.0.1\ncanonical: http://example.org/fhir/  # trailing slash dropped\n"

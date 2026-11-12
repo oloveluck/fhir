@@ -24,6 +24,15 @@ Today (exists): data is staged, validated, committed with a Provenance and an Au
 resource version is kept; SQL reads the store. Definitions stay in files — `stage` leaves
 conformance resources out — and are registered from the files each time the workspace loads.
 
+Built so far (2026-11-12): the implementation guide as a workspace language; CRMI 2.0.0 vendored
+(fhir-spec), its own examples held to its profiles; definitions through stage and commit — the
+collection staged as one (`stage path=sushi-config.yaml`), each artifact with its guide's facts,
+held to its Shareable profile and to the status rules (3.1), a released version kept as its own
+instance when the next begins, the working copy first and the active version next when a canonical
+is resolved (fhir-mcp `mcp/artifacts.rkt`, `tests/artifacts-test.rkt`). Not yet: the workspace read
+from a stored guide when it has no file; each artifact's own source kept for `edit`; manifests;
+the operations.
+
 ## What lives where
 
 | Place | Holds | Role |
