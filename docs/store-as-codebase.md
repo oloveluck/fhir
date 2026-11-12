@@ -1,158 +1,241 @@
-# Design: the FHIR store as the codebase
+# Design: the FHIR store as the codebase, managed as CRMI says
 
-Status: proposal (2026-11-12). Nothing here is built unless a section says "exists".
+Status: proposal (2026-11-12). Nothing here is built unless a line says "exists".
+
+Read for this note: HL7's Canonical Resource Management Infrastructure guide (CRMI), version 2.0.0
+(STU 2, FHIR R4) — the package `hl7.fhir.uv.crmi` 2.0.0 from packages.fhir.org (sha1
+`a42d193ec26c3fda29ab0381e964d1fb6309a61b`; 17 OperationDefinitions, 90 StructureDefinitions, 4
+CapabilityStatements) and its pages Artifact Lifecycle, Artifact Manifest, Artifact Conventions,
+Artifact Repository Service, Packaging, Testing, Publishing, Distribution, Artifact Signing. Where
+this note says "CRMI", the name, the parameters and the rule are CRMI's; where it says "ours", CRMI
+is silent and the choice is this toolkit's.
 
 ## The idea
 
 A workspace's SQLite store (`fhir.db`, resources as JSONB) is the codebase: data AND definitions
-(profiles, value sets, code systems, libraries, maps, views, operation definitions). The languages
-(FSH, CQL, FML, VCL, ViewDefinition JSON) are the scratch form an agent reads and writes. Nothing
-enters the store unless it checks. Borrowed from Unison: the codebase is a database that is never
-broken; text is a view of it. Kept from FHIR: identity is the canonical url and version, history is
-resource versions, a change is a transaction with a Provenance.
+(CRMI's "artifacts": profiles, value sets, code systems, libraries, maps, measures, operation
+definitions; views with them). The languages (FSH, CQL, FML, VCL, ViewDefinition JSON) are the
+scratch form an agent reads and writes. Nothing enters the store unless it checks. From Unison: the
+codebase is a database that is never broken, and text is a view of it. From CRMI: how an artifact is
+identified, versioned, drafted, reviewed, released, packaged and published. The store is a CRMI
+**artifact repository** — Shareable, Publishable and Authoring — that also holds the data.
 
 Today (exists): data is staged, validated, committed with a Provenance and an AuditEvent; every
-version is kept; SQL reads the store. Definitions stay in files — `stage` leaves conformance
-resources out — and are registered from the files each time the workspace loads.
+resource version is kept; SQL reads the store. Definitions stay in files — `stage` leaves
+conformance resources out — and are registered from the files each time the workspace loads.
 
 ## What lives where
 
 | Place | Holds | Role |
 |---|---|---|
-| `fhir.db` | every resource, every version, the trail | the codebase and its version control |
+| `fhir.db` | every artifact version, the data, the trail | the artifact repository |
 | scratch files (`*.fsh`, `*.cql`, `*.map`, `*.vcl`, `*.view.json`) | what is being edited | working copy; may be deleted |
-| `export/` (text, in git) | each current definition as text, one file per resource | readable diffs, review, CI, rebuild |
-| git | the export, workspace.yaml — never `fhir.db` | mirror, not the source of truth |
+| `export/` (text, in git) | each current artifact as text, one file per resource | readable diffs, review, CI, rebuild (ours) |
+| git | the export and the configuration — never `fhir.db` | mirror, not the source of truth |
 
-`init` ignores `fhir.db`, `fhir.db-wal`, `fhir.db-shm` in git (today it ignores only the last two,
-so `git add .` takes a binary that may lack the writes still in the WAL).
+`init` ignores `fhir.db`, `fhir.db-wal`, `fhir.db-shm` in git (today only the last two, so
+`git add .` takes a binary that may lack the writes still in the WAL).
 
-## The loop
+## CRMI's terms, used as they are
 
-1. **edit** — one definition out of the store as text in its language (FSH decompiler, VCL
-   decompiler, StructureMap reader: exist; CQL: the text kept in `Library.content`, exists). The
-   source text of the last commit when it still compiles to the stored resource (comments, RuleSets
-   and aliases kept — the Provenance already contains it); regenerated text otherwise.
-2. **stage** — compile, check, and answer the impact (below). `keep: false` checks only (exists for
-   data).
-3. **commit** — one transaction: the definitions, the data, a Provenance (agent, reason, source,
-   the rule versions the data was held to), an AuditEvent; then the export is rewritten for what
-   changed.
-4. **resolve** — the store first, then the scratch files, then the packages. A workspace of
-   `fhir.db` alone works.
+- **Identity.** An artifact's `url` is its version-independent identifier; a reference is
+  `url` or `url|version` (3.2). Its logical id is the server's. Each business version is a different
+  resource instance; resource versioning (`_history`) is separate, kept for audit — both exist here.
+- **Status.** `draft`, `active`, `retired`, and `experimental`. An active artifact SHALL NOT go
+  back to draft; a retired one SHALL NOT go back to active or draft: a new version is required
+  (3.1). Deprecated-but-active is `workflowStatusDescription` (value sets).
+- **Version.** Required. `<major>.<minor>.<patch>[-<label>]`; labels are unordered
+  (`-draft`, `-cibuild`, `-ballot`) (3.3). Major: breaks use. Minor: adds. Patch: corrects.
+- **Version policy** (`artifact-versionPolicy`; algorithm in `artifact-versionAlgorithm`):
+  `strict` — any change is a new version (not `id`, `meta`, `status`, `lastReviewDate`);
+  `metadata` — metadata may change with a new `date`; `loose`; `package` — the artifact carries its
+  package's version (3.4, 3.5). Default here: `package` inside a workspace, `strict` once released.
+- **Capability categories**, each a profile per resource type: **Shareable** (url, version, title,
+  status, experimental, description), **Publishable** (date, contact, useContext, approvalDate,
+  lastReviewDate, effectivePeriod, author/editor/reviewer/endorser, relatedArtifact — as extensions
+  where R4 lacks the element), **Computable** (the definition: CQL text, a value set's compose),
+  **Executable** (the compiled form: ELM, a value set's expansion). The languages map onto the last
+  two: the text an agent writes is the computable content, what the compiler emits the executable.
+- **Collection and manifest.** A collection of artifacts is a **manifest library**
+  (`CRMIManifestLibrary`: a Library of type `asset-collection`, no content): `composed-of` entries
+  name its components, `depends-on` its dependencies (calculated, by `$data-requirements`), and
+  `cqf-expansionParameters` points at contained **manifest parameters**
+  (`CRMIManifestParameters`): `default-canonical-version`, `default-valueset-version`,
+  `default-system-version` (`url|version` each; `check-`/`force-` variants), `activeOnly`,
+  `includeDraft`. An ImplementationGuide carries the same extension (`CRMIImplementationGuide`).
+- **Owned components** (`artifact-isOwned` on a `composed-of` entry): the component has no
+  lifecycle of its own; its status and version SHALL be its parent's, and it is drafted, released,
+  retired and removed with it. An artifact has at most one owner.
+- **Package source** (`package-source` on `meta`: packageId and canonical base; `cqf-scope` to
+  override): the package an artifact is authored in, which decides its manifest.
 
-## Impact: what a change touches
+## The repository actions
 
-An index of canonical references between stored resources (`from`, `to`, `how`: Parent, binding,
-include, valueset, uses, profile-of-data) kept with the other indexes, so "what depends on X" is a
-query. A staged definition answers:
+CRMI names sixteen conceptual actions and says how each is done. The workspace verbs are ours; they
+perform CRMI's interaction or operation, so a store-backed server exposes the same thing over HTTP.
 
-- dependents re-checked (libraries re-translated, maps re-checked, views re-typed), each problem at
-  its line in that dependent's text;
-- stored data that no longer conforms: how many, which, by which rule;
-- saved results now out of date (a result's fingerprint: the versions of every definition it used
-  and the store's latest write — the second half exists).
+| CRMI action | Done as (CRMI) | Workspace | State |
+|---|---|---|---|
+| Retrieve, Search | read; search by `url`, `version`, `identifier`, `name`, `title`, `status`, `description` (`:contains`, `:exact`), `_lastUpdated`; Publishable adds `date`, `effective`, `context…`, `topic`, and `composed-of`, `depends-on`, `derived-from`, `predecessor`, `successor` | `describe`, `query` | read and search exist; the artifact parameters to check |
+| Submit, Revise | create / update of unreleased content; SHALL conform to the Shareable profile | `stage` + `commit` of a draft | to build (data: exists) |
+| Withdraw | delete of an unreleased artifact and its children; answers their contents | `stage drop` of a draft's resources | to build |
+| Draft | `$draft` (`version`): a draft version of an artifact and all its owned children; drops `effectivePeriod`, `approvalDate` and active-only extensions | `apply $draft` | to build |
+| Clone | `$clone` (`url`, `version`): a copy under a new url, children too | `apply $clone` | to build |
+| Diff | `$artifact-diff` (`source`, `target`, `compareComputable`, `compareExecutable`): FHIRPath Patch, dependencies resolved recursively | `describe … diff` | changed paths exist; Patch form to build |
+| Review | `$review` (`reviewDate`, `artifactAssessment…`): sets `date`, `lastReviewDate`; may only add an ArtifactAssessment (R4: Basic, or `cqf-artifactComment`) | `apply $review` | to build |
+| Approve | `$approve` (`approvalDate`, `artifactAssessment…`): sets `date`, `approvalDate`, same record | `apply $approve` | to build |
+| Release | `$release` (`version`, `versionBehavior` default / check / force, `requireVersionSpecificReferences`, `requireActiveReferences`, `experimentalBehavior` error / warn / none, `releaseDate`, `releaseLabel`): sets dates, pins every direct and transitive reference into the manifest, releases owned children; one transaction | `apply $release` | to build |
+| Publish | create/PUT of released content conforming to Publishable; or `$publish` of a `CRMIPublishableBundle` (transaction, ImplementationGuide first, every entry POST with `ifNoneExist` on url and version); or the NPM registry | `commit` to a remote | pack exists; `$publish` to build |
+| Retire | update of an active artifact changing only `status` to retired and `date` | `apply` | to build |
+| Remove | delete of released content and children; answers their contents | — (refused by default; ours) | to build |
+| Package | `$package` (`url`, `version`, `manifest`, `include`/`exclude`, `packageOnly`, `capability`, `artifactVersion`…): a Bundle, the artifact (or an outcome manifest) first, then dependencies and test cases | `apply $package` | to build |
+| Requirements | `$data-requirements` → a module-definition Library: `dataRequirement`s and `depends-on`; `$infer-manifest-parameters` turns it into manifest parameters | `apply`, and before every run | to build |
+| (resolution) | `$resolve` (`canonical`, `manifest` or `manifestParameters`, `sourceReference`, `duplicateBehavior`) | every resolver | to build |
 
-The author then versions the rule (old data stays valid under the old version) or migrates the data
-(a correction or an FML map, staged and committed like any change).
+Rules that come with them: an operation that touches several artifacts SHOULD be one transaction
+answering a transaction-response Bundle; children SHALL be updated with their parent.
+
+## Resolving a reference (CRMI, "Determining Latest Version")
+
+For an unversioned canonical, in order: (1) the manifest given to the operation — its
+`default-…-version` entry matching the url; (2) the `package-source` of the resource the reference
+is in — that package's ImplementationGuide and its manifest parameters; (3) the package dependency
+tree from the canonical's base; (4) the artifact's version algorithm for "latest"; (5) the IG
+guidance's most-recent rule. A manifest is chosen by the operation's `manifest` parameter, by an
+`X-Manifest` request header (servers MAY), or from the artifact's package source.
+
+Here: every verb that evaluates (`check`, `run`, `query`, `explain`, `stage`) takes `manifest`;
+without one it is the workspace's ImplementationGuide. The server honours `X-Manifest`.
+
+## A workspace is a content IG
+
+`workspace.yaml` becomes a stored ImplementationGuide (Shareable, `CRMIImplementationGuide`):
+`packageId`, the canonical base, `fhirVersion`, `dependsOn` (the packages), `global` (the profile
+every resource of a type is held to — today's `profiles:`), `definition.resource`, and
+`cqf-expansionParameters`. Its artifacts carry its `package-source` and, under the `package` policy,
+its version. CRMI's conventions hold (url `<base>/<Type>/<id>`, PascalCase `name` equal to the
+canonical's tail for libraries, references inside the package version-consistent).
+
+## The loop for one agent
+
+1. **edit** (ours) — one artifact out of the store as text: its kept source when that still
+   compiles to the stored resource (the Provenance has it; a Library has its CQL as content), the
+   decompiled text otherwise (FSH, VCL, FML readers exist).
+2. **stage** — compile; hold the resource to its Shareable profile; answer the impact (below). This
+   is CRMI's Submit or Revise, on a draft only: an active artifact is refused with "draft a new
+   version" (3.1).
+3. **commit** — one transaction: the artifacts, a Provenance (agent, reason, source), an
+   AuditEvent; the export rewritten.
+4. **review / approve** — `$review`, `$approve`: the record CRMI prescribes, by another agent or a
+   person.
+5. **release** — `$release`: versions pinned, dates set, status active.
+6. **publish** — `$publish` to another repository, or the package to a registry.
+
+## Parallel development
+
+- **A line of work is a draft of the collection.** `$draft` on the workspace's manifest (or
+  ImplementationGuide) with a version carrying a label of its own — `1.1.0-draft`, or
+  `1.1.0-lipids` when several lines are open (labels are unordered, so they name, not rank) —
+  creates draft instances of it and of every owned component, in one transaction. The draft
+  manifest is the branch: evaluating with `manifest=<it>` sees its versions, everyone else sees the
+  active ones. Copies are small JSON documents in one SQLite file.
+- **An artifact with its own lifecycle** (a component that is not owned: a shared value set, a
+  common library) is drafted alone and pinned by the manifests that want it.
+- **Lineage** (ours, in CRMI's vocabulary): a draft names what it was drafted from as a
+  `relatedArtifact` of type `predecessor`, a clone as `derived-from` — the types the Publishable
+  repository searches by.
+- **Seeing a line's change**: `$artifact-diff` between the active collection and the draft.
+- **Joining two lines** (ours; CRMI has no merge): both drafts name the same predecessor, so each
+  one's `$artifact-diff` from it is a FHIRPath Patch; patches touching different artifacts or
+  different paths apply to a new draft; two touching one path are the conflict, shown as both
+  values. The joined draft is checked like any other before it can be released.
+- **Release is the gate**: `$release` with `requireActiveReferences` and
+  `requireVersionSpecificReferences` true and `experimentalBehavior` error — no draft, retired or
+  experimental dependency, every reference pinned. The version follows the impact: nothing that
+  depended on the artifact changes meaning — minor or patch; otherwise major.
+- **Between teams**: packages. A team's ImplementationGuide `dependsOn` another's at a version;
+  nothing changes downstream until it moves the pin, and moving it answers the impact.
+  `$get-package` and the registry serve releases; drafts travel by `$package` and `$publish`.
+
+## Evidence (what makes a draft releasable)
+
+- **Test cases** (CRMI Testing): a Library of type `test-case` naming the artifact and the
+  operation under test (`cqf-testArtifact`), with `cqf-inputParameters`, `cqf-inputData`,
+  `cqf-outputParameters`, `cqf-messages`, `cqf-outputData`. A CQL define's expected values, a
+  view's expected rows, a map's expected result and a profile's valid and invalid examples are all
+  this shape; `$package` carries them with the artifact.
+- **Dependencies traced as CRMI lists them** (Distribution, "Dependency Tracing"), kept as an index
+  so "what depends on X" is a query: any resource's `meta.profile`; a StructureDefinition's
+  `baseDefinition`, differential `type.code`, `type.profile`, `type.targetProfile`,
+  `binding.valueSet`, extension urls; a StructureMap's `structure.url`, `import`; a ValueSet's
+  `compose.include/exclude` `valueSet` and `system`; a ConceptMap's sources and targets; a
+  Library's `relatedArtifact.resource`, `dataRequirement.profile`, `codeFilter.valueSet`; a
+  Measure's `library` and criteria. Base-specification resources are not listed.
+- **Impact on what is stored** (ours): staging a draft answers the dependents re-checked in its
+  manifest, the stored data that would no longer conform (how many, which, by which rule), and the
+  saved results computed with an earlier version.
+- **Requirements against capabilities** (ours, on CRMI's output): the module-definition Library
+  from `$data-requirements` is compared with the data source's CapabilityStatement before a run, so
+  a source that cannot answer is said, not answered as empty.
 
 ## FHIR as the version control
 
-| Git | FHIR, here | State |
+| Git | Here | State |
 |---|---|---|
-| object | a resource version (`Type/id/_history/n`) | exists |
+| object | a resource version (`Type/id/_history/n`); an artifact version (`url|version`) | exists |
 | commit | a transaction + its Provenance (targets, agent, reason, source) | exists for data |
-| log, blame | `_history`; Provenance per version; changed paths per version — to the element | exists |
-| diff | changed paths `old → new`; JSON Patch | exists |
-| revert | a new version restoring the old, with a reason | exists (warned when unintended) |
-| pull request | a stage: validated, diffed, refusable; approval = a second Provenance agent (author / verifier) | stage exists; roles to build |
-| tag, release | `canonical|version`, frozen once anything is held to it; a package (`--pack`) of a set of versions | pack exists; freezing to build |
-| branch | a draft ImplementationGuide version: a manifest pinning each canonical to a version (below) | to build |
-| merge | a manifest taking drafts from both; a conflict is two drafts of one canonical with the same predecessor — then per resource, three-way from that predecessor | to build |
-| push, pull | pull = the remote's `_history?_since`; push = a transaction of conditional updates (`If-Match`: a conflict is one resource, not a file) | to build |
-| signed commit | `Provenance.signature` | to build |
-| — | AuditEvent of reads; validation as the commit's gate; SQL over the whole history | exists |
+| log, blame | `_history`; Provenance per version; changed paths, to the element | exists |
+| diff | `$artifact-diff` (FHIRPath Patch) | changed paths exist |
+| branch | `$draft` of the collection; its manifest | to build |
+| merge | patches from a common predecessor (ours) | to build |
+| pull request | a draft with its `$review` and `$approve` records | to build |
+| tag, release | `$release`; `releaseLabel`; the package | pack exists |
+| push, pull | `$publish` of a publishable bundle; `$package`, `$get-package`, search by `_lastUpdated` | to build |
+| signed commit | a Provenance with a JWS signature over the canonicalized resource (CRMI Artifact Signing) | to build |
+| — | AuditEvent of reads; validation as the gate; SQL over all of it | exists |
 
-What git keeps: the toolkit's own Racket code, review tooling and CI over the text export.
-
-## Parallel development: the IG process
-
-HL7 already runs parallel specification work: many authors, drafts beside published versions,
-review with recorded dispositions, releases that pin what they depend on. Its vocabulary is FHIR's
-own, so agents can work the same way, in the store.
-
-- **A workspace is an IG under development.** `workspace.yaml` is an ImplementationGuide's content:
-  `packageId`, the canonical base, `fhirVersion`, `dependsOn` (the packages), `global` (a profile
-  every resource of a type is held to — today's `profiles:`), `definition.resource` (what belongs
-  to it). The ImplementationGuide resource is stored and versioned like everything else.
-- **A branch is a draft IG version.** It is a manifest: each canonical it uses pinned to a version —
-  the released ones, plus the drafts this line of work changes. Nothing is copied. Resolving,
-  checking data and running a query happen "in" a manifest; the active IG version is the default.
-  Two agents on two tasks hold two draft manifests over one store.
-- **A change is a draft of an artifact.** The active `profile|1.0` is frozen; an agent's edit is a
-  new resource of the same url, version `1.1.0-draft`, `status: draft`, naming its predecessor
-  (`relatedArtifact`, type predecessor; a Provenance entity of role revision where the type has no
-  relatedArtifact). Drafts of different artifacts never conflict. Two drafts of one artifact both
-  exist; that they share a predecessor is the conflict, found by a query, settled at release.
-- **Status is the lifecycle.** `draft`: editable, used only by manifests that pin it. `active`:
-  frozen, what data is held to. `retired`: kept for the data and results that used it.
-  `experimental: true` marks an agent's trial that should never be released.
-- **Review is recorded as FHIR.** A comment or change request about an artifact is an
-  ArtifactAssessment (R5: information type, workflow status, disposition — HL7's ballot
-  dispositions); in an R4 workspace, a Provenance on the draft with the reviewer as an agent
-  (author / verifier) carries the same facts for every type. `approvalDate`, `lastReviewDate`,
-  `reviewer`, `endorser` where the type has them (R4 Library and Measure; most R5 metadata
-  resources; not StructureDefinition).
-- **The ballot is evidence.** What makes a draft releasable is computed, not voted: it compiles; its
-  examples validate; its dependents re-check in the manifest; the stored data conforms or a
-  migration is staged with it; its tests (expected values of defines, expected rows of views)
-  pass. Several agents may answer one requirement with competing drafts; the same evidence ranks
-  them (fhir-examples' `bench.rkt` scores candidate profiles this way already).
-- **A release is the merge.** Releasing a draft IG version: every draft in its manifest becomes
-  `active` with its release version and date, every reference in them is pinned to a version, the
-  ImplementationGuide version is bumped, the package is built (`--pack`, exists) and the export
-  rewritten. The kind of version follows from the impact: dependents and data unaffected — a patch
-  or minor version; something stops conforming — a major one.
-- **Between teams, packages.** A team of agents owns an IG; another depends on it at a version
-  (`dependsOn`). Upstream's release does nothing downstream until downstream moves its pin, and
-  moving it answers the impact. A package registry is the remote for releases; FHIR sync (above)
-  for drafts.
-
-HL7's Canonical Resource Management Infrastructure guide (CRMI) names operations for these steps
-(draft, review, approve, release, package, data requirements); its package is not vendored here and
-was not read for this note — the verbs above should take its names and definitions where they fit.
+Git keeps the toolkit's own Racket code, and review and CI over the text export.
 
 ## Decisions
 
-1. **Kept source or regenerated text** — both, as in "edit" above. One rendering (regenerated) is
-   what an agent sees when the store was written another way (a server, a sync).
+1. **Kept source or regenerated text** — both, as in "edit". The Library keeps its CQL (Computable)
+   and its ELM (Executable) as two contents, as CRMI's library profiles describe.
 2. **Operation handlers** are Racket and cannot be stored. An operation whose body is a CQL
-   expression or an FML map (OperationDefinition + Library/StructureMap) is wholly in the store;
-   Racket handlers remain for what the languages cannot say.
-3. **A version is frozen once used** — a commit that held data to `profile|1.0`, or a result
-   computed with `library|1.0`, makes 1.0 immutable; a change is 1.1. A content hash detects
-   "changed without a new version"; it is not the identity.
-4. **Requirements before running** — a library's data requirements (types, codes, value sets),
-   derived from its CQL, compared with the data source's CapabilityStatement, so a source that
-   cannot answer is said before the run, not as an empty answer.
-5. **The language is the permission** — CQL, FHIRPath, VCL and views cannot write; FML only
-   transforms; `commit`, a remote `apply` and handlers have effects. An agent's allowed verbs are
-   its capabilities.
+   expression or an FML map (OperationDefinition + Library or StructureMap) is wholly in the
+   repository; Racket handlers remain for what the languages cannot say.
+3. **Active is immutable** under the `strict` policy; a content hash detects a change made without a
+   new version (and is what a signature covers). It is not the identity.
+4. **The language is the permission** (ours) — CQL, FHIRPath, VCL and views cannot write; FML only
+   transforms; Submit/Revise, `$release`, `$publish`, Retire, Remove and handlers have effects. An
+   agent's allowed actions are a subset of CRMI's sixteen.
+5. **Remove is refused by default**: data and results may have been held to the artifact; Retire
+   keeps it resolvable.
 
 ## Order
 
-1. Definitions through stage and commit; resolve from the store; `edit`; git ignores `fhir.db`.
-2. The text export on commit, and rebuilding a store from it.
-3. The reference index, the impact answer, results out of date.
-4. The workspace as an ImplementationGuide; drafts with predecessors; manifests; frozen active
-   versions; review records; release.
-5. Sync: pull by history, push by conditional transaction; per-resource merge with lineage.
-6. Operations written in CQL or FML; requirements against capabilities.
+1. Vendor `hl7.fhir.uv.crmi` 2.0.0 (CC0) in fhir-spec with its dependencies
+   (`hl7.fhir.uv.extensions.r4` 5.3.0, `hl7.terminology.r4` 7.2.0); its OperationDefinitions drive
+   input checking as every IG's do here. Artifacts through stage and commit, held to their
+   Shareable profiles; the status rules (3.1); resolve from the store; `edit`; git ignores `fhir.db`.
+2. The workspace as an ImplementationGuide; manifest library and parameters; `$resolve` with the
+   resolution order; `manifest` on the evaluating verbs; `X-Manifest`.
+3. The dependency index by CRMI's paths; `$data-requirements`; `$infer-manifest-parameters`; the
+   impact answer; results out of date.
+4. `$draft`, `$clone`, `$artifact-diff`, `$review`, `$approve`, `$release`; test-case Libraries run
+   as the release's evidence.
+5. `$package`, `$publish`, `$get-package`; the text export; the three artifact-repository
+   CapabilityStatements served and held to (the gap report exists for any IG's statement).
+6. Joining two drafts; signing; operations written in CQL or FML; requirements against capabilities.
 
 ## Open questions
 
-- Merge of two edits to one resource: by JSON path is mechanical; whether a merged profile still
-  means what either author meant is for the check and a person.
-- Branch-wide what-if (a query over the store plus a stage) — cheap for data, needs the resolver to
-  see the stage's definitions first.
-- How much of the trail a sync carries (all Provenance, or from a point).
+- `$draft`'s `version` is documented as `MAJOR.MINOR.PATCH.REVISION`, the versioning rule as
+  `<major>.<minor>.<patch>[-<label>]`; which form a parallel line's version takes needs a reading of
+  the reference implementation, or a question to the work group.
+- CRMI's capability statements name five resource types (ActivityDefinition, Library, Measure,
+  PlanDefinition, Questionnaire) and say others "SHALL follow the same pattern"; its operations
+  name twenty-five. ViewDefinition is in neither list — treated by the same pattern here.
+- The R4 review record: Basic, or `cqf-artifactComment` on the artifact (which changes the artifact
+  under a strict policy). Basic keeps the artifact untouched.
+- Joining two drafts by path is mechanical; whether the joined profile means what either author
+  meant is for the checks, the test cases and a reviewer.
