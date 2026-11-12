@@ -1748,7 +1748,12 @@ entry is a struct (`compiled`: files, basis, resources, diagnostics) instead of 
 language; ig.rkt threads the instance labels through a fold instead of a mutable counter. One
 behaviour corrected with it: the CRMI authoring rules had applied to ANY staged definition, so a
 published Questionnaire given as JSON was refused for lacking a title, or turned to draft in a
-draft guide.
+draft guide. First cut of the hub (`mcp/workspace.rkt`, 2,168 lines, 153 definitions): the nine
+functions that read a stage's FSH source as text (where an Instance and its rules are, the block
+that stages again, the line an error is about) are `mcp/fsh-source.rkt` — pure, with contracts,
+one definition of an entity header (there were three spellings) and the tests they never had.
+What remains to split, by the file's own sections: run/query/results, describe (450 lines), stage
+and commit (600); 73 of its definitions take no hub.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
