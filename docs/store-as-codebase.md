@@ -29,9 +29,16 @@ Built so far (2026-11-12): the implementation guide as a workspace language; CRM
 collection staged as one (`stage path=sushi-config.yaml`), each artifact with its guide's facts,
 held to its Shareable profile and to the status rules (3.1), a released version kept as its own
 instance when the next begins, the working copy first and the active version next when a canonical
-is resolved (fhir-mcp `mcp/artifacts.rkt`, `tests/artifacts-test.rkt`). Not yet: the workspace read
-from a stored guide when it has no file; each artifact's own source kept for `edit`; manifests;
-the operations.
+is resolved (fhir-mcp `mcp/artifacts.rkt`, `tests/artifacts-test.rkt`); the store alone — with no
+`sushi-config.yaml` the workspace's guide is the stored ImplementationGuide (its canonical, FHIR
+version, packages, `global` profiles), and the guide is handed back as its file (the compiler's
+inverse: on the published IPS, mCODE and CRMI guides the text compiles to the guide again);
+**edit** — `describe ref=<canonical|Type/id> as=source` and `write path=<file> ref=…`: a library as
+its CQL, the guide as `sushi-config.yaml` (the file its commit kept when that states this version),
+the rest as FSH without what the guide gives, and the text compiles to what is stored. Not yet:
+each artifact's own source file kept (one Provenance per source file — comments, RuleSets, VCL and
+FML texts; a stored StructureMap is not written back as FML); a definition staged alone into a
+store-only workspace is not added to the stored guide's list; manifests; the operations.
 
 ## What lives where
 

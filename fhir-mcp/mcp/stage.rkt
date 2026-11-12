@@ -5,7 +5,7 @@
 ;;; errors written as one change, with its trail (trail.rkt). Definitions the workspace's languages
 ;;; wrote enter as CRMI artifacts (artifacts.rkt).
 
-(require racket/list racket/string racket/file racket/match racket/set json fhir/lang/workspace
+(require (only-in fhir/ig-config ig-config-status ig-config-version) racket/list racket/string racket/file racket/match racket/set json fhir/lang/workspace
          (only-in fhir/suggest closest-names)
          (only-in fhir/registry registered-source registered-by)
          (only-in fhir/data-source current-data-source data-source-all data-source-read bundle-resources)
@@ -180,14 +180,23 @@
   (with-hub h
     (lambda ()
       (define given (staged-resources h args))
-      (define guide (workspace-implementation-guide (hub-ws h)))
+      (define guide (hub-guide h))                  ; sushi-config.yaml's, else the stored guide's
       (define read-stored (data-source-read (current-data-source)))
       (define (stored r) (and (hash-ref r 'id #f) (read-stored (hash-ref r 'resourceType) (hash-ref r 'id))))
       ;; the language that wrote an artifact here, #f for any other resource (its url and type, which
       ;; decide it, are the same before and after it is prepared)
       (define (authored r) (authored-language h r args))
-      (when (and (not guide) (ormap authored given))
-        (error 'stage "definitions are staged as part of the workspace's implementation guide, whose version is theirs: write sushi-config.yaml (id, canonical, version) first"))
+      (when (ormap authored given)
+        (define versioned "definitions are staged as part of the workspace's implementation guide, whose version is theirs")
+        (cond
+          [(not guide) (error 'stage (format "~a: write sushi-config.yaml (id, canonical, version) first" versioned))]
+          ;; a released guide is not written under: its next version is drafted from its file
+          [(and (not (guide-file? h)) (member (ig-config-status guide) '("active" "retired")))
+           (error 'stage (format "~a: the guide here is ~a, version ~a, which is ~a — hand it back as its file and raise `version` to draft the next (~a)"
+                                 versioned (hub-guide-label h) (or (ig-config-version guide) "?") (ig-config-status guide)
+                                 (call-text "write" (list (cons 'path ig-file-name)
+                                                          (cons 'ref (regexp-replace #rx" [(]stored[)]$" (hub-guide-label h) ""))))))]
+          [else (void)]))
       (define rs
         (for/list ([r (in-list given)])
           (define language (authored r))

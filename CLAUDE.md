@@ -1752,6 +1752,30 @@ draft guide. First cut of the hub (`mcp/workspace.rkt`, 2,168 lines, 153 definit
 functions that read a stage's FSH source as text (where an Instance and its rules are, the block
 that stages again, the line an error is about) are `mcp/fsh-source.rkt` — pure, with contracts,
 one definition of an entity header (there were three spellings) and the tests they never had.
+Step 1, continued — the store alone, and edit (2026-11-12; `tests/artifacts-test.rkt` 5 and 6):
+- **The guide read from the store** (`hub.rkt` `stored-guide`, `hub-guide`, `hub-guide-label`):
+  with no `sushi-config.yaml` and a store that holds one ImplementationGuide url, its current
+  version (the active one, as for any canonical) is the workspace's guide — read as the text it
+  is handed back as, so file and store state the same facts (`open-workspace #:guide`, fhir/lang/
+  workspace: canonical, FHIR version, dependencies as packages, `global` as profiles; a
+  difference from workspace.yaml is a warning naming "the stored ImplementationGuide"). `check`'s
+  configuration says where the guide is read from (`guide`). A broken file is still the working
+  copy; several stored guides are a warning and none is taken.
+- **edit** (`describe.rkt` `artifact-of`, `artifact-text`, `hub-edit!`): `describe ref=<canonical
+  | Type/id> as=source` answers a stored definition as the text that states it, and `write
+  path=<file> ref=…` writes it as its file (refused under a path of another language): a Library
+  as its CQL (its content), the guide as `sushi-config.yaml` — the file its commit kept when that
+  states this version and package, else fsh's `implementation-guide->config-text` — the rest as
+  FSH without the version, status, experimental flag and publisher the guide gives (stated in the
+  text they would no longer follow it). An archived version is written under its own id
+  (`unarchived`, artifacts.rkt: the id is its url's last step). The text compiles to what is
+  stored: staged unchanged it is "nothing to commit".
+- **Definitions are staged under a guide being drafted**: with only a released (active, retired)
+  stored guide, a definition's stage is refused with the call that hands the guide back.
+Not yet, named: a Provenance per source file (so comments, RuleSets and VCL/FML texts are kept per
+artifact; a stored StructureMap is not written back as FML — fml has no printer); a definition
+staged alone in a store-only workspace is not added to the stored guide's `definition.resource`.
+
 The hub split (2026-11-12): `mcp/workspace.rkt` is now 41 lines — the contracted interface, as
 before (verbs.rkt, mcp-cli.rkt and every test are untouched). Under it, each a module along one of
 the old file's sections, in dependency order (no cycles): `calls.rkt` (how an answer names the next

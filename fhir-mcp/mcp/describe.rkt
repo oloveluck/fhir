@@ -13,10 +13,11 @@
          (only-in fhir/operation operation operation-definition operation-code operation-url operation-levels
                   operation-resource-types)
          "sql.rkt" "trail.rkt" "views.rkt" "fsh-source.rkt" "tools.rkt" "calls.rkt" "json-diff.rkt"
-         "results.rkt" "hub.rkt" "data.rkt" "run.rkt")
+         "results.rkt" "hub.rkt" "data.rkt" "run.rkt" "check.rkt" "artifacts.rkt"
+         (only-in fhir/ig-config parse-ig-config ig-config-version ig-config-id))
 
 ;; Contracted in workspace.rkt; stage reads a history and the definition kinds.
-(provide conformance-kinds (struct-out text-answer) hub-describe describe-history)
+(provide conformance-kinds (struct-out text-answer) hub-describe describe-history hub-edit!)
 
 (define conformance-kinds '("StructureDefinition" "ValueSet" "CodeSystem" "ConceptMap" "StructureMap"))
 
@@ -99,6 +100,8 @@
               ;; CSV only (a `#` note line after it was a junk row in a CSV tool); `source`/`at` are the
               ;; trail's own paths, relative to the workspace — the skill and history's `paths` say so
               csv)]
+        ;; a definition as the text that states it, to edit (`write path=… ref=…` saves it as a file)
+        [(and source? (artifact-of h ref)) => (lambda (r) (text-answer (cdr (artifact-text h r))))]
         ;; the source text a stored resource was written from, read through its newest Provenance —
         ;; no id to copy (`describe ref=Observation/a1/_history as=source`, or the resource itself)
         [(and source? (let ([m (regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)(?:/_history)?$" ref)])
@@ -129,6 +132,86 @@
         [(regexp-match #px"^([A-Z][A-Za-z]+)(?:[.](.+))?$" ref)
          => (lambda (m) (describe-element (cadr m) (caddr m) ref))]
         [else (search-definitions ref)]))))
+
+;; ---- a definition as its text (edit) ------------------------------------------------------------
+;; The store holds each definition as a resource; the languages are how it is read and written. A
+;; stored definition comes back as the text that states it, so a working file deleted, or never
+;; here, is one call away.
+
+;; artifact-of : hub ref -> artifact | #f   the stored definition a canonical (`url`, `url|version`)
+;; or a Type/id names; else the one a workspace file defines
+(define (artifact-of h ref)
+  (define r
+    (match ref
+      [(pregexp #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)$" (list _ type id))
+       (and (member type artifact-types) ((data-source-read (current-data-source)) type id))]
+      [(regexp #rx"://") (or (stored-artifact h ref) (for/or ([k (in-list artifact-types)]) (registered-resource k ref)))]
+      [_ #f]))
+  (and (hash? r) (artifact? r) r))
+
+;; artifact-text : hub artifact -> (cons language string)   the language a definition is written in
+;; and its text: a library's CQL (FHIR keeps it as the library's content), the guide's
+;; sushi-config.yaml (the file a commit kept, when that states this version; else written from the
+;; resource), FSH for the rest (decompiled). An archived version is written under its own id.
+(define (artifact-text h stored)
+  (define r (unarchived stored))
+  (match (hash-ref r 'resourceType #f)
+    ["ImplementationGuide" (cons "ig" (or (kept-guide-text h stored) (guide-text r)))]
+    ["Library" (cond [(library-cql r) => (lambda (cql) (cons "cql" cql))]
+                     [else (cons "fsh" (definition-fsh r))])]
+    ["StructureMap" (error 'describe (format "~a/~a: a stored StructureMap is not written back as FML yet (describe it as JSON, or as=fsh)"
+                                             (hash-ref r 'resourceType) (hash-ref r 'id "?")))]
+    [_ (cons "fsh" (definition-fsh r))]))
+
+;; library-cql : Library -> string | #f   its CQL, when it carries one
+(define (library-cql r)
+  (for/first ([c (in-list (hash-ref r 'content '()))]
+              #:when (and (hash? c) (equal? (hash-ref c 'contentType #f) "text/cql") (string? (hash-ref c 'data #f))))
+    (bytes->string/utf-8 (base64-decode (string->bytes/utf-8 (hash-ref c 'data))) #\?)))
+
+;; definition-fsh : artifact -> string   as FSH, without what its collection gives it (version,
+;; status, experimental flag, publisher — artifacts.rkt): stated in the text, they would no longer
+;; follow the guide
+(define (definition-fsh r)
+  (text-answer-text (as-fsh (for/fold ([r r]) ([k (in-list '(version status experimental publisher))]) (hash-remove r k)))))
+
+(define (guide-text g)
+  ((with-handlers ([exn:fail? (lambda (_) (error 'describe "an implementation guide is written back as sushi-config.yaml by the fsh package"))])
+     (dynamic-require 'fsh/ig 'implementation-guide->config-text))
+   g))
+
+;; kept-guide-text : hub guide -> string | #f   the sushi-config.yaml the newest commit of this
+;; resource kept (its Provenance's source: comments, pages and menus included), when it is the file
+;; of this version of this guide
+(define (kept-guide-text h g)
+  (with-handlers ([exn:fail? (lambda (_) #f)])
+    (define text (kept-source h "ImplementationGuide" (hash-ref g 'id)))
+    (define c (and text (parse-ig-config text)))
+    (and c
+         (equal? (ig-config-version c) (hash-ref g 'version #f))
+         (equal? (ig-config-id c) (or (hash-ref g 'packageId #f) (hash-ref g 'id #f)))
+         text)))
+
+;; kept-source : hub type id -> string | #f   the whole source text the newest commit of a stored
+;; resource kept
+(define (kept-source h type id)
+  (define pv (for/first ([v (in-list (hash-ref (describe-history h type id) 'versions '()))] #:when (hash-ref v 'provenance #f))
+               (hash-ref v 'provenance)))
+  (and pv (text-answer-text (as-source ((data-source-read (current-data-source)) "Provenance" (cadr (regexp-match #rx"^Provenance/(.+)$" pv)))))))
+
+;; hub-edit! : hub path ref -> jsexpr   a stored definition written into the workspace as the file
+;; that states it (write's answer: its problems), under a path of its language
+(define (hub-edit! h p ref)
+  (define-values (language text)
+    (with-hub h (lambda ()
+                  (define r (or (artifact-of h ref)
+                                (error 'write (format "no definition ~a in the store or the workspace (`ref` is a canonical, or the Type/id of a definition)" ref))))
+                  (define lt (artifact-text h r))
+                  (values (car lt) (cdr lt)))))
+  (unless (equal? (workspace-language-of (inside h p)) language)
+    (error 'write (format "~a is written as ~a" ref
+                          (match language ["ig" (format "the workspace's ~a" ig-file-name)] ["cql" "CQL: a .cql file"] [_ "FSH: a .fsh file"]))))
+  (hash-set (hub-write! h p text) 'from ref))
 
 ;; ---- history -----------------------------------------------------------------------------------
 ;; describe-history : hub type id -> jsexpr   every version of a stored resource, newest first: when,

@@ -91,13 +91,15 @@
   ;; with-guide : ws-config stated-keys ig-config -> (values ws-config warnings)   the guide's
   ;; canonical, FHIR version, dependencies (as packages) and global profiles (as constraints) over
   ;; workspace.yaml's; `stated-keys` are the keys workspace.yaml itself gives
-  [with-guide (-> ws-config? (listof string?) ig-config? (values ws-config? (listof string?)))]
+  [with-guide (->* (ws-config? (listof string?) ig-config?) (string?) (values ws-config? (listof string?)))]
   [default-ws-config ws-config?]
   ;; read-workspace-config : path -> (values ws-config (listof string))   the config and its warnings
   [read-workspace-config (-> path-string? (values ws-config? (listof string?)))]
   [parse-workspace-config (-> string? (values ws-config? (listof string?)))]
-  ;; open-workspace : dir -> (values workspace warnings)   workspace.yaml read when present
-  [open-workspace (-> path-string? (values workspace? (listof string?)))]
+  ;; open-workspace : dir [#:guide stored] -> (values workspace warnings)   workspace.yaml read when
+  ;; present, and the guide's facts: sushi-config.yaml's — else those of `stored`, the workspace's
+  ;; ImplementationGuide as its data holds it (the file is the working copy of that resource)
+  [open-workspace (->* (path-string?) (#:guide (or/c ig-config? #f)) (values workspace? (listof string?)))]
   ;; workspace-files : workspace -> (listof path)   every file of a workspace language, sorted;
   ;; the data directory (when inside the workspace) and hidden directories left out
   [workspace-files (-> workspace? (listof path?))]
@@ -248,12 +250,12 @@
 ;; ---- the implementation guide's facts ---------------------------------------------------------
 ;; with-guide : ws-config stated-keys ig-config -> (values ws-config warnings)
 ;; A dependency `id: version` is the package name `<id>-<version>`.
-(define (with-guide c stated guide)
+(define (with-guide c stated guide [named "sushi-config.yaml"])
   (define canonical (let ([u (ig-config-canonical guide)]) (and u (regexp-replace #rx"/+$" u ""))))
   (define version (ig-config-fhir-version guide))
   (define (differs key mine theirs)
     (if (and theirs (member key stated) (not (equal? mine theirs)))
-        (list (format "workspace.yaml: ~a ~a differs from sushi-config.yaml's ~a, which is used" key mine theirs))
+        (list (format "workspace.yaml: ~a ~a differs from ~a's ~a, which is used" key mine named theirs))
         '()))
   (values (struct-copy ws-config c
                        [canonical (or canonical (ws-config-canonical c))]
@@ -265,7 +267,7 @@
                        [profiles (for/fold ([h (ws-config-profiles c)]) ([g (in-list (reverse (ig-config-globals guide)))])
                                    (hash-update h (car g) (lambda (l) (remove-duplicates (cons (cdr g) l))) '()))])
           (append (if (and version (not (regexp-match? #rx"^[45][.]" version)))
-                      (list (format "sushi-config.yaml: fhirVersion ~a is not one this workspace runs (4.0.1 or 5.0.0)" version))
+                      (list (format "~a: fhirVersion ~a is not one this workspace runs (4.0.1 or 5.0.0)" named version))
                       '())
                   (differs "canonical" (ws-config-canonical c) canonical)
                   (differs "fhirVersion" (ws-config-fhir-version c) version))))
@@ -277,7 +279,7 @@
   (define f (build-path (workspace-root ws) ig-file-name))
   (and (file-exists? f) (let ([g (read-guide f)]) (and (ig-config? g) g))))
 
-(define (open-workspace dir)
+(define (open-workspace dir #:guide [stored #f])
   (define root (simplify-path (path->complete-path dir)))
   (define f (build-path root "workspace.yaml"))
   (define ig (build-path root ig-file-name))
@@ -292,6 +294,8 @@
   (cond [(ig-config? guide) (let-values ([(c* more) (with-guide c stated guide)])
                               (values (workspace root c*) (append warnings more)))]
         [(string? guide) (values (workspace root c) (append warnings (list guide)))]
+        [stored (let-values ([(c* more) (with-guide c stated stored "the stored ImplementationGuide")])
+                  (values (workspace root c*) (append warnings more)))]
         [else (values (workspace root c) warnings)]))
 
 (define (workspace-r4? ws) (regexp-match? #rx"^4[.]" (ws-config-fhir-version (workspace-config ws))))
@@ -428,7 +432,16 @@
     (check-equal? (ws-config-canonical (workspace-config wi)) "http://x")
     (check-equal? (length warnings) 1)
     (check-false (workspace-implementation-guide wi)))
+  ;; a broken file is still the working copy: a stored guide does not answer for it
+  (let-values ([(wi _w) (open-workspace dir #:guide (parse-ig-config "canonical: http://stored.example\nfhirVersion: 4.0.1\n"))])
+    (check-equal? (ws-config-canonical (workspace-config wi)) "http://x"))
   (delete-file (build-path dir "sushi-config.yaml"))
+  ;; no file: the guide the data holds gives the facts, and a difference names it
+  (let-values ([(wi warnings) (open-workspace dir #:guide (parse-ig-config (string-append "canonical: http://stored.example\nfhirVersion: 4.0.1\n"
+                                                                                         "global:\n  Observation: http://stored.example/StructureDefinition/lab\n")))])
+    (check-equal? (ws-config-canonical (workspace-config wi)) "http://stored.example")
+    (check-equal? (hash-ref (ws-config-profiles (workspace-config wi)) "Observation") '("http://stored.example/StructureDefinition/lab"))
+    (check-regexp-match #rx"differs from the stored ImplementationGuide's http://stored.example" (car warnings)))
   ;; `data: data/`, as the guide and `fhir-mcp init` write it, is the same directory (with the slash
   ;; it was not left out: every data file counted as one of the workspace's)
   (with-output-to-file (build-path dir "workspace.yaml") #:exists 'truncate (lambda () (display "data: data/\ncanonical: http://x\n")))

@@ -27,12 +27,13 @@
          (only-in fhir/rest-data-source rest->data-source rest-url?)
          (only-in fhir/model/registry pin-registered-types! unpin-registered-types!)
          (only-in fhir/sd/sd-index current-sd-packages)
-         (only-in fhir/operation apply-operation add-operation-loader!) "artifacts.rkt" "search-index.rkt"
+         (only-in fhir/operation apply-operation add-operation-loader!) (only-in fhir/ig-config parse-ig-config)
+         (only-in db sqlite3-connect query-list disconnect) "artifacts.rkt" "search-index.rkt"
          "tools.rkt" "calls.rkt" "results.rkt")
 
 ;; For the verbs' modules; what other code calls is workspace.rkt, where the contracts are.
 (provide (struct-out hub) (struct-out stored) (struct-out change) (struct-out staged) hub-root open-hub
-         configure! store-file? data-store-path open-store with-hub path-string rel from-here at-root?
+         configure! store-file? data-store-path open-store with-hub guide-file? path-string rel from-here at-root?
          inside argument-source shown-path path-from-here refresh! problems-of problem-json count-severity
          state-dir saved-names next-number save-state! staged->jsexpr store! result-of result-of* stage-of
          result-uri result-listing hub-result-uris hub-read-result pending-stage-ids)
@@ -41,7 +42,10 @@
              data-override extra-packages
              cache                    ; language -> Compiled (below): what its files were found to define
              [diagnostics #:mutable]  ; every problem of the last refresh
-             results stages))         ; uri -> Stored ; id -> Staged (in memory; saved in .fhir-mcp/ too)
+             results stages           ; uri -> Stored ; id -> Staged (in memory; saved in .fhir-mcp/ too)
+             ;; the workspace's implementation guide (fhir/ig-config) and where it is read from:
+             ;; sushi-config.yaml, else the ImplementationGuide the store holds; #f without one
+             [guide #:mutable] [guide-label #:mutable]))
 (struct stored (language path text options result))
 (struct change (resource action paths errors))
 (struct staged (changes source))           ; a stage: its changes, and what they were made from (trail.rkt's Source)
@@ -50,22 +54,31 @@
 
 ;; ---- opening, context --------------------------------------------------------------------------
 (define (open-hub dir #:data [data-override #f] #:packages [extra '()])
-  (define h (hub #f '() '() empty-data-source "none" data-override extra (make-hash) '() (make-hash) (make-hash)))
+  (define h (hub #f '() '() empty-data-source "none" data-override extra (make-hash) '() (make-hash) (make-hash) #f #f))
   (configure! h dir)
   ;; the operation modules load the first time an operation is looked up: a call that needs none
   ;; (SQL, search, a result) does not pay for them
   (add-operation-loader! load-operations!)
   h)
 
-;; configure! : hub dir -> void   read workspace.yaml, find the packages, open the data source
+;; configure! : hub dir -> void   read workspace.yaml and the guide, find the packages, open the
+;; data source
 (define (configure! h dir)
-  (define-values (ws0 warnings) (open-workspace dir))
-  (define ws (if (hub-data-override h)
-                 (workspace (workspace-root ws0) (struct-copy ws-config (workspace-config ws0) [data (hub-data-override h)]))
-                 ws0))
-  (define ws* (if (null? (hub-extra-packages h)) ws
-                  (workspace (workspace-root ws) (struct-copy ws-config (workspace-config ws)
-                                                              [packages (append (ws-config-packages (workspace-config ws)) (hub-extra-packages h))]))))
+  ;; with-overrides : workspace -> workspace   the data and packages this hub was opened with
+  (define (with-overrides ws)
+    (define c (workspace-config ws))
+    (workspace (workspace-root ws)
+               (struct-copy ws-config c
+                            [data (or (hub-data-override h) (ws-config-data c))]
+                            [packages (append (ws-config-packages c) (hub-extra-packages h))])))
+  (define-values (file-ws file-warnings) (open-workspace dir))
+  ;; no sushi-config.yaml: the guide is the ImplementationGuide the store holds
+  (define-values (stored stored-label stored-warnings) (stored-guide (with-overrides file-ws)))
+  (define-values (ws0 warnings) (if stored (open-workspace dir #:guide stored) (values file-ws (append file-warnings stored-warnings))))
+  (define ws* (with-overrides ws0))
+  (define file-guide (workspace-implementation-guide ws*))
+  (set-hub-guide! h (or file-guide stored))
+  (set-hub-guide-label! h (cond [file-guide ig-file-name] [stored stored-label] [else #f]))
   (define-values (pkgs missing) (workspace-packages ws*))
   (define core (workspace-core-package ws*))
   ;; the workspace's own tower, pinned: a language loaded later that brings another (sql-on-fhir's
@@ -83,6 +96,34 @@
                                (if core '() (list "no core package for this FHIR version: install fhir-spec"))
                                data-warnings))
   (hash-clear! (hub-cache h)))
+
+;; stored-guide : workspace -> (values ig-config|#f label|#f warnings)   the workspace's
+;; implementation guide as its store holds it, for a workspace with no sushi-config.yaml: the file
+;; is a working copy and may be deleted; the ImplementationGuide a commit stored is the guide. It is
+;; read as the text it is handed back as (fsh/ig), so the file and the store state the same facts.
+;; Read with SQL: the store is not open yet, and what the guide says decides how it is opened.
+(define (stored-guide ws)
+  (define d (ws-config-data (workspace-config ws)))
+  (define p (and (store-file? d) (not (rest-url? d)) (simplify-path (path->complete-path d (workspace-root ws)))))
+  (define guides
+    (if (and p (file-exists? p) (not (file-exists? (build-path (workspace-root ws) ig-file-name))))
+        (with-handlers ([exn:fail? (lambda (_) '())])
+          (define c (sqlite3-connect #:database p #:mode 'read-only))
+          (begin0 (current-versions
+                   (map string->jsexpr (query-list c "SELECT json(resource) FROM fhir_resources WHERE resource_type = 'ImplementationGuide'")))
+                  (disconnect c)))
+        '()))
+  (define (reference g) (format "ImplementationGuide/~a" (hash-ref g 'id "?")))
+  (match guides
+    ['() (values #f #f '())]
+    [(list g)
+     (with-handlers ([exn:fail? (lambda (e) (values #f #f (list (format "the stored ~a is not read as the workspace's guide: ~a" (reference g) (exn-message e)))))])
+       (values (parse-ig-config ((dynamic-require 'fsh/ig 'implementation-guide->config-text) (unarchived g)))
+               (format "~a (stored)" (reference g))
+               '()))]
+    [_ (values #f #f
+               (list (format "the store holds ~a implementation guides (~a): none is taken as the workspace's — hand one back as its file (write path=sushi-config.yaml ref=ImplementationGuide/<id>)"
+                             (length guides) (string-join (map reference guides) ", "))))]))
 
 ;; store-file? : data-setting -> boolean   a SQLite FHIR store (fhir-server's): `data: fhir.db`
 (define (store-file? d) (and (string? d) (regexp-match? #rx"[.](db|sqlite|sqlite3)$" d)))
@@ -151,6 +192,9 @@
                             (data-source-of-patient ds)
                             (let ([search (data-source-search ds)])
                               (and search (lambda (type params) (view type (search type params)))))))))
+
+;; guide-file? : hub -> boolean   the guide is the workspace's file, the one being written
+(define (guide-file? h) (equal? (hub-guide-label h) ig-file-name))
 
 (define (with-hub h thunk)
   (parameterize ([current-sd-packages (hub-packages h)]

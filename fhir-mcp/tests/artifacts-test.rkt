@@ -13,9 +13,13 @@
 ;;;      it does not go back to draft;
 ;;;   4. another version begins: the released one is kept as an instance of its own, and a stored
 ;;;      example the new rule no longer accepts refuses the stage;
-;;;   5. with the working files gone the store answers: data is held to the ACTIVE version, a
-;;;      canonical means it, `|version` another, and the stored artifacts validate;
-;;;   6. definitions need a guide; `definitions:=true` stages one file's own;
+;;;   5. with the working files gone the store answers: the guide is the stored ImplementationGuide
+;;;      (its canonical, its `global` profiles); data is held to the ACTIVE version, a canonical
+;;;      means it, `|version` another; the stored artifacts validate; each comes back as the text
+;;;      that states it (`as=source`);
+;;;   6. edit: `write path=… ref=…` writes a stored definition as its file, and the text compiles
+;;;      to what is stored; definitions are staged under a guide being drafted, `definitions:=true`
+;;;      stages one file's own;
 ;;;   7. the authoring rules are for what the workspace's languages wrote: a definition given as
 ;;;      JSON (somebody's published artifact) is staged as it is, with or without a guide.
 
@@ -135,8 +139,6 @@
 
 ;; ---- 5. the store alone ----------------------------------------------------------------------
 (for ([f '("sushi-config.yaml" "lab.fsh" "A1c.cql" "gender.vcl")]) (delete-file (build-path dir "ws" f)))
-(with-output-to-file (build-path dir "ws" "workspace.yaml") #:exists 'append
-  (lambda () (display "profiles:\n  Observation: http://example.org/clinic/StructureDefinition/lab\n")))
 (save "nosubject.fsh" "Instance: a1c-9" "InstanceOf: Observation" "* status = #final" "* code = http://loinc.org#4548-4" "* valueQuantity = 8.1 '%'")
 (save "nodate.fsh" "Instance: a1c-8" "InstanceOf: Observation" "* status = #final" "* code = http://loinc.org#4548-4"
       "* subject = Reference(Patient/ann)" "* valueQuantity = 8.1 '%'")
@@ -146,7 +148,12 @@
                 "describe ref=http://example.org/clinic/StructureDefinition/lab|0.2.0"
                 "!describe ref=http://example.org/clinic/StructureDefinition/lab|9.9.9"
                 "describe ref=StructureDefinition/lab as=fsh"
-                "check data:=true")])
+                "check data:=true"
+                "check"
+                "describe ref=ImplementationGuide/example.clinic as=source"
+                "describe ref=ImplementationGuide/example.clinic-0.1.0 as=source"
+                "describe ref=Library/A1c as=source"
+                "describe ref=http://example.org/clinic/StructureDefinition/lab as=source")])
   ;; the stored profile still holds the data
   (check-regexp-match #rx"Observation.subject: minimum required = 1, but found 0" (list-ref a 0))
   ;; and it is the ACTIVE version that does (the draft 0.2.0 would want a date)
@@ -161,13 +168,49 @@
   ;; everything stored validates, the artifacts included
   (check-regexp-match #rx"\"StructureDefinition\":\\{\"checked\":2,\"invalid\":0\\}" (list-ref a 6))
   (check-regexp-match #rx"\"ImplementationGuide\":\\{\"checked\":2,\"invalid\":0\\}" (list-ref a 6))
-  (check-regexp-match #rx"\"invalid\":0,\"problems\":\\[\\]" (list-ref a 6)))
+  (check-regexp-match #rx"\"invalid\":0,\"problems\":\\[\\]" (list-ref a 6))
+  ;; the guide is the stored one — its `global` still holds the data, with no file and nothing in
+  ;; workspace.yaml — and the configuration says where its facts are read from
+  (check-regexp-match #rx"\"canonical\":\"http://example.org/clinic\"" (list-ref a 7))
+  (check-regexp-match #rx"\"guide\":\"ImplementationGuide/example.clinic-0.1.0 [(]stored[)]\"" (list-ref a 7))
+  ;; each definition comes back as the text that states it: the guide being drafted as the file
+  ;; its commit kept (the author's own lines, in their order) …
+  (check-regexp-match #rx"\nid: example.clinic\ncanonical: http://example.org/clinic\ntitle: Clinic Guide\nversion: 0.2.0\n" (list-ref a 8))
+  ;; … the released one written from the resource, under its own id, not the archive's
+  (check-regexp-match #rx"\nid: example.clinic\n.*\nstatus: active\nversion: 0.1.0\n.*global:\n  Observation: http://example.org/clinic/StructureDefinition/lab\n" (list-ref a 9))
+  ;; a library as its CQL, a profile as FSH without what its guide gives it (version, status, publisher)
+  (check-regexp-match #rx"\n/[*] The latest HbA1c of each patient. [*]/\nlibrary A1c version '0.1.0'\n" (list-ref a 10))
+  (check-regexp-match #rx"\nProfile: Lab\nParent: Observation\nId: lab\nTitle: \"A lab result\"\nDescription: \"A laboratory result of a known patient.\"\n[*] subject 1[.][.]" (list-ref a 11))
+  (check-false (regexp-match? #rx"version|status|publisher" (list-ref a 11))))
 
-;; ---- 6. definitions need a guide; one file's own ---------------------------------------------
+;; ---- 6. edit: a definition out of the store, as its file; definitions need a guide being drafted
 (save "p.fsh" "Profile: Vital" "Parent: Observation" "Id: vital" "Title: \"A vital sign\"" "Description: \"A vital sign.\"" "* subject 1..1")
-(let ([a (batch "write path=p.fsh text=@p.fsh" "!stage path=p.fsh definitions:=true" "!stage path=p.fsh")])
-  (check-regexp-match #rx"definitions are staged as part of the workspace's implementation guide, whose version is theirs: write sushi-config.yaml" (list-ref a 1))
-  (check-regexp-match #rx"nothing to stage|defines no instance" (list-ref a 2)))
+(let ([a (batch "write path=p.fsh text=@p.fsh"
+                "!stage path=p.fsh definitions:=true"
+                "!stage path=p.fsh"
+                ;; the profile being drafted, and the guide, back as their files
+                "write path=lab.fsh ref=http://example.org/clinic/StructureDefinition/lab|0.2.0"
+                "!write path=lab.cql ref=StructureDefinition/lab"
+                "!write path=x.fsh ref=http://example.org/clinic/StructureDefinition/nope"
+                "write path=sushi-config.yaml ref=ImplementationGuide/example.clinic"
+                "stage path=lab.fsh definitions:=true keep:=false"
+                "stage path=p.fsh definitions:=true keep:=false")])
+  ;; the stored guide is released: nothing is defined under it
+  (check-regexp-match #rx"definitions are staged as part of the workspace's implementation guide, whose version is theirs: the guide here is ImplementationGuide/example.clinic-0.1.0 [(]stored[)], version 0.1.0, which is active — hand it back as its file and raise `version` to draft the next [(]write path=sushi-config.yaml ref=ImplementationGuide/example.clinic-0.1.0[)]"
+                      (list-ref a 1))
+  (check-regexp-match #rx"nothing to stage|defines no instance" (list-ref a 2))
+  ;; the file written is the stored definition's text: no problems, and where it came from
+  (check-regexp-match #rx"\"from\":\"http://example.org/clinic/StructureDefinition/lab[|]0.2.0\",\"language\":\"fsh\",\"path\":\"lab.fsh\",\"problems\":\\[\\]" (list-ref a 3))
+  (check-regexp-match #rx"[*] effective\\[x\\] 1[.][.]" (file->string (build-path dir "ws" "lab.fsh")))
+  (check-regexp-match #rx"StructureDefinition/lab is written as FSH: a .fsh file" (list-ref a 4))
+  (check-regexp-match #rx"no definition http://example.org/clinic/StructureDefinition/nope in the store or the workspace" (list-ref a 5))
+  ;; the guide's file is the working copy again: the workspace reads it, not the store
+  (check-regexp-match #rx"\"guide\":\"sushi-config.yaml\"" (list-ref a 6))
+  (check-regexp-match #rx"version: 0.2.0" (file->string (build-path dir "ws" "sushi-config.yaml")))
+  ;; the round trip: the text compiles to the stored definition, so there is nothing to stage …
+  (check-regexp-match #rx"nothing to commit: the 1 resource[(]s[)] are stored as they are" (list-ref a 7))
+  ;; … and a new definition is staged under the draft
+  (check-regexp-match #rx"\"action\":\"would create\",\"resource\":\"StructureDefinition/vital\"\\}\\],\"errors\":0" (list-ref a 8)))
 (guide #:version "0.3.0")
 (let ([a (batch "write path=sushi-config.yaml text=@guide.yaml" "stage path=p.fsh definitions:=true keep:=false")])
   (check-regexp-match #rx"\"action\":\"would create\",\"resource\":\"StructureDefinition/vital\"\\}\\],\"errors\":0" (list-ref a 1)))

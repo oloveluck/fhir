@@ -110,10 +110,14 @@
 
 (define (config-json h)
   (define c (workspace-config (hub-ws h)))
-  (hasheq 'fhirVersion (ws-config-fhir-version c) 'canonical (ws-config-canonical c)
-          'packages (map path-string (hub-packages h)) 'data (hub-data-label h)
-          'parameters (for/hasheq ([(k v) (in-hash (ws-config-parameters c))]) (values (string->symbol k) v))
-          'warnings (hub-warnings h)))
+  (define base
+    (hasheq 'fhirVersion (ws-config-fhir-version c) 'canonical (ws-config-canonical c)
+            'packages (map path-string (hub-packages h)) 'data (hub-data-label h)
+            'parameters (for/hasheq ([(k v) (in-hash (ws-config-parameters c))]) (values (string->symbol k) v))
+            'warnings (hub-warnings h)))
+  ;; where the guide's facts (canonical, FHIR version, packages, profiles) are read from, when
+  ;; there is a guide: its file, or the ImplementationGuide the store holds
+  (if (hub-guide-label h) (hash-set base 'guide (hub-guide-label h)) base))
 
 ;; ---- check -------------------------------------------------------------------------------------
 (define (hub-check h paths #:data? [data? #f])

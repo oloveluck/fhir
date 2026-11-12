@@ -45,6 +45,10 @@
   ;; as an instance of its own, when the staged one begins another version under the same id
   [archive-of (-> (or/c hash? #f) hash? (or/c hash? #f))]
   [archival-id (-> string? string? string?)]
+  ;; unarchived : artifact -> artifact   an archived instance under the id it was written with: its
+  ;; url's last step, when the id is that step and the version (the text of a released version is
+  ;; the text of the artifact, not of its place in the store)
+  [unarchived (-> hash? hash?)]
   ;; shareable-profile : type -> url   CRMI's Shareable profile of a type
   [shareable-profile (-> string? string?)]
   ;; shareable-minimum-errors : artifact -> (listof string)   the Shareable minimum checked directly
@@ -145,6 +149,13 @@
 (define (archival-id id version)
   (define s (string-append id "-" (regexp-replace* #rx"[^A-Za-z0-9.-]" version "-")))
   (if (> (string-length s) 64) (substring s (- (string-length s) 64)) s))
+
+(define (unarchived r)
+  (define id (hash-ref r 'id #f))
+  (define name (let ([u (hash-ref r 'url #f)]) (and (string? u) (last (regexp-split #rx"/" u)))))
+  (if (and (string? id) name (version-of r) (not (equal? id name)) (equal? id (archival-id name (version-of r))))
+      (hash-set r 'id name)
+      r))
 
 (define (archive-of stored staged)
   (and stored
@@ -257,6 +268,11 @@
   (check-false (archive-of (v "active" "0.1.0") (v "active" "0.1.0")))
   (check-false (archive-of #f (v "draft" "0.1.0")))
   (check-equal? (archival-id "lab" "1.0.0+build 7") "lab-1.0.0-build-7")
+  ;; an archive under its own id again; any other id is left (one that merely ends in a version too)
+  (let ([archived (archive-of (v "active" "0.1.0") (v "draft" "0.2.0"))])
+    (check-equal? (hash-ref (unarchived archived) 'id) (hash-ref (v "active" "0.1.0") 'id))
+    (check-equal? (unarchived (v "active" "0.1.0")) (v "active" "0.1.0"))
+    (check-equal? (hash-ref (unarchived (hash-set* archived 'url "http://x/StructureDefinition/other")) 'id) (hash-ref archived 'id)))
   (check-equal? (string-length (archival-id (make-string 70 #\a) "1.0.0")) 64)
   ;; Shareable
   (check-equal? (shareable-profile "StructureDefinition") "http://hl7.org/fhir/uv/crmi/StructureDefinition/crmi-shareablestructuredefinition")

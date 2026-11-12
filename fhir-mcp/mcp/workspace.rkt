@@ -5,6 +5,7 @@
 ;;; A Hub (hub.rkt) holds one workspace (fhir/lang/workspace) and the context its programs run in;
 ;;; each verb is a module over it:
 ;;;   check.rkt     write, check       a file written, its problems in the same answer; files and data checked
+;;;                                    (write with `ref`: a stored definition as its file — describe.rkt's hub-edit!)
 ;;;   run.rkt       run, query, explain  a file or ad-hoc text against the data, the result kept (result://rN)
 ;;;   describe.rkt  describe           results, resources, history, definitions, elements, operations, stages
 ;;;   apply.rkt     apply              any operation, by reference
@@ -29,6 +30,8 @@
   [hub-root        (-> hub? path?)]
   [with-hub        (-> hub? (-> any) any)]
   [hub-write!      (->* (hub? string? string?) (#:enforce? any/c #:from (or/c #f string?)) jsexpr?)]
+  ;; hub-edit! : hub path ref -> jsexpr   a stored definition written as the file that states it
+  [hub-edit!       (-> hub? string? string? jsexpr?)]
   [hub-check       (->* (hub? (listof string?)) (#:data? boolean?) jsexpr?)]
   [hub-run         (-> hub? string? hash? jsexpr?)]
   [hub-query       (-> hub? string? string? hash? jsexpr?)]
