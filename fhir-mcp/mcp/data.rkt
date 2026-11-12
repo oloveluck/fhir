@@ -3,12 +3,12 @@
 ;;; data.rkt — the workspace's data as the hub reads it whole, holds a resource to the workspace's
 ;;; rules, and writes the trail beside it.
 
-(require racket/list json fhir/lang/workspace (only-in fhir/data-source data-source-all bundle-resources)
+(require racket/match (only-in fhir/registry registered-by) (only-in fhir/data-source data-source-read) racket/list json fhir/lang/workspace (only-in fhir/data-source data-source-all bundle-resources)
          (only-in fhir/rest-data-source rest-url?) (only-in db sqlite3-connect query-list disconnect)
          (only-in fhir/operation apply-operation exn:fail:operation?) "artifacts.rkt" "trail.rkt" "hub.rkt")
 
 ;; For the verbs' modules (workspace.rkt is the contracted interface).
-(provide data-resources all-data stored-artifact with-profiles validation-errors validation-issues
+(provide data-resources all-data stored-artifact with-manifest with-profiles validation-errors validation-issues
          write-trail! audited now-instant new-id)
 
 ;; ---- the data, read whole ----------------------------------------------------------------------
@@ -45,7 +45,29 @@
     (define mine (filter (lambda (r) (equal? (hash-ref r 'url #f) url)) ((data-source-all (hub-data h)) type)))
     (cond [(null? mine) #f]
           [version (findf (lambda (r) (equal? (hash-ref r 'version #f) version)) mine)]
-          [else (car (current-versions mine))])))
+          [else (car (versions-in-force (hub-manifest h) mine))])))
+
+;; manifest-argument : hub any -> manifest | #f   the pins a call names (`manifest=`): a Parameters
+;; resource as JSON (an object, or its text: `manifest=@pins.json`), or `Parameters/<id>` — one
+;; the workspace defines, else a stored one
+(define (manifest-argument h v)
+  (define (parameters? x) (and (hash? x) (equal? (hash-ref x 'resourceType #f) "Parameters")))
+  (define (refuse) (error 'manifest "a manifest is a Parameters resource of pinned versions: its JSON (manifest=@pins.json), or Parameters/<id> as the workspace defines or stores it"))
+  (match v
+    [(or #f 'null) #f]
+    [(? parameters?) v]
+    [(pregexp #px"^Parameters/([A-Za-z0-9.-]+)$" (list _ id))
+     (or (findf (lambda (r) (and (parameters? r) (equal? (hash-ref r 'id #f) id)))
+                (registered-by (lambda (source) (and (pair? source) (eq? (car source) 'workspace)))))
+         ((data-source-read (hub-data h)) "Parameters" id)
+         (error 'manifest (format "no ~a in the workspace or the data" v)))]
+    [(? string?) (let ([js (with-handlers ([exn:fail? (lambda (_) #f)]) (string->jsexpr v))]) (if (parameters? js) js (refuse)))]
+    [_ (refuse)]))
+
+;; with-manifest : hub any thunk -> value   the call made under the pins it names, when it names any
+(define (with-manifest h v thunk)
+  (define manifest (manifest-argument h v))
+  (if manifest (parameterize ([current-manifest manifest]) (thunk)) (thunk)))
 
 ;; ---- a resource held to the workspace's rules --------------------------------------------------
 ;; with-profiles : hub resource -> resource   the workspace's profiles for its type (workspace.yaml

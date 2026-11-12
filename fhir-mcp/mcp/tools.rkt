@@ -44,7 +44,7 @@
 ;; the modules that register operations, each loaded when its package is installed
 (define operation-modules
   '(fhir/sd/operations fhir/conformance/operations fhir/terminology/operations
-    fml/operations cql/measure sql-on-fhir/operations))
+    fml/operations cql/measure sql-on-fhir/operations fhir/mcp/crmi))
 (define (load-operations!)
   (for/list ([m (in-list operation-modules)]
              #:when (with-handlers ([exn:fail? (lambda (_) #f)]) (dynamic-require m #f) #t))

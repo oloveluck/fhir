@@ -35,6 +35,10 @@
   ;; ig-config-experimental : -> #t | #f | 'unstated
   [ig-config-experimental (-> ig-config? (or/c boolean? 'unstated))]
   [ig-config-fhir-versions (-> ig-config? (listof string?))]
+  ;; ig-config-expansion-parameters : -> id | #f   the Parameters resource the guide names as its
+  ;; expansion parameters — its pinned versions (CRMI's manifest parameters) — as the IG Publisher
+  ;; is told: `parameters: path-expansion-params: <path>/Parameters-<id>.json`
+  [ig-config-expansion-parameters (-> ig-config? (or/c string? #f))]
   [read-ig-config      (-> path-string? ig-config?)]
   ;; parse-ig-config : text -> ig-config   (raises exn:fail:yaml on what is not the YAML read here)
   [parse-ig-config     (-> string? ig-config?)]
@@ -105,6 +109,12 @@
     [(? list? l) (filter string? l)]
     [_ '()]))
 
+(define (ig-config-expansion-parameters c)
+  (match (yref (yref (ig-config-yaml c) "parameters") "path-expansion-params")
+    [(or (? string? path) (cons (? string? path) _))
+     (match (regexp-match #px"(?:^|/)Parameters-([A-Za-z0-9.-]+)[.]json$" path) [(list _ id) id] [_ #f])]
+    [_ #f]))
+
 ;; dependency-packages : (listof Dependency) -> (values (listof tgz-path) (listof missing Dependency))
 (define (dependency-packages deps)
   (for/fold ([found '()] [missing '()] #:result (values (reverse found) (reverse missing)))
@@ -166,6 +176,11 @@
     (lambda () (display "canonical: http://hl7.org/fhir/us/mcode\nfhirVersion: 4.0.1\ndependencies:\n  hl7.fhir.uv.genomics-reporting: 2.0.0\n#  hl7.fhir.uv.extensions: 5.1.0-cibuild\n  hl7.fhir.us.core: \n    version: 6.1.0\n    id: hl7fhiruscore\nextension:\n  - url: x\n")))
   (define c (read-ig-config f))
   (check-equal? (ig-config-canonical c) "http://hl7.org/fhir/us/mcode")
+  ;; the expansion parameters, as the IG Publisher is told where they are
+  (check-false (ig-config-expansion-parameters c))
+  (check-equal? (ig-config-expansion-parameters (parse-ig-config "parameters:\n  path-expansion-params: ../../input/resources/Parameters-manifest.json\n")) "manifest")
+  (check-equal? (ig-config-expansion-parameters (parse-ig-config "parameters:\n  path-expansion-params: Parameters-pins.json\n")) "pins")
+  (check-false (ig-config-expansion-parameters (parse-ig-config "parameters:\n  path-expansion-params: exp.json\n")))
   (check-equal? (ig-config-fhir-version c) "4.0.1")
   (check-equal? (ig-config-dependencies c) '(("hl7.fhir.uv.genomics-reporting" . "2.0.0") ("hl7.fhir.us.core" . "6.1.0")))
   (check-equal? (ig-config-depends-on c)

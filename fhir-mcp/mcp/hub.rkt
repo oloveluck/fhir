@@ -23,19 +23,19 @@
          (only-in fhir/serialize/json-position json-path-location)
          (only-in fhir/diagnostic diagnostic loc loc-source loc-line loc-column diagnostic-loc diagnostic-severity
                   diagnostic-message)
-         (only-in fhir/registry register-resources! unregister-source! registered-source)
+         (only-in fhir/registry register-resources! unregister-source! registered-source registered-by)
          (only-in fhir/data-source current-data-source data-source data-source-all data-source-read data-source-search
                   data-source-of-patient directory->data-source resources->data-source empty-data-source bundle-resources)
          (only-in fhir/rest-data-source rest->data-source rest-url?)
          (only-in fhir/model/registry pin-registered-types! unpin-registered-types!)
          (only-in fhir/sd/sd-index current-sd-packages)
-         (only-in fhir/operation apply-operation add-operation-loader!) (only-in fhir/ig-config parse-ig-config)
+         (only-in fhir/operation apply-operation add-operation-loader!) (only-in fhir/ig-config parse-ig-config ig-config-expansion-parameters)
          (only-in db sqlite3-connect query-list disconnect) "artifacts.rkt" "search-index.rkt"
          "tools.rkt" "calls.rkt" "results.rkt")
 
 ;; For the verbs' modules; what other code calls is workspace.rkt, where the contracts are.
 (provide (struct-out hub) (struct-out stored) (struct-out change) (struct-out staged) hub-root open-hub
-         configure! store-file? data-store-path open-store with-hub guide-file? path-string rel from-here at-root?
+         configure! store-file? data-store-path open-store with-hub guide-file? current-manifest current-repository hub-manifest path-string rel from-here at-root?
          inside argument-source shown-path path-from-here files-by-language refresh! problems-of problem-json count-severity
          state-dir saved-names next-number save-state! staged->jsexpr store! result-of result-of* stage-of
          result-uri result-listing hub-result-uris hub-read-result pending-stage-ids)
@@ -47,7 +47,10 @@
              results stages           ; uri -> Stored ; id -> Staged (in memory; saved in .fhir-mcp/ too)
              ;; the workspace's implementation guide (fhir/ig-config) and where it is read from:
              ;; sushi-config.yaml, else the ImplementationGuide the store holds; #f without one
-             [guide #:mutable] [guide-label #:mutable]))
+             [guide #:mutable] [guide-label #:mutable]
+             ;; the pins a stored guide carries (its contained manifest parameters), #f otherwise: a
+             ;; guide file's are a resource the workspace defines (hub-manifest)
+             [stored-manifest #:mutable]))
 (struct stored (language path text options result))
 (struct change (resource action paths errors source))
 (struct staged (changes source))           ; a stage: its changes, and what they were made from (trail.rkt's Source)
@@ -56,7 +59,7 @@
 
 ;; ---- opening, context --------------------------------------------------------------------------
 (define (open-hub dir #:data [data-override #f] #:packages [extra '()])
-  (define h (hub #f '() '() empty-data-source "none" data-override extra (make-hash) '() (make-hash) (make-hash) #f #f))
+  (define h (hub #f '() '() empty-data-source "none" data-override extra (make-hash) '() (make-hash) (make-hash) #f #f #f))
   (configure! h dir)
   ;; the operation modules load the first time an operation is looked up: a call that needs none
   ;; (SQL, search, a result) does not pay for them
@@ -75,12 +78,13 @@
                             [packages (append (ws-config-packages c) (hub-extra-packages h))])))
   (define-values (file-ws file-warnings) (open-workspace dir))
   ;; no sushi-config.yaml: the guide is the ImplementationGuide the store holds
-  (define-values (stored stored-label stored-warnings) (stored-guide (with-overrides file-ws)))
+  (define-values (stored stored-label stored-warnings stored-pins) (stored-guide (with-overrides file-ws)))
   (define-values (ws0 warnings) (if stored (open-workspace dir #:guide stored) (values file-ws (append file-warnings stored-warnings))))
   (define ws* (with-overrides ws0))
   (define file-guide (workspace-implementation-guide ws*))
   (set-hub-guide! h (or file-guide stored))
   (set-hub-guide-label! h (cond [file-guide ig-file-name] [stored stored-label] [else #f]))
+  (set-hub-stored-manifest! h (and (not file-guide) stored-pins))
   (define-values (pkgs missing) (workspace-packages ws*))
   (define core (workspace-core-package ws*))
   ;; the workspace's own tower, pinned: a language loaded later that brings another (sql-on-fhir's
@@ -99,7 +103,7 @@
                                data-warnings))
   (hash-clear! (hub-cache h)))
 
-;; stored-guide : workspace -> (values ig-config|#f label|#f warnings)   the workspace's
+;; stored-guide : workspace -> (values ig-config|#f label|#f warnings manifest|#f)   the workspace's
 ;; implementation guide as its store holds it, for a workspace with no sushi-config.yaml: the file
 ;; is a working copy and may be deleted; the ImplementationGuide a commit stored is the guide. It is
 ;; read as the text it is handed back as (fsh/ig), so the file and the store state the same facts.
@@ -117,15 +121,17 @@
         '()))
   (define (reference g) (format "ImplementationGuide/~a" (hash-ref g 'id "?")))
   (match guides
-    ['() (values #f #f '())]
+    ['() (values #f #f '() #f)]
     [(list g)
-     (with-handlers ([exn:fail? (lambda (e) (values #f #f (list (format "the stored ~a is not read as the workspace's guide: ~a" (reference g) (exn-message e)))))])
+     (with-handlers ([exn:fail? (lambda (e) (values #f #f (list (format "the stored ~a is not read as the workspace's guide: ~a" (reference g) (exn-message e))) #f))])
        (values (parse-ig-config ((dynamic-require 'fsh/ig 'implementation-guide->config-text) (unarchived g)))
                (format "~a (stored)" (reference g))
-               '()))]
+               '()
+               (guide-manifest g)))]
     [_ (values #f #f
                (list (format "the store holds ~a implementation guides (~a): none is taken as the workspace's — hand one back as its file (write path=sushi-config.yaml ref=ImplementationGuide/<id>)"
-                             (length guides) (string-join (map reference guides) ", "))))]))
+                             (length guides) (string-join (map reference guides) ", ")))
+               #f)]))
 
 ;; store-file? : data-setting -> boolean   a SQLite FHIR store (fhir-server's): `data: fhir.db`
 (define (store-file? d) (and (string? d) (regexp-match? #rx"[.](db|sqlite|sqlite3)$" d)))
@@ -175,32 +181,58 @@
 ;; The stored definitions as the workspace's programs see them (CRMI artifacts, artifacts.rkt): an
 ;; artifact a workspace file defines again is left to that file — the working copy, which every
 ;; resolver finds in fhir/registry next — and among the stored versions of one canonical the
-;; current one answers (the active of the highest version, else the highest). Reading by Type/id
+;; version the pins in force give answers, else the current one (the active of the highest
+;; version, else the highest). Reading by Type/id
 ;; is the store's own: a stage diffs against what is stored.
-(define working-views (make-weak-hasheq))        ; data source -> its view (one per source: caches key on it)
-(define (working-copies-first ds)
-  (hash-ref! working-views ds
-             (lambda ()
-               (define (shadowed? r)
-                 (define src (and (string? (hash-ref r 'url #f)) (string? (hash-ref r 'resourceType #f))
-                                  (registered-source (hash-ref r 'resourceType) (hash-ref r 'url))))
-                 (and (pair? src) (eq? (car src) 'workspace)))
-               (define (view type rs)
-                 (if (member type artifact-types)
-                     (current-versions (filter (lambda (r) (not (shadowed? r))) rs))
-                     rs))
-               (data-source (lambda (type) (view type ((data-source-all ds) type)))
-                            (data-source-read ds)
-                            (data-source-of-patient ds)
-                            (let ([search (data-source-search ds)])
-                              (and search (lambda (type params) (view type (search type params)))))))))
+(define working-views (make-weak-hasheq))        ; data source -> (cons manifest view): one view per source and pins
+(define (working-copies-first ds manifest)
+  (define (shadowed? r)
+    (define src (and (string? (hash-ref r 'url #f)) (string? (hash-ref r 'resourceType #f))
+                     (registered-source (hash-ref r 'resourceType) (hash-ref r 'url))))
+    (and (pair? src) (eq? (car src) 'workspace)))
+  (define (view type rs)
+    (if (member type artifact-types)
+        (versions-in-force manifest (filter (lambda (r) (not (shadowed? r))) rs))
+        rs))
+  (match (hash-ref working-views ds #f)
+    [(cons (== manifest) kept) kept]
+    [_ (define made
+         (data-source (lambda (type) (view type ((data-source-all ds) type)))
+                      (data-source-read ds)
+                      (data-source-of-patient ds)
+                      (let ([search (data-source-search ds)])
+                        (and search (lambda (type params) (view type (search type params)))))))
+       (hash-set! working-views ds (cons manifest made))
+       made]))
+
+;; ---- pins -----------------------------------------------------------------------------------------
+;; current-manifest : (parameter manifest|#f)   the pins one call asks for (`manifest=`), in place
+;; of the workspace's
+(define current-manifest (make-parameter #f))
+;; current-repository : (parameter data-source|#f)   the data as it is stored — every version of
+;; every definition — beside current-data-source, which is the view under the pins in force
+(define current-repository (make-parameter #f))
+
+;; hub-manifest : hub -> manifest | #f   the pins in force (CRMI's manifest parameters, artifacts.rkt):
+;; the call's; else the guide's — the Parameters its file names (`path-expansion-params`) among
+;; what the workspace defines, or the one the stored guide contains
+(define (hub-manifest h)
+  (or (current-manifest)
+      (cond [(guide-file? h)
+             (define id (ig-config-expansion-parameters (hub-guide h)))
+             ;; the working copy first, then the stored one (its file deleted, the guide's kept)
+             (and id (or (findf (lambda (r) (and (equal? (hash-ref r 'resourceType #f) "Parameters") (equal? (hash-ref r 'id #f) id)))
+                                (registered-by (lambda (source) (and (pair? source) (eq? (car source) 'workspace)))))
+                         (with-handlers ([exn:fail? (lambda (_) #f)]) ((data-source-read (hub-data h)) "Parameters" id))))]
+            [else (hub-stored-manifest h)])))
 
 ;; guide-file? : hub -> boolean   the guide is the workspace's file, the one being written
 (define (guide-file? h) (equal? (hub-guide-label h) ig-file-name))
 
 (define (with-hub h thunk)
   (parameterize ([current-sd-packages (hub-packages h)]
-                 [current-data-source (working-copies-first (hub-data h))])
+                 [current-data-source (working-copies-first (hub-data h) (hub-manifest h))]
+                 [current-repository (hub-data h)])
     (thunk)))
 
 ;; ---- paths -------------------------------------------------------------------------------------

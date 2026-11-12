@@ -19,7 +19,7 @@
 ;;; ig-config, fhir/ig-config).
 ;;; Pure: no store, no files.
 
-(require racket/contract racket/list racket/string
+(require racket/contract racket/list racket/string racket/match
          (only-in net/base64 base64-decode)
          (only-in fhir/ig-config ig-config? ig-config-version ig-config-status ig-config-publisher ig-config-experimental))
 
@@ -60,7 +60,19 @@
   ;; current-versions : (listof artifact) -> (listof artifact)   one per url — what an unversioned
   ;; canonical means among stored versions: the active one of the highest version, else the highest
   [current-versions (-> (listof hash?) (listof hash?))]
-  [version<? (-> string? string? boolean?)]))
+  [version<? (-> string? string? boolean?)]
+  ;; A Manifest is a Parameters resource of pinned versions (CRMI's manifest parameters), or #f.
+  ;; pinned-version : manifest type url -> version | #f   the version it gives an unversioned
+  ;; reference to that url from a resource of that type: `default-canonical-version` for any,
+  ;; `default-valueset-version` for a value set, `default-system-version` for a code system (and
+  ;; their deprecated and `force-` spellings), each a `url|version`
+  [pinned-version (-> (or/c hash? #f) string? string? (or/c string? #f))]
+  ;; versions-in-force : manifest (listof artifact) -> (listof artifact)   one per url: the version
+  ;; the manifest pins when it is among them, else the current one (current-versions)
+  [versions-in-force (-> (or/c hash? #f) (listof hash?) (listof hash?))]
+  ;; guide-manifest : ImplementationGuide -> manifest   the Parameters it contains and names as
+  ;; its expansion parameters (CRMIImplementationGuide)
+  [guide-manifest (-> hash? (or/c hash? #f))]))
 
 ;; CRMI's operations name these (its capability statements name five and say the rest follow the
 ;; same pattern); ViewDefinition is treated by that pattern
@@ -210,8 +222,73 @@
      (newest (if (pair? active) active group)))
    unnamed))
 
+;; ---- pins ---------------------------------------------------------------------------------------
+;; the parameters that pin a reference to a resource of a type, the strongest first
+(define (pin-names type)
+  (append (match type
+            ["ValueSet" '("force-valueset-version" "default-valueset-version")]
+            ["CodeSystem" '("force-system-version" "default-system-version" "system-version")]
+            [_ '()])
+          '("force-canonical-version" "default-canonical-version" "canonicalVersion")))
+
+(define (pinned-version manifest type url)
+  (define pins (if (hash? manifest) (filter hash? (hash-ref manifest 'parameter '())) '()))
+  (for*/first ([name (in-list (pin-names type))]
+               [p (in-list pins)]
+               #:when (equal? (hash-ref p 'name #f) name)
+               [value (in-value (or (hash-ref p 'valueCanonical #f) (hash-ref p 'valueUri #f) (hash-ref p 'valueString #f)))]
+               #:when (string? value)
+               [m (in-value (regexp-match #rx"^([^|]+)[|](.+)$" value))]
+               #:when (and m (equal? (cadr m) url)))
+    (caddr m)))
+
+(define (versions-in-force manifest rs)
+  (define-values (named unnamed) (partition (lambda (r) (string? (hash-ref r 'url #f))) rs))
+  (append
+   (for/list ([group (in-list (group-by (lambda (r) (hash-ref r 'url)) named))])
+     (define pin (pinned-version manifest (hash-ref (car group) 'resourceType "") (hash-ref (car group) 'url)))
+     (or (and pin (findf (lambda (r) (equal? (version-of r) pin)) group))
+         (car (current-versions group))))
+   unnamed))
+
+(define (guide-manifest guide)
+  (define named
+    (for/first ([e (in-list (hash-ref guide 'extension '()))]
+                #:when (equal? (hash-ref e 'url #f) "http://hl7.org/fhir/StructureDefinition/cqf-expansionParameters"))
+      (hash-ref (hash-ref e 'valueReference (hasheq)) 'reference #f)))
+  (and (string? named) (regexp-match? #rx"^#" named)
+       (findf (lambda (c) (and (hash? c) (equal? (hash-ref c 'resourceType #f) "Parameters") (equal? (hash-ref c 'id #f) (substring named 1))))
+              (hash-ref guide 'contained '()))))
+
 (module+ test
   (require rackunit (only-in net/base64 base64-encode) (only-in fhir/ig-config parse-ig-config))
+  ;; pins: a manifest's version for an unversioned reference, by the kind of resource
+  (let* ([pin (lambda (name value) (hasheq 'name name 'valueCanonical value))]
+         [m (hasheq 'resourceType "Parameters" 'id "pins"
+                    'parameter (list (pin "default-canonical-version" "http://x/StructureDefinition/lab|0.2.0")
+                                     (pin "default-valueset-version" "http://x/ValueSet/sex|2.0.0")
+                                     (pin "default-canonical-version" "http://x/ValueSet/sex|1.0.0")
+                                     (pin "system-version" "http://loinc.org|2.74")
+                                     (hasheq 'name "activeOnly" 'valueBoolean #t)))]
+         [lab (lambda (version status [id "lab"]) (hasheq 'resourceType "StructureDefinition" 'id id 'url "http://x/StructureDefinition/lab" 'version version 'status status))])
+    (check-equal? (pinned-version m "StructureDefinition" "http://x/StructureDefinition/lab") "0.2.0")
+    (check-equal? (pinned-version m "ValueSet" "http://x/ValueSet/sex") "2.0.0")            ; the value set's own parameter first
+    (check-equal? (pinned-version m "CodeSystem" "http://loinc.org") "2.74")
+    (check-false (pinned-version m "StructureDefinition" "http://x/StructureDefinition/other"))
+    (check-false (pinned-version #f "StructureDefinition" "http://x/StructureDefinition/lab"))
+    ;; among stored versions the pinned one answers; without a pin (or with one that is not stored), the current
+    (define stored (list (lab "0.1.0" "active" "lab-0.1.0") (lab "0.2.0" "draft")))
+    (check-equal? (map (lambda (r) (hash-ref r 'version)) (versions-in-force m stored)) '("0.2.0"))
+    (check-equal? (map (lambda (r) (hash-ref r 'version)) (versions-in-force #f stored)) '("0.1.0"))
+    (check-equal? (map (lambda (r) (hash-ref r 'version))
+                       (versions-in-force (hasheq 'parameter (list (pin "default-canonical-version" "http://x/StructureDefinition/lab|9.9.9"))) stored))
+                  '("0.1.0"))
+    ;; the manifest a guide carries
+    (check-equal? (guide-manifest (hasheq 'resourceType "ImplementationGuide" 'contained (list m)
+                                          'extension (list (hasheq 'url "http://hl7.org/fhir/StructureDefinition/cqf-expansionParameters"
+                                                                   'valueReference (hasheq 'reference "#pins")))))
+                  m)
+    (check-false (guide-manifest (hasheq 'resourceType "ImplementationGuide"))))
   (define sd (hasheq 'resourceType "StructureDefinition" 'id "lab" 'url "http://x/StructureDefinition/lab" 'name "Lab"))
   (check-true (artifact? sd))
   (check-false (artifact? (hasheq 'resourceType "Observation" 'id "a")))

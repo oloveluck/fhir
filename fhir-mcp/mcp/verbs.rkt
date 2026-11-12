@@ -12,7 +12,7 @@
 ;;; with error? true. Nothing raises.
 
 (require racket/contract racket/list racket/string json
-         (only-in "tools.rkt" tool)
+         (only-in "tools.rkt" tool tool-name tool-input-schema tool-run)
          (only-in fhir/serialize/fhir-json key-order fhir-json->string)
          (only-in fhir/diagnostic exn:fail:diagnostic? exn:fail:diagnostic-diagnostic diagnostic->jsexpr diagnostic-message)
          (only-in fhir/operation exn:fail:operation? exn:fail:operation-outcome)
@@ -88,7 +88,28 @@
       (hub-describe h (hash-ref a 'result) (hasheq 'as "csv" 'columns (hash-ref args 'columns #f) 'sort (hash-ref args 'sort #f)))
       a))
 
+;; under-manifest : hub -> (tool -> tool)   a tool that takes `manifest`: the call made under the pins
+;; it names, in place of the workspace's (CRMI's manifest parameters: which version an unversioned
+;; canonical means)
+(define ((under-manifest h) t)
+  (define manifest-property
+    (s "pinned versions for this call, in place of the guide's: a Parameters resource (its JSON, or manifest=@pins.json) or Parameters/<id> — e.g. default-canonical-version = <url>|<version> holds the data to a draft"))
+  (cond
+    [(member (tool-name t) '("write" "commit")) t]
+    [else
+     (struct-copy tool t
+                  [input-schema (hash-update (tool-input-schema t) 'properties (lambda (ps) (hash-set ps 'manifest manifest-property)))]
+                  [run (lambda (args)
+                         (define asked (hash-ref args 'manifest #f))
+                         (if asked
+                             (with-handlers ([exn:fail? (lambda (e) (answer (lambda () (raise e))))])
+                               (with-manifest h asked (lambda () ((tool-run t) args))))
+                             ((tool-run t) args)))])]))
+
 (define (workspace-tools h)
+  (map (under-manifest h) (workspace-tools* h)))
+
+(define (workspace-tools* h)
   (list
    (tool "write"
          "Save a file in the workspace and get its problems back, each at its line and column: .fsh (FHIR Shorthand), .cql, .fhirpath, .vcl, .map/.fml, .view.json (a ViewDefinition), .json (any FHIR resource), sushi-config.yaml (the implementation guide), or workspace.yaml. Empty text deletes the file. With `ref` in place of `text`, the file is a stored definition as the text that states it, to edit: a profile or value set as FSH, a library as its CQL, the guide as sushi-config.yaml. Read learn://workspace first."

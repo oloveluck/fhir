@@ -1787,6 +1787,38 @@ Not yet, named: a stored StructureMap with no kept text is not written back as F
 printer); a definition staged alone in a store-only workspace is not added to the stored guide's
 `definition.resource`.
 
+Step 2a — pins: which version a canonical means (2026-11-12; `tests/pins-test.rkt`):
+- **The pins are CRMI's manifest parameters**: a Parameters resource of `default-canonical-version`
+  (any definition), `default-valueset-version`, `default-system-version` (and their deprecated and
+  `force-` spellings), each a `url|version`. `mcp/artifacts.rkt`: `pinned-version`,
+  `versions-in-force` (one per url: the pinned version when it is stored, else the current one —
+  the generalisation of `current-versions`), `guide-manifest`.
+- **The guide names its pins as the IG Publisher is told** (`fhir/ig-config`
+  `ig-config-expansion-parameters`): `parameters: path-expansion-params: …/Parameters-<id>.json`
+  is the Parameters with that id — an FSH instance or a JSON file of the workspace, else the one
+  the data holds. fsh's `implementation-guide` contains it in the compiled guide under
+  `cqf-expansionParameters` (CRMIImplementationGuide, as CRMI's own example), so a guide read from
+  the store brings its pins; a name nothing defines is a warning at its line (`ig-workspace.rkt`).
+- **In force for every resolver**: `hub.rkt`'s `hub-manifest` (the call's `current-manifest`,
+  else the guide's) decides the view `with-hub` sets as `current-data-source` — among the stored
+  versions of a url the pinned one answers; a working copy (a workspace file's definition) still
+  comes first. `current-repository` is the data as stored, every version.
+- **`manifest` on every tool but write and commit** (`verbs.rkt` `under-manifest`; `data.rkt`
+  `manifest-argument`: a Parameters resource, its JSON text, or `Parameters/<id>` the workspace
+  defines or stores): one call under other pins — `stage … keep:=false manifest=@pins.json` holds
+  a reading to the draft profile, `describe ref=<url> manifest=…` answers the draft.
+- **`$resolve`** (`mcp/crmi.rkt`, loaded with the operations): CRMI's operation on its own
+  OperationDefinition, read from the vendored package — `canonical`, `resourceType`,
+  `manifestParameters` and the version parameters given directly; the version named, else the
+  pinned one, else the working copy, the stored version in force, the packages. A manifest
+  *library* by canonical is refused, named. It reads the repository through parameters and knows
+  no hub.
+- `raco fhir-mcp call … key:=@file.json` reads an argument's JSON from a file (an operation's
+  inputs, a manifest).
+Not yet, named: pins on a dependency PACKAGE's artifacts (the package index resolves an
+unversioned canonical to the package in context); the manifest library (composed-of, depends-on);
+`X-Manifest` on served repositories; `check-…-version`.
+
 The hub split (2026-11-12): `mcp/workspace.rkt` is now 41 lines — the contracted interface, as
 before (verbs.rkt, mcp-cli.rkt and every test are untouched). Under it, each a module along one of
 the old file's sections, in dependency order (no cycles): `calls.rkt` (how an answer names the next

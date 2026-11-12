@@ -38,9 +38,14 @@ its CQL, the guide as `sushi-config.yaml` (the file its commit kept when that st
 the rest as FSH without what the guide gives, and the text compiles to what is stored; each
 artifact's own source kept — a guide's commit writes one Provenance per file it was made from, so
 the trail names each resource's file and line and edit hands back the author's own lines (the FSH
-entity with what it uses, the `.cql`, `.vcl` or `.map` text). Not yet: a stored StructureMap with
-no kept text written back as FML; a definition staged alone into a store-only workspace added to
-the stored guide's list; manifests; the operations.
+entity with what it uses, the `.cql`, `.vcl` or `.map` text); **pins** — the guide's manifest
+parameters (`parameters: path-expansion-params`, a Parameters resource the workspace defines,
+contained in the compiled guide under `cqf-expansionParameters`), in force for every resolver
+among stored versions, `manifest=` on a call, and CRMI's `$resolve` on its own
+OperationDefinition (`tests/pins-test.rkt`). Not yet: a stored StructureMap with no kept text
+written back as FML; a definition staged alone into a store-only workspace added to the stored
+guide's list; the manifest library; pins on a dependency package's artifacts; `X-Manifest`; the
+dependency index and the other operations.
 
 ## What lives where
 

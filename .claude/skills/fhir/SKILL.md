@@ -35,6 +35,7 @@ one line, `file:line:col severity: message`, with "did you mean …" for a missp
 | correct a stored value with a reason | the same paragraph's correction step (`describe … as=source`, edit, stage, commit with a reason) |
 | profiles, value sets and libraries kept as one versioned guide (draft, release, the next version) | `raco fhir guide ig`: `sushi-config.yaml` is the guide; `stage path=sushi-config.yaml` stages everything it lists |
 | a stored definition back as text, to read or edit (its working file deleted, or never here) | `describe ref=<canonical or Type/id> as=source`; `write path=lab.fsh ref=<canonical>` writes it as its file (`raco fhir guide ig`, "The store is the guide") |
+| try a draft profile against the data before releasing it; pin a version | `manifest=@pins.json` on the call (a Parameters of `default-canonical-version` = `<url>\|<version>`), or the guide's `path-expansion-params` (`raco fhir guide ig`, "Pinning versions") |
 | a table of values to join or chart | a ViewDefinition (`raco fhir guide sql-on-fhir`), then `query language=sql` |
 | a FHIR server with an operation of your own | start a file from `raco fhir guide capability --block smallest > study.capability.rkt`, then `raco fhir-server check study.capability.rkt` and `raco fhir-server serve study.capability.rkt --port 0`; a whole operation (the eGFR equation, every input option): the same guide's "One operation using every option" |
 | a Racket program: map, validate, decide | `raco fhir guide racket`; "A Racket program" at the end |

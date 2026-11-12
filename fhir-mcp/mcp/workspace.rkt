@@ -18,7 +18,7 @@
 ;;; Every hub-* procedure answers a jsexpr, or raises: exn:fail:diagnostic (positioned), exn:fail.
 
 (require racket/contract json
-         "hub.rkt" "check.rkt" "run.rkt" "describe.rkt" "apply.rkt" "stage.rkt" "calls.rkt")
+         "hub.rkt" "data.rkt" "check.rkt" "run.rkt" "describe.rkt" "apply.rkt" "stage.rkt" "calls.rkt")
 
 (provide
  (struct-out text-answer)
@@ -29,6 +29,9 @@
   [open-hub        (->* (path-string?) (#:data (or/c string? #f) #:packages (listof string?)) hub?)]
   [hub-root        (-> hub? path?)]
   [with-hub        (-> hub? (-> any) any)]
+  ;; with-manifest : hub manifest-argument thunk -> value   a call under the pins it names
+  ;; (a Parameters resource, its JSON text, or Parameters/<id>); #f: the workspace's own
+  [with-manifest   (-> hub? any/c (-> any) any)]
   [hub-write!      (->* (hub? string? string?) (#:enforce? any/c #:from (or/c #f string?)) jsexpr?)]
   ;; hub-edit! : hub path ref -> jsexpr   a stored definition written as the file that states it
   [hub-edit!       (-> hub? string? string? jsexpr?)]

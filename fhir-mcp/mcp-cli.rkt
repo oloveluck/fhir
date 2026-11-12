@@ -24,7 +24,7 @@
 (define usages
   `(("serve" ,(format "raco fhir-mcp [serve] ~a   the server over stdin/stdout" flags))
     ("tools" ,(format "raco fhir-mcp tools ~a   the tools and their schemas" flags))
-    ("call"  ,(format "raco fhir-mcp call <tool> ['<json>' | -] [key=value | key=@file | key:=<json>]… ~a   run one tool: arguments as a JSON object (- reads it from stdin) and/or one by one, a file's text with @" flags))
+    ("call"  ,(format "raco fhir-mcp call <tool> ['<json>' | -] [key=value | key=@file | key:=<json> | key:=@file.json]… ~a   run one tool: arguments as a JSON object (- reads it from stdin) and/or one by one, a file's text with @" flags))
     ("batch" ,(format "raco fhir-mcp batch [<file> | -] ~a   many calls in one process: one per line, `<tool> key=value key=@file key:=<json> …` (quoted as a shell would, \\n inside double quotes a newline; # starts a comment; a line starting with ! is expected to fail), each answer after a `### <line>` header" flags))
     ("init"  "raco fhir-mcp init [<dir>] [--fhir-version 4.0.1|5.0.0]   make a directory a workspace an agent can use: workspace.yaml (data: fhir.db, a SQLite FHIR store), .mcp.json, CLAUDE.md")
     ("guide" "raco fhir-mcp guide [<topic> [--blocks | --block N|name]]   a guide (learn://<topic>) as text, its code blocks listed, or one (to save as a file); without a topic, the topics")))
@@ -209,7 +209,8 @@
 
 ;; call-arguments : (listof string) -> jsexpr   a JSON object (or `-`: JSON on stdin), then
 ;; `key=value` (a string), `key=@file` (the file's text: FSH, CQL, SQL with no escaping) and
-;; `key:=<json>` (a number, a boolean, an array, an object), later ones winning
+;; `key:=<json>` (a number, a boolean, an array, an object; `key:=@file` reads the JSON from a
+;; file: an operation's inputs, a manifest), later ones winning
 (define (call-arguments words)
   (define (bad msg) (usage-error "fhir-mcp" usages "call" msg))
   (define (json-of s what)
@@ -220,6 +221,10 @@
                         (if (hash? j) (for/fold ([a args]) ([(k v) (in-hash j)]) (hash-set a k v)) (bad "stdin is not a JSON object")))]
       [(regexp-match? #rx"^[ \t\n]*[{]" w)
        (let ([j (json-of w "the arguments")]) (for/fold ([a args]) ([(k v) (in-hash j)]) (hash-set a k v)))]
+      [(regexp-match #rx"^([A-Za-z_][A-Za-z0-9_]*):=@(.+)$" w)
+       => (lambda (m) (define f (caddr m))
+            (unless (file-exists? f) (bad (format "~a:=@~a: no such file" (cadr m) f)))
+            (hash-set args (string->symbol (cadr m)) (json-of (file->string f) f)))]
       [(regexp-match #rx"^([A-Za-z_][A-Za-z0-9_]*):=(.*)$" w)
        => (lambda (m) (hash-set args (string->symbol (cadr m)) (json-of (caddr m) (format "~a's value" (cadr m)))))]
       [(regexp-match #rx"^([A-Za-z_][A-Za-z0-9_]*)=@(.+)$" w)
@@ -302,6 +307,11 @@
   (check-equal? (hash-ref args 'reason) "intake")
   (check-equal? (hash-ref args 'n) 3)
   (delete-file f)
+  ;; key:=@file reads the file's JSON (an operation's inputs, a manifest)
+  (let ([j (make-temporary-file "args-~a.json")])
+    (with-output-to-file j #:exists 'truncate (lambda () (display "{\"canonical\": \"http://x/StructureDefinition/lab\"}")))
+    (check-equal? (hash-ref (call-arguments (list (format "inputs:=@~a" j))) 'inputs) (hasheq 'canonical "http://x/StructureDefinition/lab"))
+    (delete-file j))
   ;; --indent lays a JSON answer out, keys in the answer's order, short scalar lists on one line; the
   ;; same JSON back; CSV untouched
   (define answer "{\"stage\":\"stage-1\",\"changes\":[{\"ref\":\"Observation/a1\",\"changed\":[\"value: 150 → 140\",\"note: \\\"x, y\\\"\"]}],\"errors\":0,\"tags\":[1,2]}")

@@ -28,7 +28,7 @@ languages="fsh/support cql/support fml/support vcl/support fhirpath/support"
 workspaces="fsh/workspace fsh/ig-workspace cql/workspace fml/workspace vcl/workspace fhirpath/workspace sql-on-fhir/workspace"
 # what the CQL engine loads by name: the ModelInfo reader, for models given as ModelInfo documents
 cqlmodels="cql/model/modelinfo-xml"
-operations="fhir/sd/operations fhir/conformance/operations fhir/terminology/operations fml/operations cql/measure sql-on-fhir/operations"
+operations="fhir/sd/operations fhir/conformance/operations fhir/terminology/operations fml/operations cql/measure sql-on-fhir/operations fhir/mcp/crmi"
 store="fhir/store/fhir-sqlite fhir/store/ig-server fhir/store/load fhir/store/fhir-engine fhir/store/measure fhir/http/server"
 
 # tool | the module its raco command runs | the modules it loads by name
