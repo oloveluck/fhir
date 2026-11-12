@@ -1692,16 +1692,19 @@ version control, git as a mirror of a text export. Built so far, step 0:
 - **`sushi-config.yaml` is the seventh workspace language, "ig"** (fsh's `ig.rkt`,
   `ig-workspace.rkt`, `ig-guide.md` — `learn://ig`; fsh/CLAUDE.md). No new syntax: SUSHI's file,
   compiled to the ImplementationGuide that lists what the workspace's other languages define.
-- **The workspace reads its guide** (`fhir/lang/workspace` `ig-facts`, `with-ig-facts`): the
-  canonical, the FHIR version, `dependencies` as packages and `global` as profile constraints come
-  from sushi-config.yaml, for every language; workspace.yaml keeps the data, audit, parameters,
-  remote writes and models. A fact both state is the guide's, with a warning. A dependency
-  `<id>-<version>` is also found as `<id>.tgz` when that package is the version asked for
-  (`unversioned-package`). The hub reconfigures when the guide is written, as for workspace.yaml.
+- **The workspace reads its guide** (`fhir/lang/workspace` `with-guide`,
+  `workspace-implementation-guide`): the canonical, the FHIR version, `dependencies` as packages
+  and `global` as profile constraints come from sushi-config.yaml, for every language;
+  workspace.yaml keeps the data, audit, parameters, remote writes and models. A fact both state is
+  the guide's, with a warning. A dependency `<id>-<version>` is located as fsh locates it
+  (`dependency-packages`: also `<id>.tgz` when that package is the version asked for). The hub
+  reconfigures when the guide is written, as for workspace.yaml.
+- **One reader of the guide file** (`fhir/ig-config`, moved from fsh with `fhir/yaml`; fsh
+  re-exports both): the FSH compiler and packer, the ImplementationGuide compiler, the workspace's
+  configuration and the staging of artifacts all read the same `ig-config`.
 - **A language that composes the others** provides `composes-workspace` (`workspace-composes?`):
   the hub computes it last and again whenever what the earlier languages define changes (its cache
   is keyed by their resources). `fhir/registry`'s `registered-by` enumerates what sources registered.
-- `fhir/yaml` is fsh's YAML reader, moved to the foundation (fsh/yaml re-exports it).
 - `init` ignores `fhir.db` in git (it ignored only the WAL files: `git add .` took a binary that
   could lack the writes still in the WAL).
 `fhir-mcp/tests/ig-test.rkt` runs the guide's own session.
@@ -1713,12 +1716,15 @@ Step 1, definitions through stage and commit (CRMI's Submit and Revise):
   the guide first, then every resource the FSH, CQL, FML, VCL and JSON files define — artifacts and
   examples — one change set; `definitions:=true` stages an FSH file's or text's own definitions.
   Staging a definition without a guide is refused (its version is the guide's).
-- **An artifact on its way in** (`mcp/artifacts.rkt`, pure, by CRMI's rule numbers): its status is
-  the collection's (draft when the guide states none — a compiler's default `active` is not the
-  author's word), its version, experimental flag and publisher the collection's where it states
-  none (3.5); one that states its own version (a CQL library) keeps its released state while the
-  collection drafts on (`with-own-lifecycle`); a title and description are derived only for
-  languages with no place for them (name; a library's leading comment). It is held to CRMI's
+- **An artifact on its way in** (`mcp/artifacts.rkt`, pure, by CRMI's rule numbers;
+  `in-collection`): its status is the collection's (draft when the guide states none — a
+  compiler's default `active` is not the author's word), its version, experimental flag and
+  publisher the collection's where it states none (3.5); one that states its own version (a CQL
+  library) keeps its released state while the collection drafts on; a title and description are
+  derived only for languages with no place for them (name; a library's leading comment). These
+  authoring rules are for what the workspace's own languages wrote (`authored-language`): a
+  definition given as JSON or taken from a result is somebody's published artifact, staged as it
+  is. It is held to CRMI's
   Shareable profile of its type through `$validate` with the CRMI package in context (R4; the same
   minimum checked directly otherwise), each missing element saying where it is written. The
   lifecycle (3.1, 3.4): an active artifact does not go back to draft, a retired one does not come
@@ -1734,6 +1740,15 @@ Step 1, definitions through stage and commit (CRMI's Submit and Revise):
 - A stage lists a resource stored unchanged that no longer passes (a rule changed under it) with
   its errors: staging a new rule says which stored examples it breaks.
 `fhir-mcp/tests/artifacts-test.rkt` runs the whole sequence.
+Quality pass over this work (2026-11-12; behaviour held by the tests above and the full suite):
+the guide file had three readers (fsh's ig-config, the workspace's own parse of its facts, the
+ImplementationGuide compiler's of dependencies and `global`) — now one; `stage!`'s steps are named
+functions (`authored-artifact`, `change-of`, `archive-change`) with no side table; the hub's cache
+entry is a struct (`compiled`: files, basis, resources, diagnostics) instead of two keys per
+language; ig.rkt threads the instance labels through a fold instead of a mutable counter. One
+behaviour corrected with it: the CRMI authoring rules had applied to ANY staged definition, so a
+published Questionnaire given as JSON was refused for lacking a title, or turned to draft in a
+draft guide.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

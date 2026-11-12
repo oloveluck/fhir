@@ -228,6 +228,13 @@
                     (loc (path-string (car f)) (car at) (cadr at) (caddr at) (cadddr at))
                     (loc (path-string (car f)) #f #f #f #f)))))
 
+;; A Compiled is (compiled files basis resources diagnostics): what a language's files were found to
+;; define, kept until they change — `files` as (path . text) pairs, and for a language that composes
+;; the others, `basis`: the resources they defined then
+(struct compiled (files basis resources diagnostics))
+;; same-resources? : (listof resource) (listof resource) -> boolean   the very same resources, in order
+(define (same-resources? a b) (and (= (length a) (length b)) (andmap eq? a b)))
+
 ;; refresh! : hub -> void   every language's artifacts (recomputed only where a file changed),
 ;; registered, and every problem collected
 (define (refresh! h)
@@ -242,15 +249,13 @@
         (append*
          (for/list ([lang (in-list (cons "fhir" workspace-languages))])
            (define files (hash-ref by-lang lang '()))
-           (define cached (hash-ref (hub-cache h) lang #f))
+           (define was (hash-ref (hub-cache h) lang #f))
            (define basis (if (and (not (equal? lang "fhir")) (workspace-composes? lang)) earlier '()))
            (define-values (rs ds)
              (cond
                [(null? files) (values '() '())]
-               [(and cached (equal? (car cached) files)
-                     (let ([was (hash-ref (hub-cache h) (cons 'basis lang) '())])
-                       (and (= (length was) (length basis)) (andmap eq? was basis))))
-                (values (cadr cached) (cddr cached))]
+               [(and was (equal? (compiled-files was) files) (same-resources? (compiled-basis was) basis))
+                (values (compiled-resources was) (compiled-diagnostics was))]
                [(equal? lang "fhir") (json-artifacts ws files)]
                [else
                 (define sup (workspace-support lang))
@@ -259,8 +264,7 @@
                       ((ws-support-artifacts sup) ws files))
                     (values '() (for/list ([f (in-list files)])
                                   (diagnostic (string->symbol lang) 'compile 'error (format "the ~a package is not installed" lang) (loc (path-string (car f)) #f #f #f #f)))))]))
-           (hash-set! (hub-cache h) lang (cons files (cons rs ds)))
-           (hash-set! (hub-cache h) (cons 'basis lang) basis)
+           (hash-set! (hub-cache h) lang (compiled files basis rs ds))
            (set! earlier (append earlier rs))
            (unregister-source! (list 'workspace lang))
            (define conflict
@@ -1474,19 +1478,31 @@
           (registered-by (lambda (s) (and (pair? s) (eq? (car s) 'workspace) (pair? (cdr s))
                                           (member (cadr s) '("fsh" "cql" "fml" "vcl" "fhir")) #t)))))
 
-;; collection-facts : hub -> hash | #f   what the guide states for its artifacts (version, status,
-;; experimental, publisher); #f when the workspace has no sushi-config.yaml
-(define (collection-facts h)
-  (define f (build-path (hub-root h) ig-file-name))
-  (and (file-exists? f) (ig-metadata (file->string f))))
+;; The CRMI authoring rules (artifacts.rkt) are for what the workspace's own languages WROTE: a
+;; definition given as JSON, or taken from a run's result, is somebody's published artifact and is
+;; staged as it is, like any resource.
+(define authoring-languages '("fsh" "cql" "fml" "vcl" "ig"))
 
-;; artifact-language : hub artifact args -> language | #f   the language that wrote an artifact
-(define (artifact-language h r args)
-  (define src (and (string? (hash-ref r 'url #f)) (registered-source (hash-ref r 'resourceType "") (hash-ref r 'url))))
-  (cond [(string? (hash-ref args 'fsh #f)) "fsh"]
-        [(and (pair? src) (eq? (car src) 'workspace) (pair? (cdr src))) (cadr src)]
-        [(string? (hash-ref args 'path #f)) (workspace-language-of (hash-ref args 'path))]
-        [else #f]))
+;; authored-language : hub resource args -> language | #f   the workspace language that wrote a staged
+;; artifact: the staged FSH text's, the staged file's — for the guide file, each artifact's own, as
+;; the hub registered it; #f for a resource that is no artifact or that no language here wrote
+(define (authored-language h r args)
+  (define path (hash-ref args 'path #f))
+  (define (registered)
+    (define src (and (string? (hash-ref r 'url #f)) (registered-source (hash-ref r 'resourceType "") (hash-ref r 'url))))
+    (and (pair? src) (eq? (car src) 'workspace) (pair? (cdr src)) (cadr src)))
+  (define language
+    (cond [(string? (hash-ref args 'fsh #f)) "fsh"]
+          [(not (string? path)) #f]
+          [else (match (workspace-language-of path) ["ig" (registered)] [l l])]))
+  (and (artifact? r) (member language authoring-languages) language))
+
+;; authored-artifact : artifact language guide stored|#f -> artifact   as a component of the
+;; workspace's collection (CRMI 3.5). FSH and the guide's own file have a place for a title and a
+;; description; an artifact of another language gets them from its name and its leading comment.
+(define (authored-artifact r language guide stored)
+  (define component (in-collection r guide stored))
+  (if (member language '("fsh" "ig")) component (with-derived-labels component)))
 
 ;; artifact-errors : hub artifact language -> (listof string)   the artifact held to its base type
 ;; and to CRMI's Shareable profile of it (R4, with the CRMI package at hand), else to the Shareable
@@ -1641,24 +1657,18 @@
   (with-hub h
     (lambda ()
       (define given (staged-resources h args))
-      ;; an artifact (a definition) is staged as part of the workspace's collection: it takes its
-      ;; guide's version, status, experimental flag and publisher where it states none (CRMI 3.5)
-      (define facts (collection-facts h))
-      (when (and (not facts) (ormap artifact? given))
+      (define guide (workspace-implementation-guide (hub-ws h)))
+      (define read-stored (data-source-read (current-data-source)))
+      (define (stored r) (and (hash-ref r 'id #f) (read-stored (hash-ref r 'resourceType) (hash-ref r 'id))))
+      ;; the language that wrote an artifact here, #f for any other resource (its url and type, which
+      ;; decide it, are the same before and after it is prepared)
+      (define (authored r) (authored-language h r args))
+      (when (and (not guide) (ormap authored given))
         (error 'stage "definitions are staged as part of the workspace's implementation guide, whose version is theirs: write sushi-config.yaml (id, canonical, version) first"))
-      (define languages (make-hasheq))               ; staged artifact -> the language that wrote it
       (define rs
         (for/list ([r (in-list given)])
-          (cond [(artifact? r)
-                 (define language (artifact-language h r args))
-                 (define stored (and (hash-ref r 'id #f) ((data-source-read (current-data-source)) (hash-ref r 'resourceType) (hash-ref r 'id))))
-                 (define with-facts (with-own-lifecycle (with-collection-facts r facts) stored facts))
-                 ;; FSH and the guide's own file have a place for a title and a description; an
-                 ;; artifact of another language gets them from its name and its leading comment
-                 (define staged (if (member language '("fsh" "ig")) with-facts (with-derived-labels with-facts)))
-                 (hash-set! languages staged language)
-                 staged]
-                [else (with-profiles h r)])))
+          (define language (authored r))
+          (if language (authored-artifact r language guide (stored r)) (with-profiles h r))))
       (define source (stage-source h args))
       ;; FSH written in the stage: each resource's errors name its instance's line in that text
       (define (at-line r errors)
@@ -1679,30 +1689,28 @@
             (map with-missing-hint (remove-duplicates errors))))
       (when (null? rs) (error 'stage "nothing to stage"))
       (define warned (make-hasheq))                   ; resource -> its validation warnings, at their lines
-      (define read-stored (data-source-read (current-data-source)))
-      (define changes0
-        (for/list ([r (in-list rs)])
-          (define current (and (hash-ref r 'id #f) (read-stored (hash-ref r 'resourceType) (hash-ref r 'id))))
-          (define paths (if current (json-diff current r) '()))
-          (define artifact (artifact? r))
-          ;; a definition's own codes (an element's type, a filter's property) are not codings
-          (hash-set! warned r (append (at-line r (append (validation-issues r '("warning")) (if artifact '() (systemless-codes r))))
-                                      (let ([w (and current (pair? paths) (not artifact) (reverted-correction h current r))]) (if w (list w) '()))))
-          (define errors (if artifact
-                             ;; held to its Shareable profile, and to what its lifecycle allows (CRMI 3.1)
-                             (append (artifact-errors h r (hash-ref languages r #f)) (if (pair? paths) (lifecycle-errors current r) '()))
-                             (validation-errors r)))
-          (change r (cond [(not current) 'create] [(null? paths) 'unchanged] [else 'update]) paths (at-line r errors))))
-      ;; a released version (active or retired) is kept as an instance of its own when another
-      ;; version of the artifact begins under its id: each version is a different resource (CRMI)
-      (define archives
-        (for*/list ([c (in-list changes0)]
-                    [r (in-value (change-resource c))]
-                    #:when (and (artifact? r) (eq? (change-action c) 'update) (null? (change-errors c)))
-                    [kept (in-value (archive-of (read-stored (hash-ref r 'resourceType) (hash-ref r 'id)) r))]
-                    #:when (and kept (not (read-stored (hash-ref kept 'resourceType) (hash-ref kept 'id)))))
-          (change kept 'create '() '())))
-      (define changes (append changes0 archives))
+      ;; change-of : resource -> change   against what is stored under its id
+      (define (change-of r)
+        (define current (stored r))
+        (define paths (if current (json-diff current r) '()))
+        (define language (authored r))
+        ;; a definition's own codes (an element's type, a filter's property) are not codings
+        (hash-set! warned r (append (at-line r (append (validation-issues r '("warning")) (if (artifact? r) '() (systemless-codes r))))
+                                    (let ([w (and current (pair? paths) (not language) (reverted-correction h current r))]) (if w (list w) '()))))
+        (define errors (if language
+                           ;; held to its Shareable profile, and to what its lifecycle allows (CRMI 3.1)
+                           (append (artifact-errors h r language) (if (pair? paths) (lifecycle-errors current r) '()))
+                           (validation-errors r)))
+        (change r (cond [(not current) 'create] [(null? paths) 'unchanged] [else 'update]) paths (at-line r errors)))
+      ;; archive-change : change -> change | #f   a released version (active or retired) is kept as an
+      ;; instance of its own when another version of the artifact begins under its id: each version
+      ;; is a different resource (CRMI)
+      (define (archive-change c)
+        (define r (change-resource c))
+        (define kept (and (authored r) (eq? (change-action c) 'update) (null? (change-errors c))
+                          (archive-of (stored r) r)))
+        (and kept (not (stored kept)) (change kept 'create '() '())))
+      (define changes (let ([own (map change-of rs)]) (append own (filter-map archive-change own))))
       (define errors (for/sum ([c (in-list changes)]) (length (change-errors c))))
       (define dangling (dangling-references h rs))
       ;; nothing would change: no stage (one with nothing to commit was made, and numbered)

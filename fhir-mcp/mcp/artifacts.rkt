@@ -15,27 +15,26 @@
 ;;; instance; Submit and Revise hold an artifact to its Shareable profile.
 ;;;
 ;;; An Artifact is a FHIR resource that defines (one of `artifact-types`), as a jsexpr.
-;;; CollectionFacts is a hash of what the collection (the workspace's implementation guide) states
-;;; for its artifacts: 'version, 'status, 'experimental, 'publisher — any may be absent.
+;;; Its collection is the workspace's implementation guide, as its sushi-config.yaml states it (an
+;;; ig-config, fhir/ig-config).
 ;;; Pure: no store, no files.
 
 (require racket/contract racket/list racket/string
-         (only-in net/base64 base64-decode))
+         (only-in net/base64 base64-decode)
+         (only-in fhir/ig-config ig-config? ig-config-version ig-config-status ig-config-publisher ig-config-experimental))
 
 (provide
  (contract-out
   [artifact-types (listof string?)]
   ;; artifact? : resource -> boolean   a resource of a defining type
   [artifact? (-> hash? boolean?)]
-  ;; with-collection-facts : artifact facts -> artifact   an artifact's status is its collection's
-  ;; (the repository page: a component's status SHALL be consistent with its parent's; draft when
-  ;; the collection states none; one already retired stays so); the version, experimental flag and
-  ;; publisher it does not state itself are the collection's too (3.5)
-  [with-collection-facts (-> hash? hash? hash?)]
-  ;; with-own-lifecycle : staged stored|#f facts -> artifact   an artifact that states a version of
-  ;; its own (a CQL library's header) is not carried along by its collection's: released under that
-  ;; version, it stays as it is stored while the collection drafts its next one
-  [with-own-lifecycle (-> hash? (or/c hash? #f) hash? hash?)]
+  ;; in-collection : artifact guide stored|#f -> artifact   the artifact as a component of its
+  ;; collection. Its status is the collection's (the repository page: a component's status SHALL be
+  ;; consistent with its parent's; draft when the guide states none; one already retired stays so);
+  ;; the version, experimental flag and publisher it does not state itself are the collection's
+  ;; (3.5). One that states a version of its own (a CQL library's header) is not carried along:
+  ;; released under that version, it stays as it is stored while the collection drafts its next.
+  [in-collection (-> hash? ig-config? (or/c hash? #f) hash?)]
   ;; with-derived-labels : artifact -> artifact   a title from the name and a description (a
   ;; library's leading comment, else the title) for an artifact written in a language with no place
   ;; for them
@@ -72,24 +71,24 @@
 (define (str v) (and (string? v) (not (string=? v "")) v))
 (define (label r) (format "~a/~a" (hash-ref r 'resourceType "?") (hash-ref r 'id "?")))
 
-;; ---- what the collection gives (3.5) -------------------------------------------------------------
-(define (with-collection-facts r facts)
+;; ---- a component of its collection (3.5) ----------------------------------------------------------
+(define (in-collection r guide stored)
   (define (fill r key value) (if (and value (not (hash-has-key? r key))) (hash-set r key value) r))
-  (let* ([r (fill r 'version (str (hash-ref facts 'version #f)))]
-         ;; a compiler's default status (SUSHI's is active) is not the author's word: the collection's is
-         [r (if (equal? (hash-ref r 'status #f) "retired") r (hash-set r 'status (or (str (hash-ref facts 'status #f)) "draft")))]
-         [r (if (boolean? (hash-ref r 'experimental 'none)) r (hash-set r 'experimental (eq? #t (hash-ref facts 'experimental #f))))]
-         [r (fill r 'publisher (str (hash-ref facts 'publisher #f)))])
+  (define version (or (str (hash-ref r 'version #f)) (ig-config-version guide)))
+  (define released-on-its-own?
+    (and stored version
+         (not (equal? version (ig-config-version guide)))
+         (equal? version (str (hash-ref stored 'version #f)))
+         (member (hash-ref stored 'status #f) '("active" "retired"))))
+  (let* ([r (fill r 'version version)]
+         [r (hash-set r 'status
+                      (cond [released-on-its-own? (hash-ref stored 'status)]
+                            [(equal? (hash-ref r 'status #f) "retired") "retired"]
+                            ;; a compiler's default status (SUSHI's is active) is not the author's word
+                            [else (or (ig-config-status guide) "draft")]))]
+         [r (if (boolean? (hash-ref r 'experimental 'none)) r (hash-set r 'experimental (eq? #t (ig-config-experimental guide))))]
+         [r (fill r 'publisher (ig-config-publisher guide))])
     r))
-
-(define (with-own-lifecycle staged stored facts)
-  (define own (str (hash-ref staged 'version #f)))
-  (if (and stored own
-           (not (equal? own (str (hash-ref facts 'version #f))))
-           (equal? own (str (hash-ref stored 'version #f)))
-           (member (hash-ref stored 'status #f) '("active" "retired")))
-      (hash-set staged 'status (hash-ref stored 'status))
-      staged))
 
 ;; humanized : "LatestA1c" -> "Latest A1c"
 (define (humanized name)
@@ -201,30 +200,34 @@
    unnamed))
 
 (module+ test
-  (require rackunit (only-in net/base64 base64-encode))
+  (require rackunit (only-in net/base64 base64-encode) (only-in fhir/ig-config parse-ig-config))
   (define sd (hasheq 'resourceType "StructureDefinition" 'id "lab" 'url "http://x/StructureDefinition/lab" 'name "Lab"))
   (check-true (artifact? sd))
   (check-false (artifact? (hasheq 'resourceType "Observation" 'id "a")))
-  ;; the collection's facts fill what the artifact does not say; its own are kept
-  (define facts (hasheq 'version "0.1.0" 'status "draft" 'publisher "Example Clinic"))
-  (check-equal? (with-collection-facts sd facts)
+  ;; the collection's facts fill what the artifact does not say; its own version is kept
+  (define (guide . lines) (parse-ig-config (string-join lines "\n")))
+  (define draft (guide "id: example.clinic" "version: 0.1.0" "status: draft" "publisher:" "  name: Example Clinic"))
+  (check-equal? (in-collection sd draft #f)
                 (hash-set* sd 'version "0.1.0" 'status "draft" 'experimental #f 'publisher "Example Clinic"))
-  (check-equal? (hash-ref (with-collection-facts (hash-set* sd 'version "9.9.9" 'status "active" 'experimental #t) facts) 'version) "9.9.9")
-  ;; the status is the collection's, whatever a compiler defaulted; a retired artifact stays retired
-  (check-equal? (hash-ref (with-collection-facts (hash-set sd 'status "active") facts) 'status) "draft")
-  (check-equal? (hash-ref (with-collection-facts (hash-set sd 'status "draft") (hasheq 'status "active")) 'status) "active")
-  (check-equal? (hash-ref (with-collection-facts (hash-set sd 'status "retired") (hasheq 'status "active")) 'status) "retired")
-  (check-equal? (hash-ref (with-collection-facts sd (hasheq)) 'status) "draft")
-  (check-false (hash-has-key? (with-collection-facts sd (hasheq)) 'version))
+  (check-equal? (hash-ref (in-collection (hash-set* sd 'version "9.9.9" 'experimental #t) draft #f) 'version) "9.9.9")
+  (check-equal? (hash-ref (in-collection (hash-set sd 'experimental #t) draft #f) 'experimental) #t)
+  (check-equal? (hash-ref (in-collection sd (guide "id: x" "experimental: true") #f) 'experimental) #t)
+  (check-false (hash-has-key? (in-collection sd (guide "id: x") #f) 'version))
+  ;; the status is the collection's, whatever a compiler defaulted; draft when it states none; a
+  ;; retired artifact stays retired
+  (check-equal? (hash-ref (in-collection (hash-set sd 'status "active") draft #f) 'status) "draft")
+  (check-equal? (hash-ref (in-collection (hash-set sd 'status "active") (guide "id: x") #f) 'status) "draft")
+  (check-equal? (hash-ref (in-collection (hash-set sd 'status "draft") (guide "id: x" "status: active") #f) 'status) "active")
+  (check-equal? (hash-ref (in-collection (hash-set sd 'status "retired") (guide "id: x" "status: active") #f) 'status) "retired")
   ;; its own version, released: the collection's draft status does not reach it
   (let ([lib (hasheq 'resourceType "Library" 'id "A1c" 'version "0.1.0" 'status "draft")]
-        [next (hasheq 'version "0.2.0" 'status "draft")])
-    (check-equal? (hash-ref (with-own-lifecycle lib (hash-set lib 'status "active") next) 'status) "active")
-    (check-equal? (hash-ref (with-own-lifecycle lib (hash-set lib 'status "draft") next) 'status) "draft")
-    (check-equal? (hash-ref (with-own-lifecycle lib #f next) 'status) "draft")
+        [next (guide "id: x" "version: 0.2.0" "status: draft")])
+    (check-equal? (hash-ref (in-collection lib next (hash-set lib 'status "active")) 'status) "active")
+    (check-equal? (hash-ref (in-collection lib next (hash-set lib 'status "draft")) 'status) "draft")
+    (check-equal? (hash-ref (in-collection lib next #f) 'status) "draft")
     ;; a new version of its own, or the collection's version: the collection's status
-    (check-equal? (hash-ref (with-own-lifecycle (hash-set lib 'version "0.3.0") (hash-set lib 'status "active") next) 'status) "draft")
-    (check-equal? (hash-ref (with-own-lifecycle (hash-set lib 'version "0.2.0") (hash-set* lib 'version "0.2.0" 'status "active") next) 'status) "draft"))
+    (check-equal? (hash-ref (in-collection (hash-set lib 'version "0.3.0") next (hash-set lib 'status "active")) 'status) "draft")
+    (check-equal? (hash-ref (in-collection (hash-set lib 'version "0.2.0") next (hash-set* lib 'version "0.2.0" 'status "active")) 'status) "draft"))
   ;; labels for a language with no place for them
   (define (cql text) (hasheq 'resourceType "Library" 'id "LatestA1c" 'name "LatestA1c"
                              'content (list (hasheq 'contentType "text/cql" 'data (bytes->string/utf-8 (base64-encode (string->bytes/utf-8 text) #""))))))

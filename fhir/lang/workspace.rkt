@@ -63,8 +63,8 @@
 (require racket/contract racket/string racket/list racket/path racket/file
          (only-in "support.rkt" language-id-of)
          (only-in "../spec-package.rkt" spec-package-path)
-         (only-in "../package.rkt" read-package)
-         (only-in "../yaml.rkt" read-yaml yref ymap? ymap-entries exn:fail:yaml?))
+         (only-in "../yaml.rkt" exn:fail:yaml?)
+         "../ig-config.rkt")
 
 (provide
  (struct-out workspace) (struct-out ws-config) (struct-out ws-support) (struct-out run-result)
@@ -83,14 +83,15 @@
   ;; languages' (an ImplementationGuide lists them): its `<id>/workspace` provides
   ;; `composes-workspace` as #t, and a hub computes it after the others and again when they change
   [workspace-composes? (-> string? boolean?)]
-  ;; ig-facts : text -> (values canonical|#f fhir-version|#f package-names profiles warnings)
-  ;; what a sushi-config.yaml says the workspace is
-  [ig-facts (-> string? (values (or/c string? #f) (or/c string? #f) (listof string?) hash? (listof string?)))]
   [ig-file-name string?]
-  ;; ig-metadata : text -> (hash symbol -> value)   what a sushi-config.yaml states for every artifact
-  ;; of its collection: 'version, 'status, 'publisher (strings), 'experimental (boolean) — the keys it
-  ;; gives; none when the file is not YAML
-  [ig-metadata (-> string? hash?)]
+  ;; workspace-implementation-guide : workspace -> ig-config | #f   the workspace's implementation
+  ;; guide as its sushi-config.yaml states it (fhir/ig-config); #f when it has none, or one that is
+  ;; not YAML
+  [workspace-implementation-guide (-> workspace? (or/c ig-config? #f))]
+  ;; with-guide : ws-config stated-keys ig-config -> (values ws-config warnings)   the guide's
+  ;; canonical, FHIR version, dependencies (as packages) and global profiles (as constraints) over
+  ;; workspace.yaml's; `stated-keys` are the keys workspace.yaml itself gives
+  [with-guide (-> ws-config? (listof string?) ig-config? (values ws-config? (listof string?)))]
   [default-ws-config ws-config?]
   ;; read-workspace-config : path -> (values ws-config (listof string))   the config and its warnings
   [read-workspace-config (-> path-string? (values ws-config? (listof string?)))]
@@ -245,42 +246,11 @@
 (define (read-workspace-config f) (parse-workspace-config (file->string f)))
 
 ;; ---- the implementation guide's facts ---------------------------------------------------------
-;; ig-facts : text -> (values canonical|#f fhir-version|#f package-names profiles warnings)
-;; A dependency `id: version` (or `id: {version: v}`) is the package name `<id>-<version>`; `global`
-;; is `Type: profile` (one or a list), or a list of `{type, profile}`.
-(define (ig-facts text)
-  (define y (with-handlers ([exn:fail:yaml? (lambda (e) e)]) (read-yaml text)))
-  (cond
-    [(exn? y) (values #f #f '() (hash) (list (exn-message y)))]
-    [else
-     (define (str k) (let ([v (yref y k)]) (and (string? v) (not (string=? v "")) v)))
-     (define version (let ([v (yref y "fhirVersion")]) (cond [(string? v) v] [(and (pair? v) (string? (car v))) (car v)] [else #f])))
-     (define deps
-       (let ([d (yref y "dependencies")])
-         (if (ymap? d)
-             (for*/list ([e (in-list (ymap-entries d))]
-                         [v (in-value (let ([x (cdr e)]) (cond [(string? x) x] [(ymap? x) (yref x "version")] [else #f])))]
-                         #:when (string? v))
-               (string-append (car e) "-" v))
-             '())))
-     (define (add h type profile) (if (and (string? type) (string? profile)) (hash-update h type (lambda (l) (remove-duplicates (append l (list profile)))) '()) h))
-     (define globals
-       (let ([g (yref y "global")])
-         (cond [(ymap? g) (for*/fold ([h (hash)]) ([e (in-list (ymap-entries g))]
-                                                  [p (in-list (let ([v (cdr e)]) (if (list? v) v (list v))))])
-                            (add h (car e) p))]
-               [(list? g) (for/fold ([h (hash)]) ([e (in-list g)]) (add h (yref e "type") (yref e "profile")))]
-               [else (hash)])))
-     (values (let ([c (str "canonical")]) (and c (regexp-replace #rx"/+$" c "")))
-             version deps globals
-             (if (and version (not (regexp-match? #rx"^[45][.]" version)))
-                 (list (format "sushi-config.yaml: fhirVersion ~a is not one this workspace runs (4.0.1 or 5.0.0)" version))
-                 '()))]))
-
-;; with-ig-facts : ws-config (listof key) text -> (values ws-config warnings)   the config with the
-;; guide's facts over workspace.yaml's; `stated` are the keys workspace.yaml itself gives
-(define (with-ig-facts c stated text)
-  (define-values (canonical version deps globals warnings) (ig-facts text))
+;; with-guide : ws-config stated-keys ig-config -> (values ws-config warnings)
+;; A dependency `id: version` is the package name `<id>-<version>`.
+(define (with-guide c stated guide)
+  (define canonical (let ([u (ig-config-canonical guide)]) (and u (regexp-replace #rx"/+$" u ""))))
+  (define version (ig-config-fhir-version guide))
   (define (differs key mine theirs)
     (if (and theirs (member key stated) (not (equal? mine theirs)))
         (list (format "workspace.yaml: ~a ~a differs from sushi-config.yaml's ~a, which is used" key mine theirs))
@@ -288,31 +258,24 @@
   (values (struct-copy ws-config c
                        [canonical (or canonical (ws-config-canonical c))]
                        [fhir-version (or version (ws-config-fhir-version c))]
-                       [packages (remove-duplicates (append deps (ws-config-packages c)))]
-                       [profiles (for/fold ([h (ws-config-profiles c)]) ([(type ps) (in-hash globals)])
-                                   (hash-update h type (lambda (l) (remove-duplicates (append ps l))) '()))])
-          (append warnings
+                       [packages (remove-duplicates
+                                  (append (for/list ([d (in-list (ig-config-dependencies guide))]) (string-append (car d) "-" (cdr d)))
+                                          (ws-config-packages c)))]
+                       ;; the guide's profiles of a type ahead of workspace.yaml's
+                       [profiles (for/fold ([h (ws-config-profiles c)]) ([g (in-list (reverse (ig-config-globals guide)))])
+                                   (hash-update h (car g) (lambda (l) (remove-duplicates (cons (cdr g) l))) '()))])
+          (append (if (and version (not (regexp-match? #rx"^[45][.]" version)))
+                      (list (format "sushi-config.yaml: fhirVersion ~a is not one this workspace runs (4.0.1 or 5.0.0)" version))
+                      '())
                   (differs "canonical" (ws-config-canonical c) canonical)
                   (differs "fhirVersion" (ws-config-fhir-version c) version))))
 
-;; ig-metadata : text -> hash
-(define (ig-metadata text)
-  (define y (with-handlers ([exn:fail:yaml? (lambda (_) #f)]) (read-yaml text)))
-  (define (str v) (and (string? v) (not (string=? v "")) v))
-  (define publisher (let ([p (yref y "publisher")])
-                      (cond [(string? p) (str p)]
-                            [(ymap? p) (str (yref p "name"))]
-                            [(and (pair? p) (ymap? (car p))) (str (yref (car p) "name"))]
-                            [else #f])))
-  (for/hasheq ([kv (in-list (list (cons 'version (str (yref y "version")))
-                                  (cons 'status (str (yref y "status")))
-                                  (cons 'publisher publisher)
-                                  (cons 'experimental (let ([e (yref y "experimental")])
-                                                        (cond [(member e '("true" "True" "yes")) #t]
-                                                              [(member e '("false" "False" "no")) 'false]
-                                                              [else #f])))))]
-               #:when (cdr kv))
-    (values (car kv) (if (eq? (cdr kv) 'false) #f (cdr kv)))))
+;; read-guide : path -> ig-config | string   the guide file read, or why it could not be
+(define (read-guide f)
+  (with-handlers ([exn:fail:yaml? exn-message]) (read-ig-config f)))
+(define (workspace-implementation-guide ws)
+  (define f (build-path (workspace-root ws) ig-file-name))
+  (and (file-exists? f) (let ([g (read-guide f)]) (and (ig-config? g) g))))
 
 (define (open-workspace dir)
   (define root (simplify-path (path->complete-path dir)))
@@ -325,10 +288,11 @@
                       [(kvs _w) (parse-yaml-subset text)])
           (values c ws (map car kvs)))
         (values default-ws-config '() '())))
-  (if (file-exists? ig)
-      (let-values ([(c* more) (with-ig-facts c stated (file->string ig))])
-        (values (workspace root c*) (append warnings more)))
-      (values (workspace root c) warnings)))
+  (define guide (and (file-exists? ig) (read-guide ig)))
+  (cond [(ig-config? guide) (let-values ([(c* more) (with-guide c stated guide)])
+                              (values (workspace root c*) (append warnings more)))]
+        [(string? guide) (values (workspace root c) (append warnings (list guide)))]
+        [else (values (workspace root c) warnings)]))
 
 (define (workspace-r4? ws) (regexp-match? #rx"^4[.]" (ws-config-fhir-version (workspace-config ws))))
 
@@ -356,21 +320,14 @@
     (define f (path->complete-path p (workspace-root ws)))
     (define hit (cond [(file-exists? f) (simplify-path f)]
                       [(spec-package-path (if (regexp-match? #rx"[.]tgz$" p) p (string-append p ".tgz")) #:optional? #t)]
-                      [else (unversioned-package p)]))
+                      [else (dependency-package p)]))
     (if hit (values (cons hit found) missing) (values found (cons p missing)))))
-;; unversioned-package : name -> path|#f   `<id>-<version>` served by `<id>.tgz` when that package
-;; IS the version asked for (fhir-spec keeps some packages under their id alone)
-(define package-versions (make-hash))
-(define (unversioned-package name)
+;; dependency-package : name -> path|#f   `<id>-<version>` as a dependency is located (fhir/ig-config:
+;; fhir-spec keeps some packages under their id alone, `<id>.tgz`, when that IS the version)
+(define (dependency-package name)
   (define m (regexp-match #px"^(.*)-([0-9][0-9A-Za-z.]*(?:-[0-9A-Za-z.]+)?)$" name))
-  (define q (and m (spec-package-path (string-append (cadr m) ".tgz") #:optional? #t)))
-  (and q
-       (equal? (caddr m)
-               (hash-ref! package-versions q
-                          (lambda ()
-                            (define-values (manifest _rs _es) (read-package q #:select (lambda (_) #f)))
-                            (and (hash? manifest) (hash-ref manifest 'version #f)))))
-       q))
+  (and m (let-values ([(found _missing) (dependency-packages (list (cons (cadr m) (caddr m))))])
+           (and (pair? found) (car found)))))
 (define (workspace-core-package ws)
   (spec-package-path (if (workspace-r4? ws) "hl7.fhir.r4.core.tgz" "hl7.fhir.r5.core.tgz") #:optional? #t))
 
@@ -389,26 +346,25 @@
   (check-equal? (workspace-language-of "a/sushi-config.yaml") "ig")
   (check-equal? (workspace-language-of "sushi-config.yaml") "ig")
   (check-false (workspace-language-of "a/my-sushi-config.yaml"))
-  ;; the implementation guide's facts, in both spellings of a dependency and of `global`
-  (let-values ([(canonical version deps globals warnings)
-                (ig-facts (string-append "id: example.clinic\ncanonical: http://example.org/clinic/\nfhirVersion: 4.0.1\n"
-                                         "dependencies:\n  hl7.fhir.us.core: 6.1.0\n  hl7.fhir.uv.ips:\n    version: 2.0.1\n    id: ips\n"
-                                         "global:\n  Observation: http://example.org/clinic/StructureDefinition/lab\n"
-                                         "  Patient:\n    - http://example.org/clinic/StructureDefinition/a\n    - http://example.org/clinic/StructureDefinition/b\n"))])
-    (check-equal? canonical "http://example.org/clinic")
-    (check-equal? version "4.0.1")
-    (check-equal? deps '("hl7.fhir.us.core-6.1.0" "hl7.fhir.uv.ips-2.0.1"))
-    (check-equal? globals (hash "Observation" '("http://example.org/clinic/StructureDefinition/lab")
-                                "Patient" '("http://example.org/clinic/StructureDefinition/a" "http://example.org/clinic/StructureDefinition/b")))
-    (check-equal? warnings '()))
-  (let-values ([(_c _v _d globals warnings) (ig-facts "fhirVersion: [6.0.0-ballot3]\nglobal:\n  - type: Patient\n    profile: http://x/p\n")])
-    (check-equal? globals (hash "Patient" '("http://x/p")))
+  ;; the guide's facts over workspace.yaml's: its canonical and version, its dependencies as
+  ;; packages, its global profiles ahead of the configured ones
+  (let-values ([(c warnings)
+                (with-guide (struct-copy ws-config default-ws-config [canonical "http://x"] [packages '("local/x.tgz")]
+                                         [profiles (hash "Patient" '("http://x/StructureDefinition/p"))])
+                            '("canonical")
+                            (parse-ig-config (string-append "id: example.clinic\ncanonical: http://example.org/clinic/\nfhirVersion: [5.0.0]\n"
+                                                            "dependencies:\n  hl7.fhir.us.core: 6.1.0\n  hl7.fhir.uv.ips:\n    version: 2.0.1\n"
+                                                            "global:\n  Patient:\n    - http://example.org/clinic/StructureDefinition/a\n"
+                                                            "    - http://example.org/clinic/StructureDefinition/b\n")))])
+    (check-equal? (ws-config-canonical c) "http://example.org/clinic")
+    (check-equal? (ws-config-fhir-version c) "5.0.0")
+    (check-equal? (ws-config-packages c) '("hl7.fhir.us.core-6.1.0" "hl7.fhir.uv.ips-2.0.1" "local/x.tgz"))
+    (check-equal? (ws-config-profiles c)
+                  (hash "Patient" '("http://example.org/clinic/StructureDefinition/a" "http://example.org/clinic/StructureDefinition/b"
+                                    "http://x/StructureDefinition/p")))
+    (check-equal? warnings '("workspace.yaml: canonical http://x differs from sushi-config.yaml's http://example.org/clinic, which is used")))
+  (let-values ([(_c warnings) (with-guide default-ws-config '() (parse-ig-config "fhirVersion: 6.0.0-ballot3\n"))])
     (check-regexp-match #rx"6.0.0-ballot3 is not one" (car warnings)))
-  (let-values ([(_c _v _d _g warnings) (ig-facts "a: &anchor b\n")]) (check-equal? (length warnings) 1))
-  (check-equal? (ig-metadata "id: x\nversion: 0.2.0\nstatus: draft\nexperimental: true\npublisher:\n  name: Example Clinic\n  url: http://example.org\n")
-                (hasheq 'version "0.2.0" 'status "draft" 'experimental #t 'publisher "Example Clinic"))
-  (check-equal? (ig-metadata "id: x\nexperimental: false\npublisher: Me\n") (hasheq 'experimental #f 'publisher "Me"))
-  (check-equal? (ig-metadata "a: &anchor b\n") (hasheq))
   (define-values (c ws)
     (parse-workspace-config
      (string-append "# a workspace\nfhirVersion: 4.0.1\ncanonical: http://example.org/fhir/  # trailing slash dropped\n"
@@ -464,7 +420,14 @@
     (check-equal? (ws-config-data ci) "data")
     (check-equal? (length warnings) 1)
     (check-regexp-match #rx"canonical http://x differs from sushi-config.yaml's http://guide.example" (car warnings))
-    (check-not-false (member "sushi-config.yaml" (map (lambda (p) (path->string (find-relative-path (workspace-root wi) p))) (workspace-files wi)))))
+    (check-not-false (member "sushi-config.yaml" (map (lambda (p) (path->string (find-relative-path (workspace-root wi) p))) (workspace-files wi))))
+    (check-equal? (ig-config-id (workspace-implementation-guide wi)) "x.guide"))
+  ;; a guide file that is not YAML is one warning, and no guide
+  (with-output-to-file (build-path dir "sushi-config.yaml") #:exists 'truncate (lambda () (display "a: &anchor b\n")))
+  (let-values ([(wi warnings) (open-workspace dir)])
+    (check-equal? (ws-config-canonical (workspace-config wi)) "http://x")
+    (check-equal? (length warnings) 1)
+    (check-false (workspace-implementation-guide wi)))
   (delete-file (build-path dir "sushi-config.yaml"))
   ;; `data: data/`, as the guide and `fhir-mcp init` write it, is the same directory (with the slash
   ;; it was not left out: every data file counted as one of the workspace's)

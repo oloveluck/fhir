@@ -15,7 +15,9 @@
 ;;;      example the new rule no longer accepts refuses the stage;
 ;;;   5. with the working files gone the store answers: data is held to the ACTIVE version, a
 ;;;      canonical means it, `|version` another, and the stored artifacts validate;
-;;;   6. definitions need a guide; `definitions:=true` stages one file's own.
+;;;   6. definitions need a guide; `definitions:=true` stages one file's own;
+;;;   7. the authoring rules are for what the workspace's languages wrote: a definition given as
+;;;      JSON (somebody's published artifact) is staged as it is, with or without a guide.
 
 (require rackunit racket/file racket/port racket/system racket/string)
 
@@ -169,5 +171,21 @@
 (guide #:version "0.3.0")
 (let ([a (batch "write path=sushi-config.yaml text=@guide.yaml" "stage path=p.fsh definitions:=true keep:=false")])
   (check-regexp-match #rx"\"action\":\"would create\",\"resource\":\"StructureDefinition/vital\"\\}\\],\"errors\":0" (list-ref a 1)))
+
+;; ---- 7. a definition given as JSON is somebody's: staged as it is ----------------------------
+(save "q.json" "{\"resourceType\": \"Questionnaire\", \"id\": \"intake\", \"url\": \"http://elsewhere.example/Questionnaire/intake\","
+      " \"version\": \"2.0.0\", \"status\": \"active\", \"item\": [{\"linkId\": \"name\", \"type\": \"string\"}]}")
+(let ([a (batch "write path=q.json text=@q.json" "stage path=q.json" "commit stage=latest reason=\"a published questionnaire\""
+                "stage path=sushi-config.yaml keep:=false"
+                "query language=sql text=\"SELECT id, resource ->> '$.status' AS status, resource ->> '$.version' AS version FROM Questionnaire\" as=csv")])
+  ;; no title, description or experimental flag, and active in a draft guide: not this workspace's to hold or to change
+  (check-regexp-match #rx"\"action\":\"create\",\"resource\":\"Questionnaire/intake\"\\}\\],\"errors\":0" (list-ref a 1))
+  (check-false (regexp-match? #rx"Questionnaire/intake" (list-ref a 3)))        ; unchanged when the guide is staged
+  (check-regexp-match #rx"\nintake,active,2.0.0\n" (list-ref a 4)))
+;; and in a workspace with no guide at all
+(let-values ([(ok _) (sh "raco fhir-mcp init ws2")]) (check-true ok))
+(save "session2.txt" "write path=q.json text=@q.json" "stage path=q.json keep:=false")
+(let-values ([(_ok out) (sh "raco fhir-mcp batch session2.txt --workspace ws2")])
+  (check-regexp-match #rx"\"action\":\"would create\",\"resource\":\"Questionnaire/intake\"\\}\\],\"errors\":0" out))
 
 (delete-directory/files dir)
