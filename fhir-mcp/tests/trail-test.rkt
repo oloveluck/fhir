@@ -173,6 +173,15 @@
     (check-true (and (hash-has-key? latest-tally 'quantities) (hash-has-key? latest-tally 'mean) (equal? (hash-ref latest-tally 'unit #f) "%"))
                 (format "~s" latest-tally))
     (void (call "write" (hasheq 'path "LatestA1c.cql" 'text "")))
-    (void (call "write" (hasheq 'path "Above.cql" 'text "")))))
+    (void (call "write" (hasheq 'path "Above.cql" 'text "")))
+    ;; a note corrected is a change: a `text` below the top of a resource is content (it was skipped
+    ;; as the narrative is, so the stage said the reading was stored as it is and nothing was committed)
+    (define (noted text) (string-append (a1c 8.4 "%") (format "* note.text = ~s\n" text)))
+    (call "commit" (hasheq 'stage (hash-ref (call "stage" (hasheq 'fsh (noted "fasting"))) 'stage) 'reason "a note"))
+    (define renoted (call "stage" (hasheq 'fsh (noted "not fasting"))))
+    (check-equal? (map (lambda (c) (list (hash-ref c 'action) (hash-ref c 'changed))) (hash-ref renoted 'changes))
+                  '(("update" ("note[0].text: \"fasting\" → \"not fasting\""))))
+    (call "commit" (hasheq 'stage (hash-ref renoted 'stage) 'reason "the note corrected"))
+    (check-equal? (hash-ref (car (hash-ref (call "describe" (hasheq 'ref "Observation/a1")) 'note)) 'text) "not fasting")))
 
 (delete-directory/files dir)

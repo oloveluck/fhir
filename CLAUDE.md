@@ -24,7 +24,7 @@ never `../model/node.rkt`. Dependency order (base first):
 | `fsh` | `oloveluck/fsh` | `#lang fsh` (bidirectional), projects + packaging, `check.rkt`; `raco fsh`, `raco fsh check` | fhir, fhirpath, fhir-validation |
 | `fhir-server` | `oloveluck/fhir` → `fhir-server/` | `capability/ http/ store/` (SQLite), IG-generated servers, `$evaluate-measure`, `server-cli.rkt` (`raco fhir-server`), server tests | fhir, fhir-spec, fhirpath, fhir-tx, fhir-validation, cql, db-lib |
 | `fhir-lsp` | `oloveluck/fhir` → `fhir-lsp/` | the Language Server Protocol server for the five languages: `lsp/jsonrpc.rkt` (framing), `lsp/diagnostics.rkt` (fhir/diagnostic -> LSP), `lsp/languages.rkt` (the catalogue over `fhir/lang/support`), `lsp/server.rkt` (state, dispatch, loop; hover/definition/completion/symbols handed to the document's language support with its project), `lsp-cli.rkt` (`raco fhir-lsp`, `check`) | fhir (+ the languages' `support` modules at run time) |
-| `fhir-mcp` | `oloveluck/fhir` → `fhir-mcp/` | the Model Context Protocol server over a WORKSPACE (below): `mcp/workspace.rkt` (the hub: config, packages, data source, artifacts registered, results, stages), `mcp/verbs.rkt` (the nine tools), `learn/*.md` (`learn://` guides with the official references for the workspace, search and the languages that do not ship their own yet; a language's own guide comes from its repo, below; their examples compile in the test), `mcp/tools.rkt` (the Tool struct; operations loaded and applied to JSON; elements and definitions in the packages), `mcp/resources.rkt` (guides, packages, definitions, learn, results; prompts), `mcp/server.rkt` (dispatch, one JSON line per message), `mcp/init.rkt` (`raco fhir-mcp init`: workspace.yaml, data/, .mcp.json, CLAUDE.md), `mcp/search-index.rkt` (FHIR search over data that is files, through fhir-server's store, loaded on demand), `mcp/sql.rkt` (SQL over views and results, and over the workspace's store read-only), `mcp-cli.rkt` (`raco fhir-mcp [--workspace d]`, `init`, `guide`, `tools`, `call`) | fhir, fhir-lsp (+ the operations and languages at run time) |
+| `fhir-mcp` | `oloveluck/fhir` → `fhir-mcp/` | the Model Context Protocol server over a WORKSPACE (below): `mcp/workspace.rkt` (the hub's contracted interface over `hub.rkt` — config, packages, data source, artifacts registered, results, stages — and a module per verb: `check.rkt`, `run.rkt`, `describe.rkt`, `apply.rkt`, `stage.rkt`), `mcp/verbs.rkt` (the nine tools), `learn/*.md` (`learn://` guides with the official references for the workspace, search and the languages that do not ship their own yet; a language's own guide comes from its repo, below; their examples compile in the test), `mcp/tools.rkt` (the Tool struct; operations loaded and applied to JSON; elements and definitions in the packages), `mcp/resources.rkt` (guides, packages, definitions, learn, results; prompts), `mcp/server.rkt` (dispatch, one JSON line per message), `mcp/init.rkt` (`raco fhir-mcp init`: workspace.yaml, data/, .mcp.json, CLAUDE.md), `mcp/search-index.rkt` (FHIR search over data that is files, through fhir-server's store, loaded on demand), `mcp/sql.rkt` (SQL over views and results, and over the workspace's store read-only), `mcp-cli.rkt` (`raco fhir-mcp [--workspace d]`, `init`, `guide`, `tools`, `call`) | fhir, fhir-lsp (+ the operations and languages at run time) |
 | `sql-on-fhir` | `oloveluck/sql-on-fhir` | `#lang sql-on-fhir`: ViewDefinition model and operation definitions GENERATED from the IG package (`target.rkt`, `model/`), the view engine, `$sql-run`/`$sql-export` as operations; `raco sql-on-fhir` | fhir, fhirpath (fhir-spec to regenerate) |
 | `fhir-examples` | `oloveluck/fhir-examples` | `examples/` (operations applied as procedures), `bench.rkt` (prose → FSH tasks from a published IG, scored), recorded runs; `raco spec-bench` | fhir, fhir-spec, fhir-validation, fsh, fml |
 
@@ -1752,8 +1752,22 @@ draft guide. First cut of the hub (`mcp/workspace.rkt`, 2,168 lines, 153 definit
 functions that read a stage's FSH source as text (where an Instance and its rules are, the block
 that stages again, the line an error is about) are `mcp/fsh-source.rkt` — pure, with contracts,
 one definition of an entity header (there were three spellings) and the tests they never had.
-What remains to split, by the file's own sections: run/query/results, describe (450 lines), stage
-and commit (600); 73 of its definitions take no hub.
+The hub split (2026-11-12): `mcp/workspace.rkt` is now 41 lines — the contracted interface, as
+before (verbs.rkt, mcp-cli.rkt and every test are untouched). Under it, each a module along one of
+the old file's sections, in dependency order (no cycles): `calls.rkt` (how an answer names the next
+call), `json-diff.rkt`, `results.rkt` (a result's name, its answer, its rows as a sorted table, two
+results compared) — leaves with contracts and the tests they never had; `hub.rkt` (the Hub: the
+structs, opening and configuring, paths, what the files define, the state kept in `.fhir-mcp/`,
+results and stages); `data.rkt` (the data read whole, a resource held to the workspace's rules, the
+trail written); then one module per verb: `check.rkt` (write, check), `run.rkt` (run, query,
+explain, and the hub's own SQL, search and FHIR JSON), `apply.rkt`, `describe.rkt`, `stage.rkt`
+(stage, commit; it reads a history from describe, never the reverse). The modules were generated
+from the old file form by form (each with its comments), so no definition changed but these: an
+unused struct field and an unused function removed, `run-sql` uses `view-names` instead of its
+copy. Writing `json-diff`'s tests found a defect: `text` was skipped at every depth, as the
+narrative is at the top, so a corrected `note.text` or `code.text` was "unchanged" — the stage said
+the resource was stored as it is and nothing was committed. Only a resource's own `meta` and
+narrative are left out now (trail-test corrects a note).
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
