@@ -35,10 +35,12 @@ version, packages, `global` profiles), and the guide is handed back as its file 
 inverse: on the published IPS, mCODE and CRMI guides the text compiles to the guide again);
 **edit** — `describe ref=<canonical|Type/id> as=source` and `write path=<file> ref=…`: a library as
 its CQL, the guide as `sushi-config.yaml` (the file its commit kept when that states this version),
-the rest as FSH without what the guide gives, and the text compiles to what is stored. Not yet:
-each artifact's own source file kept (one Provenance per source file — comments, RuleSets, VCL and
-FML texts; a stored StructureMap is not written back as FML); a definition staged alone into a
-store-only workspace is not added to the stored guide's list; manifests; the operations.
+the rest as FSH without what the guide gives, and the text compiles to what is stored; each
+artifact's own source kept — a guide's commit writes one Provenance per file it was made from, so
+the trail names each resource's file and line and edit hands back the author's own lines (the FSH
+entity with what it uses, the `.cql`, `.vcl` or `.map` text). Not yet: a stored StructureMap with
+no kept text written back as FML; a definition staged alone into a store-only workspace added to
+the stored guide's list; manifests; the operations.
 
 ## What lives where
 

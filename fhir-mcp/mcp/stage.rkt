@@ -108,6 +108,33 @@
     [else (hasheq 'kind "resources")]))
 
 ;; ---- artifacts on their way in (CRMI, artifacts.rkt) -------------------------------------------
+;; collection-sources : hub -> (hash (cons type id) -> Source)   for each resource the guide lists,
+;; the file that defines it, as a Source (trail.rkt): the trail of a guide's commit names each
+;; definition's own text, and that text is what `edit` hands back. An FSH file is read as text
+;; (which of its entities has the id); a file of another language is asked what it alone defines.
+(define (collection-sources h)
+  (define by-language (files-by-language h))
+  (define (key r) (cons (hash-ref r 'resourceType #f) (hash-ref r 'id #f)))
+  (define (defines-in-fsh? text r)
+    (define id (hash-ref r 'id #f))
+    (and (string? id)
+         (or (and (member (hash-ref r 'resourceType #f) '("StructureDefinition" "ValueSet" "CodeSystem")) (definition-line text id))
+             (instance-line text id))
+         #t))
+  ;; defined : language (cons path text) -> (listof resource)
+  (define (defined language f)
+    (with-handlers ([exn:fail? (lambda (_) '())])
+      (match language
+        ["fsh" (filter (lambda (r) (defines-in-fsh? (cdr f) r))
+                       (registered-by (lambda (s) (equal? s (list 'workspace "fsh")))))]
+        ["fhir" (bundle-resources (string->jsexpr (cdr f)))]
+        [_ (let-values ([(rs _problems) ((ws-support-artifacts (workspace-support language)) (hub-ws h) (list f))]) rs)])))
+  (for*/fold ([sources (hash)]) ([language (in-list '("fsh" "cql" "fml" "vcl" "fhir"))]
+                                 [f (in-list (hash-ref by-language language '()))])
+    (define source (hasheq 'kind "file" 'path (rel h (car f)) 'language language 'text (cdr f)))
+    (for/fold ([sources sources]) ([r (in-list (defined language f))] #:unless (hash-has-key? sources (key r)))
+      (hash-set sources (key r) source))))
+
 ;; The CRMI authoring rules (artifacts.rkt) are for what the workspace's own languages WROTE: a
 ;; definition given as JSON, or taken from a run's result, is somebody's published artifact and is
 ;; staged as it is, like any resource.
@@ -202,6 +229,9 @@
           (define language (authored r))
           (if language (authored-artifact r language guide (stored r)) (with-profiles h r))))
       (define source (stage-source h args))
+      ;; the guide's stage: each resource from its own file
+      (define file-sources (if (equal? (hash-ref source 'language #f) "ig") (collection-sources h) (hash)))
+      (define (own-source r) (hash-ref file-sources (cons (hash-ref r 'resourceType #f) (hash-ref r 'id #f)) #f))
       ;; FSH written in the stage: each resource's errors name its instance's line in that text
       (define (at-line r errors)
         (define fsh (and (equal? (hash-ref source 'kind #f) "fsh") (hash-ref source 'text #f)))
@@ -233,7 +263,7 @@
                            ;; held to its Shareable profile, and to what its lifecycle allows (CRMI 3.1)
                            (append (artifact-errors h r language) (if (pair? paths) (lifecycle-errors current r) '()))
                            (validation-errors r)))
-        (change r (cond [(not current) 'create] [(null? paths) 'unchanged] [else 'update]) paths (at-line r errors)))
+        (change r (cond [(not current) 'create] [(null? paths) 'unchanged] [else 'update]) paths (at-line r errors) (own-source r)))
       ;; archive-change : change -> change | #f   a released version (active or retired) is kept as an
       ;; instance of its own when another version of the artifact begins under its id: each version
       ;; is a different resource (CRMI)
@@ -241,7 +271,7 @@
         (define r (change-resource c))
         (define kept (and (authored r) (eq? (change-action c) 'update) (null? (change-errors c))
                           (archive-of (stored r) r)))
-        (and kept (not (stored kept)) (change kept 'create '() '())))
+        (and kept (not (stored kept)) (change kept 'create '() '() #f)))
       (define changes (let ([own (map change-of rs)]) (append own (filter-map archive-change own))))
       (define errors (for/sum ([c (in-list changes)]) (length (change-errors c))))
       (define dangling (dangling-references h rs))
@@ -452,10 +482,14 @@
   (define src (staged-source st))
   ;; a correction (an update) is said at the first rule that changed (`* component[0].valueQuantity
   ;; = 140 …`), a new resource at its Instance's first line
+  ;; source-of : change -> Source   its own file's (a guide's stage), else the stage's
+  (define (source-of ch) (or (change-source ch) src))
   (define (source-at ch)
     (define r (change-resource ch))
-    (define text (and (equal? (hash-ref src 'kind #f) "fsh") (hash-ref src 'text #f)))
-    (define line (and text (hash-ref r 'id #f) (instance-line text (hash-ref r 'id))))
+    (define own (source-of ch))
+    (define text (and (or (equal? (hash-ref own 'kind #f) "fsh") (equal? (hash-ref own 'language #f) "fsh")) (hash-ref own 'text #f)))
+    (define id (hash-ref r 'id #f))
+    (define line (and text id (or (and (artifact? r) (definition-line text id)) (instance-line text id))))
     (define changed-path (and line (eq? (change-action ch) 'update)
                               (for/first ([p (in-list (change-paths ch))]) (car (regexp-split #rx":" p)))))
     ;; a reading written through a RuleSet has its values on its `* insert` line, a create's and a
@@ -467,19 +501,30 @@
                    (and line (eq? (change-action ch) 'create)
                         (or (rule-line text line "value") (rule-line text line "component")))
                    line))
-    (and at (format "~a:~a" (hash-ref src 'path "fsh") at)))
-  (define targets (for/list ([w (in-list written)] [ch (in-list todo)] #:when (hash-ref w 'ok #f))
-                    (list (hash-ref w 'version (hash-ref w 'resource)) (if (eq? (change-action ch) 'create) 'create 'update)
-                          (source-at ch))))
+    (and at (format "~a:~a" (hash-ref own 'path "fsh") at)))
+  ;; (cons Source target) for each change written
+  (define sourced (for/list ([w (in-list written)] [ch (in-list todo)] #:when (hash-ref w 'ok #f))
+                    (cons (source-of ch)
+                          (list (hash-ref w 'version (hash-ref w 'resource)) (if (eq? (change-action ch) 'create) 'create 'update)
+                                (source-at ch)))))
+  (define targets (map cdr sourced))
   ;; who the trail names: the `agent` asked for, else the client (FHIR_MCP_AGENT from the shell)
   (define agent (or agent-asked (unbox current-agent)))
-  (define trail (if (null? targets) '() (write-trail! h (list (provenance (ws-config-fhir-version c) targets src reason agent (now-instant))
-                                                               (commit-audit (ws-config-fhir-version c) targets agent (now-instant))))))
+  ;; one Provenance per source — the stage's own first — each naming what was made from it
+  (define sources (let ([all (remove-duplicates (map car sourced))]) (if (member src all) (cons src (remove src all)) all)))
+  (define provenances
+    (for/list ([s (in-list sources)])
+      (provenance (ws-config-fhir-version c) (for/list ([st (in-list sourced)] #:when (equal? (car st) s)) (cdr st)) s reason agent (now-instant))))
+  (define trail (if (null? targets) '() (write-trail! h (append provenances (list (commit-audit (ws-config-fhir-version c) targets agent (now-instant)))))))
   (configure! h (hub-root h))                              ; the data read again
   ;; each write with the version it made (`Observation/bp-a1/_history/2`), so a correction's v2 is seen
   ;; and the reason it recorded beside the agent, as the trail will say them
-  (define answer0 (hasheq 'stage id 'written written
-                          'provenance (if (pair? trail) (car trail) 'null) 'agent agent))
+  (define answer00 (hasheq 'stage id 'written written
+                           'provenance (if (pair? trail) (car trail) 'null) 'agent agent))
+  ;; a guide's commit: one Provenance per file it was made from
+  (define answer0 (if (and (pair? trail) (> (length provenances) 1))
+                      (hash-set answer00 'provenances (take trail (min (length provenances) (length trail))))
+                      answer00))
   (define answer (if (and (string? reason) (not (string=? reason ""))) (hash-set answer0 'reason reason) answer0))
   (if (member agent '("raco fhir-mcp call" "raco fhir-mcp batch"))
       (hash-set answer 'note (format "the trail names the agent ~s; name who is writing with commit(agent: …) or FHIR_MCP_AGENT" agent))

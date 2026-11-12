@@ -8,7 +8,8 @@
 ;;;      missing title or description is refused, saying where it is written; the version, status,
 ;;;      experimental flag and publisher are the guide's; a CQL library and a VCL value set get
 ;;;      their title and description from their name and leading comment;
-;;;   2. the commit writes them with the trail, as data;
+;;;   2. the commit writes them with the trail, as data — a Provenance per file the guide was made
+;;;      from, so the trail names each resource's own file and line;
 ;;;   3. the lifecycle (CRMI 3.1): draft to active; an active artifact's content does not change and
 ;;;      it does not go back to draft;
 ;;;   4. another version begins: the released one is kept as an instance of its own, and a stored
@@ -16,7 +17,8 @@
 ;;;   5. with the working files gone the store answers: the guide is the stored ImplementationGuide
 ;;;      (its canonical, its `global` profiles); data is held to the ACTIVE version, a canonical
 ;;;      means it, `|version` another; the stored artifacts validate; each comes back as the text
-;;;      that states it (`as=source`);
+;;;      that states it (`as=source`) — the author's own lines when its commit kept them, else
+;;;      written from the resource;
 ;;;   6. edit: `write path=… ref=…` writes a stored definition as its file, and the text compiles
 ;;;      to what is stored; definitions are staged under a guide being drafted, `definitions:=true`
 ;;;      stages one file's own;
@@ -52,7 +54,7 @@
   (apply save "lab.fsh"
          (append (list "Profile: Lab" "Parent: Observation" "Id: lab" "Title: \"A lab result\"")
                  (if description? (list "Description: \"A laboratory result of a known patient.\"") '())
-                 (list "* subject 1..1")
+                 (list "// a result is always somebody's" "* subject 1..1")
                  (if dated? (list "* effective[x] 1..1") '())
                  (list "" "Instance: ann" "InstanceOf: Patient" "* name.family = \"Lee\"" "* gender = #female"
                        "" "Instance: a1c-1" "InstanceOf: lab" "* status = #final" "* code = http://loinc.org#4548-4"
@@ -88,7 +90,15 @@
                                     "commit stage=latest reason=\"first draft of the clinic guide\" agent=\"guide author\""
                                     sd-sql
                                     "query language=sql text=\"SELECT resource ->> '$.title' AS title, resource ->> '$.description' AS description, resource ->> '$.status' AS status, resource ->> '$.version' AS version, resource ->> '$.publisher' AS publisher FROM Library\" as=csv"
-                                    "query language=sql text=\"SELECT type, id, reason FROM trail WHERE type IN ('ImplementationGuide','StructureDefinition','ValueSet') ORDER BY type\" as=csv")))])
+                                    "query language=sql text=\"SELECT type, id, reason FROM trail WHERE type IN ('ImplementationGuide','StructureDefinition','ValueSet') ORDER BY type\" as=csv"
+                                    "query language=sql text=\"SELECT type, id, source, at FROM trail ORDER BY type, id\" as=csv")))])
+  ;; the trail names each resource's own file, and the line it begins at: one Provenance per file
+  ;; the guide was made from (the guide's own first)
+  (check-equal? (length (regexp-match* #rx"Provenance/" (cadr (regexp-match #rx"\"provenances\":\\[([^]]*)\\]" (list-ref a 3))))) 4)
+  (check-regexp-match (regexp (string-append "\nImplementationGuide,example.clinic,sushi-config.yaml,\nLibrary,A1c,A1c.cql,\n"
+                                             "Observation,a1c-1,lab.fsh,lab.fsh:19\nPatient,ann,lab.fsh,lab.fsh:9\n"
+                                             "StructureDefinition,lab,lab.fsh,lab.fsh:1\nValueSet,gender,gender.vcl,\n"))
+                      (list-ref a 7))
   (for ([r (in-list '("ImplementationGuide/example.clinic" "Library/A1c" "Observation/a1c-1" "Patient/ann" "StructureDefinition/lab" "ValueSet/gender"))])
     (check-regexp-match (regexp (format "\"action\":\"create\",\"resource\":\"~a\"" (regexp-quote r))) (list-ref a 2)))
   (check-regexp-match #rx"\"errors\":0" (list-ref a 2))
@@ -153,7 +163,10 @@
                 "describe ref=ImplementationGuide/example.clinic as=source"
                 "describe ref=ImplementationGuide/example.clinic-0.1.0 as=source"
                 "describe ref=Library/A1c as=source"
-                "describe ref=http://example.org/clinic/StructureDefinition/lab as=source")])
+                "describe ref=http://example.org/clinic/StructureDefinition/lab as=source"
+                "describe ref=http://example.org/clinic/StructureDefinition/lab|0.2.0 as=source"
+                "describe ref=ValueSet/gender as=source")])
+
   ;; the stored profile still holds the data
   (check-regexp-match #rx"Observation.subject: minimum required = 1, but found 0" (list-ref a 0))
   ;; and it is the ACTIVE version that does (the draft 0.2.0 would want a date)
@@ -181,7 +194,12 @@
   ;; a library as its CQL, a profile as FSH without what its guide gives it (version, status, publisher)
   (check-regexp-match #rx"\n/[*] The latest HbA1c of each patient. [*]/\nlibrary A1c version '0.1.0'\n" (list-ref a 10))
   (check-regexp-match #rx"\nProfile: Lab\nParent: Observation\nId: lab\nTitle: \"A lab result\"\nDescription: \"A laboratory result of a known patient.\"\n[*] subject 1[.][.]" (list-ref a 11))
-  (check-false (regexp-match? #rx"version|status|publisher" (list-ref a 11))))
+  (check-false (regexp-match? #rx"version|status|publisher" (list-ref a 11)))
+  ;; a version its own commit wrote comes back as the author wrote it — the lines of its file that
+  ;; define it, comments included, and not the file's other entities; a value set as its VCL
+  (check-regexp-match #rx"\nProfile: Lab\nParent: Observation\nId: lab\n.*\n// a result is always somebody's\n[*] subject 1[.][.]1\n[*] effective\\[x\\] 1[.][.]1\n" (list-ref a 12))
+  (check-false (regexp-match? #rx"Instance:" (list-ref a 12)))
+  (check-regexp-match #rx"\n[(]http://hl7.org/fhir/administrative-gender[)][(]female;male[)]\n" (list-ref a 13)))
 
 ;; ---- 6. edit: a definition out of the store, as its file; definitions need a guide being drafted
 (save "p.fsh" "Profile: Vital" "Parent: Observation" "Id: vital" "Title: \"A vital sign\"" "Description: \"A vital sign.\"" "* subject 1..1")
@@ -191,6 +209,8 @@
                 ;; the profile being drafted, and the guide, back as their files
                 "write path=lab.fsh ref=http://example.org/clinic/StructureDefinition/lab|0.2.0"
                 "!write path=lab.cql ref=StructureDefinition/lab"
+                "!write path=gender.fsh ref=ValueSet/gender"
+                "write path=gender.vcl ref=ValueSet/gender"
                 "!write path=x.fsh ref=http://example.org/clinic/StructureDefinition/nope"
                 "write path=sushi-config.yaml ref=ImplementationGuide/example.clinic"
                 "stage path=lab.fsh definitions:=true keep:=false"
@@ -203,14 +223,16 @@
   (check-regexp-match #rx"\"from\":\"http://example.org/clinic/StructureDefinition/lab[|]0.2.0\",\"language\":\"fsh\",\"path\":\"lab.fsh\",\"problems\":\\[\\]" (list-ref a 3))
   (check-regexp-match #rx"[*] effective\\[x\\] 1[.][.]" (file->string (build-path dir "ws" "lab.fsh")))
   (check-regexp-match #rx"StructureDefinition/lab is written as FSH: a .fsh file" (list-ref a 4))
-  (check-regexp-match #rx"no definition http://example.org/clinic/StructureDefinition/nope in the store or the workspace" (list-ref a 5))
+  (check-regexp-match #rx"ValueSet/gender is written as VCL: a .vcl file" (list-ref a 5))
+  (check-regexp-match #rx"\"from\":\"ValueSet/gender\",\"language\":\"vcl\",\"path\":\"gender.vcl\",\"problems\":\\[\\]" (list-ref a 6))
+  (check-regexp-match #rx"no definition http://example.org/clinic/StructureDefinition/nope in the store or the workspace" (list-ref a 7))
   ;; the guide's file is the working copy again: the workspace reads it, not the store
-  (check-regexp-match #rx"\"guide\":\"sushi-config.yaml\"" (list-ref a 6))
+  (check-regexp-match #rx"\"guide\":\"sushi-config.yaml\"" (list-ref a 8))
   (check-regexp-match #rx"version: 0.2.0" (file->string (build-path dir "ws" "sushi-config.yaml")))
   ;; the round trip: the text compiles to the stored definition, so there is nothing to stage …
-  (check-regexp-match #rx"nothing to commit: the 1 resource[(]s[)] are stored as they are" (list-ref a 7))
+  (check-regexp-match #rx"nothing to commit: the 1 resource[(]s[)] are stored as they are" (list-ref a 9))
   ;; … and a new definition is staged under the draft
-  (check-regexp-match #rx"\"action\":\"would create\",\"resource\":\"StructureDefinition/vital\"\\}\\],\"errors\":0" (list-ref a 8)))
+  (check-regexp-match #rx"\"action\":\"would create\",\"resource\":\"StructureDefinition/vital\"\\}\\],\"errors\":0" (list-ref a 10)))
 (guide #:version "0.3.0")
 (let ([a (batch "write path=sushi-config.yaml text=@guide.yaml" "stage path=p.fsh definitions:=true keep:=false")])
   (check-regexp-match #rx"\"action\":\"would create\",\"resource\":\"StructureDefinition/vital\"\\}\\],\"errors\":0" (list-ref a 1)))

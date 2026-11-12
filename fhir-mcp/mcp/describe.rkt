@@ -150,18 +150,54 @@
   (and (hash? r) (artifact? r) r))
 
 ;; artifact-text : hub artifact -> (cons language string)   the language a definition is written in
-;; and its text: a library's CQL (FHIR keeps it as the library's content), the guide's
-;; sushi-config.yaml (the file a commit kept, when that states this version; else written from the
-;; resource), FSH for the rest (decompiled). An archived version is written under its own id.
+;; and its text: the text its commit kept (kept-text), else written from the resource — a library's
+;; CQL (FHIR keeps it as the library's content), the guide's sushi-config.yaml, FSH for the rest
+;; (decompiled). An archived version is written under its own id.
 (define (artifact-text h stored)
   (define r (unarchived stored))
-  (match (hash-ref r 'resourceType #f)
-    ["ImplementationGuide" (cons "ig" (or (kept-guide-text h stored) (guide-text r)))]
-    ["Library" (cond [(library-cql r) => (lambda (cql) (cons "cql" cql))]
-                     [else (cons "fsh" (definition-fsh r))])]
-    ["StructureMap" (error 'describe (format "~a/~a: a stored StructureMap is not written back as FML yet (describe it as JSON, or as=fsh)"
-                                             (hash-ref r 'resourceType) (hash-ref r 'id "?")))]
-    [_ (cons "fsh" (definition-fsh r))]))
+  (or (kept-text h stored)
+      (match (hash-ref r 'resourceType #f)
+        ["ImplementationGuide" (cons "ig" (guide-text r))]
+        ["Library" (cond [(library-cql r) => (lambda (cql) (cons "cql" cql))]
+                         [else (cons "fsh" (definition-fsh r))])]
+        ["StructureMap" (error 'describe (format "~a/~a: no commit here kept its FML, and a StructureMap is not written back as FML yet (describe it as JSON, or as=fsh)"
+                                                 (hash-ref r 'resourceType) (hash-ref r 'id "?")))]
+        [_ (cons "fsh" (definition-fsh r))])))
+
+;; kept-text : hub stored -> (cons language string) | #f   the text the commit of this version kept
+;; for it — its own file (a guide's commit names each definition's; a file or FSH staged alone is
+;; the source) — when that is a text of the language that defines such a resource: the author's own
+;; lines, comments and RuleSets included. A released version archived by a later commit has none.
+(define (kept-text h stored)
+  (with-handlers ([exn:fail? (lambda (_) #f)])
+    (define type (hash-ref stored 'resourceType))
+    (define id (hash-ref stored 'id))
+    (define newest (car (hash-ref (describe-history h type id) 'versions)))
+    (define pv ((data-source-read (current-data-source)) "Provenance" (cadr (regexp-match #rx"^Provenance/(.+)$" (hash-ref newest 'provenance)))))
+    (define text (text-answer-text (as-source pv)))
+    (match (list (source-language pv) type)
+      [(list "fsh" _) (let ([block (definition-block text id)]) (and block (cons "fsh" block)))]
+      [(list "cql" "Library") (cons "cql" text)]
+      [(list "vcl" "ValueSet") (cons "vcl" text)]
+      [(list "fml" "StructureMap") (cons "fml" text)]
+      ;; the guide's file, when it is the file of this version of this guide
+      [(list "ig" "ImplementationGuide")
+       (define c (parse-ig-config text))
+       (and (equal? (ig-config-version c) (hash-ref stored 'version #f))
+            (equal? (ig-config-id c) (or (hash-ref stored 'packageId #f) id))
+            (cons "ig" text))]
+      [_ #f])))
+
+;; source-language : Provenance -> language | #f   the workspace language of the source text it
+;; holds: by the file's name, else by the content type (FSH written in a stage has no file)
+(define (source-language pv)
+  (define attachment
+    (for*/first ([c (in-list (hash-ref pv 'contained '()))] [d (in-list (hash-ref c 'content '()))]
+                 [a (in-value (hash-ref d 'attachment #f))] #:when (hash? a))
+      a))
+  (and attachment
+       (or (let ([title (hash-ref attachment 'title #f)]) (and (string? title) (regexp-match? #rx"[.]" title) (workspace-language-of title)))
+           (match (hash-ref attachment 'contentType #f) ["text/fsh" "fsh"] ["text/cql" "cql"] ["text/fhir-mapping" "fml"] [_ #f]))))
 
 ;; library-cql : Library -> string | #f   its CQL, when it carries one
 (define (library-cql r)
@@ -180,25 +216,6 @@
      (dynamic-require 'fsh/ig 'implementation-guide->config-text))
    g))
 
-;; kept-guide-text : hub guide -> string | #f   the sushi-config.yaml the newest commit of this
-;; resource kept (its Provenance's source: comments, pages and menus included), when it is the file
-;; of this version of this guide
-(define (kept-guide-text h g)
-  (with-handlers ([exn:fail? (lambda (_) #f)])
-    (define text (kept-source h "ImplementationGuide" (hash-ref g 'id)))
-    (define c (and text (parse-ig-config text)))
-    (and c
-         (equal? (ig-config-version c) (hash-ref g 'version #f))
-         (equal? (ig-config-id c) (or (hash-ref g 'packageId #f) (hash-ref g 'id #f)))
-         text)))
-
-;; kept-source : hub type id -> string | #f   the whole source text the newest commit of a stored
-;; resource kept
-(define (kept-source h type id)
-  (define pv (for/first ([v (in-list (hash-ref (describe-history h type id) 'versions '()))] #:when (hash-ref v 'provenance #f))
-               (hash-ref v 'provenance)))
-  (and pv (text-answer-text (as-source ((data-source-read (current-data-source)) "Provenance" (cadr (regexp-match #rx"^Provenance/(.+)$" pv)))))))
-
 ;; hub-edit! : hub path ref -> jsexpr   a stored definition written into the workspace as the file
 ;; that states it (write's answer: its problems), under a path of its language
 (define (hub-edit! h p ref)
@@ -210,7 +227,9 @@
                   (values (car lt) (cdr lt)))))
   (unless (equal? (workspace-language-of (inside h p)) language)
     (error 'write (format "~a is written as ~a" ref
-                          (match language ["ig" (format "the workspace's ~a" ig-file-name)] ["cql" "CQL: a .cql file"] [_ "FSH: a .fsh file"]))))
+                          (match language
+                            ["ig" (format "the workspace's ~a" ig-file-name)] ["cql" "CQL: a .cql file"] ["vcl" "VCL: a .vcl file"]
+                            ["fml" "FML: a .map file"] [_ "FSH: a .fsh file"]))))
   (hash-set (hub-write! h p text) 'from ref))
 
 ;; ---- history -----------------------------------------------------------------------------------

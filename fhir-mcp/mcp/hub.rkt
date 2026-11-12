@@ -10,8 +10,10 @@
 ;;; no language internals. JSON resources (`*.json`) are the hub's own.
 ;;;
 ;;; A Stored result is (stored language path text options run-result): what explain needs to ask again.
-;;; A Change is (change resource action paths errors): action 'create | 'update | 'unchanged, paths the
-;;; lines saying what differs from the data's copy, errors the validation errors.
+;;; A Change is (change resource action paths errors source): action 'create | 'update | 'unchanged,
+;;; paths the lines saying what differs from the data's copy, errors the validation errors, source
+;;; what it was made from when that is not the stage's own source (a guide's stage: each
+;;; definition's file), else #f.
 ;;; A Staged is (staged changes source): a stage's changes, and what they were made from (trail.rkt's Source).
 ;;;
 ;;; The verbs are built on this module, one module each (check, run, describe, apply, stage);
@@ -34,7 +36,7 @@
 ;; For the verbs' modules; what other code calls is workspace.rkt, where the contracts are.
 (provide (struct-out hub) (struct-out stored) (struct-out change) (struct-out staged) hub-root open-hub
          configure! store-file? data-store-path open-store with-hub guide-file? path-string rel from-here at-root?
-         inside argument-source shown-path path-from-here refresh! problems-of problem-json count-severity
+         inside argument-source shown-path path-from-here files-by-language refresh! problems-of problem-json count-severity
          state-dir saved-names next-number save-state! staged->jsexpr store! result-of result-of* stage-of
          result-uri result-listing hub-result-uris hub-read-result pending-stage-ids)
 
@@ -47,7 +49,7 @@
              ;; sushi-config.yaml, else the ImplementationGuide the store holds; #f without one
              [guide #:mutable] [guide-label #:mutable]))
 (struct stored (language path text options result))
-(struct change (resource action paths errors))
+(struct change (resource action paths errors source))
 (struct staged (changes source))           ; a stage: its changes, and what they were made from (trail.rkt's Source)
 
 (define (hub-root h) (workspace-root (hub-ws h)))
@@ -415,11 +417,13 @@
 (define (staged->jsexpr st)
   (hasheq 'source (staged-source st)
           'changes (for/list ([c (in-list (staged-changes st))])
-                     (hasheq 'resource (change-resource c) 'action (symbol->string (change-action c))
-                             'paths (change-paths c) 'errors (change-errors c)))))
+                     (define js (hasheq 'resource (change-resource c) 'action (symbol->string (change-action c))
+                                        'paths (change-paths c) 'errors (change-errors c)))
+                     (if (change-source c) (hash-set js 'source (change-source c)) js))))
 (define (jsexpr->staged js)
   (staged (for/list ([c (in-list (hash-ref js 'changes '()))])
-            (change (hash-ref c 'resource) (string->symbol (hash-ref c 'action "create")) (hash-ref c 'paths '()) (hash-ref c 'errors '())))
+            (change (hash-ref c 'resource) (string->symbol (hash-ref c 'action "create")) (hash-ref c 'paths '()) (hash-ref c 'errors '())
+                    (let ([src (hash-ref c 'source #f)]) (and (hash? src) src))))
           (hash-ref js 'source (hasheq 'kind "resources"))))
 
 (define (store! h st)

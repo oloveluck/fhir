@@ -16,6 +16,8 @@
  (contract-out
   [instance-line     (-> string? string? (or/c exact-positive-integer? #f))]
   [instance-block    (-> string? string? (or/c string? #f))]
+  [definition-line   (-> string? string? (or/c exact-positive-integer? #f))]
+  [definition-block  (-> string? string? (or/c string? #f))]
   [entity-lines      (-> string? exact-positive-integer? string?)]
   [used-definitions  (-> string? string? (listof string?))]
   [insert-line       (-> string? exact-positive-integer? (or/c exact-positive-integer? #f))]
@@ -37,6 +39,37 @@
          ;; (a correction from `as=source` of a RuleSet-written reading failed: RuleSet not found)
          (string-append (string-join (append (used-definitions text block) (list block)) "\n")))))
 
+;; where an entity that defines begins, and its name
+(define defining-header #px"^(?:Profile|Extension|Logical|Resource|ValueSet|CodeSystem)\\s*:\\s*(\\S+)\\s*$")
+
+;; definition-line : fsh-text id -> line | #f   where the Profile, Extension, Logical model, Resource,
+;; ValueSet or CodeSystem with this id begins: the one whose `Id:` says so, else the one named so
+;; that states no id
+(define (definition-line text id)
+  (define lines (regexp-split #rx"\n" text))
+  ;; (list line name stated-id|#f) for each defining entity
+  (define entities
+    (let loop ([ls lines] [i 1] [acc '()])
+      (match ls
+        ['() (reverse acc)]
+        [(cons (pregexp defining-header (list _ name)) more)
+         (define stated (for/first ([l (in-list more)] #:break (regexp-match? entity-header l) #:when (regexp-match? #px"^Id\\s*:" l))
+                          (cadr (regexp-match #px"^Id\\s*:\\s*(\\S+)" l))))
+         (loop more (add1 i) (cons (list i name stated) acc))]
+        [(cons _ more) (loop more (add1 i) acc)])))
+  (match (or (findf (lambda (e) (equal? (caddr e) id)) entities)
+             (findf (lambda (e) (and (not (caddr e)) (equal? (cadr e) id))) entities))
+    [(list line _ _) line]
+    [_ #f]))
+
+;; definition-block : fsh-text id -> string | #f   the entity that defines the resource with this id
+;; (a definition, else an Instance), with what it uses, so the text compiles on its own
+(define (definition-block text id)
+  (define start (or (definition-line text id) (instance-line text id)))
+  (and start
+       (let ([block (entity-lines text start)])
+         (string-join (append (used-definitions text block) (list block)) "\n"))))
+
 ;; entity-lines : fsh-text line -> string   the entity starting at that line, to the next entity header
 (define (entity-lines text start)
   (let* ([lines (list-tail (regexp-split #rx"\n" text) (sub1 start))]
@@ -55,22 +88,29 @@
               #:when (regexp-match? #px"^\\s*\\*\\s*insert\\s" l))
     i))
 
-;; used-definitions : fsh-text block -> (listof string)   the Alias lines and RuleSet entities the block
-;; uses (RuleSets that insert others, transitively), in the order the text defines them
+;; used-definitions : fsh-text block -> (listof string)   the Alias lines and the RuleSet and Invariant
+;; entities the block uses (through the RuleSets it inserts, transitively), in the order the text
+;; defines them
 (define (used-definitions text block)
   (define lines (regexp-split #rx"\n" text))
-  (define (ruleset-start name)
+  (define (start-of kind name)
     (for/first ([l (in-list lines)] [i (in-naturals 1)]
-                #:when (regexp-match? (pregexp (string-append "^RuleSet:\\s*" (regexp-quote name) "\\s*(\\(|$)")) l))
+                #:when (regexp-match? (pregexp (string-append "^" kind ":\\s*" (regexp-quote name) "\\s*(\\(|$)")) l))
       i))
-  (define (inserted b) (map cadr (regexp-match* #px"(?m:^\\s*\\*[^\n]*?\\binsert\\s+([A-Za-z0-9_.-]+))" b #:match-select values)))
+  ;; (cons kind name) for each RuleSet a block inserts and each Invariant it obeys (`obeys a and b`)
+  (define (used b)
+    (append (for/list ([m (in-list (regexp-match* #px"(?m:^\\s*\\*[^\n]*?\\binsert\\s+([A-Za-z0-9_.-]+))" b #:match-select values))])
+              (cons "RuleSet" (cadr m)))
+            (for*/list ([m (in-list (regexp-match* #px"(?m:^\\s*\\*[^\n]*?\\bobeys\\s+([^\n]+)$)" b #:match-select values))]
+                        [name (in-list (regexp-match* #px"[A-Za-z0-9_.-]+" (cadr m)))] #:unless (equal? name "and"))
+              (cons "Invariant" name))))
   (define starts
-    (let loop ([todo (inserted block)] [seen '()])
+    (let loop ([todo (used block)] [seen '()])
       (cond [(null? todo) seen]
             [(assoc (car todo) seen) (loop (cdr todo) seen)]
-            [else (define st (ruleset-start (car todo)))
+            [else (define st (start-of (car (car todo)) (cdr (car todo))))
                   (if st
-                      (loop (append (cdr todo) (inserted (entity-lines text st))) (cons (cons (car todo) st) seen))
+                      (loop (append (cdr todo) (used (entity-lines text st))) (cons (cons (car todo) st) seen))
                       (loop (cdr todo) seen))])))
   (define rulesets (map (lambda (p) (entity-lines text (cdr p))) (sort starts < #:key cdr)))
   (define all-text (string-join (cons block rulesets) "\n"))
@@ -193,6 +233,35 @@
                                "RuleSet: Coded\n* code = $LOINC#85354-9\n\n"
                                "Instance: bp-a1\nInstanceOf: Observation\n* insert Reading(a, 2025-01-10, 142, 91)\n"))
   (check-false (instance-block text "nope"))
+  ;; a definition by its id: the one whose `Id:` states it, else the one named so; with what it obeys
+  (let ([defs (string-join '("Alias: $LOINC = http://loinc.org"
+                             ""
+                             "Invariant: a1c-percent"                       ; 3
+                             "Description: \"An HbA1c is a percentage\""
+                             "Severity: #error"
+                             ""
+                             "Profile: Lab"                                 ; 7
+                             "Parent: Observation"
+                             "Id: lab"
+                             "* code = $LOINC#4548-4"
+                             "* obeys a1c-percent"
+                             ""
+                             "ValueSet: Sexes"                              ; 13
+                             "* include codes from system http://hl7.org/fhir/administrative-gender"
+                             ""
+                             "Instance: lab-1"                              ; 16
+                             "InstanceOf: Lab"
+                             "")
+                           "\n")])
+    (check-equal? (definition-line defs "lab") 7)
+    (check-equal? (definition-line defs "Sexes") 13)
+    (check-false (definition-line defs "Lab"))                              ; named Lab, but its id is lab
+    (check-equal? (definition-block defs "lab")
+                  (string-append "Alias: $LOINC = http://loinc.org\n\n"
+                                 "Invariant: a1c-percent\nDescription: \"An HbA1c is a percentage\"\nSeverity: #error\n\n"
+                                 "Profile: Lab\nParent: Observation\nId: lab\n* code = $LOINC#4548-4\n* obeys a1c-percent\n"))
+    (check-equal? (definition-block defs "lab-1") "Instance: lab-1\nInstanceOf: Lab\n")
+    (check-false (definition-block defs "nope")))
   ;; a value written through a RuleSet is at the instance's insert
   (check-equal? (insert-line text 13) 15)
   (check-false (insert-line text 17))

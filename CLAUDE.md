@@ -1772,9 +1772,20 @@ Step 1, continued — the store alone, and edit (2026-11-12; `tests/artifacts-te
   stored: staged unchanged it is "nothing to commit".
 - **Definitions are staged under a guide being drafted**: with only a released (active, retired)
   stored guide, a definition's stage is refused with the call that hands the guide back.
-Not yet, named: a Provenance per source file (so comments, RuleSets and VCL/FML texts are kept per
-artifact; a stored StructureMap is not written back as FML — fml has no printer); a definition
-staged alone in a store-only workspace is not added to the stored guide's `definition.resource`.
+- **A Provenance per source file** (`stage.rkt` `collection-sources`; `change` carries its
+  `source`): a guide's stage records, for each resource it lists, the file that defines it — an
+  FSH file read as text (`fsh-source.rkt` `definition-line`: the entity whose `Id:`, else whose
+  name, is the id; `instance-line`), a file of another language asked what it alone defines — and
+  the commit writes one Provenance per file (the guide's own first; the answer lists them as
+  `provenances`), each target at its line (`lab.fsh:1`). So SQL's `trail` names each resource's own
+  file, and **edit hands back the kept text** (`describe.rkt` `kept-text`): for the version its
+  commit wrote, the FSH entity that defines it with the RuleSets, Invariants and Aliases it uses
+  (`definition-block`; comments included, the file's other entities left out), a library's `.cql`,
+  a value set's `.vcl`, a map's `.map`, the guide's file. Written from the resource only where no
+  commit kept such a text (an archived release, a definition loaded from elsewhere).
+Not yet, named: a stored StructureMap with no kept text is not written back as FML (fml has no
+printer); a definition staged alone in a store-only workspace is not added to the stored guide's
+`definition.resource`.
 
 The hub split (2026-11-12): `mcp/workspace.rkt` is now 41 lines — the contracted interface, as
 before (verbs.rkt, mcp-cli.rkt and every test are untouched). Under it, each a module along one of
