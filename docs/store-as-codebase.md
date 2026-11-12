@@ -67,13 +67,60 @@ The author then versions the rule (old data stays valid under the old version) o
 | revert | a new version restoring the old, with a reason | exists (warned when unintended) |
 | pull request | a stage: validated, diffed, refusable; approval = a second Provenance agent (author / verifier) | stage exists; roles to build |
 | tag, release | `canonical|version`, frozen once anything is held to it; a package (`--pack`) of a set of versions | pack exists; freezing to build |
-| branch | a draft version beside the active one (versions coexist; dependents pin `|version`); or a forked store file | to build |
-| merge | per resource, three-way from the common version in history; lineage in `Provenance.entity` (revision, derivation) | to build |
+| branch | a draft ImplementationGuide version: a manifest pinning each canonical to a version (below) | to build |
+| merge | a manifest taking drafts from both; a conflict is two drafts of one canonical with the same predecessor — then per resource, three-way from that predecessor | to build |
 | push, pull | pull = the remote's `_history?_since`; push = a transaction of conditional updates (`If-Match`: a conflict is one resource, not a file) | to build |
 | signed commit | `Provenance.signature` | to build |
 | — | AuditEvent of reads; validation as the commit's gate; SQL over the whole history | exists |
 
 What git keeps: the toolkit's own Racket code, review tooling and CI over the text export.
+
+## Parallel development: the IG process
+
+HL7 already runs parallel specification work: many authors, drafts beside published versions,
+review with recorded dispositions, releases that pin what they depend on. Its vocabulary is FHIR's
+own, so agents can work the same way, in the store.
+
+- **A workspace is an IG under development.** `workspace.yaml` is an ImplementationGuide's content:
+  `packageId`, the canonical base, `fhirVersion`, `dependsOn` (the packages), `global` (a profile
+  every resource of a type is held to — today's `profiles:`), `definition.resource` (what belongs
+  to it). The ImplementationGuide resource is stored and versioned like everything else.
+- **A branch is a draft IG version.** It is a manifest: each canonical it uses pinned to a version —
+  the released ones, plus the drafts this line of work changes. Nothing is copied. Resolving,
+  checking data and running a query happen "in" a manifest; the active IG version is the default.
+  Two agents on two tasks hold two draft manifests over one store.
+- **A change is a draft of an artifact.** The active `profile|1.0` is frozen; an agent's edit is a
+  new resource of the same url, version `1.1.0-draft`, `status: draft`, naming its predecessor
+  (`relatedArtifact`, type predecessor; a Provenance entity of role revision where the type has no
+  relatedArtifact). Drafts of different artifacts never conflict. Two drafts of one artifact both
+  exist; that they share a predecessor is the conflict, found by a query, settled at release.
+- **Status is the lifecycle.** `draft`: editable, used only by manifests that pin it. `active`:
+  frozen, what data is held to. `retired`: kept for the data and results that used it.
+  `experimental: true` marks an agent's trial that should never be released.
+- **Review is recorded as FHIR.** A comment or change request about an artifact is an
+  ArtifactAssessment (R5: information type, workflow status, disposition — HL7's ballot
+  dispositions); in an R4 workspace, a Provenance on the draft with the reviewer as an agent
+  (author / verifier) carries the same facts for every type. `approvalDate`, `lastReviewDate`,
+  `reviewer`, `endorser` where the type has them (R4 Library and Measure; most R5 metadata
+  resources; not StructureDefinition).
+- **The ballot is evidence.** What makes a draft releasable is computed, not voted: it compiles; its
+  examples validate; its dependents re-check in the manifest; the stored data conforms or a
+  migration is staged with it; its tests (expected values of defines, expected rows of views)
+  pass. Several agents may answer one requirement with competing drafts; the same evidence ranks
+  them (fhir-examples' `bench.rkt` scores candidate profiles this way already).
+- **A release is the merge.** Releasing a draft IG version: every draft in its manifest becomes
+  `active` with its release version and date, every reference in them is pinned to a version, the
+  ImplementationGuide version is bumped, the package is built (`--pack`, exists) and the export
+  rewritten. The kind of version follows from the impact: dependents and data unaffected — a patch
+  or minor version; something stops conforming — a major one.
+- **Between teams, packages.** A team of agents owns an IG; another depends on it at a version
+  (`dependsOn`). Upstream's release does nothing downstream until downstream moves its pin, and
+  moving it answers the impact. A package registry is the remote for releases; FHIR sync (above)
+  for drafts.
+
+HL7's Canonical Resource Management Infrastructure guide (CRMI) names operations for these steps
+(draft, review, approve, release, package, data requirements); its package is not vendored here and
+was not read for this note — the verbs above should take its names and definitions where they fit.
 
 ## Decisions
 
@@ -97,7 +144,8 @@ What git keeps: the toolkit's own Racket code, review tooling and CI over the te
 1. Definitions through stage and commit; resolve from the store; `edit`; git ignores `fhir.db`.
 2. The text export on commit, and rebuilding a store from it.
 3. The reference index, the impact answer, results out of date.
-4. Frozen versions; author/verifier roles on a commit.
+4. The workspace as an ImplementationGuide; drafts with predecessors; manifests; frozen active
+   versions; review records; release.
 5. Sync: pull by history, push by conditional transaction; per-resource merge with lineage.
 6. Operations written in CQL or FML; requirements against capabilities.
 
