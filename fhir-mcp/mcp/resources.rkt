@@ -122,6 +122,7 @@
     ("vcl" . "ValueSet Compose Language: value sets in one line; cheat sheet, link to the VCL specification")
     ("fml" . "FHIR Mapping Language: converting between structures; cheat sheet, links to the mapping language specification")
     ("sql-on-fhir" . "SQL on FHIR ViewDefinitions: tables from resources; cheat sheet, links to the specification")
+    ("ig" . "The implementation guide (sushi-config.yaml): the workspace's package id, canonical, version, dependencies and global profiles as one file, compiled to the ImplementationGuide that lists what the workspace defines; cheat sheet, worked example")
     ("capability" . "FHIR servers you declare (#lang fhir/capability): resources, interactions, search parameters, operations (new ones, and $validate, $expand, $transform … by reference); served over the workspace's SQLite store; cheat sheet, worked example")
     ("search" . "FHIR search syntax for query(\"search\"); link to the FHIR search specification")
     ("racket" . "FHIR in a Racket program, no server: the pipeline template, each piece checked, the API main.rkt uses, errors, versions")))

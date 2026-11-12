@@ -84,7 +84,7 @@ Seams (each a one-module move):
 
 Each language repo carries its own `CLAUDE.md` with the architecture notes for that language, and
 three documents for its users, one source each (all six languages: cql, fsh, fhirpath, vcl, fml,
-sql-on-fhir; fhir-mcp's `learn/` keeps only `workspace.md` and `search.md`, and its test requires
+sql-on-fhir; the implementation guide's guide is fsh's `ig-guide.md`; fhir-mcp's `learn/` keeps only `workspace.md` and `search.md`, and its test requires
 every workspace language to provide its guide):
 - `guide.md` — the language for agents: what it is, the official references, a cheat sheet and a
   worked example, how to run it (command line, module, workspace), common problems. Its
@@ -1682,6 +1682,29 @@ ViewDefinition's job, and under it a load-order defect; both fixed, each with a 
   `a1c` view, its JSON read by trail-test), fhir-serving and the capability guide; the JSONB tables
   are the escape hatch for a one-off. Search indexing (SearchParameters), CQL results and the raw
   store views stay as they are: they are not flattening for analysis.
+
+## The store as the codebase; the implementation guide as a language (2026-11-12)
+The design is `docs/store-as-codebase.md`: the SQLite store as a CRMI artifact repository (HL7's
+Canonical Resource Management Infrastructure 2.0.0, read from its package and guide pages —
+status and version rules, manifests, the sixteen repository actions and their operations), the
+languages as the text an agent edits, FHIR's own versions, Provenance and transactions as the
+version control, git as a mirror of a text export. Built so far, step 0:
+- **`sushi-config.yaml` is the seventh workspace language, "ig"** (fsh's `ig.rkt`,
+  `ig-workspace.rkt`, `ig-guide.md` — `learn://ig`; fsh/CLAUDE.md). No new syntax: SUSHI's file,
+  compiled to the ImplementationGuide that lists what the workspace's other languages define.
+- **The workspace reads its guide** (`fhir/lang/workspace` `ig-facts`, `with-ig-facts`): the
+  canonical, the FHIR version, `dependencies` as packages and `global` as profile constraints come
+  from sushi-config.yaml, for every language; workspace.yaml keeps the data, audit, parameters,
+  remote writes and models. A fact both state is the guide's, with a warning. A dependency
+  `<id>-<version>` is also found as `<id>.tgz` when that package is the version asked for
+  (`unversioned-package`). The hub reconfigures when the guide is written, as for workspace.yaml.
+- **A language that composes the others** provides `composes-workspace` (`workspace-composes?`):
+  the hub computes it last and again whenever what the earlier languages define changes (its cache
+  is keyed by their resources). `fhir/registry`'s `registered-by` enumerates what sources registered.
+- `fhir/yaml` is fsh's YAML reader, moved to the foundation (fsh/yaml re-exports it).
+- `init` ignores `fhir.db` in git (it ignored only the WAL files: `git add .` took a binary that
+  could lack the writes still in the WAL).
+`fhir-mcp/tests/ig-test.rkt` runs the guide's own session.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

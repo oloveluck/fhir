@@ -25,7 +25,7 @@ trap 'rm -rf "$work"' EXIT
 towers="fhir/r4/schemas fhir/r5/schemas"
 languages="fsh/support cql/support fml/support vcl/support fhirpath/support"
 # what fhir-mcp's workspace loads by name: each language's workspace support
-workspaces="fsh/workspace cql/workspace fml/workspace vcl/workspace fhirpath/workspace sql-on-fhir/workspace"
+workspaces="fsh/workspace fsh/ig-workspace cql/workspace fml/workspace vcl/workspace fhirpath/workspace sql-on-fhir/workspace"
 # what the CQL engine loads by name: the ModelInfo reader, for models given as ModelInfo documents
 cqlmodels="cql/model/modelinfo-xml"
 operations="fhir/sd/operations fhir/conformance/operations fhir/terminology/operations fml/operations cql/measure sql-on-fhir/operations"

@@ -116,6 +116,29 @@ every resource of a type is held to — today's `profiles:`), `definition.resour
 its version. CRMI's conventions hold (url `<base>/<Type>/<id>`, PascalCase `name` equal to the
 canonical's tail for libraries, references inside the package version-consistent).
 
+## The IG is a language, written as sushi-config.yaml
+
+The ImplementationGuide composes everything else, so it is a workspace language like the others —
+and its syntax already exists: `sushi-config.yaml`, which SUSHI turns into the ImplementationGuide
+of an FSH project. No new syntax; an existing IG repository is a workspace as it is.
+
+- **Compiles to** the ImplementationGuide (id, url, version, name, title, status, publisher,
+  packageId, license, fhirVersion, `dependsOn` from `dependencies`, `global`, `definition.resource`
+  from what the workspace's other languages define, `definition.parameter` from `parameters`), and,
+  with the pins below, its manifest parameters.
+- **Checked like the others**, each problem at its line: a dependency no package at hand provides,
+  a `global` profile nothing defines, an id, canonical or version missing.
+- **Round trips**: the stored ImplementationGuide is handed back as this YAML to edit.
+- **With a `#lang` line** it is a Racket module that composes the project (to build).
+- **What the workspace reads from it**: the canonical base, the FHIR version, the packages
+  (`dependencies`) and the profiles every resource of a type is held to (`global`) — for every
+  language, not FSH alone. `workspace.yaml` keeps what is not the IG's: where the data is, the
+  audit level, CQL parameters, remote writes, models. A fact stated in both is the IG's, and the
+  difference is a warning.
+- **Pins** (to build): version pins as CRMI's manifest parameters — `default-canonical-version`,
+  `default-valueset-version`, `default-system-version` — under `parameters`-like keys, emitted as
+  `cqf-expansionParameters` on the ImplementationGuide.
+
 ## The loop for one agent
 
 1. **edit** (ours) — one artifact out of the store as text: its kept source when that still
@@ -213,10 +236,12 @@ Git keeps the toolkit's own Racket code, and review and CI over the text export.
 
 ## Order
 
+0. The IG language: `sushi-config.yaml` as the seventh workspace language, the workspace's IG facts
+   read from it; git ignores `fhir.db`.
 1. Vendor `hl7.fhir.uv.crmi` 2.0.0 (CC0) in fhir-spec with its dependencies
    (`hl7.fhir.uv.extensions.r4` 5.3.0, `hl7.terminology.r4` 7.2.0); its OperationDefinitions drive
    input checking as every IG's do here. Artifacts through stage and commit, held to their
-   Shareable profiles; the status rules (3.1); resolve from the store; `edit`; git ignores `fhir.db`.
+   Shareable profiles; the status rules (3.1); resolve from the store; `edit`.
 2. The workspace as an ImplementationGuide; manifest library and parameters; `$resolve` with the
    resolution order; `manifest` on the evaluating verbs; `X-Manifest`.
 3. The dependency index by CRMI's paths; `$data-requirements`; `$infer-manifest-parameters`; the

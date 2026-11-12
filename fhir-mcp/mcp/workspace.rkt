@@ -101,7 +101,7 @@
   (set-hub-data! h ds)
   (set-hub-data-label! h label)
   (set-hub-warnings! h (append warnings
-                               (for/list ([m (in-list missing)]) (format "workspace.yaml: package ~a not found (a .tgz path, or a package in fhir-spec or FHIR_PACKAGE_PATH)" m))
+                               (for/list ([m (in-list missing)]) (format "package ~a not found (a .tgz path, or a package in fhir-spec or FHIR_PACKAGE_PATH)" m))
                                (if core '() (list "no core package for this FHIR version: install fhir-spec"))
                                data-warnings))
   (hash-clear! (hub-cache h)))
@@ -210,14 +210,21 @@
   (define diags
     (with-hub h
       (lambda ()
+        ;; `earlier` is what the languages before this one define: a language that composes the
+        ;; others (the implementation guide lists them) is computed again when that changes
+        (define earlier '())
         (append*
          (for/list ([lang (in-list (cons "fhir" workspace-languages))])
            (define files (hash-ref by-lang lang '()))
            (define cached (hash-ref (hub-cache h) lang #f))
+           (define basis (if (and (not (equal? lang "fhir")) (workspace-composes? lang)) earlier '()))
            (define-values (rs ds)
              (cond
                [(null? files) (values '() '())]
-               [(and cached (equal? (car cached) files)) (values (cadr cached) (cddr cached))]
+               [(and cached (equal? (car cached) files)
+                     (let ([was (hash-ref (hub-cache h) (cons 'basis lang) '())])
+                       (and (= (length was) (length basis)) (andmap eq? was basis))))
+                (values (cadr cached) (cddr cached))]
                [(equal? lang "fhir") (json-artifacts ws files)]
                [else
                 (define sup (workspace-support lang))
@@ -227,6 +234,8 @@
                     (values '() (for/list ([f (in-list files)])
                                   (diagnostic (string->symbol lang) 'compile 'error (format "the ~a package is not installed" lang) (loc (path-string (car f)) #f #f #f #f)))))]))
            (hash-set! (hub-cache h) lang (cons files (cons rs ds)))
+           (hash-set! (hub-cache h) (cons 'basis lang) basis)
+           (set! earlier (append earlier rs))
            (unregister-source! (list 'workspace lang))
            (define conflict
              (with-handlers ([exn:fail? (lambda (e) (list (diagnostic (string->symbol lang) 'compile 'error (exn-message e) (loc (path-string (hub-root h)) #f #f #f #f))))])
@@ -275,14 +284,17 @@
   (define full (inside h p))
   (define config? (equal? (path->string (file-name-from-path full)) "workspace.yaml"))
   (define lang (workspace-language-of full))
+  ;; the workspace's implementation guide states its canonical, FHIR version, packages and
+  ;; constraints: writing it is a new configuration too
+  (define guide? (equal? (path-string full) (path-string (simplify-path (build-path (hub-root h) ig-file-name)))))
   (unless (or config? lang)
-    (error 'write (format "~a is not a file of the workspace's languages (.fsh .cql .fhirpath .vcl .map/.fml .view.json .json) or workspace.yaml" p)))
+    (error 'write (format "~a is not a file of the workspace's languages (.fsh .cql .fhirpath .vcl .map/.fml .view.json .json sushi-config.yaml) or workspace.yaml" p)))
   (cond
     [(string=? (string-trim text) "")
      (when (file-exists? full) (delete-file full))]
     [else (make-parent-directory* full)
           (call-with-output-file full (lambda (o) (write-string text o)) #:exists 'truncate/replace)])
-  (when config? (configure! h (hub-root h)))
+  (when (or config? guide?) (configure! h (hub-root h)))
   (refresh! h)
   (define mine (if config? '() (problems-of h full)))
   (define others (- (length (hub-diagnostics h)) (length mine)))
@@ -309,7 +321,7 @@
                                  (format "~a (a copy: edit it, or write again)" (from-here full)))
                        answer*))
   ;; the configuration only when it is what was written
-  (if config? (hash-set answer** 'config (config-json h)) answer**))
+  (if (or config? guide?) (hash-set answer** 'config (config-json h)) answer**))
 
 ;; unlisted-profiles : hub fsh-text -> (listof string)   a profile the text defines that workspace.yaml's
 ;; `profiles` does not name: its examples are checked against it, but stage and check(data: true)

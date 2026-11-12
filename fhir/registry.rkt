@@ -29,7 +29,11 @@
           ;; unregister-source! : who -> void   forget everything one source registered (a workspace
           ;; file that changed or went away)
           [unregister-source! (-> any/c void?)]
-          [registered-kinds (-> (listof string?))]))
+          [registered-kinds (-> (listof string?))]
+          ;; registered-by : (source -> boolean) -> (listof resource)   everything the sources a
+          ;; predicate accepts registered, each once, by kind then url or id (what a workspace's
+          ;; languages define, for the guide that lists them)
+          [registered-by (-> (-> any/c any/c) (listof hash?))]))
 
 ;; kind -> (hash key -> (cons resource source)); a resource sits under its url and its id
 (define by-kind (make-hash))
@@ -57,6 +61,12 @@
 (define (registered-resources kind)
   (remove-duplicates (map car (hash-values (hash-ref by-kind kind (hash)))) eq?))
 (define (registered-kinds) (sort (hash-keys by-kind) string<?))
+(define (registered-by wanted?)
+  (define (key r) (format "~a ~a" (hash-ref r 'resourceType "") (or (hash-ref r 'url #f) (hash-ref r 'id #f) "")))
+  (sort (remove-duplicates
+         (for*/list ([table (in-hash-values by-kind)] [e (in-hash-values table)] #:when (wanted? (cdr e))) (car e))
+         eq?)
+        string<? #:key key))
 (define (unregister-source! source)
   (for ([table (in-hash-values by-kind)])
     (for ([k (in-list (for/list ([(k e) (in-hash table)] #:when (equal? (cdr e) source)) k))])
@@ -72,6 +82,8 @@
   (check-equal? (registered-resource "ValueSet" "http://x/vs") vs)
   (check-equal? (registered-resources "StructureDefinition") (list sd))       ; once, not per key
   (check-equal? (registered-source "ValueSet" "http://x/vs") 'a)
+  (check-equal? (map (lambda (r) (hash-ref r 'resourceType)) (registered-by (lambda (s) (eq? s 'a)))) '("Patient" "StructureDefinition" "ValueSet"))
+  (check-equal? (registered-by (lambda (s) (eq? s 'nobody))) '())
   (check-equal? (hash-ref (registered-resource "Patient" "p1") 'id) "p1")
   (check-false (registered-resource "Basic" "nope"))
   ;; the same content again, from anywhere: fine; the same module redefining: replaced; another

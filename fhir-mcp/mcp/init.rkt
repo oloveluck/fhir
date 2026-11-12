@@ -57,8 +57,10 @@
                                         (lambda (o) (write-json (hasheq 'mcpServers (hasheq 'fhir (mcp-server-entry))) o)
                                                     (newline o)))))
         (put! "CLAUDE.md" (text claude-md))
-        ;; what the tools keep between calls, and SQLite's working files, are not sources
-        (put! ".gitignore" (text ".fhir-mcp/\nfhir.db-wal\nfhir.db-shm\n"))))
+        ;; what the tools keep between calls and the store are not sources: git cannot diff or merge
+        ;; a SQLite file, and one committed while writes sit in its WAL lacks them (the store keeps
+        ;; its own history; what git should hold is text)
+        (put! ".gitignore" (text ".fhir-mcp/\nfhir.db\nfhir.db-wal\nfhir.db-shm\n"))))
 
 (module+ test
   (require rackunit)
