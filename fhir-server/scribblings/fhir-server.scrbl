@@ -1,4 +1,7 @@
 #lang scribble/manual
+@; Text in @tt is shown exactly as written: no curly quotes, and "--" stays two hyphens.
+@(require (only-in scribble/core [element literal-element]))
+@(define (tt . text) (literal-element (quote tt) text))
 @(require (for-label racket/base racket/contract
                      fhir/capability/runtime fhir/capability/derive fhir/capability/operations
                      fhir/capability/store
@@ -107,7 +110,7 @@ ok  study.capability.rkt  (FHIR 6.0.0-ballot4)
 $ raco fhir-server serve study.capability.rkt --port 0
 FHIR server on http://localhost:43493  (Ctrl-C, or kill 9711, to stop)
 search: strict (a parameter the app does not declare is refused, 400)
-store: /home/you/study.db (created on the first request)
+store: …/study.db (created on the first request)
 }
 
 The first line is the one to read: it gives the address the server answers at, with the port it
@@ -218,7 +221,7 @@ loaded 255 example(s); 0 rejected by validation
 FHIR server for hl7.fhir.us.core on http://localhost:8080  (store: /var/tmp/fhir-ig-17945801221794580122105.db; Ctrl-C to stop)
 }
 
-It takes about twenty seconds to start. Everything came from the package:
+It takes about fifteen seconds to start. Everything came from the package:
 
 @itemlist[
 @item{@bold{The FHIR version.} US Core is written for FHIR R4, so this is an R4 server.}
@@ -317,7 +320,7 @@ One @tt{(server …)} form, every setting optional and each value a text in quot
       (list @tt{#:references "checked"} @elem{refuse a resource that refers to another the server should hold and does not (default @tt{"unchecked"})})
       (list @tt{#:warnings "refuse"} @elem{refuse a resource whose validation gives warnings, not only errors (default @tt{"accept"})})
       (list @elem{@tt{#:url}, @tt{#:name}, @tt{#:description}, @tt{#:status}, @tt{#:date}} "what the CapabilityStatement says of the server: its address, name and so on")
-      (list @elem{@tt{#:mode}, @tt{#:format}} @elem{@tt{"server"} and JSON; there is nothing else to choose}))]
+      (list @elem{@tt{#:mode}, @tt{#:format}} @elem{the statement's @tt{mode} (@tt{"server"} unless you say @tt{"client"}) and formats (JSON); leave them out}))]
 
 @subsection{@tt{resource}: what is stored}
 
@@ -344,7 +347,7 @@ declare with 404.
 
 @bold{Search parameters} are what a resource can be found by. FHIR defines a standard set for each
 type, with names such as @tt{gender}, @tt{birthdate}, @tt{family}, @tt{identifier} for a Patient
-and @tt{patient}, @tt{code}, @tt{date} for an Observation. @tt{[gender token]} asks for FHIR's own
+and @tt{patient}, @tt{subject}, @tt{code}, @tt{value-quantity} for an Observation. @tt{[gender token]} asks for FHIR's own
 parameter of that name; the second word is its kind, which decides how values are compared:
 
 @tabular[#:style 'boxed #:sep @hspace[2]
@@ -513,7 +516,8 @@ by FHIRPath rather than by JSON paths.
 @section[#:tag "measures"]{Measures}
 
 A @italic{quality measure} counts, among a group of patients, how many received some recommended
-care: of the women aged 52 to 74, how many had a mammogram in the last 27 months. FHIR writes one
+care: of the women in the age range for breast-cancer screening, how many had a mammogram recently
+enough. FHIR writes one
 as a Measure resource that points to a library of logic in
 @hyperlink["https://oloveluck.github.io/cql/"]{Clinical Quality Language} (CQL). The operation
 @tt{$evaluate-measure} runs it and answers a MeasureReport with the counts.
@@ -666,6 +670,10 @@ modifiers @litchar{:text}, @litchar{:above}, @litchar{:below}, @litchar{:in} and
 parameters defined for every resource (@litchar{_tag}, @litchar{_profile}, @litchar{_security}).
 A lenient server answers as if the unsupported part were not there (@secref["search"]). Quantity
 search does not convert units. String search covers names and addresses, not every complex type.}
+@item{@bold{Observations by date, on a declared server.} @tt{[date date]} on Observation is accepted
+and advertised, but at present finds nothing, whatever the date. A parameter of your own with the
+place written out does work: @tt{[when date "effective.ofType(dateTime)"]}. (A server generated from
+an R4 guide searches Observations by date correctly.)}
 @item{@bold{Paging.} @litchar{_count} and @litchar{_offset} take a page, but the Bundle has no
 @tt{next} link, and its @tt{total} is the number of entries returned, not of all matches.}
 @item{@bold{@tt{raco fhir-server load} indexes little.} It indexes Patient by @tt{identifier} and
@@ -891,7 +899,7 @@ gives @racket["EvaluateMeasure"]).}
 @defproc[(rc-param [name string?] [type string?] [min exact-nonnegative-integer?] [max any/c] [use string?]
                    [binding any/c #f] [documentation any/c #f] [low any/c #f] [high any/c #f]) rc-param?])]{
 The declarations as values. @racket[rc-server] and @racket[rc-param] are constructors with optional
-last arguments (the structs are @racket[rc-server-struct] and @racket[rc-param-struct]):
+last arguments (the structs are @tt{rc-server-struct} and @tt{rc-param-struct}):
 a parameter's @racket[binding] is the value set a code input must come from, @racket[low] and
 @racket[high] a number's range.}
 
