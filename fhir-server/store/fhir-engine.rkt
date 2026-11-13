@@ -313,32 +313,70 @@
   (define count (number-of "_count"))
   (define offset (number-of "_offset"))
   (define order (sort-keys catalog (let ([s (assoc "_sort" query-params)]) (and s (cdr s)))))
-  (define where
+  (define ordered (reverse clauses))
+  (define (where-of forms)
     (string-append " FROM fhir_resources r WHERE r.resource_type=?"
-                   (apply string-append (for/list ([c (in-list (reverse clauses))])
-                                          (string-append " AND " (clause-sql c))))))
-  (define where-args (append-map (lambda (c) (clause-args/type c rtype)) (reverse clauses)))
+                   (apply string-append (for/list ([f (in-list forms)]) (string-append " AND " f)))))
+  (define where-args (append-map (lambda (c) (clause-args/type c rtype)) ordered))
   (define paged? (or (exact-nonnegative-integer? count) (exact-positive-integer? offset)))
-  (define sql
-    (string-append "SELECT json(r.resource)" where
-                   " ORDER BY " (if order (string-join (map car order) ", ") "r.last_updated, r.id")
-                   (if (exact-nonnegative-integer? count) (format " LIMIT ~a" count) " LIMIT -1")
-                   (if (exact-positive-integer? offset) (format " OFFSET ~a" offset) "")))
+  ;; without `_sort` the order is the ids': FHIR defines none, this one costs nothing (the ids
+  ;; are the key the resources are found by, so a first page reads a page of rows — by
+  ;; last_updated every match was read and sorted to return ten) and a later write does not move it
   (define-values (rows total)
     (call-with-store-connection store
       (lambda (c)
+        (define where (where-of (clause-forms c ordered rtype)))
+        (define sql
+          (string-append "SELECT json(r.resource)" where
+                         " ORDER BY " (if order (string-join (map car order) ", ") "r.id")
+                         (if (exact-nonnegative-integer? count) (format " LIMIT ~a" count) " LIMIT -1")
+                         (if (exact-positive-integer? offset) (format " OFFSET ~a" offset) "")))
         (define rows
           (for/list ([raw (in-list (apply query-list c sql rtype (append where-args (if order (append-map cdr order) '()))))])
             (string->jsexpr raw)))
         (values rows
-                (if paged?
-                    (apply query-value c (string-append "SELECT COUNT(*)" where) rtype where-args)
-                    (length rows))))))
+                (cond [(not paged?) (length rows)]
+                      ;; one lookup and nothing else: its distinct ids, counted without the
+                      ;; resources (MATERIALIZED: the lookup is run as written, by its `find`
+                      ;; index; left to choose, SQLite walked the owner index for the DISTINCT)
+                      [(and (pair? ordered) (null? (cdr ordered)) (index-clause? (car ordered)))
+                       (apply query-value c (string-append "WITH m AS MATERIALIZED (" (index-clause-ids (car ordered))
+                                                           ") SELECT COUNT(DISTINCT resource_id) FROM m")
+                              where-args)]
+                      [else (apply query-value c (string-append "SELECT COUNT(*)" where) rtype where-args)])))))
   (values
    rows
    (append (filter (lambda (n) (not (member n '("_count" "_offset" "_sort" "_include" "_revinclude" "_total")))) (reverse ignored))
            (if (and (assoc "_sort" query-params) (not order)) '("_sort") '()))
    total))
+
+;; clause-forms : connection (listof Clause) type -> (listof sql)   each clause as the search asks it
+;; A clause that is one index lookup can be asked two ways: from the index (the ids that match,
+;; found among the resources) or of each candidate resource (its own index rows). Which is cheaper
+;; depends on how many rows each lookup finds, so they are counted — up to a limit, which is all
+;; the choice needs. The lookup that finds fewest drives the search from its index; another is
+;; asked from its index too while it finds about as few (two short lists are intersected), and
+;; of each candidate when it finds many more (`patient=X&date=ge…`: the dates on or after a day
+;; are most of the store's, and collecting their ids to intersect with one patient's took
+;; seconds). With one lookup, or none, there is nothing to choose.
+(define count-limit 20000)
+(define (clause-forms c clauses rtype)
+  (define lookups (filter index-clause? clauses))
+  (cond
+    [(or (null? lookups) (null? (cdr lookups))) (map clause-sql clauses)]
+    [else
+     (define found
+       (for/hasheq ([l (in-list lookups)])
+         (values l (apply query-value c (string-append "SELECT COUNT(*) FROM (" (index-clause-ids l) " LIMIT ?)")
+                          (append (clause-args/type l rtype) (list count-limit))))))
+     ;; fewest first; among lookups that reach the limit, the kind that tends to leave fewest
+     (define driver (argmin (lambda (l) (+ (* 10 (hash-ref found l)) (clause-rank l))) lookups))
+     (define near (max 1000 (* 2 (hash-ref found driver))))
+     (for/list ([cl (in-list clauses)])
+       (cond [(eq? cl driver) (clause-sql cl)]
+             [(and (index-clause? cl) (or (>= (hash-ref found cl) count-limit) (> (hash-ref found cl) near)))
+              (clause-probe cl)]
+             [else (clause-sql cl)]))]))
 
 ;; ---- _sort ------------------------------------------------------------------
 ;; A SortKey is (cons sql-expression (listof arg)): an ORDER BY term over the resource row `r`.

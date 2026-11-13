@@ -107,6 +107,23 @@
 (check-equal? (call-with-store-connection by-bulk (lambda (c) (query-value c "SELECT COUNT(*) FROM fhir_history WHERE version_id = 2")))
               (length examples))
 
+;; ---- reindex -----------------------------------------------------------------------------------
+;; A store whose index rows are wrong (here: every date and half the tokens gone, a stray row
+;; added) has them again after `reindex!` — the rows the engine writes, no more — and its search
+;; indexes are in place.
+(require (only-in fhir/store/bulk make-bulk-loader close-bulk-loader reindex!))
+(call-with-store-connection by-bulk
+  (lambda (c)
+    (query-exec c "DELETE FROM fhir_date_index")
+    (query-exec c "DELETE FROM fhir_token_index WHERE rowid % 2 = 0")
+    (query-exec c "INSERT INTO fhir_token_index (resource_type, resource_id, param_name, system, code) VALUES ('Patient','nobody','gender',NULL,'stray')")))
+(check-not-equal? (hash-ref (contents by-bulk) 'tokens) (hash-ref (contents by-engine) 'tokens))
+(for ([tower (in-list (list 'fhir/r4/schemas #f))])       ; over workers, and in this process
+  (define loader (make-bulk-loader catalog tower))
+  (check-equal? (reindex! loader by-bulk) (length examples))
+  (close-bulk-loader loader)
+  (check-same-stores (format "reindexed (~a)" (if tower "workers" "this process"))))
+
 ;; a resource without an id is created with one (the engine's fhir-create!)
 (define no-id (make-temporary-directory "bulk-more-~a"))
 (call-with-output-file (build-path no-id "c.ndjson")

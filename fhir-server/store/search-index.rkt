@@ -21,6 +21,12 @@
 ;;;     (number-row value)
 ;;;     (quantity-row value system code)
 ;;;   A Clause is (clause sql args) — a fragment usable as `… AND <sql>` over `fhir_resources r`.
+;;;   An IndexClause is a Clause that is one index lookup, (index-clause sql args probe rank ids):
+;;;     `ids` is the lookup itself (`SELECT x.resource_id FROM <index> x WHERE …`), `sql` finds the
+;;;     resources by it (`r.id IN (<ids>)`), `probe` asks the same of ONE resource through the
+;;;     index's rows for it (`EXISTS …`), and `rank` says how few resources such a lookup tends to
+;;;     leave (1 a reference … 8 "has any value"). The engine counts what `ids` finds and chooses
+;;;     between `sql` and `probe` for each clause of a search.
 ;;;
 ;;; Search semantics implemented (the rest is ignored, never mis-answered):
 ;;;   all kinds : comma = OR within one parameter; repeated parameters AND (the caller conjoins);
@@ -43,7 +49,7 @@
 (provide
  (struct-out token-row) (struct-out reference-row) (struct-out string-row)
  (struct-out date-row) (struct-out number-row) (struct-out quantity-row)
- (struct-out clause)
+ (struct-out clause) (struct-out index-clause)
  index-tables table-of owner-index
  (contract-out
   [indexed-kind?   (-> symbol? boolean?)]
@@ -51,6 +57,9 @@
   [row-table+values (-> any/c (values string? list?))]
   [compile-param   (-> string? symbol? (or/c string? #f) string? (or/c clause? #f))]
   [clause-args/type (-> clause? string? list?)]
+  ;; how a clause is asked of one resource, and how selective it tends to be (9: not one lookup)
+  [clause-probe (-> clause? string?)]
+  [clause-rank (-> clause? exact-nonnegative-integer?)]
   [fold-string     (-> string? string?)]
   [date-range      (-> string? (or/c (cons/c string? string?) #f))]))
 
@@ -61,6 +70,9 @@
 (struct number-row (value) #:transparent)
 (struct quantity-row (value system code) #:transparent)
 (struct clause (sql args) #:transparent)
+(struct index-clause clause (probe rank ids) #:transparent)
+(define (clause-probe c) (if (index-clause? c) (index-clause-probe c) (clause-sql c)))
+(define (clause-rank c) (if (index-clause? c) (index-clause-rank c) 9))
 
 (define indexed-kinds '(token reference string date number quantity uri))
 (define (indexed-kind? k) (and (memq k indexed-kinds) #t))
@@ -91,12 +103,13 @@
     [(number) "fhir_number_index"] [(quantity) "fhir_quantity_index"]))
 
 ;; owner-index : table -> index name   the index that finds ONE resource's rows of a table
-;; (resource_type, resource_id): the store's schema names them idx_<short>_owner. A per-resource
+;; (resource_type, resource_id …): the store's schema names them (idx_<short>_owner; the dates',
+;; which carries the values too, idx_date_own). A per-resource
 ;; lookup names it (`INDEXED BY`): left to itself SQLite took the by-value index for a sort key and
 ;; walked every date row of the type for each matched resource.
 (define (owner-index table)
   (cdr (assoc table '(("fhir_token_index" . "idx_token_owner") ("fhir_reference_index" . "idx_ref_owner")
-                      ("fhir_string_index" . "idx_string_owner") ("fhir_date_index" . "idx_date_owner")
+                      ("fhir_string_index" . "idx_string_owner") ("fhir_date_index" . "idx_date_own")
                       ("fhir_number_index" . "idx_number_owner") ("fhir_quantity_index" . "idx_quantity_owner")))))
 
 ;; ==== extraction ==============================================================================
@@ -269,10 +282,23 @@
 ;; bind value of its own (`the-resource-type` among the args, filled in by the engine), so nothing
 ;; in it depends on the outer row.
 (define the-resource-type 'resource-type)
-(define (exists-in table name sql args)
-  (clause (string-append "r.id IN (SELECT x.resource_id FROM " table " x WHERE x.resource_type=?"
-                         " AND x.param_name=?" (if (string=? sql "") "" " AND ") sql ")")
-          (list* the-resource-type name args)))
+(define (exists-in table name sql args #:rank [rank (table-rank table)])
+  (define condition (string-append " AND x.param_name=?" (if (string=? sql "") "" " AND ") sql))
+  (define ids (string-append "SELECT x.resource_id FROM " table " x WHERE x.resource_type=?" condition))
+  (index-clause (string-append "r.id IN (" ids ")")
+                (list* the-resource-type name args)
+                ;; the same, asked of the outer row: its own index rows, found by owner
+                (string-append "EXISTS (SELECT 1 FROM " table " x INDEXED BY " (owner-index table)
+                               " WHERE x.resource_id=r.id AND x.resource_type=?" condition ")")
+                rank
+                ids))
+
+;; table-rank : table -> rank   how few resources a lookup in an index table tends to leave: a
+;; reference (a patient's) fewest, then a code, a string, a number, a date range
+(define (table-rank table)
+  (case table
+    [("fhir_reference_index") 1] [("fhir_token_index") 2] [("fhir_string_index") 3]
+    [("fhir_number_index" "fhir_quantity_index") 5] [else 6]))
 
 ;; clause-args/type : Clause resource-type -> (listof bind-value)   the clause's values, the
 ;; resource type in its places
@@ -281,15 +307,16 @@
 
 (define (or-clauses cs)
   (define ok (filter values cs))
-  (if (null? ok) #f
-      (clause (string-append "(" (string-join (map clause-sql ok) " OR ") ")") (append-map clause-args ok))))
+  (cond [(null? ok) #f]
+        [(null? (cdr ok)) (car ok)]                    ; one value: the lookup itself
+        [else (clause (string-append "(" (string-join (map clause-sql ok) " OR ") ")") (append-map clause-args ok))]))
 
 ;; compile-param : name Kind modifier value -> Clause | #f   (#f = unsupported, caller ignores it)
 (define (compile-param name kind modifier value)
   (cond
     [(not (indexed-kind? kind)) #f]
     [(equal? modifier "missing")
-     (define c (exists-in (table-of kind) name "" '()))
+     (define c (exists-in (table-of kind) name "" '() #:rank 8))
      (if (equal? value "true") (clause (string-append "NOT " (clause-sql c)) (clause-args c)) c)]
     [(and (eq? kind 'token) (equal? modifier "not"))
      (define c (or-clauses (map (lambda (v) (token-clause name v)) (split-or value))))
@@ -316,7 +343,7 @@
 (define (token-clause name v)
   (match (regexp-match #px"^([^|]*)\\|(.*)$" v)
     [(list _ "" code) (exists-in "fhir_token_index" name "x.code=? AND x.system IS NULL" (list code))]
-    [(list _ sys "")  (exists-in "fhir_token_index" name "x.system=?" (list sys))]
+    [(list _ sys "")  (exists-in "fhir_token_index" name "x.system=?" (list sys) #:rank 6)]
     [(list _ sys code) (exists-in "fhir_token_index" name "x.code=? AND x.system=?" (list code sys))]
     [#f (exists-in "fhir_token_index" name "x.code=?" (list v))]))
 

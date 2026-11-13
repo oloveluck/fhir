@@ -80,4 +80,18 @@
   (check-equal? (hash-ref (hash-ref (fhir-read store "Observation" "o1") 'subject) 'reference) "Patient/p1")
   (close-fhir-store store))
 
+;; reindex: the store's resources indexed for search again; a store that is not there is a usage error
+(let ()
+  (define (reindex . args)
+    (define out (open-output-string))
+    (define code (parameterize ([current-output-port out] [current-error-port out])
+                   (apply system*/exit-code (find-executable-path "raco") "fhir-server" "reindex" args)))
+    (values code (get-output-string out)))
+  (define-values (code text) (reindex (path->string bulk-db)))
+  (check-equal? code 0 text)
+  (check-regexp-match #rx"indexed 4 resources of .*bulk.db again \\(for FHIR 4.0.1 search\\)" text)
+  (define-values (missing-code missing-text) (reindex (path->string (build-path dir "nothere.db"))))
+  (check-equal? missing-code 2 missing-text)
+  (check-regexp-match #rx"no such store" missing-text))
+
 (delete-directory/files dir)
