@@ -295,6 +295,32 @@ User-facing usage/how-to lives in `.claude/skills/` — `fhir-authoring` (write/
 check`), `fhir-cli` (`raco fhir`, `raco fhir-validate`), `fhir-serving` (`raco fhir-server`: store + HTTP).
 This file is the architecture reference; keep the how-to in the skills.
 
+### Docs written for a person (2026-11-13)
+Three kinds of document, each with one job:
+- **README** (each repository): under about forty lines. What it is, in two plain sentences that name
+  the standard and say what you get; one short example with its real output; how to install (the
+  language repositories point to this repository's README, which has the build); links to the docs
+  site, to `guide.md`/the skill for agents and to `TESTING.md`. Nothing else: detail lives on the site.
+- **The docs site** (`scribblings/<id>.scrbl`, `docs/index.scrbl`; published from `main` by each
+  repository's `docs.yml`), read by someone who has not used the tool. In this order:
+  1. *What it is*: the problem in plain words, the standard and who uses it, what this package does.
+     No test counts, no module names, no "as the reference implementation does" asides.
+  2. *What you can do with it*: a short list of tasks.
+  3. *A first example*: install, write, run; a sentence at each step saying what it is and what the
+     output means; one mistake and the message it gets.
+  4. *Guides by task*, in the order a newcomer needs them: one idea to a paragraph, an example
+     before the rule, tables only for look-up material.
+  5. *Words used here*: every term of art (ELM, profile, canonical, value set …), one line each.
+  6. *Limits*: what it does not do, plainly.
+  7. *How it is tested*: the conformance numbers, briefly, pointing to `TESTING.md`.
+  8. *Reference*: the API, last.
+  Sentences are short and active and say "you"; a term is explained where it first appears; why
+  comes before how.
+- **`guide.md`** and the skills stay as they are: written for an agent, dense on purpose.
+Accuracy is not negotiable in any of them: every command shown was run, every output is real,
+nothing is promised that the code does not do; `tests/docs-test.rkt` renders each manual and
+`fhir-mcp/tests/docs-commands-test.rkt` runs every command the documents name.
+
 ## Conventions
 - Contracts on module boundaries (`contract-out`); `match` over multi-branch `cond`.
 - Every module has a `module+ test` with living examples; `raco test` runs them.

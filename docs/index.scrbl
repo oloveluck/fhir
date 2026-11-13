@@ -2,103 +2,161 @@
 
 @title{fhir: FHIR's languages and tools}
 
-FHIR's specifications as @hash-lang[]s: a profile, a value set, a quality measure, a mapping or a
-query is a file in its own language, checked when it compiles, and a value a Racket program can use.
-Around the languages sit a validator, a terminology service, servers generated from Implementation
-Guides, and command-line tools that report every problem as @tt{file:line:col}.
+@hyperlink["https://hl7.org/fhir/"]{FHIR} is the standard most health systems use to exchange data:
+a patient, a lab result, a prescription are each a small document called a @italic{resource}. The
+standard also defines several small languages for working with those resources, and that is what
+this project implements: you write a file in one of the languages, a tool checks it and tells you
+exactly where any mistake is, and then you run it over real data.
 
-@section{The languages}
+You do not need to know Racket (the language this is written in) to use it. Each language has a
+command-line tool, and there is a server an AI agent can work through.
+
+@table-of-contents[]
+
+@section{What you can do}
 
 @tabular[#:style 'boxed #:sep @hspace[2]
-(list (list @bold{language} @bold{you write} @bold{file} @bold{run it})
-      (list @hyperlink["https://oloveluck.github.io/fsh/"]{fsh} "profiles, extensions, instances, value sets (FHIR Shorthand)" @tt{.fsh} @tt{raco fsh check ig/})
-      (list @hyperlink["https://oloveluck.github.io/cql/"]{cql} "clinical logic and quality measures (CQL)" @tt{.cql} @tt{raco cql lib.cql --data patient/})
-      (list @hyperlink["https://oloveluck.github.io/fml/"]{fml} "maps between structures (FHIR Mapping Language)" @elem{@tt{.fml}, @tt{.map}} @tt{raco fml map.map --transform in.json})
-      (list @hyperlink["https://oloveluck.github.io/vcl/"]{vcl} "a value set's compose as one expression" @tt{.vcl} @tt{raco vcl expr.vcl})
-      (list @hyperlink["https://oloveluck.github.io/sql-on-fhir/"]{sql-on-fhir} "tabular views over FHIR data (ViewDefinitions)" @tt{.sof} @tt{raco sql-on-fhir run view.sof data/})
-      (list @hyperlink["fhir/index.html"]{fhir/r6} "a resource as a form, checked as it compiles" @tt{.fhir6} @tt{racket patient.fhir6})
-      (list @hyperlink["https://oloveluck.github.io/fhirpath/"]{fhirpath} "expressions over resources (a library, no file type)" "" @tt{raco fhirpath 'name.given' p.json}))]
+(list (list @bold{You want to} @bold{Language} @bold{Tool and documentation})
+      (list "say what valid data looks like, and write examples of it" "FHIR Shorthand" @hyperlink["https://oloveluck.github.io/fsh/"]{fsh})
+      (list "compute over a patient's record: rules, cohorts, quality measures" "Clinical Quality Language (CQL)" @hyperlink["https://oloveluck.github.io/cql/"]{cql})
+      (list "convert data from one shape to another" "FHIR Mapping Language" @hyperlink["https://oloveluck.github.io/fml/"]{fml})
+      (list "name a set of codes" "ValueSet Compose Language (VCL)" @hyperlink["https://oloveluck.github.io/vcl/"]{vcl})
+      (list "ask a question of one resource" "FHIRPath" @hyperlink["https://oloveluck.github.io/fhirpath/"]{fhirpath})
+      (list "turn resources into tables you can query" "SQL on FHIR" @hyperlink["https://oloveluck.github.io/sql-on-fhir/"]{sql-on-fhir})
+      (list "check that a resource is valid" "" @hyperlink["fhir-validation/index.html"]{fhir-validate})
+      (list "look up codes and expand value sets" "" @hyperlink["fhir-tx/index.html"]{fhir-tx})
+      (list "run a FHIR server" "" @hyperlink["fhir-server/index.html"]{fhir-server})
+      (list "see mistakes in your editor as you type" "" @hyperlink["fhir-lsp/index.html"]{fhir-lsp})
+      (list "let an AI agent do the work, with a record of what it did" "" @hyperlink["fhir-mcp/index.html"]{fhir-mcp}))]
 
-Every file is a Racket module: @racket[(require "profile.fsh")] gives the compiled resources,
-@racket[(require "screening.cql")] a procedure over a patient's data, @racket[(require "intake.fml")]
-the map as a function. A mistake is reported where it is, in the file, when the module compiles.
+Worked examples that use several of these together are in
+@hyperlink["https://oloveluck.github.io/fhir-examples/"]{fhir-examples}.
 
-@section{Start here}
+@section{Install}
 
-The packages are not on the Racket package server yet. Clone the repositories side by side and
-install from source (Racket 8.10 or later):
+There are no downloads yet, so you build the tools once. You need
+@hyperlink["https://racket-lang.org"]{Racket 9} to build them; the result runs without Racket on any
+machine of the same kind.
 
 @verbatim{
-git clone https://github.com/oloveluck/fhir      # also: fhirpath vcl cql fml fsh sql-on-fhir fhir-examples
-raco pkg install --link --auto fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-tx fhir/fhir-validation cql fml fsh fhir/fhir-server fhir/fhir-lsp fhir/fhir-mcp sql-on-fhir fhir-examples
+for r in fhir fhirpath vcl cql fml fsh sql-on-fhir; do
+  git clone https://github.com/oloveluck/$r.git
+done
+raco pkg install --link --auto --batch --no-docs \
+  fhir/fhir fhir/fhir-spec fhirpath vcl fhir/fhir-tx fhir/fhir-validation \
+  cql fml fsh fhir/fhir-server fhir/fhir-lsp fhir/fhir-mcp sql-on-fhir
+fhir/build-tools.sh dist
+export PATH="$PWD/dist/bin:$PATH"
 }
 
-Then one of these, each a few lines:
+The first two commands fetch the source and install it as Racket packages; after them every tool
+already works as @tt{raco <tool>} (@tt{raco fsh}, @tt{raco cql}, …). @tt{build-tools.sh} builds the
+standalone tools (@tt{fsh}, @tt{cql}, …) into @tt{dist/}, about 380 MB with the HL7 packages they
+read. The two forms take the same arguments; these pages write @tt{raco <tool>}.
+
+@tt{fhir-server} needs the system's SQLite library. A tool also looks for FHIR packages in the
+directories named by the environment variable @tt{FHIR_PACKAGE_PATH}.
+
+@section{First steps}
+
+Pick the one closest to what you came for. Each is a few lines and takes a few minutes.
 
 @itemlist[
-@item{@bold{Write a profile and check an example against it}: a @tt{.fsh} file, then
-@tt{raco fsh check}. The problem is positioned on the FSH line that caused it. Start with the
-@hyperlink["https://oloveluck.github.io/fsh/"]{fsh} quick start.}
-@item{@bold{Validate a resource}: @tt{raco fhir-validate patient.json}, or against a profile with the
-IG's package in context (@hyperlink["fhir-validation/index.html"]{fhir-validation}).}
-@item{@bold{Serve an Implementation Guide}: @tt{raco fhir-server serve-ig hl7.fhir.us.core}, a
-whole server from the package, every write validated (@hyperlink["fhir-server/index.html"]{fhir-server}).}
-@item{@bold{Run a measure}: a @tt{.cql} library over a directory of patient resources
-(@hyperlink["https://oloveluck.github.io/cql/"]{cql}).}
-@item{@bold{See them together}: @tt{fhir-examples/screening}, one program composed of seven
-language files (@hyperlink["https://oloveluck.github.io/fhir-examples/"]{fhir-examples}).}
-@item{@bold{In your editor}: @tt{raco fhir-lsp} is a language server for all five languages; the
-@hyperlink["fhir-lsp/index.html"]{fhir-lsp} page has the three-line setup for VS Code, Neovim and
-Emacs.}
-@item{@bold{For an agent}: @tt{raco fhir-mcp} offers every FHIR operation and the languages' checks as
-MCP tools (@hyperlink["fhir-mcp/index.html"]{fhir-mcp}).}]
-
-@section{The other packages}
-
-This repository holds the foundation and the tools; each language is a repository of its own.
-
-@itemlist[
-@item{@hyperlink["fhir/index.html"]{fhir}: the typed node model, JSON in and out, the R4, R5 and R6
-towers, @hash-lang[] @tt{fhir/r6}, StructureDefinition tooling, FHIR operations as procedures,
-diagnostics. @tt{raco fhir}.}
-@item{@tt{fhir-spec}: the HL7 packages the tools read (core R4, R5, R6 and the IGs the tests use). Data only.}
-@item{@hyperlink["fhir-tx/index.html"]{fhir-tx}: the terminology service, @tt{$expand},
-@tt{$validate-code}, @tt{$lookup}, @tt{$translate} over any FHIR package. @tt{raco fhir-tx}.}
-@item{@hyperlink["fhir-validation/index.html"]{fhir-validation}: the validator. @tt{raco fhir-validate}.}
-@item{@hyperlink["fhir-server/index.html"]{fhir-server}: servers generated from IGs, @hash-lang[]
-@tt{fhir/capability}, the HTTP server and SQLite store. @tt{raco fhir-server}.}
-@item{@hyperlink["fhir-lsp/index.html"]{fhir-lsp}: a language server for the five languages, so an
-editor shows each problem as you type. @tt{raco fhir-lsp}.}
-@item{@hyperlink["fhir-mcp/index.html"]{fhir-mcp}: a Model Context Protocol server, so an agent can
-validate, expand, transform, compile and check through the same tools. @tt{raco fhir-mcp}.}
-@item{@hyperlink["https://oloveluck.github.io/fhir-examples/"]{fhir-examples}: worked examples and
-@tt{raco spec-bench}, a benchmark for writing profiles from prose.}]
+@item{@bold{Check a resource.} @tt{raco fhir-validate patient.json} reads a FHIR resource and lists
+what is wrong with it: a code that is not allowed, a date that is not a date, a required field left
+out. See @hyperlink["fhir-validation/index.html"]{fhir-validation}.}
+@item{@bold{Write a rule for your data.} A @italic{profile} says what a valid resource looks like
+in your setting ("every lab result names its patient"). You write it in FHIR Shorthand, with an
+example, and @tt{raco fsh check} tells you whether the example passes, pointing at the line that
+does not. Start with the @hyperlink["https://oloveluck.github.io/fsh/"]{fsh} quick start.}
+@item{@bold{Ask a question of patient data.} A CQL library such as "who has had an HbA1c test, and
+was the latest above 9 %?" runs over a folder of patient resources. See
+@hyperlink["https://oloveluck.github.io/cql/"]{cql}.}
+@item{@bold{Run a server.} @tt{raco fhir-server serve-ig hl7.fhir.us.core} starts a FHIR server
+that follows a published Implementation Guide: it accepts the resources the guide describes,
+refuses invalid ones and answers the searches the guide requires. See
+@hyperlink["fhir-server/index.html"]{fhir-server}.}
+@item{@bold{Work through an AI agent.} @tt{raco fhir-mcp init my-workspace} makes a folder that
+Claude (or another agent) can work in: it writes the languages, checks them, stores data and
+answers questions, and every change it makes is recorded with who, when and why. See
+@hyperlink["fhir-mcp/index.html"]{fhir-mcp}.}
+@item{@bold{See it all together.} @tt{fhir-examples/screening} is one small program written in seven
+of the languages, from an intake form to a screening result. See
+@hyperlink["https://oloveluck.github.io/fhir-examples/"]{fhir-examples}.}]
 
 @section{How the pieces fit}
 
 @itemlist[
-@item{@bold{One value model.} Every language produces FHIR resources as JSON or typed nodes, so the
-output of one is the input of another: an FSH profile validates what an FML map produced; a CQL
-library runs over the same resources a SQL on FHIR view reads.}
-@item{@bold{Operations as procedures.} @tt{$validate}, @tt{$expand}, @tt{$transform},
-@tt{$evaluate-measure} and the rest are applied by name with keyword arguments and threaded with
-@racket[~>]; the same values are served over HTTP by fhir-server.}
-@item{@bold{The module system is the registry.} Requiring a @tt{.fsh}, @tt{.vcl}, @tt{.fml} or
-@tt{.cql} module registers what it defines (profiles, value sets, maps, libraries), so anything that
-resolves by canonical url finds it.}
-@item{@bold{Terminology.} Codes are checked when a resource form compiles (required bindings that
-expand offline), when a resource is validated (through the terminology service when given one), and
-at run time by the service itself. CQL takes value set expansions as data; FSH records bindings and
-checks no codes.}
-@item{@bold{One diagnostic shape.} Every tool reports @tt{file:line:col: lang phase severity:
-message} with the source line and a caret, or the same as JSON or an OperationOutcome
-(@litchar{--format json|outcome}), so an editor or an agent can read it.}]
+@item{@bold{Everything is a FHIR resource.} A profile, a value set, a map, a library of logic are
+themselves FHIR resources; each language is a shorter way to write one. So what one language
+produces another can use: a profile written in FHIR Shorthand checks the patient a map produced; a
+CQL library reads the same records a SQL on FHIR view turns into a table.}
+@item{@bold{Things find each other by address.} Every definition has a web address (its
+@italic{canonical url}). When one file refers to a value set or a profile by that address, the
+tools find it, whether it is in another of your files, in a published package or in a store.}
+@item{@bold{Mistakes are reported where they are.} Every tool reports a problem as
+@tt{file:line:column}, with the line and a marker under the place. The same report is available as
+JSON or as a FHIR OperationOutcome (@litchar{--format json|outcome}), so an editor or an agent can
+read it too.}
+@item{@bold{FHIR's operations are ordinary functions.} FHIR names its services with a dollar sign:
+@tt{$validate}, @tt{$expand}, @tt{$transform}, @tt{$evaluate-measure}. Here each is a function you
+can call from a program, and the same function is what the server answers with over HTTP.}
+@item{@bold{For programmers: each file is a module.} In Racket, a file in one of the languages can
+be required like any other module: @racket[(require "profile.fsh")] gives its compiled resources,
+@racket[(require "screening.cql")] a function over a patient's data. A mistake in the file stops
+the build, at its line. The @hyperlink["fhir/index.html"]{fhir} page has the details.}]
+
+@section{The packages in this repository}
+
+Each language lives in a repository of its own (the links in the table above). This repository
+holds what they share and the tools around them.
+
+@itemlist[
+@item{@hyperlink["fhir/index.html"]{fhir}: the foundation. FHIR resources read, checked and written
+as JSON, for FHIR versions R4, R5 and R6; the machinery the other packages build on. @tt{raco fhir}.}
+@item{@tt{fhir-spec}: the HL7 packages the tools read (the FHIR specification itself and the
+Implementation Guides the tests use). Data only.}
+@item{@hyperlink["fhir-validation/index.html"]{fhir-validation}: the validator. @tt{raco fhir-validate}.}
+@item{@hyperlink["fhir-tx/index.html"]{fhir-tx}: the terminology service: which codes a value set
+holds, whether a code is in it, what a code means. @tt{raco fhir-tx}.}
+@item{@hyperlink["fhir-server/index.html"]{fhir-server}: FHIR servers, generated from an
+Implementation Guide or declared in a short file, over a SQLite store. @tt{raco fhir-server}.}
+@item{@hyperlink["fhir-lsp/index.html"]{fhir-lsp}: a language server, so an editor underlines
+mistakes in the five text languages as you type. @tt{raco fhir-lsp}.}
+@item{@hyperlink["fhir-mcp/index.html"]{fhir-mcp}: the workspace an AI agent works in.
+@tt{raco fhir-mcp}.}]
+
+@section{Words used here}
+
+@itemlist[
+@item{@bold{Resource}: one FHIR document, such as a Patient or an Observation, written as JSON.}
+@item{@bold{Profile}: a set of rules a resource must follow in some setting, on top of FHIR's own
+(a StructureDefinition resource).}
+@item{@bold{Implementation Guide} (IG): a published set of profiles, value sets and examples for
+one purpose, such as US Core or the International Patient Summary. It is distributed as a
+@italic{package}, a @tt{.tgz} file.}
+@item{@bold{Value set}: a named set of codes, such as "the codes that mean a blood-pressure
+reading". A @bold{code system} is where the codes come from (LOINC, SNOMED CT).}
+@item{@bold{Canonical url}: the web address that names a definition, such as
+@tt{http://hl7.org/fhir/ValueSet/administrative-gender}. It is a name; nothing needs to be served
+there.}
+@item{@bold{Operation}: a named service FHIR defines, written with a dollar sign (@tt{$validate}).}
+@item{@bold{Terminology}: everything to do with codes: value sets, code systems, and the maps
+between them.}]
 
 @section{Limits}
 
-Each document ends its usage section with a @italic{Limits} list taken from the code. The largest:
-nothing reads or writes XML; resource forms exist for R6 only; the server has no chaining,
-conditional requests or SMART; the validator checks no references or extension contexts and leaves
-invariants off; the terminology service cannot see external code systems such as SNOMED CT; CQL
-scores proportion measures only; FML runs every transform but @tt{dateOp}, @tt{escape} and
-@tt{pointer}; FSH reproduces most but not all of what SUSHI writes for two real IGs.
+Each page ends with a list of what its package does not do. The largest across the project:
+
+@itemlist[
+@item{FHIR is read and written as JSON only, never XML.}
+@item{The server does not do chained searches, conditional requests or SMART authorization.}
+@item{The validator does not follow references to check what they point at.}
+@item{The terminology service only knows the code systems in the packages it is given. SNOMED CT and
+LOINC are not shipped, so a value set defined by a rule over them cannot be listed out, though a
+value set that lists its codes works.}
+@item{CQL computes proportion measures for FHIR Measure resources; the other kinds of scoring are
+available for measures in the cqm-models format.}
+@item{The mapping language runs every transform but @tt{dateOp}, @tt{escape} and @tt{pointer}.}
+@item{FHIR Shorthand reproduces most, not all, of what the reference compiler (SUSHI) writes for the
+published guides it is tested on; @tt{TESTING.md} in each repository has the numbers.}]
