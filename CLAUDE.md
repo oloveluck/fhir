@@ -317,6 +317,11 @@ Three kinds of document, each with one job:
   Sentences are short and active and say "you"; a term is explained where it first appears; why
   comes before how.
 - **`guide.md`** and the skills stay as they are: written for an agent, dense on purpose.
+Two things keep a page true to what a terminal shows. Each manual shadows `tt` with a literal
+element (Scribble's own turns `--pack` into an en dash and `'x'` into curly quotes), and each
+`docs.yml` builds with `++style <docs|scribblings>/manual.css`: a command's output is shown as
+printed, however wide, and scrolls inside the text column (one small stylesheet, the same file in
+every repository).
 Accuracy is not negotiable in any of them: every command shown was run, every output is real,
 nothing is promised that the code does not do; `tests/docs-test.rkt` renders each manual and
 `fhir-mcp/tests/docs-commands-test.rkt` runs every command the documents name.
