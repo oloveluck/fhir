@@ -567,6 +567,31 @@ When the data claims a guide's profiles, name the guide with @litchar{--package 
 that nothing in context defines is a warning, and the resource is checked against its base type
 alone.
 
+@subsection{Large files}
+
+A bulk export is one resource to a line (@tt{.ndjson}, often gzipped), a file to a type, and can
+hold hundreds of thousands of resources. @tt{load} reads such files as a stream and spreads the
+work over every core of the machine: worker processes read the lines, stamp the resources and work
+out their search index entries, and one process writes. When the store is empty, the search
+indexes are built once at the end instead of entry by entry. The hospital dataset this is measured
+on (a public intensive-care dataset of 928,935 resources, most of them observations) loads in a little over two minutes on four cores, about 6,900 resources a second. What is stored is
+exactly what loading the resources one by one stores.
+
+@subsection{Indexing again}
+
+A resource is indexed for search when it is written. When the way values are indexed changes (a
+newer version of this package, a store loaded as another FHIR version), the resources already
+stored keep their old index entries. @tt{raco fhir-server reindex} works them out again:
+
+@verbatim{
+$ raco fhir-server reindex clinic.db
+indexed 2 resources of clinic.db again (for FHIR 4.0.1 search)
+}
+
+It happens in one transaction: a reindex that is interrupted leaves the store as it was. A store
+made before periods (an encounter's, a procedure's) were indexed as dates needs it once: until
+then a search by such a date finds nothing in it.
+
 @subsection{Reading it with SQL}
 
 @tt{raco fhir-server sql} runs one SQL query over a store and prints the rows as CSV. It only
@@ -835,8 +860,12 @@ test with the reason.}
 every OperationDefinition and a search result are run through the validator. The examples of the
 capability guide are run as written, over a real socket.}]
 
+Speed is measured on one dataset, the same way each time (@tt{fhir-server/bench/store-bench.rkt}):
+a public intensive-care dataset of 928,935 resources. It loads in a little over two minutes, and a search for one patient's ten most recent observations among
+them answers in about a tenth of a second.
+
 The repository's @hyperlink["https://github.com/oloveluck/fhir/blob/main/TESTING.md"]{@tt{TESTING.md}}
-has every suite and names the misses.
+has every suite, names the misses, and has the timings.
 
 @section[#:tag "reference"]{Reference}
 
@@ -846,7 +875,8 @@ has every suite and names the misses.
 (list (list @tt{raco fhir-server serve-ig <ig> [options]} @elem{a server generated from a guide (@secref["serve-ig"] has the options)})
       (list @tt{raco fhir-server check <app.rkt>} "a declaration compiled: what it offers, or its mistakes")
       (list @tt{raco fhir-server serve <app.rkt> [port | --port n] [--store fhir.db] [--log]} "a declared server")
-      (list @tt{raco fhir-server load <store.db> <file|dir> [--validate]} @elem{resources, Bundles and @tt{.cql} libraries into a store})
+      (list @tt{raco fhir-server load <store.db> <file|dir> [--validate]} @elem{resources, Bundles, bulk-data files and @tt{.cql} libraries into a store})
+      (list @tt{raco fhir-server reindex <store.db> [--fhir-version v]} "every stored resource indexed for search again")
       (list @tt{raco fhir-server sql <store.db> "SELECT …"} "one reading query over a store, as CSV")
       (list @tt{raco fhir-server evaluate-measure <store.db> <Measure id|url> --period-start D --period-end D [--subject Patient/x] [--tz-offset ±hh:mm]} "a MeasureReport from a store"))]
 
@@ -1120,8 +1150,10 @@ the request order. @racket[tower] names the type tower the store runs on (@racke
 
 @defproc[(load-files! [s fhir-store?] [path path-string?] [#:search-params catalog hash? default-search-params] [#:library-base base string? "http://localhost/fhir"]
                       [#:tower tower (or/c module-path? #f) #f]) (listof (cons/c string? exact-nonnegative-integer?))]{
-A file, or every @tt{.json} and @tt{.cql} under a directory: Bundles, resources (upserted by id),
-and CQL files as Library resources. The count loaded per file. Resources are indexed by
+A file, or every @tt{.json}, @tt{.ndjson}, @tt{.ndjson.gz} and @tt{.cql} under a directory:
+Bundles, resources (upserted by id), bulk-data files and CQL files as Library resources. The count
+loaded per file. With @racket[tower] (the type tower the store runs on, @racket['fhir/r4/schemas])
+bulk-data files are prepared on every core. Resources are indexed by
 @racket[catalog]: with the default, by the few parameters of @racket[default-search-params] only.}
 @defproc[(file-resources [path path-string?]) (listof (cons/c string? hash?))]{Every resource
 @racket[load-files!] would write from the JSON files at @racket[path], each with its file's name and a

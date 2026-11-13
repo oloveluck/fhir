@@ -2069,9 +2069,9 @@ resources, 813,540 of them Observations, a 4.5 GB store — to run an agent benc
   AND x.param_name=? AND …)` now: the index is read first. The type is a sentinel in the clause's
   arguments (`the-resource-type`, filled by `clause-args/type`), `_revinclude` reads the same way,
   a sort key names its index (`INDEXED BY`, `owner-index`), and number and quantity values have a
-  lookup index (`idx_number_lookup`, `idx_quantity_lookup`). That search: ~2.7 s from the shell (`raco fhir-mcp call`, the
-  process start included); the US Core search oracle is unchanged, 2446/2446. Still slow, named: a date
-  range with a sort over one patient's 28,000 observations (~6 s: a range scan on `high >= ?`).
+  lookup index. That search: ~2.7 s from the shell (`raco fhir-mcp call`, the process start
+  included). The date range with a sort that was still slow then (~6 s), the load itself and the
+  indexes are in "Speed, measured on a benchmark", below.
 
 - **A Period is a date** (`store/search-index.rkt` `date-rows`; found by the agent benchmark: "how
   many times did the patient visit the hospital in 2125?" — the search said 0, the data held 2). A
@@ -2086,6 +2086,87 @@ Left, named: a delete is not a history entry (it needs a tombstone row in `fhir_
 it answering 410, and fhir-mcp's `history`/`trail` views taught to show or skip it); conditional
 create/update/delete by search; `If-Match` is checked just before the write, not atomically with
 it; `first`/`last` paging links; `_summary` other than `count`, `_elements`.
+
+## Speed, measured on a benchmark (2026-11-13)
+The owner: "Loading this data and running these tests should not have taken nearly this long … I
+want to use this benchmark as a measurable baseline for performance improvements." The benchmark is
+the MIMIC-IV Clinical Database Demo on FHIR 2.1.0 (PhysioNet, ODbL; 30 `.ndjson.gz` files, 928,935
+resources, 813,540 of them Observations — the data FHIR-AgentBench's questions are asked of). It is
+not vendored. `fhir-server/bench/store-bench.rkt` measures the same things each time: `sample` (the
+first N lines of each file: 61,396 resources at 4,000), `load` (the phases: read, index extraction
+in one process, the load itself), `query` (a fixed set of searches and SQL statements about the
+patient with the most observations; medians). Compare runs on one machine with nothing else running:
+five leftover processes once made every number of an afternoon wrong.
+
+| | before | after |
+|---|---|---|
+| load, the whole dataset | not done in 30 min (killed) | 2 min 15 s (6,880 /s) |
+| load, the sample | 95.7 s (642 /s); one worker 41.5 s | 9.9 s (6,222 /s) |
+| index extraction, one process | 202 µs a resource | 118 µs |
+| a patient's observations, first 10 | 225 ms | 28 ms |
+| … of one code (1,362) | 177 ms | 144 ms |
+| … from a date on, sorted, first 10 | 3,201 ms | 222 ms |
+| a patient's latest observation | 255 ms | 112 ms |
+| every observation of one code, counted | 47 ms | 7 ms |
+| `raco fhir roundtrip-tck r5` | 3.5 s after (not timed before: the pool bug below) | |
+
+What was wrong, each found by measuring first (a profile, or timers around the hand-offs):
+- **Four workers gave 1.35 times one** (`fhir/parallel`). A worker's answer was written with a
+  newline after it; the dispatcher read the datum and left the newline in the pipe, so that
+  worker's port was "ready" for ever after. The dispatcher then picked a worker it had only just
+  fed and blocked reading its answer for as long as the work took, while the others waited with
+  theirs. Messages are fasl now (`send!`, `read-message`: a datum is exactly its bytes; and a
+  message of strings reads three to four times faster — the dispatcher's reading is what every
+  worker waits on). Every user of `parallel-map` gained (the round-trip corpus, `raco fhir check`,
+  example validation in a generated server).
+- **A load started its workers 465 times** (once per 2,000 resources, each loading the type tower)
+  and gave each resource to them one at a time with the whole catalogue beside it. A **pool**
+  (`make-worker-pool`, `pool-map`, `close-worker-pool`) keeps the workers; `#:init` tells each a
+  datum once (the export is then a maker of the item function).
+- **The loading process did everything but the index rows**: it parsed each resource, wrote it out
+  for a worker, stamped it, wrote it out again for the store, and made ~30 SQL statements a
+  resource. `store/bulk.rkt`: a worker PREPARES a chunk of the file's bytes end to end (lines,
+  JSON, id, meta stamped as version 1, stored text, SHA-1, index rows); this process only writes —
+  one SELECT of the version and two INSERTs a resource, index rows 24 to a statement — and a thread
+  keeps the next group preparing while one is written, across the files of a load (`bulk-load!`,
+  `write-prepared!`, `flush-rows!`). A resource stored before is restamped here (`restamped`). The
+  connection of a bulk load (`call-with-bulk-connection`) has a 256 MB page cache and checkpoints
+  the log when it has grown; into an EMPTY store the search indexes are built once at the end
+  (`drop-indexes!`, `restore-indexes!`: an Indexes value; restored at once when a resource turns out
+  to be stored already, and by the schema when a load was killed) and the file is not synced on
+  the way. `tests/bulk-test.rkt` holds it to `fhir-update!`: the same resources, history and index
+  rows, loaded once and twice, with workers and without.
+- **Indexing a resource did the same work for every resource** (`store/fhir-engine.rkt`
+  `path-values`): the branches of each search parameter's expression (`path-branches`) and FHIRPath's
+  static check of a branch for a type (`branch-applies?`: a quarter of the time) are worked out
+  once, for as long as the type registry is what it was (`type-registry-generation`, new in
+  fhir/model/registry; fhirpath's `fhir-ancestors` is remembered the same way). `uri` and `code`
+  lexemes are checked by a pass over the characters (`pattern-matches?`, fhir/primitives/patterns:
+  the regexp took 1.5 µs for a system url; tested equal to the regexps on every string of up to
+  five characters over an alphabet with every kind of space).
+- **A search asked every condition of its index** (`fhir-search/page`, `clause-forms`): for
+  `patient=X&date=ge…` the ids of every Observation on or after the date were collected to be
+  intersected with one patient's. An index lookup is an IndexClause now (search-index.rkt: its
+  `ids` subquery, the `r.id IN (…)` form, the `EXISTS` form asked of one resource, a rank); the
+  engine counts what each finds (to 20,000) and drives from the smallest, asking a lookup that
+  finds many more of each candidate instead.
+- **Indexes that carry the id** (fhir-sqlite.rkt: `idx_<t>_find`, with `resource_id` last; the old
+  `_lookup` ones are dropped when a store is opened, which rebuilds once — 17 s for this store): a
+  search reads the ids from the index alone (a page 58 -> 12 ms). The dates' per-resource index
+  carries the values (`idx_date_own`: a sort by date and a date condition asked of a candidate).
+  A total over one lookup is counted in the index (`WITH m AS MATERIALIZED …`: left to choose,
+  SQLite walked the owner index for the DISTINCT, 1.8 s).
+- **Without `_sort` the order is the ids'** (it was last_updated then id, which read and sorted
+  every match to return ten, and moved under a writer).
+- `raco fhir-server reindex <store.db> [--fhir-version]` (bulk.rkt `reindex!`): every stored
+  resource's index rows extracted again over the same workers and replaced, in one transaction —
+  for a store written before a change to indexing (Period dates, above).
+Not faster yet, named: a statement over raw JSON (`resource ->> '$.subject.reference' = …`: 1.9 s
+for one patient's observations, 41 ms through the reference index — the store's index tables are not
+offered to SQL yet); a count over every resource of a type by a JSON path (2.9 s for 813,540);
+a patient's observations of one code (144 ms for 1,362: mostly producing 1,362 resources); the
+process start of each shell call. The loading process is now the limit of a load (SQLite and the
+hand-offs share one OS thread); the next step there is workers that write shard files to merge.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

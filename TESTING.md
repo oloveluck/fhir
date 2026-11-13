@@ -35,6 +35,31 @@ that only rises. The languages' own suites are in their repositories: [fsh](http
 - **Measure server, 5**: two cases whose resources reference a bare id or a sibling patient, which a
   server rightly leaves out of the patient's data, and the three corpus disagreements `cql` documents.
 
+## Speed
+
+Measured, not gated: `fhir-server/bench/store-bench.rkt` loads a bulk export and asks a fixed set
+of questions of the store, the same way each time. The numbers below are on the MIMIC-IV Clinical
+Database Demo on FHIR 2.1.0 (PhysioNet; 30 files, 928,935 resources, 813,540 of them Observations),
+on a four-core machine with nothing else running. "Before" is this repository on 2026-11-13,
+before the work the benchmark prompted.
+
+| | Before | Now |
+|---|---|---|
+| `raco fhir-server load`, the whole dataset | not finished in 30 minutes | 2 min 15 s (6,880 resources a second) |
+| …a 61,396-resource sample of it | 95.7 s | 9.9 s |
+| a patient's observations, the first 10 of 48,554 | 225 ms | 28 ms |
+| …of one code (1,362 resources returned) | 177 ms | 144 ms |
+| …from a date on, sorted by date, the first 10 | 3,201 ms | 222 ms |
+| a patient's latest observation | 255 ms | 112 ms |
+| every observation of one code, counted (19,330) | 47 ms | 7 ms |
+| SQL over raw JSON: a patient's observations by `subject.reference` | 1.9 s | 1.9 s (41 ms through the reference index) |
+
+```sh
+racket fhir-server/bench/store-bench.rkt sample <ndjson-dir> sample/     # the first 4,000 lines of each file
+racket fhir-server/bench/store-bench.rkt load sample/                    # read, index and load, timed apart
+racket fhir-server/bench/store-bench.rkt query <store.db>                # the questions, the median of 5 runs
+```
+
 ## Running them
 
 ```sh
