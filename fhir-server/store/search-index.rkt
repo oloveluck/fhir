@@ -44,12 +44,13 @@
  (struct-out token-row) (struct-out reference-row) (struct-out string-row)
  (struct-out date-row) (struct-out number-row) (struct-out quantity-row)
  (struct-out clause)
- index-tables table-of
+ index-tables table-of owner-index
  (contract-out
   [indexed-kind?   (-> symbol? boolean?)]
   [rows-for        (-> symbol? list? list?)]
   [row-table+values (-> any/c (values string? list?))]
   [compile-param   (-> string? symbol? (or/c string? #f) string? (or/c clause? #f))]
+  [clause-args/type (-> clause? string? list?)]
   [fold-string     (-> string? string?)]
   [date-range      (-> string? (or/c (cons/c string? string?) #f))]))
 
@@ -88,6 +89,15 @@
     [(token uri) "fhir_token_index"] [(reference) "fhir_reference_index"]
     [(string) "fhir_string_index"] [(date) "fhir_date_index"]
     [(number) "fhir_number_index"] [(quantity) "fhir_quantity_index"]))
+
+;; owner-index : table -> index name   the index that finds ONE resource's rows of a table
+;; (resource_type, resource_id): the store's schema names them idx_<short>_owner. A per-resource
+;; lookup names it (`INDEXED BY`): left to itself SQLite took the by-value index for a sort key and
+;; walked every date row of the type for each matched resource.
+(define (owner-index table)
+  (cdr (assoc table '(("fhir_token_index" . "idx_token_owner") ("fhir_reference_index" . "idx_ref_owner")
+                      ("fhir_string_index" . "idx_string_owner") ("fhir_date_index" . "idx_date_owner")
+                      ("fhir_number_index" . "idx_number_owner") ("fhir_quantity_index" . "idx_quantity_owner")))))
 
 ;; ==== extraction ==============================================================================
 
@@ -247,10 +257,23 @@
   (match (regexp-match prefix-rx v) [(list _ p rest) (values (string->symbol p) rest)] [#f (values 'eq v)]))
 
 ;; exists-in : table name extra-sql extra-args -> Clause
+;; "the resource has an index row of this parameter that …", written so that the store starts from
+;; the INDEX: the ids of the rows that match, looked up among the resources. It was a correlated
+;; EXISTS, which SQLite ran once per resource of the type, each time walking every index row of the
+;; value — over a patient's 28,000 Observations among 813,000 that is 23 billion steps, and the
+;; search did not come back; this form is the 28,000. The subquery names the resource type by a
+;; bind value of its own (`the-resource-type` among the args, filled in by the engine), so nothing
+;; in it depends on the outer row.
+(define the-resource-type 'resource-type)
 (define (exists-in table name sql args)
-  (clause (string-append "EXISTS (SELECT 1 FROM " table " x WHERE x.resource_type=r.resource_type"
-                         " AND x.resource_id=r.id AND x.param_name=?" (if (string=? sql "") "" " AND ") sql ")")
-          (cons name args)))
+  (clause (string-append "r.id IN (SELECT x.resource_id FROM " table " x WHERE x.resource_type=?"
+                         " AND x.param_name=?" (if (string=? sql "") "" " AND ") sql ")")
+          (list* the-resource-type name args)))
+
+;; clause-args/type : Clause resource-type -> (listof bind-value)   the clause's values, the
+;; resource type in its places
+(define (clause-args/type c rtype)
+  (for/list ([a (in-list (clause-args c))]) (if (eq? a the-resource-type) rtype a)))
 
 (define (or-clauses cs)
   (define ok (filter values cs))
@@ -393,9 +416,12 @@
   (check-equal? (split-or "a,b\\,c") '("a" "b,c"))
   ;; compilation picks the table from the KIND, not the value's shape
   (check-regexp-match #rx"fhir_string_index" (clause-sql (compile-param "family" 'string #f "Chal")))
-  (check-equal? (clause-args (compile-param "family" 'string #f "Chal")) '("family" "chal%"))
-  (check-regexp-match #rx"^\\(EXISTS .* OR EXISTS" (clause-sql (compile-param "gender" 'token #f "male,female")))
-  (check-regexp-match #rx"^NOT EXISTS" (clause-sql (compile-param "gender" 'token "missing" "true")))
+  (check-equal? (clause-args/type (compile-param "family" 'string #f "Chal") "Patient") '("Patient" "family" "chal%"))
+  (check-regexp-match #rx"^\\(r.id IN .* OR r.id IN" (clause-sql (compile-param "gender" 'token #f "male,female")))
+  (check-regexp-match #rx"^NOT r.id IN" (clause-sql (compile-param "gender" 'token "missing" "true")))
+  ;; the subquery stands alone: its resource type is a bind value, filled in by the engine
+  (check-false (regexp-match? #rx"r[.]resource_type" (clause-sql (compile-param "gender" 'token #f "male"))))
+  (check-equal? (clause-args/type (compile-param "gender" 'token #f "male") "Patient") '("Patient" "gender" "male"))
   (check-false (compile-param "x" 'composite #f "a$b"))
   (check-false (compile-param "family" 'string "text" "x"))               ; unsupported modifier
   ;; a reference's type modifier names the target type: subject:Patient=123 = subject=Patient/123

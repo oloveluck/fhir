@@ -129,7 +129,10 @@
    "CREATE TABLE IF NOT EXISTS fhir_quantity_index (
       resource_type TEXT NOT NULL, resource_id TEXT NOT NULL, param_name TEXT NOT NULL,
       value REAL NOT NULL, system TEXT, code TEXT)"
-   "CREATE INDEX IF NOT EXISTS idx_quantity_owner ON fhir_quantity_index (resource_type, resource_id)"))
+   "CREATE INDEX IF NOT EXISTS idx_quantity_owner ON fhir_quantity_index (resource_type, resource_id)"
+   ;; a search starts from the index (search-index's `exists-in`): numbers and quantities by value
+   "CREATE INDEX IF NOT EXISTS idx_number_lookup ON fhir_number_index (resource_type, param_name, value)"
+   "CREATE INDEX IF NOT EXISTS idx_quantity_lookup ON fhir_quantity_index (resource_type, param_name, value)"))
 
 (define (ensure-schema! c)
   (for ([stmt (in-list schema-statements)]) (query-exec c stmt))

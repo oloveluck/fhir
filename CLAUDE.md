@@ -571,7 +571,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | CQL | cqframework/cql-tests | `raco cql --tck` | 1820/1823 |
 | FML | fhir-test-cases r5/structure-mapping | `raco fml --tck` | 6/6 exec, 15/15 parse |
 | **FML corpus 2** | **ahdis/matchbox's maps + the FHIR mapping-language tutorial (13 steps over logical models); FHIR/interversion R3/R4 maps parsed in CI** | `raco fml --tck` (fml repo, `tests/matchbox-harness.rkt`) | **43/43 parse, 17/17 run, tutorial 37/37** (2 stale result files set aside with evidence); interversion 332/332 parse |
-| **FML StructureMap form** | **every corpus map through its StructureMap and back; the tutorial run from the emitted resources by canonical; our StructureMap vs matchbox's rule by rule** | `raco fml --tck` | **58/58 round trip; 37/37 from our resources** (30/37 from the reference's, several predate their .map); **21/31 rules equal** |
+| **FML StructureMap form** | **every corpus map through its StructureMap and back; the tutorial run from the emitted resources by canonical; our StructureMap vs matchbox's rule by rule** | `raco fml --tck` | **58/58 round trip; 37/37 from our resources** (29/37 from the reference's, several predate their .map); **21/31 rules equal** |
 | **FML printer** | **every corpus map and every StructureMap resource matchbox ships written as the specified language (fml/print): parses, means the same StructureMap, a fixpoint, nothing beyond the specification but `conceptmap` and `share <id>`; the inter-version R4 maps in CI** | `raco fml --tck` | **58/58 maps, 25/25 resources** (332/332 in CI) |
 | **FML check** | **every corpus map checked against its structures** | `raco fml --tck` | **55/58 without an error finding** — the 3 are real (R4 elements R5 dropped; a typo in syntax.map) |
 | **UCUM** | **FHIR/Ucum-java UcumFunctionalTests.xml** | **`raco fhirpath --ucum-tck`** | **573/573** (all sections) |
@@ -2064,5 +2064,5 @@ it; `first`/`last` paging links; `_summary` other than `count`, `_elements`.
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.
-- FML: `dateOp`, `escape`, `pointer`; a map pinned to R4 (`uses …|4.0.1`) still runs on the R5
-  tower (one tower per process).
+- FML: `dateOp` (the specification leaves its parameters "to be documented"); a map pinned to R4
+  (`uses …|4.0.1`) still runs on the R5 tower (one tower per process; the check warns).

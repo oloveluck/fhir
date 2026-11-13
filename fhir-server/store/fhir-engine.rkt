@@ -282,7 +282,7 @@
     (string-append " FROM fhir_resources r WHERE r.resource_type=?"
                    (apply string-append (for/list ([c (in-list (reverse clauses))])
                                           (string-append " AND " (clause-sql c))))))
-  (define where-args (append-map clause-args (reverse clauses)))
+  (define where-args (append-map (lambda (c) (clause-args/type c rtype)) (reverse clauses)))
   (define paged? (or (exact-nonnegative-integer? count) (exact-positive-integer? offset)))
   (define sql
     (string-append "SELECT json(r.resource)" where
@@ -325,8 +325,9 @@
     [(equal? name "_lastUpdated") (cons (string-append "r.last_updated" dir) '())]
     [(and sp (sort-column (search-param-kind sp)))
      => (lambda (col)
-          (cons (format "(SELECT MIN(i.~a) FROM ~a i WHERE i.resource_type=r.resource_type AND i.resource_id=r.id AND i.param_name=?)~a"
-                        col (table-of (search-param-kind sp)) dir)
+          (define table (table-of (search-param-kind sp)))
+          (cons (format "(SELECT MIN(i.~a) FROM ~a i INDEXED BY ~a WHERE i.resource_type=r.resource_type AND i.resource_id=r.id AND i.param_name=?)~a"
+                        col table (owner-index table) dir)
                 (list name)))]
     [else #f]))
 ;; sort-column : Kind -> column | #f   the index column a kind orders by
@@ -370,14 +371,15 @@
               [(and (equal? (car qp) "_revinclude") (or (not target) (equal? target rtype)) (pair? match-ids))
                (for*/list ([raw (in-list (apply query-list c
                                                 (string-append
-                                                 "SELECT json(r.resource) FROM fhir_resources r WHERE r.resource_type=? AND EXISTS
-                                                  (SELECT 1 FROM fhir_reference_index x WHERE x.resource_type=r.resource_type
-                                                   AND x.resource_id=r.id"
+                                                 ;; from the index to the resources (as every search clause is
+                                                 ;; written: search-index's `exists-in`)
+                                                 "SELECT json(r.resource) FROM fhir_resources r WHERE r.resource_type=? AND r.id IN
+                                                  (SELECT x.resource_id FROM fhir_reference_index x WHERE x.resource_type=?"
                                                  (if (equal? param "*") "" " AND x.param_name=?")
                                                  " AND x.target_type=? AND x.target_id IN ("
                                                  (string-join (map (lambda (_) "?") match-ids) ",") "))")
-                                                source (append (if (equal? param "*") '() (list param))
-                                                               (list rtype) match-ids)))]
+                                                source source (append (if (equal? param "*") '() (list param))
+                                                                      (list rtype) match-ids)))]
                            [js (in-value (string->jsexpr raw))]
                            #:when (fresh! source (hash-ref js 'id #f)))
                  js)]
