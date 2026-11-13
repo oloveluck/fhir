@@ -1,6 +1,6 @@
 ---
 name: fhir-authoring
-description: "Write FHIR programs as Racket modules (the #langs) — resources (#lang fhir/r6, /r4), profiles (/sd), FHIR Shorthand (/fsh), CQL (/cql), VCL (/vcl), StructureMaps (/fml), capability apps (/capability). Use when writing or running any .fhir6/.fsh/.cql/.rkt FHIR-lang file in this repo."
+description: "Write FHIR programs as Racket modules (the #langs) — resources (#lang fhir/r6), profiles (/sd), FHIR Shorthand (/fsh), CQL (/cql), VCL (/vcl), StructureMaps (/fml), capability apps (/capability). Use when writing or running any .fhir6/.fsh/.cql/.rkt FHIR-lang file in this repo."
 ---
 
 # Authoring the FHIR `#lang`s
@@ -10,7 +10,7 @@ the `fhir` skill; this one is about writing the languages as Racket modules.
 
 Every language is checked when its module compiles (`raco make <file>`, or `racket <file>`), each
 error at its line:
-- `#lang fhir/r6`, `/r4`, `/sd`, `/capability`: the forms' fields, cardinalities, required codes.
+- `#lang fhir/r6`, `/sd`, `/capability`: the forms' fields, cardinalities, required codes.
 - `#lang fml`: the map against its structures (`raco fml check`'s static findings: an element the
   type does not have, a value that cannot go there, an unknown group).
 - `#lang cql`: every definition translated (an unknown identifier or function, a type error).
@@ -20,7 +20,10 @@ A `#lang fsh` module compiles with the nearest `sushi-config.yaml` (canonical, F
 dependencies), as `raco fsh` does, and provides `canonical-of` (a profile's url by its name or id).
 Which FHIR version each language uses: `raco fhir guide fhir`, "FHIR versions here".
 
-## `#lang fhir/r6` · `#lang fhir/r4` — author a resource
+## `#lang fhir/r6` — author a resource
+
+Forms are R6 only (there is no `#lang fhir/r4` or `fhir/r5`): write an R4 or R5 resource as JSON, or
+as an FSH Instance in a project whose `sushi-config.yaml` says `fhirVersion: 4.0.1`.
 
 ```racket
 #lang fhir/r6

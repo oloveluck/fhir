@@ -62,13 +62,13 @@ jobs:
           raco test fhir-server/store/ig-plan.rkt fhir-server/store/ig-capability.rkt fhir-server/store/search-index.rkt fhir-server/tests/capability-lang-test.rkt fhir-server/tests/http-test.rkt fhir-server/tests/fhir-store-test.rkt fhir-server/tests/store-http-test.rkt fhir-server/tests/audit-bundle-test.rkt fhir-server/tests/ig-search-r4-test.rkt fhir-server/tests/ig-server-r4-test.rkt fhir-server/tests/fsh-ig-server-r4-test.rkt fhir-server/tests/measure-server-r4-test.rkt
       - name: Build the documentation
         run: |
-          raco scribble +m --html --dest site --dest-name index.html --redirect-main https://docs.racket-lang.org/ docs/index.scrbl
-          raco scribble +m --html --dest site/fhir --dest-name index.html --redirect-main https://docs.racket-lang.org/ fhir/scribblings/fhir.scrbl
-          raco scribble +m --html --dest site/fhir-tx --dest-name index.html --redirect-main https://docs.racket-lang.org/ fhir-tx/scribblings/fhir-tx.scrbl
-          raco scribble +m --html --dest site/fhir-validation --dest-name index.html --redirect-main https://docs.racket-lang.org/ fhir-validation/scribblings/fhir-validation.scrbl
-          raco scribble +m --html --dest site/fhir-server --dest-name index.html --redirect-main https://docs.racket-lang.org/ fhir-server/scribblings/fhir-server.scrbl
-          raco scribble +m --html --dest site/fhir-lsp --dest-name index.html --redirect-main https://docs.racket-lang.org/ fhir-lsp/scribblings/fhir-lsp.scrbl
-          raco scribble +m --html --dest site/fhir-mcp --dest-name index.html --redirect-main https://docs.racket-lang.org/ fhir-mcp/scribblings/fhir-mcp.scrbl
+          raco scribble +m --html --dest site --dest-name index.html --redirect-main https://docs.racket-lang.org/ ++style docs/manual.css docs/index.scrbl
+          raco scribble +m --html --dest site/fhir --dest-name index.html --redirect-main https://docs.racket-lang.org/ ++style docs/manual.css fhir/scribblings/fhir.scrbl
+          raco scribble +m --html --dest site/fhir-tx --dest-name index.html --redirect-main https://docs.racket-lang.org/ ++style docs/manual.css fhir-tx/scribblings/fhir-tx.scrbl
+          raco scribble +m --html --dest site/fhir-validation --dest-name index.html --redirect-main https://docs.racket-lang.org/ ++style docs/manual.css fhir-validation/scribblings/fhir-validation.scrbl
+          raco scribble +m --html --dest site/fhir-server --dest-name index.html --redirect-main https://docs.racket-lang.org/ ++style docs/manual.css fhir-server/scribblings/fhir-server.scrbl
+          raco scribble +m --html --dest site/fhir-lsp --dest-name index.html --redirect-main https://docs.racket-lang.org/ ++style docs/manual.css fhir-lsp/scribblings/fhir-lsp.scrbl
+          raco scribble +m --html --dest site/fhir-mcp --dest-name index.html --redirect-main https://docs.racket-lang.org/ ++style docs/manual.css fhir-mcp/scribblings/fhir-mcp.scrbl
       # Publish: the built site goes to the gh-pages branch, which GitHub serves as the Pages site
       # (enabled automatically for a public repository; otherwise choose "Deploy from a branch:
       # gh-pages" once under Settings > Pages).
