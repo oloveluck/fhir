@@ -159,6 +159,7 @@ After a moment @tt{efective[x]} is underlined, and the message reads:
 profile: BloodPressure: `efective` is not an element of Observation (did you mean `effective`?)
 }
 
+(Emacs shows where the message comes from before it: @tt{fsh compile: profile: BloodPressure: …}.)
 Correct the spelling and the underline goes away. Put the cursor on @tt{subject} and ask for hover
 (the mouse in VS Code, @tt{K} in Neovim, @tt{M-x eldoc} in Emacs) to see what FHIR says that element
 is.
@@ -368,7 +369,13 @@ outline, a message that is not JSON, shutting down.}
 problem must be an error naming the file (and, for FHIR Shorthand, the line), and the corrected
 file must come back clean.}
 @item{What each language reports is tested in that language's own repository, against the
-published test suites the family's @tt{TESTING.md} files describe.}]
+published test suites the family's @tt{TESTING.md} files describe.}
+@item{The Neovim and Emacs configurations above are run in the editors themselves
+(@tt{tests/editors-test.rkt}, with Neovim 0.10.4 and Emacs 29.3): each block is read out of this
+page as written and given to a headless editor, which opens the @tt{bp.fsh} of step 3. The server
+must attach, the misspelling must be reported with the message quoted there, hover on @tt{subject}
+must answer, and the correction must clear the problem. The test is skipped where an editor is not
+installed. VS Code is not tested: there is no extension of ours to run.}]
 
 @section{Reference}
 

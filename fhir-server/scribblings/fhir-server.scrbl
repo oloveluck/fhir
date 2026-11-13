@@ -260,9 +260,11 @@ profiles it says it follows, not to every profile the guide has for its type.
 
 A guide may require something this server does not do. Rather than advertise it anyway, the server
 leaves it out of @tt{/metadata} and reports it. @litchar{--gaps} prints the list and stops. US Core
-has none. The International Patient Summary has one:
+has none, and the command says so; the International Patient Summary has one:
 
 @verbatim{
+$ raco fhir-server serve-ig hl7.fhir.us.core --gaps
+hl7.fhir.us.core: no unmet requirement (every SHALL, SHOULD and MAY of its CapabilityStatement is served)
 $ raco fhir-server serve-ig hl7.fhir.uv.ips --gaps
 Patient	operation	summary	SHOULD	operation not implemented
 }
@@ -485,9 +487,24 @@ loaded 2 resources into clinic.db (indexed for FHIR 4.0.1 search)
 A resource with an @tt{id} keeps it, and loading the same file again replaces it with a new
 version. The resources are indexed for every search FHIR defines for their type, in FHIR R4 unless
 you say @litchar{--fhir-version 5.0.0} or @litchar{6.0.0} (a server you declare is R6), so a server
-started over the store later finds them. @tt{load} does not validate what it reads: a server
-validates what is written through it, so to have data checked on the way in, send it to the
-running server.
+started over the store later finds them.
+
+By itself @tt{load} checks nothing: it stores what it reads. Add @litchar{--validate} to have every
+resource, a Bundle's entries included, held to its type and to the profiles it claims before
+anything is written. Each problem is printed with its file, and one error means nothing is loaded:
+
+@verbatim{
+$ raco fhir-server load clinic.db incoming/ --validate
+bea.json: Patient/bea: error: Patient.gender: code `femme` not in required value set http://hl7.org/fhir/ValueSet/administrative-gender; it holds female, male, other, unknown
+bea.json: Patient/bea: error: Patient.birthDate: '1980-02-30' is not a valid date (February 1980 has 29 days)
+fhir-server load: 1 of 2 resource(s) are not valid FHIR 4.0.1 (2 error(s)): nothing was loaded
+}
+
+The command exits with status 1 and makes no store. Warnings are printed and do not stop the load.
+When the data claims a guide's profiles, name the guide with @litchar{--package hl7.fhir.us.core}
+(or a @tt{.tgz} file; repeatable), as for @tt{raco fhir-validate}: without it a claimed profile
+that nothing in context defines is a warning, and the resource is checked against its base type
+alone.
 
 @subsection{Reading it with SQL}
 
@@ -673,7 +690,8 @@ A lenient server answers as if the unsupported part were not there (@secref["sea
 search does not convert units. String search covers names and addresses, not every complex type.}
 @item{@bold{Paging.} @litchar{_count} and @litchar{_offset} take a page, but the Bundle has no
 @tt{next} link, and its @tt{total} is the number of entries returned, not of all matches.}
-@item{@bold{@tt{raco fhir-server load} does not validate.} It stores and indexes what it reads.}
+@item{@bold{@tt{raco fhir-server load} validates only when asked.} Without @litchar{--validate} it
+stores and indexes what it reads.}
 @item{@bold{Conditional requests and caching headers.} No conditional create, update or delete
 (@tt{If-None-Exist}, @tt{PUT /Type?param}), no @tt{If-Match}, @tt{ETag}, @tt{Last-Modified} or
 @tt{If-Modified-Since}. A PUT that creates a resource answers 201, except when it re-creates one
@@ -764,7 +782,7 @@ has every suite and names the misses.
 (list (list @tt{raco fhir-server serve-ig <ig> [options]} @elem{a server generated from a guide (@secref["serve-ig"] has the options)})
       (list @tt{raco fhir-server check <app.rkt>} "a declaration compiled: what it offers, or its mistakes")
       (list @tt{raco fhir-server serve <app.rkt> [port | --port n] [--store fhir.db] [--log]} "a declared server")
-      (list @tt{raco fhir-server load <store.db> <file|dir>} @elem{resources, Bundles and @tt{.cql} libraries into a store})
+      (list @tt{raco fhir-server load <store.db> <file|dir> [--validate]} @elem{resources, Bundles and @tt{.cql} libraries into a store})
       (list @tt{raco fhir-server sql <store.db> "SELECT …"} "one reading query over a store, as CSV")
       (list @tt{raco fhir-server evaluate-measure <store.db> <Measure id|url> --period-start D --period-end D [--subject Patient/x] [--tz-offset ±hh:mm]} "a MeasureReport from a store"))]
 
@@ -1025,6 +1043,9 @@ the request order. @racket[tower] names the type tower the store runs on (@racke
 A file, or every @tt{.json} and @tt{.cql} under a directory: Bundles, resources (upserted by id),
 and CQL files as Library resources. The count loaded per file. Resources are indexed by
 @racket[catalog]: with the default, by the few parameters of @racket[default-search-params] only.}
+@defproc[(file-resources [path path-string?]) (listof (cons/c string? hash?))]{Every resource
+@racket[load-files!] would write from the JSON files at @racket[path], each with its file's name and a
+Bundle's entries each on their own: what @litchar{--validate} checks before the load.}
 @defproc[(cql->library [cql string?] [#:library-base base string?]) hash?]{A logic Library carrying the CQL as base64 @tt{text/cql}, named from its header.}
 
 @subsection[#:style 'unnumbered]{@tt{fhir/store/serve}}

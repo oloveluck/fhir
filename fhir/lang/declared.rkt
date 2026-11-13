@@ -65,6 +65,8 @@
   (define-values (dir _n _d) (split-path (if (path? path) path (string->path path))))
   (if (and (path? dir) (directory-exists? dir))
       (sort (for/list ([f (in-list (directory-list dir #:build? #t))]
+                       ;; not a dot-file: an editor's lock or swap file, macOS's `._x.cql`
+                       #:unless (regexp-match? #rx"^[.]" (let-values ([(_b n _d) (split-path f)]) (path->string n)))
                        #:when (and (file-exists? f) (member (let ([e (regexp-match #rx"[.]([^.]+)$" (path->string f))]) (and e (cadr e))) exts)))
               f)
             string<? #:key path->string)

@@ -1968,9 +1968,48 @@ repositories' own are in their CLAUDE.md files (fsh, fml, cql, fhirpath, vcl, sq
   the required value set …` (it was located in fhir/kernel/kit.rkt).
 - `build-tools.sh` lists what the changed commands load by name (fhir-validate: fhir/r6/types;
   fhir-server: the catalogue reader; sql-on-fhir: the towers and its operations).
-Not done, named: `raco fhir-server load` does not validate (a server validates what is written
-through it); the fhir-lsp editor configurations are untested (no editor here); sql-on-fhir over R4
-data read as R6 is silent for a path valid in both versions (`--fhir-version 4.0.1` reads it as R4).
+
+## What that pass had left (2026-11-13)
+The items the defect pass named as not done, each now done or decided, with a test:
+- **`raco fhir-server load --validate [--package <guide>]…`** (server-cli.rkt `validate-before-load!`,
+  store/load.rkt `file-resources`): every resource the load would write, a Bundle's entries each on
+  their own, held to its type and claimed profiles first; problems as `file: Type/id: error: path:
+  message`, warnings printed, one error = nothing loaded, exit 1 (no store is made). Without the
+  flag the load checks nothing, as before. `tests/load-cli-test.rkt`.
+- **The editor configurations are run in the editors** (`fhir-lsp/tests/editors-test.rkt`): the
+  manual's Neovim and Emacs blocks, read out of the manual as written, given to a headless Neovim
+  (0.10+) and Emacs (29+) that open the manual's `bp.fsh` — attach, the quoted message at line 5,
+  hover, the fix clearing it. Skipped where an editor is not installed (`FHIR_LSP_NVIM`,
+  `FHIR_LSP_EMACS` name a binary). Running them found two defects no unit test had:
+  - Emacs writes a lock file `.#bp.fsh` (a link to nothing) beside a buffer as soon as it changes;
+    fsh's project read it as a source and the whole project failed with "cannot open input file".
+    File listings skip dot-files and dot-folders and take only what exists (fsh/project.rkt
+    `source-files`, fsh/context-hint.rkt, `fhir/lang/declared` `files-beside`, `fhir/check-files`;
+    `fhir/lang/workspace` already did).
+  - A mapping-language file had no type findings in an editor (`tgt.gendr` unflagged; `raco fml
+    check` flagged it): the server's process has no FHIR version loaded, so every type was unknown.
+    fml/support.rkt loads R5 when none is registered, as the `#lang fml` reader does.
+  VS Code is not tested: there is no extension of ours to run.
+- **sql-on-fhir says what it left silent** (its CLAUDE.md): a JSON view with no `status` runs with
+  a warning; a value the lenient read dropped ON A PATH THE VIEW READS is a warning counted over the
+  resources (an element the version read lacks, with the `--fhir-version` that reads it; a value that
+  is not valid FHIR, with why).
+- **vcl**: a workspace problem in a file with a `#lang vcl` line is at its own line (it was one
+  early). **fsh**: an instance of a logical model is written to a file named after the Instance, in
+  the output folder and in the package (`--pack` wrote every id-less resource to one file).
+- **The standalone tools were built and run** (`build-tools.sh`; `tools-smoke-test.sh [dist]` asks
+  each of the twelve executables for one real piece of work — 22 checks — with a PATH that holds
+  only `dist/bin`, from a scratch folder). The first run passed 19 of 21 and found: the standalone
+  `fhir guide` could not load the guides (`fhir/mcp/resources` and the languages' workspace modules
+  were not in its `++lib` list), and `serve-ig <ig> --gaps` printed nothing at all for a guide with
+  no gap — now `hl7.fhir.us.core: no unmet requirement (…)` on stderr, the rows on stdout unchanged
+  (`tests/gaps-cli-test.rkt`). Not in a standalone build, by nature: the capability language's
+  guide and apps (they are Racket modules).
+- Decided, not changed: a FHIRPath head of another resource type outside a union is an error (HL7's
+  suite requires it); the 26 R5 (1 R4) core SearchParameter pairs the static check still refuses are
+  the package's own (`date` writes Appointment's branch unrooted) and the store indexes them one
+  branch at a time; quantity search does not convert units and string search covers names and
+  addresses (read from store/search-index.rkt: the manual's Limits say what the code does).
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

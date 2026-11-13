@@ -40,8 +40,10 @@
   (remove-duplicates
    (for*/list ([a (in-list args)]
                [f (in-list (if (directory-exists? a)
-                               (sort (for/list ([f (in-directory a (lambda (d) (not (equal? (path->string (file-name-from-path d)) "compiled"))))]
-                                                #:when (file-exists? f))
+                               (sort (for/list ([f (in-directory a (lambda (d) (not (member (path->string (file-name-from-path d)) '("compiled" ".git")))))]
+                                                #:when (file-exists? f)
+                                                ;; not an editor's lock or swap file, nor macOS's `._x.fsh`
+                                                #:unless (regexp-match? #rx"^[.]" (path->string (file-name-from-path f))))
                                        f)
                                      string<? #:key path->string)
                                (list (string->path (if (path? a) (path->string a) a)))))]

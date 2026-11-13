@@ -58,6 +58,8 @@ The first two commands fetch the source and install it as Racket packages; after
 already works as @tt{raco <tool>} (@tt{raco fsh}, @tt{raco cql}, …). @tt{build-tools.sh} builds the
 standalone tools (@tt{fsh}, @tt{cql}, …) into @tt{dist/}, about 380 MB with the HL7 packages they
 read. The two forms take the same arguments; these pages write @tt{raco <tool>}.
+@tt{fhir/tools-smoke-test.sh dist} then asks each of the twelve for one piece of real work, with
+nothing but the tools on the path, and prints a line for each.
 
 @tt{fhir-server} needs the system's SQLite library. A tool also looks for FHIR packages in the
 directories named by the environment variable @tt{FHIR_PACKAGE_PATH}.

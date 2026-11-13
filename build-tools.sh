@@ -13,6 +13,9 @@
 # The HL7 packages from fhir-spec go to out-dir/share/fhir-packages, where the tools look for them
 # beside the executable (fhir/spec-package; FHIR_PACKAGE_PATH names more directories).
 #
+# ./tools-smoke-test.sh [out-dir] then asks each executable for one real piece of work with a PATH
+# that holds only the tools: run it after a build (it found `fhir guide` missing its guides).
+#
 # Not in the executables: the conformance runners (--tck, tck) and the generators (regen, check,
 # fetch), which read the source checkout, and anything that loads a .rkt file of yours (a
 # `#lang sql-on-fhir` view, a `#lang fhir/capability` app) — those are for Racket.
@@ -39,10 +42,10 @@ tools=(
   "fml|fml/cli|$towers fhir/conformance/validate"
   "fsh|fsh/cli|$towers fml/project $store"
   "sql-on-fhir|sql-on-fhir/cli|$towers sql-on-fhir/operations sql-on-fhir/workspace"
-  "fhir|fhir/cli|fhir/r6/types $towers fhir/sd/sd-index fhir/sd/snapshot"
+  "fhir|fhir/cli|fhir/r6/types $towers fhir/sd/sd-index fhir/sd/snapshot fhir/mcp/resources $workspaces"
   "fhir-validate|fhir/validate-cli|$towers fhir/r6/types"
   "fhir-tx|fhir/tx-cli|$towers fhir/capability/operations fhir/terminology/operations fhir/http/server"
-  "fhir-server|fhir/server-cli|$towers fhir/r6/schemas fhir/r6/types fhir/store/ig-params fhir/spec-package $store"
+  "fhir-server|fhir/server-cli|$towers fhir/r6/schemas fhir/r6/types fhir/store/ig-params fhir/spec-package fhir/package-set fhir/conformance/validate fhir/sd/sd-index $store"
   "fhir-lsp|fhir/lsp-cli|$towers $languages fml/project"
   "fhir-mcp|fhir/mcp-cli|$towers $workspaces $cqlmodels fml/project fml/print $operations"
 )

@@ -50,7 +50,10 @@
   (define gaps (srv-gaps srv))
   (cond
     [(flag? "--gaps")
-     (for ([g (in-list gaps)]) (printf "~a\n" (string-join (map (lambda (x) (format "~a" x)) (gap->list g)) "\t")))]
+     (for ([g (in-list gaps)]) (printf "~a\n" (string-join (map (lambda (x) (format "~a" x)) (gap->list g)) "\t")))
+     ;; none is said (on stderr: the rows on stdout stay a table): nothing printed read the same as
+     ;; nothing run
+     (when (null? gaps) (eprintf "~a: no unmet requirement (every SHALL, SHOULD and MAY of its CapabilityStatement is served)\n" ig))]
     [else
      ;; --load <file|dir> (repeatable): Bundles, resources, .cql libraries into the store
      (for ([m (in-list (let loop ([as args]) (cond [(member "--load" as) => (lambda (t) (if (pair? (cdr t)) (cons (cadr t) (loop (cddr t))) '()))] [else '()])))])
@@ -129,7 +132,11 @@
 ;; FHIR version (R4 unless said). It indexed with the engine's few built-in parameters, so a server
 ;; later started over the store answered `Patient?birthdate=lt1980` with nothing. It does not
 ;; validate: a server validates what is written through it.
-(define (cmd-load db-path src [version "4.0.1"])
+;; `--validate` holds every resource to its base type and the profiles it claims BEFORE anything is
+;; written (`--package <name|file.tgz>`, repeatable: a guide and what it depends on in context): the
+;; problems are listed, each with its file, and nothing is loaded when one is an error. Without it the
+;; load checks nothing (a store filled this way held `"gender": "femme"` and a server over it served it).
+(define (cmd-load db-path src [version "4.0.1"] #:validate? [validate? #f] #:packages [packages '()])
   (define-values (tower core)
     (cond [(regexp-match? #rx"^(?i:r?4)" version) (values 'fhir/r4/schemas "hl7.fhir.r4.core.tgz")]
           [(regexp-match? #rx"^(?i:r?5)" version) (values 'fhir/r5/schemas "hl7.fhir.r5.core.tgz")]
@@ -147,11 +154,55 @@
         ((dynamic-require 'fhir/store/ig-params 'merge-search-params)
          default-params ((dynamic-require 'fhir/store/ig-params 'search-params-from-package) core-tgz))
         default-params))
+  (when validate? (validate-before-load! src version core packages))
   (define store (open-store db-path))
   (define total (report-loaded ((dynamic-require 'fhir/store/load 'load-files!) store src
                                 #:search-params catalog #:tower tower)))
   (printf "loaded ~a resources into ~a (indexed for FHIR ~a search)\n" total db-path version)
   (close-store store))
+;; validate-before-load! : path version core-file (listof package) -> void   exit 1 when a resource
+;; the load would write has an error; warnings are printed and do not refuse
+(define (validate-before-load! src version core packages)
+  (define package-set (dynamic-require 'fhir/package-set 'package-set))
+  (define package-file (dynamic-require 'fhir/package-set 'package-file))
+  (define spec-path (dynamic-require 'fhir/spec-package 'spec-package-path))
+  (define validate-issues (dynamic-require 'fhir/conformance/validate 'validate-issues))
+  (define severity (dynamic-require 'fhir/conformance/validate 'issue-severity))
+  (define path (dynamic-require 'fhir/conformance/validate 'issue-path))
+  (define msg (dynamic-require 'fhir/conformance/validate 'issue-msg))
+  (define current-sd-packages (dynamic-require 'fhir/sd/sd-index 'current-sd-packages))
+  (define core-tgz (spec-path core #:optional? #t))
+  (unless core-tgz
+    (eprintf "fhir-server load: --validate needs the FHIR ~a core package (~a): raco pkg install fhir-spec\n" version core) (exit 1))
+  (define context
+    (remove-duplicates
+     (append (for*/list ([p (in-list packages)]
+                         [f (in-value (or (package-file p)
+                                          (begin (eprintf "fhir-server load: no package ~a among the installed packages\n" p) (exit 2))))]
+                         [q (in-list (package-set f))])
+               q)
+             (list core-tgz))))
+  (define resources ((dynamic-require 'fhir/store/load 'file-resources) src))
+  (define-values (errors warnings invalid)
+    (parameterize ([current-sd-packages context])
+      (for/fold ([errors 0] [warnings 0] [invalid 0]) ([fr (in-list resources)])
+        (define r (cdr fr))
+        (define issues (validate-issues r))
+        (define es (filter (lambda (i) (member (severity i) '("error" "fatal"))) issues))
+        (define ws (filter (lambda (i) (equal? (severity i) "warning")) issues))
+        (for ([i (in-list (append es ws))])
+          (eprintf "~a: ~a~a: ~a: ~a~a\n" (car fr) (hash-ref r 'resourceType)
+                   (let ([id (hash-ref r 'id #f)]) (if (string? id) (string-append "/" id) ""))
+                   (if (equal? (severity i) "warning") "warning" "error")
+                   (let ([p (path i)]) (if (and p (not (equal? p ""))) (string-append p ": ") ""))
+                   (msg i)))
+        (values (+ errors (length es)) (+ warnings (length ws)) (+ invalid (if (null? es) 0 1))))))
+  (cond [(> errors 0)
+         (eprintf "fhir-server load: ~a of ~a resource(s) are not valid FHIR ~a (~a error(s)): nothing was loaded\n"
+                  invalid (length resources) version errors)
+         (exit 1)]
+        [else (printf "validated ~a resource(s) as FHIR ~a~a\n" (length resources) version
+                      (if (zero? warnings) "" (format " (~a warning(s))" warnings)))]))
 (define (report-loaded results)
   (for/sum ([r (in-list results)])
     (printf "~a: ~a\n" (car r) (if (zero? (cdr r)) "skipped (not FHIR JSON)" (format "~a resource(s)" (cdr r))))
@@ -219,7 +270,7 @@
   '(("serve-ig"         "raco fhir-server serve-ig <ig> [--db store.db] [--port 8080] [--bearer token] [--capability id] [--load file|dir]… [--tz-offset ±hh:mm] [--no-examples] [--no-validate] [--gaps]")
     ("check"            "raco fhir-server check <app.rkt>   the app's declarations compiled: one line per resource and operation, or its mistakes (exit 1)")
     ("serve"            "raco fhir-server serve <app.rkt> [port | --port n] [--store fhir.db] [--log]   (port 0: a free one, printed; --store: resources declared without a repository kept in that SQLite store, over the module's own #:store; --log: one line per request on stderr)")
-    ("load"             "raco fhir-server load <store.db> <file|dir> [--fhir-version 4.0.1|5.0.0|6.0.0]   (Bundles, resources, .cql libraries; indexed for search in that FHIR version, 4.0.1 unless said; not validated)")
+    ("load"             "raco fhir-server load <store.db> <file|dir> [--fhir-version 4.0.1|5.0.0|6.0.0] [--validate [--package <name|file.tgz>]…]   (Bundles, resources, .cql libraries; indexed for search in that FHIR version, 4.0.1 unless said; --validate: every resource held to its type and the profiles it claims first, and nothing loaded when one has an error)")
     ("sql"              "raco fhir-server sql <store.db> \"SELECT …\"   (read-only; a view per type: id, versionId, lastUpdated, resource; resources, history; CSV out)")
     ("evaluate-measure" "raco fhir-server evaluate-measure <store.db> <Measure id|url> --period-start D --period-end D [--subject Patient/x] [--tz-offset ±hh:mm]")))
 
@@ -244,7 +295,12 @@
                   (unless (or (file-exists? (arg as 1)) (directory-exists? (arg as 1)))
                     (usage-error "fhir-server" usages "load" (format "no such file or directory: ~a" (arg as 1))))
                   (cmd-load (arg as 0) (arg as 1)
-                            (let ([m (member "--fhir-version" as)]) (if (and m (pair? (cdr m))) (cadr m) "4.0.1"))))
+                            (let ([m (member "--fhir-version" as)]) (if (and m (pair? (cdr m))) (cadr m) "4.0.1"))
+                            #:validate? (and (member "--validate" as) #t)
+                            #:packages (let loop ([as as])
+                                         (cond [(or (null? as) (null? (cdr as))) '()]
+                                               [(equal? (car as) "--package") (cons (cadr as) (loop (cddr as)))]
+                                               [else (loop (cdr as))]))))
          "sql" (lambda (as) (need as 1 "sql")
                  (unless (file-exists? (arg as 0)) (usage-error "fhir-server" usages "sql" (format "no such store: ~a" (arg as 0))))
                  (cmd-sql (arg as 0) (arg as 1)))
