@@ -579,20 +579,20 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | round-trip | HL7 examples + R4/R5 core packages | `raco fhir roundtrip-tck r5\|r4` | 2968+77, 4581+72 |
 | **IG examples** | **US Core 9.0.0, IPS 2.0.1 packages** | `tests/ig-examples-r4-test.rkt` | **274/274 parse+round-trip** |
 | **IG validation** | **US Core 9.0.0, IPS 2.0.1, CRMI 2.0.0: every example vs the IG profiles it claims** | `tests/ig-validation-r4-test.rkt` | **330/330 clean** (0 false positives) |
-| **IG search** | **US Core 9.0.0 examples, R4 core + US Core SearchParameters: each example found by its own values** | `tests/ig-search-r4-test.rkt` | **2368/2368 probes** |
+| **IG search** | **US Core 9.0.0 examples, R4 core + US Core SearchParameters: each example found by its own values** | `tests/ig-search-r4-test.rkt` | **2446/2446 probes** |
 | **IG server** | **a server generated from US Core 9.0.0: all 255 resources load through validation** | `tests/ig-server-r4-test.rkt` | **0 unmet requirements** (SHALL/SHOULD/MAY; auth aside) |
 | **IG FHIRPath** | **the same IGs: profile invariants on their examples + SearchParameter expressions** | `tests/ig-fhirpath-r4-test.rkt` | **6082 invariant checks, 0 fail** (2 dom-3 spec-conflict errors); **1330/1330 search** |
 | **snapshot** | **fhir-test-cases rX/snapshot-generation** | `conformance/tests/snapshot-conformance-test.rkt` | **paths 80/80, card 476/478, types 235/236** (id-matched) |
 | validator | fhir-test-cases validator + java outcomes | `tests/validate-diff-test.rkt` | **fp=0**, recall 18/26 (67 cases) |
 | FSH | SUSHI golden corpus (hand-authored pairs) | `fsh/tests/golden-test.rkt` | 22/22 fwd + round-trip |
-| **FSH real IG** | **IPS 2.0.1's own FSH vs its published package** | `fsh/tests/ig-ips-test.rkt` (fsh repo) | **0 compile errors; 94/114 exact, 108/114 complete; 438/438 differential elements** |
+| **FSH real IG** | **IPS 2.0.1's own FSH vs its published package** | `fsh/tests/ig-ips-test.rkt` (fsh repo) | **0 compile errors; 108/114 exact, 111/114 complete; 438/438 differential elements** |
 | **FSH -> package -> server** | **mCODE 4.0.0's FSH compiled and packed here, served by a generated server: its examples vs its profiles** | `tests/fsh-ig-server-r4-test.rkt` | **283/283 validate** (as the published package); 0 unmet requirements |
-| **FSH real IG 2** | **mCODE 4.0.0's own FSH (dependencies US Core 6.1.0 + Genomics Reporting 2.0.0 from sushi-config.yaml) vs its published package** | `fsh/tests/ig-mcode-test.rkt` (fsh repo) | **0 compile errors; 311/349 exact, 339/349 complete; 472/473 differential elements** |
-| **FSH real IG 3** | **Da Vinci PDex Plan-Net 1.2.0's own FSH vs its published package, both fetched from packages.fhir.org (US Core 3.1.1 through its version-alias stub)** | `fsh/tests/ig-plannet-test.rkt` (fsh repo) | **0 compile errors; 84/109 exact, 99/109 complete; 321/321 differential elements** |
-| **FSH real IG 4** | **Da Vinci HRex 1.1.0's own FSH vs its published package (three US Core versions in context, version-pinned Parents)** | `fsh/tests/ig-hrex-test.rkt` (fsh repo) | **0 compile errors; 31/46 exact, 46/46 complete; 138/138 differential elements** |
+| **FSH real IG 2** | **mCODE 4.0.0's own FSH (dependencies US Core 6.1.0 + Genomics Reporting 2.0.0 from sushi-config.yaml) vs its published package** | `fsh/tests/ig-mcode-test.rkt` (fsh repo) | **0 compile errors; 338/349 exact, 347/349 complete; 472/473 differential elements** |
+| **FSH real IG 3** | **Da Vinci PDex Plan-Net 1.2.0's own FSH vs its published package, both fetched from packages.fhir.org (US Core 3.1.1 through its version-alias stub)** | `fsh/tests/ig-plannet-test.rkt` (fsh repo) | **0 compile errors; 104/109 exact, 105/109 complete; 321/321 differential elements** |
+| **FSH real IG 4** | **Da Vinci HRex 1.1.0's own FSH vs its published package (three US Core versions in context, version-pinned Parents)** | `fsh/tests/ig-hrex-test.rkt` (fsh repo) | **0 compile errors; 46/46 exact, 46/46 complete; 138/138 differential elements** |
 | **GoFSH (FHIR -> FSH -> FHIR)** | **the published IPS 2.0.1 package decompiled to FSH, compiled back, compared the same way** | `fsh/tests/gofsh-ips-test.rkt` (fsh repo) | **117/117 paired, 117 exact; 438/438 differential elements** |
-| **FSH real IG 5** | **HL7 Genomics Reporting 2.0.0's own FSH (the commit whose ids match the package) vs its published package — OperationDefinitions, ConceptMaps, Bundle examples** | `fsh/tests/ig-genomics-test.rkt` (fsh repo) | **0 compile errors; 121/141 exact, 129/141 complete; 254/259 differential elements** (SUSHI-2 type-slice shape, post-publication drift named) |
-| **GoFSH 2** | **the published mCODE 4.0.0 package decompiled, recompiled, compared** | `fsh/tests/gofsh-mcode-test.rkt` (fsh repo) | **349/349 paired, 341 exact, 345 complete; 472/473 differential elements** |
+| **FSH real IG 5** | **HL7 Genomics Reporting 2.0.0's own FSH (the commit whose ids match the package) vs its published package — OperationDefinitions, ConceptMaps, Bundle examples** | `fsh/tests/ig-genomics-test.rkt` (fsh repo) | **0 compile errors; 134/141 exact, 137/141 complete; 254/259 differential elements** (SUSHI-2 type-slice shape, post-publication drift named) |
+| **GoFSH 2** | **the published mCODE 4.0.0 package decompiled, recompiled, compared** | `fsh/tests/gofsh-mcode-test.rkt` (fsh repo) | **349/349 paired, 348 exact, 348 complete; 472/473 differential elements** |
 | **SUSHI importer** | **SUSHI 3.21.0's own importer tests (515 FSH texts, 111 with the error/warning SUSHI logs) as a parse + lint oracle: errors where SUSHI errs (same line), parses where it accepts** | `fsh/tests/sushi-importer-test.rkt` + `fsh/lint.rkt` (fsh repo) | ****514/515 verdicts agree (95 on SUSHI's line); 0 missed errors, 0 over-reports, 0 crashes**** |
 | **invariants on valid resources** | **the whole R5 core package with invariants on, violations by key** | `fhir-validation/conformance/tests/invariants-corpus-test.rkt` | **2957/2968 with no error-level violation; the 11 are the package's own (sdf-27, scs-1)** |
 | **Measure server** | **a server generated from CQF Measures 5.0.0: $evaluate-measure over its store, 2 eCQMs, 65 test patients** | `tests/measure-server-r4-test.rkt` | **60/65 individual reports** (5 named); 0 unmet requirements |
@@ -2055,6 +2055,23 @@ implementation designed to be used by agents" as something measured):
   ceiling that only comes down (12,300 bytes; they were 14,041 — and 6 KB thirty rounds earlier,
   which is what this file still claimed). Two repetitions went: the `manifest` property's sentence
   on seven tools, and `run`'s property descriptions repeated on `query` ("as for run").
+
+**A store the size of a hospital's** (2026-11-13; found loading the MIMIC-IV demo on FHIR — 928,935
+resources, 813,540 of them Observations, a 4.5 GB store — to run an agent benchmark over it):
+- **`raco fhir-server load` reads bulk data** (`store/load.rkt`): `.ndjson` and `.ndjson.gz` (FHIR
+  Bulk Data's format), streamed line by line (`call-with-ndjson-lines`, gunzip through a pipe) and
+  written in transactions of 2,000 PUTs (`puts-bundle`: ids kept, so references still resolve).
+  `tests/load-cli-test.rkt`.
+- **A search starts from the index** (`store/search-index.rkt` `exists-in`): each parameter's clause
+  was `EXISTS (SELECT 1 FROM <index> x WHERE x.resource_id = r.id AND …)`, which SQLite plans as a
+  scan of the type's resources with a probe per row — `Observation?patient=X&_count=1` did not come
+  back in two minutes. It is `r.id IN (SELECT x.resource_id FROM <index> x WHERE x.resource_type=?
+  AND x.param_name=? AND …)` now: the index is read first. The type is a sentinel in the clause's
+  arguments (`the-resource-type`, filled by `clause-args/type`), `_revinclude` reads the same way,
+  a sort key names its index (`INDEXED BY`, `owner-index`), and number and quantity values have a
+  lookup index (`idx_number_lookup`, `idx_quantity_lookup`). That search: ~2.7 s from the shell (`raco fhir-mcp call`, the
+  process start included); the US Core search oracle is unchanged, 2446/2446. Still slow, named: a date
+  range with a sort over one patient's 28,000 observations (~6 s: a range scan on `high >= ?`).
 
 Left, named: a delete is not a history entry (it needs a tombstone row in `fhir_history`, vread of
 it answering 410, and fhir-mcp's `history`/`trail` views taught to show or skip it); conditional
