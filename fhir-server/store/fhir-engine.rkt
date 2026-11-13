@@ -58,6 +58,9 @@
   ;; the same search, also returning the query parameters that were IGNORED (unknown/unsupported)
   [fhir-search/ignored (->* (fhir-store? string? (listof (cons/c string? string?)))
                             (#:search-params hash?) (values (listof jsexpr?) (listof string?)))]
+  ;; … and how many resources match in all, when `_count`/`_offset` made the answer a page
+  [fhir-search/page (->* (fhir-store? string? (listof (cons/c string? string?)))
+                         (#:search-params hash?) (values (listof jsexpr?) (listof string?) exact-nonnegative-integer?))]
   ;; connection-taking write variants: compose several writes into ONE transaction
   ;; (call-with-store-transaction + these = an atomic FHIR transaction Bundle)
   [create-in!    (->* (connection? jsexpr? hash?) (#:rows (or/c #f list?)) (values string? string? exact-positive-integer?))]
@@ -257,6 +260,15 @@
   rs)
 
 (define (fhir-search/ignored store rtype query-params #:search-params [sps default-search-params])
+  (define-values (rs ignored _total) (fhir-search/page store rtype query-params #:search-params sps))
+  (values rs ignored))
+
+;; fhir-search/page : store type query-params -> (values resources ignored-names total)
+;; One page of a search (`_count`, `_offset`) and how many resources match in all: FHIR's
+;; Bundle.total is "the total number of matches", not the size of the page
+;; (https://hl7.org/fhir/http.html#paging). The count is asked of the store only when the page
+;; could be a part: without `_count` and `_offset` it is the page's own length.
+(define (fhir-search/page store rtype query-params #:search-params [sps default-search-params])
   (define catalog (hash-ref sps (string->symbol rtype) '()))
   (define-values (clauses ignored)
     (for/fold ([cs '()] [ig '()]) ([qp (in-list query-params)])
@@ -266,21 +278,32 @@
   (define count (number-of "_count"))
   (define offset (number-of "_offset"))
   (define order (sort-keys catalog (let ([s (assoc "_sort" query-params)]) (and s (cdr s)))))
-  (define sql
-    (string-append "SELECT json(r.resource) FROM fhir_resources r WHERE r.resource_type=?"
+  (define where
+    (string-append " FROM fhir_resources r WHERE r.resource_type=?"
                    (apply string-append (for/list ([c (in-list (reverse clauses))])
-                                          (string-append " AND " (clause-sql c))))
+                                          (string-append " AND " (clause-sql c))))))
+  (define where-args (append-map clause-args (reverse clauses)))
+  (define paged? (or (exact-nonnegative-integer? count) (exact-positive-integer? offset)))
+  (define sql
+    (string-append "SELECT json(r.resource)" where
                    " ORDER BY " (if order (string-join (map car order) ", ") "r.last_updated, r.id")
                    (if (exact-nonnegative-integer? count) (format " LIMIT ~a" count) " LIMIT -1")
                    (if (exact-positive-integer? offset) (format " OFFSET ~a" offset) "")))
+  (define-values (rows total)
+    (call-with-store-connection store
+      (lambda (c)
+        (define rows
+          (for/list ([raw (in-list (apply query-list c sql rtype (append where-args (if order (append-map cdr order) '()))))])
+            (string->jsexpr raw)))
+        (values rows
+                (if paged?
+                    (apply query-value c (string-append "SELECT COUNT(*)" where) rtype where-args)
+                    (length rows))))))
   (values
-   (call-with-store-connection store
-     (lambda (c)
-       (for/list ([raw (in-list (apply query-list c sql rtype (append (append-map clause-args (reverse clauses))
-                                                                     (if order (append-map cdr order) '()))))])
-         (string->jsexpr raw))))
-   (append (filter (lambda (n) (not (member n '("_count" "_offset" "_sort" "_include" "_revinclude")))) (reverse ignored))
-           (if (and (assoc "_sort" query-params) (not order)) '("_sort") '()))))
+   rows
+   (append (filter (lambda (n) (not (member n '("_count" "_offset" "_sort" "_include" "_revinclude" "_total")))) (reverse ignored))
+           (if (and (assoc "_sort" query-params) (not order)) '("_sort") '()))
+   total))
 
 ;; ---- _sort ------------------------------------------------------------------
 ;; A SortKey is (cons sql-expression (listof arg)): an ORDER BY term over the resource row `r`.
@@ -483,6 +506,16 @@
   ;; _id and _count
   (check-equal? (ids (list (cons "_id" (string-append chalmers "," windsor)))) (only chalmers windsor))
   (check-equal? (length (fhir-search store "Patient" '(("_count" . "1")) #:search-params cat)) 1)
+  ;; a page, and the total of all matches (Bundle.total): three patients, one per page; a filter
+  ;; narrows the total too; `_count=0` is the count alone; without paging the total is the length
+  (define (page q) (call-with-values (lambda () (fhir-search/page store "Patient" q #:search-params cat))
+                                     (lambda (rs ig total) (list (length rs) total))))
+  (check-equal? (page '(("_count" . "1"))) '(1 3))
+  (check-equal? (page '(("_count" . "1") ("_offset" . "2"))) '(1 3))
+  (check-equal? (page '(("_count" . "2") ("_offset" . "2"))) '(1 3))
+  (check-equal? (page '(("gender" . "male") ("_count" . "1"))) (list 1 (length (ids '(("gender" . "male"))))))
+  (check-equal? (page '(("_count" . "0"))) '(0 3))
+  (check-equal? (page '()) '(3 3))
   ;; quantity: precision-aware eq, prefixes, system|code
   (define-values (_q qid _qv)
     (fhir-create! store (hasheq 'resourceType "Observation" 'status "final" 'code (hasheq 'text "wt")

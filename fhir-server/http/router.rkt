@@ -109,6 +109,10 @@
     [("GET" (list (? known-type? t) id "_history")) (values 'history (dispatch app (history-request (sym t) id query)))]
     [("GET" (list (? known-type? t) "_history")) (values 'history (dispatch app (history-request (sym t) #f query)))]
     [("GET" (list (? known-type? t) id "_history" vid)) (values 'read (dispatch app (vread-request (sym t) id vid)))]
+    ;; search by POST:  /{Type}/_search, the parameters as a form in the body (and any in the url)
+    ;; — the same search as GET /{Type}?… (https://hl7.org/fhir/http.html#search)
+    [("POST" (list (? known-type? t) "_search"))
+     (values 'search (dispatch app (search-request (sym t) (append query (parse-query body)))))]
     ;; type collection:  /{Type}
     [(_ (list (? known-type? type)))
      (define t (sym type))
@@ -252,7 +256,7 @@
 (define (outcome-status node)
   (define code (issue-code node))
   (case code
-    [("not-found") 404] [("not-supported") 404] [("invalid" "required" "value") 400]
+    [("not-found") 404] [("deleted") 410] [("not-supported") 404] [("invalid" "required" "value") 400]
     [("processing") 422]                     ; the resource violates a profile / business rule
     [("conflict" "duplicate") 409]
     [("security" "forbidden") 403] [("exception") 500] [else 200]))   ; informational -> 200

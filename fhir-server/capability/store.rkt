@@ -76,15 +76,8 @@
       (struct-copy repository r
                    [search (lambda (params)
                              (define-values (kept dropped) (partition declared? params))
-                             (define result (search kept))
-                             (define dropped-names (remove-duplicates (map (lambda (p) (symbol->string (car p))) dropped)))
-                             (cond [(null? dropped-names) result]
-                                   [(search-result/ignored? result)
-                                    (search-result/ignored (search-result-matches result) (search-result-includes result)
-                                                           (remove-duplicates (append dropped-names (search-result/ignored-names result))))]
-                                   [(search-result? result)
-                                    (search-result/ignored (search-result-matches result) (search-result-includes result) dropped-names)]
-                                   [else (search-result/ignored result '() dropped-names)]))])))
+                             (with-ignored (search kept)
+                                           (remove-duplicates (map (lambda (p) (symbol->string (car p))) dropped))))])))
 
 ;; temporary-store-factory : -> factory
 ;; An app with no store anywhere keeps its resources in a temporary SQLite file (one per process,

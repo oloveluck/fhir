@@ -18,7 +18,7 @@
          "fhir-sqlite.rkt" "fhir-engine.rkt" "ig-params.rkt" "bundle.rkt"
          (only-in "search-index.rkt" indexed-kind?)
          (only-in fhir/capability/derive derive-capability-statement rc-server rc-resource)
-         (only-in fhir/capability/runtime make-repository build-app app? search-result search-result/ignored)
+         (only-in fhir/capability/runtime make-repository build-app app? search-page)
          (only-in fhir/serialize/from-json from-json)
          (only-in fhir/serialize/to-json node->jsexpr)
          (only-in fhir/result/result ok? ok-value ok-or-raise)
@@ -76,15 +76,13 @@
                                  (fhir-history-type store rtype #:since since #:count count))))
    #:search (lambda (params)
               (define qps (for/list ([p (in-list params)]) (cons (symbol->string (car p)) (cdr p))))
-              (define-values (matches ignored) (fhir-search/ignored store rtype qps #:search-params catalog))
-              (define nodes (map js->node matches))
+              (define-values (matches ignored total) (fhir-search/page store rtype qps #:search-params catalog))
               (define includes (if (for/or ([q (in-list qps)]) (member (car q) '("_include" "_revinclude")))
                                    (map js->node (fhir-includes store rtype matches qps))
                                    '()))
-              ;; what the store cannot search on is said in the searchset, not silently dropped
-              (cond [(pair? ignored) (search-result/ignored nodes includes ignored)]
-                    [(pair? includes) (search-result nodes includes)]
-                    [else nodes]))))
+              ;; the page, what it pulls in, what the store could not search on (said in the
+              ;; searchset, not silently dropped) and how many match in all
+              (search-page (map js->node matches) includes ignored total))))
 
 ;; ---- audit / provenance recording --------------------------------------------
 ;; One AuditEvent per write (+ one Provenance per create/update), created in the SAME store so

@@ -98,7 +98,10 @@
     (check-equal? s 200))
   (let-values ([(s _) (req "DELETE" (string-append "/Patient/" pid))])
     (check-equal? s 200))
+  ;; deleted, with its versions kept: Gone, not Not Found (https://hl7.org/fhir/http.html#read)
   (let-values ([(s _) (req "GET" (string-append "/Patient/" pid))])
+    (check-equal? s 410))
+  (let-values ([(s _) (req "GET" "/Patient/never-was")])
     (check-equal? s 404)))
 
 (stop)

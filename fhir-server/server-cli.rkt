@@ -163,46 +163,60 @@
 ;; validate-before-load! : path version core-file (listof package) -> void   exit 1 when a resource
 ;; the load would write has an error; warnings are printed and do not refuse
 (define (validate-before-load! src version core packages)
-  (define package-set (dynamic-require 'fhir/package-set 'package-set))
-  (define package-file (dynamic-require 'fhir/package-set 'package-file))
-  (define spec-path (dynamic-require 'fhir/spec-package 'spec-package-path))
-  (define validate-issues (dynamic-require 'fhir/conformance/validate 'validate-issues))
-  (define severity (dynamic-require 'fhir/conformance/validate 'issue-severity))
-  (define path (dynamic-require 'fhir/conformance/validate 'issue-path))
-  (define msg (dynamic-require 'fhir/conformance/validate 'issue-msg))
-  (define current-sd-packages (dynamic-require 'fhir/sd/sd-index 'current-sd-packages))
-  (define core-tgz (spec-path core #:optional? #t))
-  (unless core-tgz
-    (eprintf "fhir-server load: --validate needs the FHIR ~a core package (~a): raco pkg install fhir-spec\n" version core) (exit 1))
-  (define context
-    (remove-duplicates
-     (append (for*/list ([p (in-list packages)]
-                         [f (in-value (or (package-file p)
-                                          (begin (eprintf "fhir-server load: no package ~a among the installed packages\n" p) (exit 2))))]
-                         [q (in-list (package-set f))])
-               q)
-             (list core-tgz))))
+  (define context (validation-context version core packages))
   (define resources ((dynamic-require 'fhir/store/load 'file-resources) src))
-  (define-values (errors warnings invalid)
-    (parameterize ([current-sd-packages context])
-      (for/fold ([errors 0] [warnings 0] [invalid 0]) ([fr (in-list resources)])
-        (define r (cdr fr))
-        (define issues (validate-issues r))
-        (define es (filter (lambda (i) (member (severity i) '("error" "fatal"))) issues))
-        (define ws (filter (lambda (i) (equal? (severity i) "warning")) issues))
-        (for ([i (in-list (append es ws))])
-          (eprintf "~a: ~a~a: ~a: ~a~a\n" (car fr) (hash-ref r 'resourceType)
-                   (let ([id (hash-ref r 'id #f)]) (if (string? id) (string-append "/" id) ""))
-                   (if (equal? (severity i) "warning") "warning" "error")
-                   (let ([p (path i)]) (if (and p (not (equal? p ""))) (string-append p ": ") ""))
-                   (msg i)))
-        (values (+ errors (length es)) (+ warnings (length ws)) (+ invalid (if (null? es) 0 1))))))
+  (define findings                                   ; one Finding per resource that has any issue
+    (parameterize ([(dynamic-require 'fhir/sd/sd-index 'current-sd-packages) context])
+      (filter-map resource-finding resources)))
+  (for* ([f (in-list findings)] [line (in-list (finding-lines f))]) (eprintf "~a\n" line))
+  (define errors (apply + (map finding-errors findings)))
+  (define warnings (apply + (map finding-warnings findings)))
   (cond [(> errors 0)
          (eprintf "fhir-server load: ~a of ~a resource(s) are not valid FHIR ~a (~a error(s)): nothing was loaded\n"
-                  invalid (length resources) version errors)
+                  (count (lambda (f) (> (finding-errors f) 0)) findings) (length resources) version errors)
          (exit 1)]
         [else (printf "validated ~a resource(s) as FHIR ~a~a\n" (length resources) version
                       (if (zero? warnings) "" (format " (~a warning(s))" warnings)))]))
+
+;; validation-context : version core-file (listof package) -> (listof path)   the packages a
+;; resource is validated in: each named guide with what it depends on, then the core package
+(define (validation-context version core packages)
+  (define package-set (dynamic-require 'fhir/package-set 'package-set))
+  (define package-file (dynamic-require 'fhir/package-set 'package-file))
+  (define core-tgz ((dynamic-require 'fhir/spec-package 'spec-package-path) core #:optional? #t))
+  (unless core-tgz
+    (eprintf "fhir-server load: --validate needs the FHIR ~a core package (~a): raco pkg install fhir-spec\n" version core)
+    (exit 1))
+  (define (set-of p)
+    (define f (package-file p))
+    (unless f (eprintf "fhir-server load: no package ~a among the installed packages\n" p) (exit 2))
+    (package-set f))
+  (remove-duplicates (append (append-map set-of packages) (list core-tgz))))
+
+;; A Finding is (finding lines errors warnings): what validating one resource found — a line per
+;; issue (`file: Type/id: error: path: message`, errors first), and how many of each.
+(struct finding (lines errors warnings))
+
+;; resource-finding : (cons file-name resource) -> Finding | #f   #f for a resource with no issue
+(define (resource-finding file+resource)
+  (define severity (dynamic-require 'fhir/conformance/validate 'issue-severity))
+  (define path (dynamic-require 'fhir/conformance/validate 'issue-path))
+  (define msg (dynamic-require 'fhir/conformance/validate 'issue-msg))
+  (define r (cdr file+resource))
+  (define issues ((dynamic-require 'fhir/conformance/validate 'validate-issues) r))
+  (define-values (errors warnings)
+    (values (filter (lambda (i) (member (severity i) '("error" "fatal"))) issues)
+            (filter (lambda (i) (equal? (severity i) "warning")) issues)))
+  (define who (format "~a: ~a~a" (car file+resource) (hash-ref r 'resourceType)
+                      (let ([id (hash-ref r 'id #f)]) (if (string? id) (string-append "/" id) ""))))
+  (define (line kind i)
+    (format "~a: ~a: ~a~a" who kind
+            (let ([p (path i)]) (if (and p (not (equal? p ""))) (string-append p ": ") ""))
+            (msg i)))
+  (and (pair? (append errors warnings))
+       (finding (append (for/list ([i (in-list errors)]) (line "error" i))
+                        (for/list ([i (in-list warnings)]) (line "warning" i)))
+                (length errors) (length warnings))))
 (define (report-loaded results)
   (for/sum ([r (in-list results)])
     (printf "~a: ~a\n" (car r) (if (zero? (cdr r)) "skipped (not FHIR JSON)" (format "~a resource(s)" (cdr r))))

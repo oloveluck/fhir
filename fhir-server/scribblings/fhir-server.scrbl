@@ -462,6 +462,65 @@ so a search just after a write finds it.}
 names @tt{Patient/nope} is refused when the server serves patients and holds none of that id. By
 default it is stored as sent.}]
 
+@section[#:tag "rest"]{Pages, versions and conditional requests}
+
+These are FHIR's own rules for talking to a server; every server here follows them.
+
+@bold{A search can be asked for a page at a time.} @litchar{_count} is the page size. The answer's
+@tt{total} is the number of resources that match, not the number on the page, and a @tt{next} link
+leads to the following page (@tt{previous} leads back). Here three patients match and two were
+asked for:
+
+@verbatim|{
+$ curl -s "http://localhost:8080/Patient?gender=female&_count=2"
+{"resourceType":"Bundle","type":"searchset","total":3,
+ "link":[{"relation":"self","url":"http://localhost:8080/Patient?gender=female&_count=2"},
+         {"relation":"next","url":"http://localhost:8080/Patient?gender=female&_count=2&_offset=2"}],
+ "entry":[ … two patients … ]}
+}|
+
+Follow @tt{next} until an answer has none. To get the number alone, ask for
+@litchar{_summary=count}: the answer has the @tt{total} and no entries. A search may also be sent
+as @tt{POST /Patient/_search} with the parameters as a form in the body, which keeps them out of
+the url.
+
+@bold{Every answer that is one resource carries its version.} The @tt{ETag} header is the
+resource's @tt{meta.versionId}, and @tt{Last-Modified} its @tt{meta.lastUpdated}:
+
+@verbatim|{
+$ curl -s -i http://localhost:8080/Patient/d044f915
+HTTP/1.1 200 OK
+ETag: W/"1"
+Last-Modified: Fri, 13 Nov 2026 20:39:31 GMT
+}|
+
+@bold{A read can say which version you already have.} Send that version back as
+@tt{If-None-Match} (or the date as @tt{If-Modified-Since}); if it is still the current one the
+server answers 304 and sends nothing:
+
+@verbatim|{
+$ curl -s -i http://localhost:8080/Patient/d044f915 -H 'If-None-Match: W/"1"'
+HTTP/1.1 304 Not Modified
+ETag: W/"1"
+Content-Length: 0
+}|
+
+@bold{A write can say which version it changes.} Two people who read version 1 and both send an
+update would otherwise overwrite each other without knowing. With @tt{If-Match}, an update, patch
+or delete is carried out only if the version named is still the current one:
+
+@verbatim|{
+$ curl -s -i -X PUT http://localhost:8080/Patient/d044f915 -H 'If-Match: W/"7"' …
+HTTP/1.1 412 Precondition Failed
+{"resourceType":"OperationOutcome","issue":[{"severity":"error","code":"conflict","diagnostics":"If-Match: W/\"7\", but the current version is W/\"1\": the resource has changed since you read it"}]}
+}|
+
+Read the resource again, apply your change to what you get, and send it with the new version.
+
+@bold{A deleted resource is gone, not unknown.} Reading it answers 410 Gone and says where its
+earlier versions are; an id that was never used answers 404. (A server you declare can tell the
+two apart when it serves @tt{history-instance}; without it both are 404.)
+
 @section[#:tag "store"]{The store}
 
 Both kinds of server keep their data in one SQLite file. SQLite is a database that lives in a
@@ -684,18 +743,21 @@ network.}
 (@litchar{_has}), composite and special parameters, @litchar{_summary}, @litchar{_elements},
 @litchar{_total}, @litchar{_filter}, @litchar{_text}, @litchar{_content}, @litchar{:iterate}, the
 modifiers @litchar{:text}, @litchar{:above}, @litchar{:below}, @litchar{:in} and
-@litchar{:identifier}, searching across all types at once, @tt{POST /Type/_search}, and the
+@litchar{:identifier}, searching across all types at once, and the
 parameters defined for every resource (@litchar{_tag}, @litchar{_profile}, @litchar{_security}).
-A lenient server answers as if the unsupported part were not there (@secref["search"]). Quantity
+Of @litchar{_summary} only @tt{count} is done. A lenient server answers as if the unsupported part
+were not there (@secref["search"]). Quantity
 search does not convert units. String search covers names and addresses, not every complex type.}
-@item{@bold{Paging.} @litchar{_count} and @litchar{_offset} take a page, but the Bundle has no
-@tt{next} link, and its @tt{total} is the number of entries returned, not of all matches.}
+@item{@bold{Paging.} Pages are taken by position (@litchar{_offset}): a resource written between
+two requests can shift what the next page holds. There are @tt{next} and @tt{previous} links, no
+@tt{first} or @tt{last}. A history is not paged.}
 @item{@bold{@tt{raco fhir-server load} validates only when asked.} Without @litchar{--validate} it
 stores and indexes what it reads.}
-@item{@bold{Conditional requests and caching headers.} No conditional create, update or delete
-(@tt{If-None-Exist}, @tt{PUT /Type?param}), no @tt{If-Match}, @tt{ETag}, @tt{Last-Modified} or
-@tt{If-Modified-Since}. A PUT that creates a resource answers 201, except when it re-creates one
-that was deleted (200: the resource already has earlier versions).}
+@item{@bold{Conditional writes by search.} No conditional create, update or delete
+(@tt{If-None-Exist}, @tt{PUT /Type?param}, @tt{DELETE /Type?param}). @tt{If-Match} is checked just
+before the write, not in one step with it: two writers a few milliseconds apart can both pass. A
+PUT that creates a resource answers 201, except when it re-creates one that was deleted (200: the
+resource already has earlier versions).}
 @item{@bold{History.} Of one resource and of one type, with @litchar{_since} and @litchar{_count};
 not of the whole server, no @litchar{_at}, no paging. A delete removes the current resource and
 leaves its versions, but is not itself recorded as an entry.}
@@ -861,6 +923,13 @@ answer that does not match its declared outputs, or a raised exception is an Ope
 @defstruct*[(search-result/ignored search-result) ([names list?])]{A search result that also names
 the parameters that were not applied; a lenient search says them in the Bundle, a strict one
 refuses.}
+@defstruct*[(search-page search-result/ignored) ([total exact-nonnegative-integer?])]{One page
+(@tt{_count}, @tt{_offset}) of @racket[total] matches: the Bundle's @tt{total}, and what decides
+whether it has a @tt{next} link. A repository that answers a plain list or one of the structs above
+answers every match.}
+@defproc[(search-facts [r any/c]) (values list? list? (listof string?) exact-nonnegative-integer?)]{
+What a repository's search answered, whichever of the four forms it took: the matches, the included
+resources, the parameters not applied, and the total.}
 @defstruct*[operation-entry ([level symbol?] [code string?] [target any/c] [proc procedure?])]
 @defstruct*[operation-handler ([proc procedure?] [op-def any/c] [level any/c] [target any/c])]
 @defparam[current-app a (or/c app? #f)]{The app dispatching the current request.}
@@ -957,6 +1026,14 @@ stops it. Port 0 takes a free port; @racket[on-listen] receives the port listene
 @racket[bearer], every request but @tt{GET /metadata} needs that token. With @racket[log?], a line
 per request on standard error. Searchset and history Bundles get each entry's @tt{fullUrl} and a
 @tt{self} link from the request's @tt{Host}.}
+@defproc[(answer [a app?] [method string?] [target string?] [headers (listof (cons/c string? string?))] [body string?]) response?]{
+One request answered, as a value and with no socket: the router's answer, and around it what only
+HTTP knows. The base url from the @tt{Host} header (absolute paging links, @tt{fullUrl}s,
+@tt{Location}); @tt{Prefer: handling=strict}; the resource's version as @tt{ETag} and
+@tt{Last-Modified}; a conditional read answered 304; a write refused 412 when @tt{If-Match} names
+another version than the current one (@secref["rest"]). @racket[headers] are lower-cased names with
+their values.}
+@defstruct*[response ([status exact-integer?] [body bytes?] [content-type string?] [headers (listof (cons/c string? string?))])]{What goes on the wire.}
 
 @subsection[#:style 'unnumbered]{@tt{fhir/http/router}}
 @defmodule[fhir/http/router]
@@ -965,10 +1042,10 @@ per request on standard error. Searchset and history Bundles get each entry's @t
 The pure router: @tt{GET /metadata} (@tt{?mode=} picks another metadata resource); @tt{POST /}
 (a transaction through the app's processor; a batch entry by entry when it has none); @tt{GET|POST /{Type}};
 @tt{GET|PUT|DELETE|PATCH /{Type}/{id}} (PATCH as JSON Patch); @tt{/{Type}/{id}/_history[/{vid}]},
-@tt{/{Type}/_history}; @tt{GET|POST /$op}, @tt{/{Type}/$op}, @tt{/{Type}/{id}/$op};
+@tt{/{Type}/_history}; @tt{POST /{Type}/_search} (the parameters as a form); @tt{GET|POST /$op}, @tt{/{Type}/$op}, @tt{/{Type}/{id}/$op};
 @tt{GET /OperationDefinition[/{code}]}. The status comes from the result: 201 on create, and for an
-OperationOutcome its first issue code (not-found 404, not-supported 405 on a served type, invalid
-400, processing 422, conflict 409, exception 500).}
+OperationOutcome its first issue code (not-found 404, deleted 410, not-supported 405 on a served
+type, invalid 400, processing 422, conflict 409, exception 500).}
 @defproc[(handle/raw [a app?] [method string?] [path string?] [query (listof (cons/c symbol? string?))] [body string?]) (values exact-integer? bytes? string?)]{Like @racket[handle], but a Binary result streams as its own content type.}
 @defproc[(parse-query [s string?]) (listof (cons/c symbol? string?))]
 
@@ -1006,6 +1083,7 @@ as OR; unknown parameters are ignored and reported by @racket[fhir-search/ignore
 @defproc[(fhir-history-type [s fhir-store?] [type string?] [#:since since (or/c string? #f) #f] [#:count count (or/c exact-nonnegative-integer? #f) #f]) (listof jsexpr?)]
 @defproc[(fhir-search [s fhir-store?] [type string?] [params (listof (cons/c string? string?))] [#:search-params catalog hash? default-search-params]) (listof jsexpr?)]
 @defproc[(fhir-search/ignored [s fhir-store?] [type string?] [params (listof (cons/c string? string?))] [#:search-params catalog hash? default-search-params]) (values (listof jsexpr?) (listof string?))]
+@defproc[(fhir-search/page [s fhir-store?] [type string?] [params (listof (cons/c string? string?))] [#:search-params catalog hash? default-search-params]) (values (listof jsexpr?) (listof string?) exact-nonnegative-integer?)]
 @defproc[(fhir-includes [s fhir-store?] [type string?] [matches (listof jsexpr?)] [params (listof (cons/c string? string?))]) (listof jsexpr?)])]{
 Create returns type, id and version. Delete removes the current resource and its index rows; history
 remains and @racket[fhir-vread] still reads it. Includes take @tt{_include} and @tt{_revinclude}

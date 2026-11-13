@@ -2011,6 +2011,41 @@ The items the defect pass named as not done, each now done or decided, with a te
   branch at a time; quantity search does not convert units and string search covers names and
   addresses (read from store/search-index.rkt: the manual's Limits say what the code does).
 
+## Quality, performance and specification pass (2026-11-13)
+The pass was run per repository under one brief (baseline and behaviour dump first; HtDP and
+Beautiful Racket for the code; a profile before any change for speed; every departure from the
+specification fixed, decided against with a reason, or named with what it would take). Each
+language repository's CLAUDE.md has its own section; this one is the fhir repository's.
+
+**fhir-server, aligned with FHIR's RESTful API** (https://hl7.org/fhir/http.html; each was a named
+Limit of the manual, each has a test doing it):
+- **A searchset that is a page says so.** `Bundle.total` is every match, not the page's length
+  (`fhir-search/page`: the page and a `COUNT(*)` over the same WHERE, asked only when `_count` or
+  `_offset` made the answer a part); `next`/`previous` links are the search with `_offset` moved by
+  `_count` (`paging-links`, relative to the base; http/server makes them absolute and puts `self`
+  first); `_summary=count` and `_count=0` answer the total alone; `link` and `entry` are left out
+  when empty (a search matching nothing answered `"entry":[]`, which is not FHIR JSON).
+  `tests/search-paging-test.rkt`.
+- **A SearchResult has one reading.** What a repository's search answers was three shapes taken
+  apart in three places; it is a stated data definition (a list | `search-result` |
+  `search-result/ignored` | `search-page`, the new variant carrying the total) read only by
+  `search-facts`, with `with-ignored` for the one transformation (capability/runtime.rkt).
+- **Versions on the wire** (`http/conditional.rkt`, pure over headers and the resource's JSON): an
+  answer that is one resource carries `ETag: W/"<versionId>"` and `Last-Modified`; a read with
+  `If-None-Match`/`If-Modified-Since` the current version satisfies is 304; a PUT, PATCH or DELETE
+  with `If-Match` naming another version is 412 and writes nothing. `http/server.rkt`'s `answer`
+  is one request answered as a value (a `response`), with no port: `serve-conn` reads, calls it,
+  writes — and the tests call it directly. `tests/conditional-http-test.rkt`.
+- **410 Gone** for a resource that was deleted (`deleted?`: no current resource, versions kept; a
+  repository serving no history cannot say and answers 404); **`POST /{Type}/_search`** with the
+  parameters as a form.
+- server-cli.rkt's `validate-before-load!` is three functions and a `Finding` (context, one
+  resource's finding, the report).
+Left, named: a delete is not a history entry (it needs a tombstone row in `fhir_history`, vread of
+it answering 410, and fhir-mcp's `history`/`trail` views taught to show or skip it); conditional
+create/update/delete by search; `If-Match` is checked just before the write, not atomically with
+it; `first`/`last` paging links; `_summary` other than `count`, `_elements`.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

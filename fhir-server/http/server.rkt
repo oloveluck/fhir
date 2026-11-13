@@ -14,11 +14,15 @@
          (only-in json jsexpr->string bytes->jsexpr)
          (only-in fhir/serialize/fhir-json fhir-json->string)
          (only-in fhir/capability/runtime app? current-search-strict?)
-         (only-in "router.rkt" handle/raw parse-query))
+         (only-in "router.rkt" handle/raw parse-query)
+         (only-in "conditional.rkt" resource-version version-headers not-modified? match-failure))
 
 (provide
  bundle-with-urls
+ (struct-out response)
  (contract-out
+  ;; answer : one request answered, as a value (no socket): what `serve-app` writes for it
+  [answer (-> app? string? string? (listof (cons/c string? string?)) string? response?)]
   ;; #:bearer token — require `Authorization: Bearer <token>` on every request except GET /metadata
   ;; (a static token: enough for test kits that take a manually supplied access token; NOT SMART)
   ;; #:port 0 takes a free port; #:on-listen receives the port listened on (the one to print)
@@ -60,26 +64,63 @@
          (define body (if (> clen 0)
                           (bytes->string/utf-8 (or (read-bytes clen in) #"") #\?)
                           ""))
-         (define-values (path query) (split-target target))
          (cond
-           [(and bearer (not (authorized? headers bearer)) (not (metadata-request? method path)))
+           [(and bearer (not (authorized? headers bearer)) (not (metadata-request? method (path-of target))))
             (write-response out 401 (oo-json "login" "a valid bearer token is required"))]
            [else
-            (define prefer (let ([v (assoc "prefer" headers)]) (and v (cdr v))))
-            (define-values (status bytes0 ctype)
-              (parameterize ([current-search-strict? (and prefer (regexp-match? #rx"handling *= *strict" prefer))])
-                (handle/raw app method path (parse-query query) body)))
-            (define bytes (with-bundle-urls bytes0 (base-of headers) target))
+            (define r (answer app method target headers body))
             ;; --log: one line per request, as a server log reads (method, target, status)
-            (when log? (eprintf "~a ~a ~a\n" method target status) (flush-output (current-error-port)))
-            (write-raw-response out status bytes ctype
-                                #:location (and (= status 201) (regexp-match? #rx"json" ctype)
-                                                (absolute (base-of headers)
-                                                          (created-location status (with-handlers ([exn:fail? (lambda (_) #f)])
-                                                                                     (bytes->jsexpr bytes))))))])])))
+            (when log? (eprintf "~a ~a ~a\n" method target (response-status r)) (flush-output (current-error-port)))
+            (write-raw-response out (response-status r) (response-body r) (response-content-type r)
+                                #:headers (response-headers r))])])))
   (flush-output out)
   (close-output-port out)
   (close-input-port in))
+
+;; A Response is (response status body-bytes content-type headers): what goes on the wire, the
+;; headers beyond Content-Type and Content-Length as (listof (cons name value)).
+(struct response (status body content-type headers) #:transparent)
+
+;; answer : app method target Headers body -> Response
+;; One request answered, with no port in sight: the router's answer (http/router), and around it
+;; what only HTTP knows — the base url (the Host header: absolute links, `fullUrl`s, `Location`),
+;; the client's preference for strict search, and the resource's version (http/conditional): its
+;; ETag and Last-Modified, a conditional read answered 304, a write refused 412 when `If-Match`
+;; names another version than the current one.
+(define (answer app method target headers body)
+  (define-values (path query) (split-target target))
+  (define base (base-of headers))
+  (define refusal (and (member method '("PUT" "PATCH" "DELETE")) (assoc "if-match" headers)
+                       (match-failure headers (current-version app path))))
+  (cond
+    [refusal (response 412 (json-bytes (oo-json "conflict" refusal)) fhir-json '())]
+    [else
+     (define prefer (let ([v (assoc "prefer" headers)]) (and v (cdr v))))
+     (define-values (status bytes0 ctype)
+       (parameterize ([current-search-strict? (and prefer (regexp-match? #rx"handling *= *strict" prefer))])
+         (handle/raw app method path (parse-query query) body)))
+     (define bytes (with-bundle-urls bytes0 base target))
+     ;; the one resource the answer is, when it is one (a Bundle of others has no version of its own)
+     (define js (and (memv status '(200 201)) (regexp-match? #rx"json" ctype)
+                     (not (regexp-match? #rx#"^{\"resourceType\": ?\"Bundle\"" bytes))
+                     (with-handlers ([exn:fail? (lambda (_) #f)]) (bytes->jsexpr bytes))))
+     (define v (resource-version js))
+     (define location (absolute base (created-location status js)))
+     (define extra (append (if v (version-headers v) '())
+                           (if location (list (cons "Location" location)) '())))
+     (if (and v (= status 200) (equal? method "GET") (not-modified? headers v))
+         (response 304 #"" ctype extra)
+         (response status bytes ctype extra))]))
+
+;; current-version : app path -> Version | #f   the version a read of `path` answers now
+(define (current-version app path)
+  (define-values (status bytes _ctype) (handle/raw app "GET" path '() ""))
+  (and (= status 200)
+       (resource-version (with-handlers ([exn:fail? (lambda (_) #f)]) (bytes->jsexpr bytes)))))
+
+(define fhir-json "application/fhir+json; charset=utf-8")
+(define (json-bytes js) (string->bytes/utf-8 (fhir-json->string js)))
+(define (path-of target) (let-values ([(path _q) (split-target target)]) path))
 
 ;; authorized? : headers token -> boolean   `Authorization: Bearer <token>` (scheme case-insensitive)
 (define (authorized? headers token)
@@ -111,10 +152,7 @@
 
 ;; ---- response ------------------------------------------------------------------------------
 (define (write-response out status js)
-  (write-raw-response out status
-                      (string->bytes/utf-8 (if js (fhir-json->string js) ""))
-                      "application/fhir+json; charset=utf-8"
-                      #:location (created-location status js)))
+  (write-raw-response out status (if js (json-bytes js) #"") fhir-json))
 
 ;; base-of : headers -> string|#f   the server's base url as the client reached it (its Host header);
 ;; absolute : base location -> location   FHIR's Location is [base]/Type/id/_history/vid
@@ -150,9 +188,16 @@
           (hash-set e 'fullUrl (full-url (hash-ref e 'resource #f)))
           e)))
   (define with-entries (if (null? entries) js (hash-set js 'entry entries)))
-  (if (pair? (hash-ref js 'link '()))
-      with-entries
-      (hash-set with-entries 'link (list (hasheq 'relation "self" 'url (string-append base target))))))
+  ;; the links: `self` first (the request as received), then the paging links the search gave,
+  ;; which are relative to the base ("Patient?_count=2&_offset=2")
+  (define (absolute-link l)
+    (define url (hash-ref l 'url ""))
+    (if (regexp-match? #rx"^[a-z][a-z0-9+.-]*:" url) l (hash-set l 'url (string-append base "/" url))))
+  (define given (map absolute-link (filter hash? (hash-ref js 'link '()))))
+  (hash-set with-entries 'link
+            (if (for/or ([l (in-list given)]) (equal? (hash-ref l 'relation #f) "self"))
+                given
+                (cons (hasheq 'relation "self" 'url (string-append base target)) given))))
 
 ;; random-uuid : -> string   a version-4 UUID
 (define (random-uuid)
@@ -166,10 +211,10 @@
          (format "~a/~a~a" (hash-ref js 'resourceType) (hash-ref js 'id) (if (string? v) (format "/_history/~a" v) "")))))
 
 ;; the general form: any body bytes with their own content type (raw Binary streams use this)
-(define (write-raw-response out status bytes ctype #:location [location #f])
+(define (write-raw-response out status bytes ctype #:headers [headers '()])
   (fprintf out "HTTP/1.1 ~a ~a\r\n" status (reason status))
   (fprintf out "Content-Type: ~a\r\n" ctype)
-  (when location (fprintf out "Location: ~a\r\n" location))
+  (for ([h (in-list headers)]) (fprintf out "~a: ~a\r\n" (car h) (cdr h)))
   (fprintf out "Content-Length: ~a\r\n" (bytes-length bytes))
   (fprintf out "Connection: close\r\n\r\n")
   (write-bytes bytes out))
@@ -180,6 +225,7 @@
 
 (define (reason status)
   (case status
-    [(200) "OK"] [(201) "Created"] [(204) "No Content"] [(400) "Bad Request"]
+    [(200) "OK"] [(201) "Created"] [(204) "No Content"] [(304) "Not Modified"] [(400) "Bad Request"]
     [(401) "Unauthorized"] [(403) "Forbidden"] [(404) "Not Found"] [(405) "Method Not Allowed"]
-    [(409) "Conflict"] [(422) "Unprocessable Entity"] [(500) "Internal Server Error"] [else "OK"]))
+    [(409) "Conflict"] [(410) "Gone"] [(412) "Precondition Failed"] [(422) "Unprocessable Entity"]
+    [(500) "Internal Server Error"] [else "OK"]))

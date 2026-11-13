@@ -11,6 +11,7 @@
 
 (require racket/contract
          racket/match
+         (only-in net/uri-codec uri-unreserved-encode)
          racket/list (only-in racket/string string-join string-append*) (only-in net/uri-codec uri-decode)
          (only-in fhir/suggest did-you-mean)
          (only-in fhir/model/node fhir? fhir-type fhir-ref fhir-field-names)
@@ -39,6 +40,8 @@
  (struct-out request)
  (struct-out search-result)
  (struct-out search-result/ignored)
+ (struct-out search-page)
+ search-facts with-ignored
  current-app
  strict-search-app?
  r6-sd-packages
@@ -81,7 +84,7 @@
   [operation-outcome-not-supported (-> string? fhir?)]
   [operation-result? (-> any/c boolean?)]
   [refused! (-> any/c any/c)]
-  [make-searchset (-> any/c fhir?)]
+  [make-searchset (->* (any/c) (#:links list?) fhir?)]
   [operation-outcome-invalid (-> string? fhir?)]
   [operation-outcome-exception (-> string? fhir?)]
   [parameters->hash (-> (or/c fhir? #f) hash?)]))
@@ -152,11 +155,53 @@
 ;; an installed operation: its handler proc, the derived OperationDefinition (the runtime contract),
 ;; and where it applies. proc : (in-hash request) -> fhir
 (struct operation-handler (proc op-def level target) #:transparent)
-;; what a repository's search may return instead of a plain list: matches + _include'd resources
+;; A SearchResult is what a repository's search answers. It is one of:
+;;  - (listof node)                                 the matches, all of them
+;;  - (search-result matches includes)              … and the resources _include/_revinclude pull in
+;;  - (search-result/ignored matches includes names)   … and the parameters the search could not
+;;        apply, which the searchset reports (an OperationOutcome entry, mode "outcome")
+;;  - (search-page matches includes names total)    … where the matches are ONE PAGE (`_count`,
+;;        `_offset`) of `total` matches in all
+;; `search-facts` is the one reading of it; nothing else takes the variants apart.
 (struct search-result (matches includes) #:transparent)
-;; search-result/ignored : matches includes (listof param-name) -> search-result   the parameters the
-;; search could not apply, which the searchset reports (an OperationOutcome entry, mode "outcome")
 (struct search-result/ignored search-result (names) #:transparent)
+(struct search-page search-result/ignored (total) #:transparent)
+
+;; search-facts : SearchResult -> (values matches includes ignored-names total)
+(define (search-facts r)
+  (match r
+    [(search-page ms is names total) (values ms is names total)]
+    [(search-result/ignored ms is names) (values ms is names (length ms))]
+    [(search-result ms is) (values ms is '() (length ms))]
+    [(? list? ms) (values ms '() '() (length ms))]))
+
+;; with-ignored : SearchResult (listof name) -> SearchResult   the same answer, also naming these
+;; parameters as not applied
+(define (with-ignored r more)
+  (define-values (ms is names total) (search-facts r))
+  (cond [(null? more) r]
+        [else (search-page ms is (remove-duplicates (append more names)) total)]))
+
+;; paging-links : type params total -> (listof link-jsexpr)
+;; FHIR's paging links for a searchset that is a page (https://hl7.org/fhir/http.html#paging):
+;; `next` while matches remain after this page, `previous` when it does not start at the first.
+;; Each is the search itself with `_offset` moved by `_count`, relative to the server's base (the
+;; HTTP layer, which knows the base, makes them absolute and adds `self`). A search with no
+;; `_count` answers every match: no links.
+(define (paging-links type params total)
+  (define (number-of name) (let ([p (assq name params)]) (and p (string->number (cdr p)))))
+  (define count (number-of '_count))
+  (define offset (let ([o (number-of '_offset)]) (if (exact-nonnegative-integer? o) o 0)))
+  (define (at new-offset)
+    (define others (filter (lambda (p) (not (eq? (car p) '_offset))) params))
+    (format "~a?~a" type
+            (string-join (for/list ([p (in-list (append others (if (zero? new-offset) '() (list (cons '_offset (number->string new-offset))))))])
+                           (format "~a=~a" (uri-unreserved-encode (symbol->string (car p))) (uri-unreserved-encode (cdr p))))
+                         "&")))
+  (cond
+    [(not (exact-positive-integer? count)) '()]
+    [else (append (if (> offset 0) (list (hasheq 'relation "previous" 'url (at (max 0 (- offset count))))) '())
+                  (if (< (+ offset count) total) (list (hasheq 'relation "next" 'url (at (+ offset count)))) '()))]))
 ;; operation-entry (produced by the #lang emitter, paired with its OperationDefinition in
 ;; build-app) is defined in kernel/operation-entry.rkt so generated towers need only fhir.
 
@@ -239,7 +284,7 @@
                                 (format "~a refers to ~a, which this server does not hold (#:references \"checked\"): nothing was written; create ~a first"
                                         (request-type req) (string-join missing ", ") (if (= 1 (length missing)) "it" "them"))))]
        [else (parameterize ([current-search-strict? (or (current-search-strict?) (strict-search-app? a))])
-               (guarded (lambda () (run-interaction (request-kind req) fn req))))])]))
+               (guarded (lambda () (run-interaction (request-kind req) fn req repo))))])]))
 
 ;; checked-references-app? : app -> boolean   `(server #:references "checked")`: a create or update
 ;; whose literal reference names a resource the server does not hold is refused (a study server
@@ -294,6 +339,13 @@
 ;; declared) is refused, never answered with every resource
 (define (strict-search-app? a) (equal? (hash-ref (app-metadata a) 'search-handling #f) "strict"))
 
+;; deleted? : repository id -> boolean   no current resource, but versions of it are kept (a
+;; repository that keeps no history cannot say, and answers #f)
+(define (deleted? repo id)
+  (define history (repository-history repo))
+  (and history
+       (with-handlers ([exn:fail? (lambda (_) #f)]) (pair? (history id '(("_count" . "1")))))))
+
 (define (interaction-proc repo kind)
   (case kind
     [(read) (repository-read repo)] [(vread) (repository-vread repo)]
@@ -302,9 +354,17 @@
     [(history-instance history-type) (repository-history repo)]
     [(patch) (repository-patch repo)]))
 
-(define (run-interaction kind fn req)
+;; run-interaction : kind procedure request repository -> node
+(define (run-interaction kind fn req repo)
   (case kind
-    [(read)   (or (fn (request-id req)) (operation-outcome "error" "not-found" "resource not found"))]
+    [(read)   (or (fn (request-id req))
+                  ;; a resource that was here and was deleted is Gone (410), not Not Found: its
+                  ;; versions remain to be read (https://hl7.org/fhir/http.html#read)
+                  (if (deleted? repo (request-id req))
+                      (operation-outcome "error" "deleted"
+                                         (format "~a/~a was deleted; its versions remain at ~a/~a/_history"
+                                                 (request-type req) (request-id req) (request-type req) (request-id req)))
+                      (operation-outcome "error" "not-found" "resource not found")))]
     [(vread)  (or (fn (request-id req) (request-vid req))
                   (operation-outcome "error" "not-found" "version not found"))]
     [(create) (fn (request-body req))]
@@ -312,10 +372,18 @@
     [(delete) (begin (fn (request-id req))
                      (operation-outcome "information" "informational" "deleted"))]
     [(search)
-     (define r (fn (request-params req)))
+     ;; `_summary=count` asks for the number of matches alone: the search with a page of none
+     ;; (https://hl7.org/fhir/search.html#_summary; `_count=0` is the same request)
+     (define count-only? (equal? (assq '_summary (request-params req)) '(_summary . "count")))
+     (define params (if count-only?
+                        (append (filter (lambda (p) (not (memq (car p) '(_summary _count _offset)))) (request-params req))
+                                '((_count . "0")))
+                        (request-params req)))
+     (define r (fn params))
+     (define-values (_ms _is names total) (search-facts r))
      ;; Prefer: handling=strict — a parameter the server cannot apply is an error, not a note
-     (if (and (current-search-strict?) (search-result/ignored? r))
-         (let* ([names (search-result/ignored-names r)]
+     (if (and (current-search-strict?) (pair? names))
+         (let* (
                 [declared (advertised-search-names (current-app) (request-type req))]
                 [near (string-append* (for/list ([n (in-list names)]) (or (patient-subject-hint n declared) (did-you-mean n declared))))])
            (operation-outcome-invalid (format "search parameter~a ~a not supported here (strict search handling)~a; this server searches with what /metadata advertises~a"
@@ -324,7 +392,7 @@
                                               near
                                               ;; and the parameters every type has (a rerun's agent found them by trying)
                                               (if (pair? declared) (format " (~a: ~a; every type: _id, _lastUpdated, _count, _offset, _sort)" (request-type req) (string-join declared ", ")) ""))))
-         (make-searchset r))]
+         (make-searchset r #:links (paging-links (request-type req) params total)))]
     [(patch)
      ;; JSON Patch (RFC 6902): read, apply atomically, then the repository's own UPDATE — so a patched
      ;; resource is validated exactly like a PUT; a malformed or failing patch is 422
@@ -745,16 +813,12 @@
 
 ;; ---- node construction ----------------------------------------------------------------------
 
-;; make-searchset : (or (listof node) search-result) -> Bundle node
-;; A repository's search may return plain matches, or a `search-result` that also carries the
-;; resources pulled in by _include/_revinclude; entries are marked search.mode match | include and
-;; `total` counts matches only (https://hl7.org/fhir/search.html#include).
-(define (make-searchset result)
-  (define-values (matches includes)
-    (if (search-result? result)
-        (values (search-result-matches result) (search-result-includes result))
-        (values result '())))
-  (define ignored (if (search-result/ignored? result) (search-result/ignored-names result) '()))
+;; make-searchset : SearchResult [#:links (listof link)] -> Bundle node
+;; Entries are marked search.mode match | include | outcome; `total` counts every match — includes
+;; and outcomes are not matches (https://hl7.org/fhir/search.html#include) — and `links` are the
+;; paging links (`paging-links`).
+(define (make-searchset result #:links [links '()])
+  (define-values (matches includes ignored total) (search-facts result))
   (define (entry n mode) (hasheq 'resource (node->jsexpr n) 'search (hasheq 'mode mode)))
   ;; a parameter the server does not support is ignored, as FHIR allows — and said so, in an
   ;; OperationOutcome entry (https://hl7.org/fhir/search.html#errors): without it, `?birthdate=lt1900`
@@ -767,12 +831,19 @@
                                                          'diagnostics (format "search parameter `~a` is not supported here: it was ignored" n))))
                       'search (hasheq 'mode "outcome")))))
   (ok-or-raise
-   (from-json (hasheq 'resourceType "Bundle" 'type "searchset"
-                      'total (length matches)
-                      ;; a nested resource inside a Bundle entry is given to from-json as jsexpr
-                      'entry (append (for/list ([n (in-list matches)]) (entry n "match"))
-                                     (for/list ([n (in-list includes)]) (entry n "include"))
-                                     outcome)))))
+   (from-json
+    ;; `link` and `entry` only when there are some: an empty array is not FHIR JSON
+    ;; (https://hl7.org/fhir/json.html#null) — a search that matched nothing answered `"entry":[]`
+    (for/fold ([bundle (hasheq 'resourceType "Bundle" 'type "searchset"
+                               ;; every match, not this page's (https://hl7.org/fhir/bundle-definitions.html#Bundle.total)
+                               'total total)])
+              ([key (in-list '(link entry))]
+               ;; a nested resource inside a Bundle entry is given to from-json as jsexpr
+               [items (in-list (list links (append (for/list ([n (in-list matches)]) (entry n "match"))
+                                                   (for/list ([n (in-list includes)]) (entry n "include"))
+                                                   outcome)))]
+               #:when (pair? items))
+      (hash-set bundle key items)))))
 
 (define (operation-outcome severity code diagnostics)
   (ok-or-raise

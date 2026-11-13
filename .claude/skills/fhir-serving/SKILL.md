@@ -30,6 +30,12 @@ values, a workspace over the same store (`data: fhir.db`) reads it through SQL o
 Exposes the FHIR REST grammar: `GET /metadata` (the derived CapabilityStatement), resource CRUD
 (`GET/POST/PUT/DELETE /{Type}[/{id}]`), vread (`/{Type}/{id}/_history/{vid}`),
 `GET /{Type}?param=value` search, and `$operation` invocation at system/type/instance level.
+Every server follows FHIR's REST rules for pages and versions: `_count` takes a page, the Bundle's
+`total` counts every match and `next`/`previous` links lead through the pages (`_summary=count` is
+the total alone; `POST /{Type}/_search` takes the parameters as a form); an answer that is one
+resource carries `ETag: W/"<versionId>"` and `Last-Modified`; a read with `If-None-Match` or
+`If-Modified-Since` the current version satisfies is 304; a PUT, PATCH or DELETE with `If-Match`
+naming another version is 412; a deleted resource is 410 Gone (404 if it never was).
 `serve-app : app #:port → shutdown-thunk` is also a plain library function.
 
 ## Store-backed serving (IG-driven search)
