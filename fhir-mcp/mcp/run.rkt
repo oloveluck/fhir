@@ -11,7 +11,8 @@
          (only-in fhir/model/registry type-registered?) (only-in fhir/model/introspect full-field-specs)
          (only-in fhir/model/schema field-spec? field-spec-name)
          (only-in fhir/sd/sd-index current-sd-packages) (only-in fhir/operation apply-operation)
-         "search-index.rkt" "sql.rkt" "views.rkt" "results.rkt" "hub.rkt" "data.rkt")
+         "search-index.rkt" "sql.rkt" "views.rkt" "results.rkt" "hub.rkt" "data.rkt"
+         (only-in "dependencies.rkt" dependency-rows dependency-columns))
 
 ;; Contracted in workspace.rkt; describe and stage use the rest.
 (provide execute hub-run hub-query current-extra-tables view-table element? hub-explain)
@@ -89,10 +90,13 @@
   (table cols rows))
 
 ;; builtin-tables : hub -> (listof (cons name thunk))   `trail`: each version a commit wrote, from the
-;; Provenances (trail-view); a workspace view or result of that name wins
+;; Provenances (trail-view); `dependencies`: what each stored resource depends on, one row per
+;; reference (dependencies.rkt: CRMI's paths), so "what depends on X" is a query. A workspace view
+;; or result of either name wins.
 (define (builtin-tables h)
   (list (cons "trail" (lambda () (view-table (trail-view (ws-config-fhir-version (workspace-config (hub-ws h))))
-                                             ((data-source-all (hub-data h)) "Provenance"))))))
+                                             ((data-source-all (hub-data h)) "Provenance"))))
+        (cons "dependencies" (lambda () (table dependency-columns (dependency-rows (all-data h)))))))
 
 ;; element? : type -> (symbol -> boolean)   whether the type has an element, as the workspace's tower
 ;; defines it (`value` for value[x]: `valueQuantity` …)

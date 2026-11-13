@@ -27,6 +27,7 @@
   (string-append "fhirVersion: " fhir-version "\n"
                  "canonical: http://example.org/fhir\n"
                  "data: fhir.db                # a SQLite FHIR store (resources as JSONB); or a directory of JSON, or a FHIR server's url\n"
+                 "export: export/              # the store's definitions as text, rewritten when a commit changes one: what git holds\n"
                  "# packages:                  # FHIR packages in context, by file or name\n"
                  "#   - hl7.fhir.us.core-6.1.0\n"
                  "# profiles:                  # rules the data keeps: FSH profiles (or an IG's) by type\n"

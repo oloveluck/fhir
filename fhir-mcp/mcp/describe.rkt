@@ -17,7 +17,8 @@
          (only-in fhir/ig-config parse-ig-config ig-config-version ig-config-id))
 
 ;; Contracted in workspace.rkt; stage reads a history and the definition kinds.
-(provide conformance-kinds (struct-out text-answer) hub-describe describe-history hub-edit!)
+(provide conformance-kinds (struct-out text-answer) hub-describe describe-history hub-edit!
+         artifact-text as-source)                       ; export.rkt writes definitions as their text
 
 (define conformance-kinds '("StructureDefinition" "ValueSet" "CodeSystem" "ConceptMap" "StructureMap"))
 

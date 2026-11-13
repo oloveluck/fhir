@@ -10,6 +10,7 @@
 ;;;   describe.rkt  describe           results, resources, history, definitions, elements, operations, stages
 ;;;   apply.rkt     apply              any operation, by reference
 ;;;   stage.rkt     stage, commit      changes validated and diffed against the data, then written with their trail
+;;;   export.rkt    (commit)           the store's definitions as text in a directory, for git
 ;;; under them data.rkt (the data read whole, a resource held to the workspace's rules, the trail
 ;;; written) and the leaves that need no hub: results.rkt (a result as an answer and as a table),
 ;;; calls.rkt (how an answer names the next call), json-diff.rkt, fsh-source.rkt, artifacts.rkt,
@@ -18,7 +19,8 @@
 ;;; Every hub-* procedure answers a jsexpr, or raises: exn:fail:diagnostic (positioned), exn:fail.
 
 (require racket/contract json
-         "hub.rkt" "data.rkt" "check.rkt" "run.rkt" "describe.rkt" "apply.rkt" "stage.rkt" "calls.rkt")
+         "hub.rkt" "data.rkt" "check.rkt" "run.rkt" "describe.rkt" "apply.rkt" "stage.rkt" "calls.rkt"
+         (only-in "export.rkt" export! export-drift))
 
 (provide
  (struct-out text-answer)
@@ -43,5 +45,9 @@
   [hub-apply       (->* (hub? string? hash? (or/c hash? #f)) ((or/c string? #f)) jsexpr?)]
   [hub-stage!      (-> hub? hash? jsexpr?)]
   [hub-commit!     (->* (hub? string?) ((or/c string? #f) #:agent (or/c string? #f)) jsexpr?)]
+  ;; export! : hub -> jsexpr   the store's definitions written as text into workspace.yaml's `export`
+  ;; directory (a commit of definitions does it); export-drift: how the directory differs from that
+  [export!         (-> hub? jsexpr?)]
+  [export-drift    (-> hub? (listof string?))]
   [hub-result-uris (-> hub? (listof string?))]
   [hub-read-result (-> hub? string? (or/c jsexpr? #f))]))

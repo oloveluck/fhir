@@ -12,7 +12,7 @@
          (only-in fhir/spec-package spec-package-path) (only-in fhir/rest-data-source rest-write! rest-url?)
          (only-in fhir/sd/sd-index current-sd-packages resolve-sd-raw sd-index-available?) "artifacts.rkt"
          "trail.rkt" "fsh-source.rkt" "calls.rkt" "json-diff.rkt" "hub.rkt" "data.rkt" "run.rkt"
-         "describe.rkt")
+         "describe.rkt" "export.rkt")
 
 ;; Contracted in workspace.rkt.
 (provide hub-stage! hub-commit!)
@@ -525,7 +525,13 @@
   (define answer0 (if (and (pair? trail) (> (length provenances) 1))
                       (hash-set answer00 'provenances (take trail (min (length provenances) (length trail))))
                       answer00))
-  (define answer (if (and (string? reason) (not (string=? reason ""))) (hash-set answer0 'reason reason) answer0))
+  (define answer1 (if (and (string? reason) (not (string=? reason ""))) (hash-set answer0 'reason reason) answer0))
+  ;; the text export follows the store: rewritten when this commit wrote a definition (export.rkt)
+  (define answer
+    (if (and (export-directory h) (data-store-path h)
+             (for/or ([w (in-list written)] [ch (in-list todo)]) (and (hash-ref w 'ok #f) (artifact? (change-resource ch)))))
+        (hash-set answer1 'export (export! h))
+        answer1))
   (if (member agent '("raco fhir-mcp call" "raco fhir-mcp batch"))
       (hash-set answer 'note (format "the trail names the agent ~s; name who is writing with commit(agent: …) or FHIR_MCP_AGENT" agent))
       answer))

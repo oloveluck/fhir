@@ -10,6 +10,7 @@
 ;;;   raco fhir-mcp tools [same flags]   the tools offered, with their schemas (JSON)
 ;;;   raco fhir-mcp call <tool> ['<json arguments>'] [same flags]   run one tool, print its text (exit 1 on error)
 ;;;   raco fhir-mcp batch [<file> | -] [same flags]   many calls in one process, one per line
+;;;   raco fhir-mcp export [--check]     the store's definitions as text in the `export` directory
 ;;;   raco fhir-mcp guide [<topic>]      a learn:// guide as text (the topics, without one): every
 ;;;                                      language's guide and the workspace's, with no server running
 
@@ -26,6 +27,7 @@
     ("tools" ,(format "raco fhir-mcp tools ~a   the tools and their schemas" flags))
     ("call"  ,(format "raco fhir-mcp call <tool> ['<json>' | -] [key=value | key=@file | key:=<json> | key:=@file.json]… ~a   run one tool: arguments as a JSON object (- reads it from stdin) and/or one by one, a file's text with @" flags))
     ("batch" ,(format "raco fhir-mcp batch [<file> | -] ~a   many calls in one process: one per line, `<tool> key=value key=@file key:=<json> …` (quoted as a shell would, \\n inside double quotes a newline; # starts a comment; a line starting with ! is expected to fail), each answer after a `### <line>` header" flags))
+    ("export" ,(format "raco fhir-mcp export [--check] ~a   write the store's definitions as text into workspace.yaml's `export` directory (a commit of definitions does it); --check writes nothing and exits 1 when the directory is not up to date (for CI)" flags))
     ("init"  "raco fhir-mcp init [<dir>] [--fhir-version 4.0.1|5.0.0]   make a directory a workspace an agent can use: workspace.yaml (data: fhir.db, a SQLite FHIR store), .mcp.json, CLAUDE.md")
     ("guide" "raco fhir-mcp guide [<topic> [--blocks | --block N|name]]   a guide (learn://<topic>) as text, its code blocks listed, or one (to save as a file); without a topic, the topics")))
 
@@ -61,6 +63,20 @@
 
 (define (tools-command args)
   (with-workspace (only-flags "tools" (read-flags args)) (lambda (h tools) (write-json (hasheq 'tools (map tool->jsexpr tools))) (newline))))
+
+;; export-command : args -> void   the text export written, or (--check) compared
+(define (export-command args)
+  (define o (read-flags args))
+  (define check? (member "--check" (opts-rest o)))
+  (only-flags "export" (struct-copy opts o [rest (remove "--check" (opts-rest o))]))
+  (with-workspace o
+    (lambda (h tools)
+      (with-handlers ([exn:fail? (lambda (e) (eprintf "fhir-mcp: ~a\n" (exn-message e)) (exit 2))])
+        (cond [check? (define drift (export-drift h))
+                      (for ([d (in-list drift)]) (printf "~a\n" d))
+                      (unless (null? drift) (eprintf "the export is not up to date: raco fhir-mcp export writes it\n") (exit 1))
+                      (printf "the export is up to date\n")]
+              [else (write-json (export! h)) (newline)])))))
 
 (define (call-command args)
   (define o (read-flags args))
@@ -293,7 +309,7 @@
      (exit 0)]
     [(or (null? args) (regexp-match? #rx"^--" (car args))) (serve-command args)]
     [else (run-subcommands "fhir-mcp" usages
-                           (hash "serve" serve-command "tools" tools-command "call" call-command "batch" batch-command "init" init-command "guide" guide-command)
+                           (hash "serve" serve-command "tools" tools-command "call" call-command "batch" batch-command "init" init-command "guide" guide-command "export" export-command)
                            args)]))
 
 (module+ test

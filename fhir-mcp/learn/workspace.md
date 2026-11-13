@@ -189,6 +189,7 @@ canonical: http://example.org/fhir # the base of what the workspace defines
 packages:                          # FHIR packages in context, by file or name
   - hl7.fhir.us.core-6.1.0
 data: fhir.db                      # a SQLite FHIR store (resources as JSONB); or a directory, a JSON file, a FHIR server's url
+export: export/                    # the store's definitions as text, rewritten when a commit changes one: what git holds (learn://ig)
 parameters:                        # CQL parameters, as CQL expressions
   Measurement Period: Interval[@2025-01-01T00:00:00.000, @2025-12-31T23:59:59.999]
 allowRemoteWrites: false           # commit may write to the server only when true
@@ -206,8 +207,9 @@ resource as JSONB with its versions and the search indexes FHIR's search paramet
 FHIR search and SQL read it; a capability app the workspace runs serves it. In SQL, a table of
 values is a VIEW: a `*.view.json` ViewDefinition (SQL on FHIR, learn://sql-on-fhir) whose columns are
 FHIRPath, checked against the type and read in the workspace's FHIR version; each view is a table
-(and `<view>_history` over every version), beside earlier results and `trail` (the commits, itself a
-view; below). The raw store is there for what no view says: each stored type is a table of `id`,
+(and `<view>_history` over every version), beside earlier results, `trail` (the commits, itself a
+view; below) and `dependencies` (what each stored resource depends on: `type, id, url, version, path,
+target, target_version` — "what uses this value set" is `WHERE target = '<url>'`; learn://ig). The raw store is there for what no view says: each stored type is a table of `id`,
 `versionId`, `lastUpdated` and `resource` (JSONB: `resource ->> '$.birthDate'`,
 `json_each(resource, '$.name')`), `resources` is every type at once (`type, id, versionId,
 lastUpdated, resource`), and `history` every version (the same columns). A column SQLite does not know is answered with the nearest and each

@@ -7,6 +7,10 @@
 ;;;   $resolve   a canonical reference resolved to the resource it means: the version it names, else
 ;;;              the version the manifest parameters pin, else the latest — here the working copy a
 ;;;              workspace file defines, the stored version in force, the packages.
+;;;   $data-requirements   what an artifact needs: a module-definition Library listing every
+;;;              artifact it depends on, directly and through those (dependencies.rkt: CRMI's
+;;;              "Dependency Tracing" paths), each resolved as $resolve resolves it, and the data
+;;;              its libraries retrieve.
 ;;;
 ;;; The operation reads the repository through parameters, so it knows no hub: `current-repository`
 ;;; (every stored version), `current-manifest` (the pins in force), fhir/registry (working copies),
@@ -19,10 +23,10 @@
          (only-in fhir/registry registered-resource)
          (only-in fhir/data-source data-source-all)
          (only-in fhir/sd/sd-index resolve-canonical-raw sd-index-available?)
-         "artifacts.rkt"
+         "artifacts.rkt" "dependencies.rkt"
          (only-in "hub.rkt" current-repository current-manifest))
 
-(provide resolve-canonical)
+(provide resolve-canonical data-requirements)
 
 ;; crmi-definition : file-name -> OperationDefinition | #f   one of the guide's, from its package
 (define (crmi-definition name)
@@ -95,6 +99,55 @@
 
 (when $resolve (register-operation! $resolve))
 
+;; ---- $data-requirements ------------------------------------------------------------------------
+;; data-requirements : artifact manifest|#f -> Library   the artifact's effective requirements: its
+;; dependencies traced to the end, each resolved under the pins, as a module-definition Library
+(define (data-requirements root manifest)
+  (module-definition root (dependency-closure root (lambda (canonical)
+                                                     (match (resolve-canonical canonical #f manifest)
+                                                       [(cons r _) r]
+                                                       [_ #f])))))
+
+;; version-manifest : inputs -> manifest | #f   the operation's own version parameters as pins:
+;; `artifactVersion` gives a version to a reference that names none, `forceArtifactVersion` to any
+(define (version-manifest in)
+  (define pins
+    (append (for/list ([v (in-list (hash-ref in "artifactVersion" '()))] #:when (string? v))
+              (hasheq 'name "default-canonical-version" 'valueCanonical v))
+            (for/list ([v (in-list (hash-ref in "forceArtifactVersion" '()))] #:when (string? v))
+              (hasheq 'name "force-canonical-version" 'valueCanonical v))))
+  (and (pair? pins) (hasheq 'resourceType "Parameters" 'parameter pins)))
+
+;; by-id : id -> artifact | #f   a stored definition by its logical id (the type-level `id` input)
+(define (by-id id)
+  (define repository (current-repository))
+  (and repository
+       (for*/first ([type (in-list artifact-types)] [r (in-list ((data-source-all repository) type))]
+                    #:when (equal? (hash-ref r 'id #f) id))
+         r)))
+
+(define $data-requirements
+  (let ([definition (crmi-definition "OperationDefinition-crmi-data-requirements.json")])
+    (and definition
+         (make-operation
+          definition
+          (lambda (in subject)
+            (for ([unread (in-list '("manifest" "expression" "parameters" "checkArtifactVersion"))] #:when (input in unread))
+              (operation-error "not-supported" "$data-requirements does not read `~a` yet (pins are given as `artifactVersion`: url|version)" unread))
+            (define manifest (or (version-manifest in) (current-manifest)))
+            (define url (input in "url"))
+            (define root
+              (or (and (hash? subject) (hash-ref subject 'resourceType #f) subject)
+                  (and url (match (resolve-canonical (let ([v (input in "version")]) (if v (format "~a|~a" url v) url)) #f manifest)
+                             [(cons r _) r]
+                             [_ (operation-error "not-found" "nothing here defines ~a" url)]))
+                  (let ([id (input in "id")])
+                    (and id (or (by-id id) (operation-error "not-found" "no stored definition has the id ~a (give `url`, a canonical)" id))))
+                  (operation-error "required" "$data-requirements needs the artifact: `url` (its canonical), or `id`")))
+            (data-requirements root manifest))))))
+
+(when $data-requirements (register-operation! $data-requirements))
+
 (module+ test
   (require rackunit (only-in fhir/data-source resources->data-source))
   (define (lab version status [id "lab"])
@@ -117,4 +170,22 @@
                     "0.2.0")
       (check-equal? (hash-ref ($resolve #:canonical "http://x/StructureDefinition/lab" #:manifestParameters (pins "http://x/StructureDefinition/lab|0.2.0")) 'version)
                     "0.2.0")
-      (check-exn #rx"nothing here defines" (lambda () ($resolve #:canonical "http://x/StructureDefinition/nope"))))))
+      (check-exn #rx"nothing here defines" (lambda () ($resolve #:canonical "http://x/StructureDefinition/nope")))))
+  ;; $data-requirements: the artifact by url, its dependencies resolved as $resolve does (the pin's
+  ;; version of the profile), what nothing defines listed all the same
+  (define a1c (hasheq 'resourceType "Library" 'id "A1c" 'url "http://x/Library/A1c" 'version "0.1.0" 'status "active"
+                      'relatedArtifact (list (hasheq 'type "depends-on" 'resource "http://loinc.org"))
+                      'dataRequirement (list (hasheq 'type "Observation" 'profile (list "http://x/StructureDefinition/lab")))))
+  (parameterize ([current-repository (resources->data-source (list (lab "0.1.0" "active" "lab-0.1.0") (lab "0.2.0" "draft") a1c))])
+    (define (depends-on lib) (for/list ([ra (in-list (hash-ref lib 'relatedArtifact))]) (hash-ref ra 'resource)))
+    (check-equal? (depends-on (data-requirements a1c #f)) '("http://loinc.org" "http://x/StructureDefinition/lab|0.1.0"))
+    (when $data-requirements
+      (define answered ($data-requirements #:url "http://x/Library/A1c"))
+      (check-equal? (hash-ref (car (hash-ref (hash-ref answered 'type) 'coding)) 'code) "module-definition")
+      (check-equal? (depends-on answered) '("http://loinc.org" "http://x/StructureDefinition/lab|0.1.0"))
+      (check-equal? (hash-ref answered 'dataRequirement) (hash-ref a1c 'dataRequirement))
+      (check-equal? (depends-on ($data-requirements #:url "http://x/Library/A1c" #:artifactVersion "http://x/StructureDefinition/lab|0.2.0"))
+                    '("http://loinc.org" "http://x/StructureDefinition/lab|0.2.0"))
+      (check-equal? (depends-on ($data-requirements #:id "A1c")) '("http://loinc.org" "http://x/StructureDefinition/lab|0.1.0"))
+      (check-exn #rx"nothing here defines" (lambda () ($data-requirements #:url "http://x/Library/nope")))
+      (check-exn #rx"needs the artifact" (lambda () ($data-requirements))))))

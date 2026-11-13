@@ -43,7 +43,13 @@ parameters (`parameters: path-expansion-params`, a Parameters resource the works
 contained in the compiled guide under `cqf-expansionParameters`), in force for every resolver
 among stored versions, `manifest=` on a call, and CRMI's `$resolve` on its own
 OperationDefinition (`tests/pins-test.rkt`). A stored StructureMap with no kept text
-comes back as the mapping language (fml's printer, the specified language only). Not yet: a
+comes back as the mapping language (fml's printer, the specified language only). **The text export** — workspace.yaml's
+`export:` directory, rewritten by every commit of a definition: the files the commits kept, and one
+file per definition no kept file states; put back as files it is "nothing to commit"
+(`tests/export-test.rkt`). **Dependencies** traced by CRMI's paths (`mcp/dependencies.rkt`), a CQL
+library's Library stating its own (`relatedArtifact`, `dataRequirement`), CRMI's
+`$data-requirements` answering the module-definition Library, and SQL's `dependencies` table
+(`tests/dependencies-test.rkt`). Not yet: `$infer-manifest-parameters`, the impact answer; a
 definition staged alone into a store-only workspace added to the stored
 guide's list; the manifest library; pins on a dependency package's artifacts; `X-Manifest`; the
 dependency index and the other operations.

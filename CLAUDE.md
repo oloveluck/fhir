@@ -1853,6 +1853,42 @@ as much as possible." fml/CLAUDE.md has the detail ("The specified language; the
   maps, guides and messages are in the specified form. `block-name` (guide blocks) and fml's editor
   outline read the metadata header.
 
+## The store in git; what depends on what (2026-11-13; `docs/store-as-codebase.md` steps 3 and 5, in part)
+- **The text export** (`fhir-mcp/mcp/export.rkt`; workspace.yaml `export: export/`, which `init`
+  writes; `ws-config-export`). A commit that writes a definition rewrites the directory: the files
+  the commits KEPT (each source file a Provenance holds inside the workspace, its newest text, as
+  long as it still states a stored resource: the author's own lines), plus one file per current
+  definition — and per example the stored guide lists — that no kept file states, written from the
+  resource (`<Type>-<id>.fsh|cql|map|vcl`, the guide as `sushi-config.yaml`; describe.rkt's
+  `artifact-text`). "Current" leaves out a released version archived beside the next (git has it).
+  The directory is never a source (`workspace-files` skips it); only files an earlier export wrote
+  are removed (remembered in `.fhir-mcp/export.json`), and `export` naming the workspace itself is
+  refused. `raco fhir-mcp export [--check]` writes it, or (CI) says `differs`/`missing`/`stale` and
+  exits 1. The law, `tests/export-test.rkt`: the export put back as the workspace's files is
+  "nothing to commit".
+- **Found by that law**: fsh's workspace support compiled every `.fsh` under the workspace root
+  (the data directory and any copy included), so a second copy of a file listed each definition
+  twice in the guide. `compile-project`/`check-fsh-project` take `#:files`, and fsh/workspace gives
+  the workspace's own (`workspace-files`).
+- **Dependencies as CRMI traces them** (`mcp/dependencies.rkt`, pure): the catalogue is DATA —
+  `traced-paths`, per type, CRMI's "Dependency Tracing" paths as it writes them (`item..answerValueSet`
+  = at any depth of items), `meta.profile` for every resource, the base specification implied.
+  `direct-dependencies`, `dependency-closure` (breadth first, each canonical once, the resolver an
+  argument; what nothing defines is listed, not followed), `module-definition`, `dependency-rows`.
+- **A CQL library states its own** (cql `requirements.rkt`, from the ELM as JSON; cql/workspace's
+  Library): each include, codesystem and valueset a `depends-on` relatedArtifact, each retrieve a
+  `dataRequirement` (type, the ELM's templateId as profile, the code or value set filter) — what
+  CRMI's computable library carries, so tracing reads the resource and needs no CQL.
+- **`$data-requirements`** (`mcp/crmi.rkt`, on CRMI's own OperationDefinition): the artifact by
+  `url` (+`version`), `id` or as the subject; its closure resolved as `$resolve` resolves
+  (`artifactVersion`/`forceArtifactVersion` as pins, else the manifest in force); a
+  module-definition Library. `manifest`, `expression`, `parameters`, `checkArtifactVersion` are
+  refused, named. **SQL's `dependencies`** (run.rkt `builtin-tables`): one row per stored resource
+  and target, so "what depends on X" is a query. `tests/dependencies-test.rkt`.
+Not yet, named: `$infer-manifest-parameters`; the impact answer at stage time (dependents
+re-checked, results out of date); requirements against a data source's capabilities; the export of
+data that is not an example.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

@@ -11,7 +11,7 @@
 ;;;
 ;;; A Workspace is (workspace root config): the directory and its configuration.
 ;;; A WsConfig is (ws-config fhir-version canonical packages data parameters allow-remote-writes? models
-;;;                          profiles audit)
+;;;                          profiles audit export)
 ;;;   fhir-version : string                 "4.0.1" (the default) or "5.0.0"; every language follows it
 ;;;   canonical    : string                 the base of the canonicals the workspace defines
 ;;;   packages     : (listof string)        FHIR packages (a .tgz path or a package name) in context
@@ -29,6 +29,8 @@
 ;;;                                         meta.profile; `check(data: true)` holds the stored data to them
 ;;;   audit        : "commits" | "all"      what leaves an AuditEvent in the data: every commit (the
 ;;;                                         default; a Provenance too), or every run, query and apply too
+;;;   export       : string | #f            a directory the store's definitions are written to as
+;;;                                         text when a commit changes them (for git; fhir-mcp)
 ;;; read from `workspace.yaml` (a small YAML subset: `key: value`, lists of `- item`, one level of
 ;;; `key: value` maps) when the directory has one.
 ;;;
@@ -117,7 +119,7 @@
   [workspace-core-package (-> workspace? (or/c path? #f))]))
 
 (struct workspace (root config) #:transparent)
-(struct ws-config (fhir-version canonical packages data parameters allow-remote-writes? models profiles audit) #:transparent)
+(struct ws-config (fhir-version canonical packages data parameters allow-remote-writes? models profiles audit export) #:transparent)
 (struct ws-support (id artifacts run explain) #:transparent)
 (struct run-result (kind columns rows summary) #:transparent)
 
@@ -171,7 +173,7 @@
                           (and (ws-support? v) v)))))))
 
 ;; ---- configuration --------------------------------------------------------------------------
-(define default-ws-config (ws-config "4.0.1" "http://example.org/workspace" '() #f (hash) #f (hash) (hash) "commits"))
+(define default-ws-config (ws-config "4.0.1" "http://example.org/workspace" '() #f (hash) #f (hash) (hash) "commits" #f))
 
 ;; A Yaml here is: string | (listof string) | (listof (cons string string))
 ;; parse-yaml-subset : text -> (values (listof (cons key Yaml)) warnings)
@@ -213,7 +215,7 @@
                     [else (string-trim b)])))
           (loop rest (cons (cons (cadr m) items) acc) warnings)])])))
 
-(define known-keys '("fhirVersion" "canonical" "packages" "data" "parameters" "allowRemoteWrites" "models" "profiles" "audit"))
+(define known-keys '("fhirVersion" "canonical" "packages" "data" "parameters" "allowRemoteWrites" "models" "profiles" "audit" "export"))
 
 (define (parse-workspace-config text)
   (define-values (kvs warnings) (parse-yaml-subset text))
@@ -240,7 +242,8 @@
                      (let ([v (get "profiles")])
                        (for/fold ([h (hash)]) ([p (in-list (if (list? v) v '()))] #:when (and (pair? p) (string? (cdr p))))
                          (hash-update h (car p) (lambda (us) (remove-duplicates (append us (string-split (cdr p))))) '())))
-                     (if (equal? (str "audit" "commits") "all") "all" "commits"))
+                     (if (equal? (str "audit" "commits") "all") "all" "commits")
+                     (str "export" #f))
           (append warnings unknown version-warning
                   (if (member (str "audit" "commits") '("all" "commits")) '()
                       (list (format "workspace.yaml: audit ~a is commits or all" (str "audit" "")))))))
@@ -307,10 +310,14 @@
   (define data (let ([d (ws-config-data (workspace-config ws))])
                  (and d (not (regexp-match? #rx"^https?://" d))
                       (path->directory-path (simplify-path (path->complete-path d root))))))
+  ;; the text export is what the store holds, written out for git: not the workspace's own files
+  (define export (let ([d (ws-config-export (workspace-config ws))])
+                   (and d (path->directory-path (simplify-path (path->complete-path d root))))))
   (define (skip-dir? p)
     (define name (let-values ([(_b n _d) (split-path p)]) (path->string n)))
     (or (regexp-match? #rx"^[.]" name) (equal? name "compiled")
-        (and data (equal? (path->directory-path (simplify-path p)) data))))
+        (and data (equal? (path->directory-path (simplify-path p)) data))
+        (and export (equal? (path->directory-path (simplify-path p)) export))))
   (sort (for/list ([f (in-directory root (lambda (p) (not (skip-dir? p))))]
                    #:when (file-exists? f)
                    #:when (workspace-language-of f)
