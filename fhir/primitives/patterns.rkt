@@ -12,7 +12,8 @@
          px:id px:code px:uri px:url px:canonical px:oid px:uuid
          px:boolean px:integer px:integer64 px:positiveInt px:unsignedInt px:decimal
          px:base64Binary
-         px:date px:time px:dateTime px:instant)
+         px:date px:time px:dateTime px:instant
+         pattern-matches?)
 
 ;; --- string-like ----------------------------------------------------
 ;; string / markdown: any non-empty sequence (length cap enforced separately). The spec writes
@@ -29,6 +30,34 @@
 (define px:uri       #px"^(?:\\S*)$")
 (define px:url       #px"^(?:\\S*)$")
 (define px:canonical #px"^(?:\\S*)$")
+;; pattern-matches? : pattern string -> boolean   does the whole string match the pattern
+;; The patterns that say "no white space" (uri, url, canonical) or "words with single spaces
+;; between" (code) are decided by one pass over the characters: the regexp matcher took 1.5 µs for
+;; a 60-character system url where the pass takes 0.2, and a resource holds a dozen (11% of
+;; reading one). Every other pattern is the regexp's.
+(define (pattern-matches? pat s)
+  (cond [(or (eq? pat px:uri) (eq? pat px:url) (eq? pat px:canonical)) (no-space? s)]
+        [(eq? pat px:code) (code-lexeme? s)]
+        [else (regexp-match? pat s)]))
+
+;; space? : char -> boolean   what `\s` matches: ASCII white space
+(define (space? c) (or (eqv? c #\space) (eqv? c #\tab) (eqv? c #\newline) (eqv? c #\page) (eqv? c #\return)))
+;; no-space? : string -> boolean   ^\S*$
+(define (no-space? s) (for/and ([c (in-string s)]) (not (space? c))))
+;; code-lexeme? : string -> boolean   ^[^\s]+( [^\s]+)*$ — not empty, no white space but single
+;; spaces, none at either end
+(define (code-lexeme? s)
+  (define n (string-length s))
+  (and (> n 0)
+       (not (space? (string-ref s 0)))
+       (not (space? (string-ref s (sub1 n))))
+       (let loop ([i 1])
+         (or (>= i n)
+             (let ([c (string-ref s i)])
+               (and (or (not (space? c))
+                        (and (eqv? c #\space) (not (space? (string-ref s (sub1 i))))))
+                    (loop (add1 i))))))))
+
 (define px:oid       #px"^(?:urn:oid:[0-2](?:\\.(?:0|[1-9][0-9]*))+)$")
 (define px:uuid      #px"^(?:urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$")
 
@@ -58,6 +87,19 @@
 (module+ test
   (require rackunit)
   (define (ok? px s) (regexp-match? px s))
+  ;; the character passes decide exactly what the regexps decide: every string of up to five
+  ;; characters over an alphabet of letters and every kind of space (ASCII white space, a
+  ;; vertical tab and a no-break space, which `\s` does not match)
+  (define alphabet (list #\a #\. #\space #\tab #\newline #\page #\return #\vtab #\u00A0))
+  (define (strings n) (if (zero? n) '("") (for*/list ([s (in-list (strings (sub1 n)))] [c (in-list alphabet)]) (string-append s (string c)))))
+  (for* ([n (in-range 0 6)] [s (in-list (strings n))] [px (in-list (list px:uri px:url px:canonical px:code))])
+    (unless (eq? (pattern-matches? px s) (regexp-match? px s))
+      (fail (format "~s: the pass says ~a, ~a says ~a" s (pattern-matches? px s) px (regexp-match? px s)))))
+  (check-true (pattern-matches? px:uri "http://loinc.org"))
+  (check-false (pattern-matches? px:uri "http://loinc.org "))
+  (check-true (pattern-matches? px:code "final"))
+  (check-false (pattern-matches? px:code "a  b"))
+  (check-true (pattern-matches? px:id "patient-01"))    ; any other pattern is the regexp's
   (check-true  (ok? px:id "patient-01"))       (check-false (ok? px:id "has space"))
   (check-true  (ok? px:code "a b"))            (check-false (ok? px:code " leading"))
   (check-true  (ok? px:oid "urn:oid:2.16.840")) (check-false (ok? px:oid "2.16.840"))

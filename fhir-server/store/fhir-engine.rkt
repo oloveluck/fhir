@@ -32,7 +32,10 @@
          (only-in fhir/result/result ok? ok-value)
          (only-in fhirpath/parser/parse parse-fhirpath)
          (only-in fhirpath/parser/ast fp-binop? fp-binop-op fp-binop-lhs fp-binop-rhs)
-         (only-in fhirpath/eval eval-fhirpath)
+         (only-in fhirpath/eval fp-eval)
+         (only-in fhirpath/analyze analyze)
+         (only-in fhirpath/environment make-env)
+         (only-in fhir/model/registry type-registry-generation)
          (only-in fhir/model/node fhir? fhir-ref fhir-type)
          (only-in fhir/model/base primitive-type? primitive-type-value)
          (only-in fhir/model/leaf pv listify))
@@ -68,6 +71,11 @@
   ;; the catalog's indexed parameters of a type, as (name kind path) rows a worker can be handed
   [indexed-entries (-> hash? string? (listof (list/c string? symbol? string?)))]
   ;; a resource's index rows from its JSON text and those entries — what a worker process runs
+  [index-rows (-> hash? list? (listof (list/c string? string? list?)))]
+  ;; what a write stamps and names a resource with (store/bulk.rkt prepares resources as the engine does)
+  [stamp-meta (-> hash? exact-positive-integer? string? hash?)]
+  [fresh-id (-> string?)]
+  [now-iso (-> string?)]
   [index-rows/text (-> (list/c string? list?) (listof (list/c string? string? list?)))]
   [delete-in!    (-> connection? string? string? boolean?)]))
 
@@ -222,19 +230,46 @@
 ;; multi-type expressions carry branches written for another type without naming it (R6's `date`:
 ;; `(start | requestedPeriod.start).first() | … | Observation.effective.ofType(dateTime) | …`), and
 ;; evaluated whole, the one failing branch left every Observation without a date to search by.
+;;
+;; What depends only on the expression and the resource's type is worked out once: the branches
+;; of the text, and whether a branch passes FHIRPath's static check for a type (`eval-fhirpath`
+;; ran that check for every branch of every parameter of every resource — a quarter of indexing
+;; one). A branch that passes is evaluated as `eval-fhirpath` would.
 (define (path-values text node)
+  (define type (and (fhir? node) (fhir-type node)))
+  (remove-duplicates
+   (for*/list ([b (in-list (path-branches text))]
+               #:when (branch-applies? b type)
+               [v (in-list (with-handlers ([exn:fail? (lambda (_) '())])
+                             (fp-eval b (list node) (make-env (list node)))))])
+     v)))
+
+;; path-branches : fhirpath-text -> (listof AST)   the operands of the expression's top-level
+;; unions; none when the text is not FHIRPath
+(define branches-of (make-hash))
+(define (path-branches text)
   (define (branches ast)
     (if (and (fp-binop? ast) (eq? (fp-binop-op ast) 'union))
         (append (branches (fp-binop-lhs ast)) (branches (fp-binop-rhs ast)))
         (list ast)))
-  (define ast (with-handlers ([exn:fail? (lambda (_) #f)]) (parse-fhirpath text)))
-  (if (not ast)
-      '()
-      (remove-duplicates
-       (for*/list ([b (in-list (branches ast))]
-                   [v (in-list (with-handlers ([exn:fail? (lambda (_) '())])
-                                 (eval-fhirpath b (list node) #:strict? #f)))])
-         v))))
+  (hash-ref! branches-of text
+             (lambda ()
+               (define ast (with-handlers ([exn:fail? (lambda (_) #f)]) (parse-fhirpath text)))
+               (if ast (branches ast) '()))))
+
+;; branch-applies? : AST type|#f -> boolean   does the branch pass the static check for a resource
+;; of this type (remembered per branch and type, for as long as the registry is what it was)
+(define verdicts (make-weak-hasheq))                   ; AST -> (hasheq type -> boolean)
+(define verdicts-generation -1)
+(define (branch-applies? b type)
+  (unless (eqv? verdicts-generation (type-registry-generation))
+    (hash-clear! verdicts)
+    (set! verdicts-generation (type-registry-generation)))
+  (hash-ref! (hash-ref! verdicts b make-hasheq) type
+             (lambda ()
+               (with-handlers ([exn:fail? (lambda (_) #f)])
+                 (when type (analyze b type #:strict? #f))
+                 #t))))
 
 ;; index-rows/text : (list json-text entries) -> (listof IndexRow)   index-rows for a worker
 (define (index-rows/text item) (index-rows (string->jsexpr (car item)) (cadr item)))

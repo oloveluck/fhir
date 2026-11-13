@@ -10,7 +10,8 @@
 (require racket/contract racket/file racket/list racket/string racket/port json
          (only-in file/gunzip gunzip-through-ports)
          (only-in cql/library cql->library)
-         "fhir-sqlite.rkt" "fhir-engine.rkt" (only-in "bundle.rkt" load-bundle! process-bundle!))
+         "fhir-sqlite.rkt" "fhir-engine.rkt" (only-in "bundle.rkt" load-bundle!)
+         (only-in "bulk.rkt" make-bulk-loader close-bulk-loader bulk-load!))
 
 (provide cql->library                                   ; cql/library's, re-exported for the CLI
          (contract-out
@@ -63,17 +64,8 @@
            (loop (cons js acc) (add1 k))
            (loop acc k))])))
 
-;; load-ndjson! : store path catalog tower -> count   every resource of the file, a batch a transaction
-(define (load-ndjson! store f sps tower)
-  (call-with-ndjson-lines f
-    (lambda (in)
-      (let loop ([total 0])
-        (define batch (next-batch in batch-size))
-        (cond
-          [(null? batch) total]
-          [else
-           (process-bundle! store (puts-bundle batch) #:search-params sps #:tower tower)
-           (loop (+ total (length batch)))])))))
+;; ndjson-source : path -> Source   the file's lines, as store/bulk.rkt reads them
+(define ((ndjson-source f) proc) (call-with-ndjson-lines f proc))
 
 ;; puts-bundle : (listof resource) -> transaction Bundle   each resource written under its own id
 ;; (PUT Type/id), one without an id created (POST Type)
@@ -109,17 +101,38 @@
 ;; load-files! : store path -> (listof (cons file-name count))   a file, or every .json/.cql under a dir
 (define (load-files! store src #:search-params [sps default-search-params] #:library-base [base "http://localhost/fhir"]
                      #:tower [tower #f])
-  (for/list ([f (in-list (source-files src))])
-    (define name (file-name f))
+  ;; the workers of a bulk load, started for the first .ndjson file and kept to the last
+  (define loader #f)
+  (define (the-loader) (or loader (begin (set! loader (make-bulk-loader sps tower)) loader)))
+  (dynamic-wind
+   void
+   (lambda () (load-each! store src sps base tower the-loader))
+   (lambda () (when loader (close-bulk-loader loader)))))
+
+;; load-each! : … (-> BulkLoader) -> (listof (cons file-name count))
+;; The files in order; a run of .ndjson files is one bulk load (their resources are prepared
+;; ahead of the writes, across the files of the run).
+(define (load-each! store src sps base tower the-loader)
+  (let loop ([files (source-files src)])
     (cond
-      [(regexp-match? #rx"[.]cql$" name)
-       (fhir-update! store (cql->library (file->string f) #:library-base base) #:search-params sps)
-       (cons name 1)]
-      [(ndjson? name) (cons name (load-ndjson! store f sps tower))]
-      [else
-       (define js (file-json f))
-       (cond [(not (and (hash? js) (hash-ref js 'resourceType #f))) (cons name 0)]
-             [(equal? (hash-ref js 'resourceType) "Bundle")
-              (define-values (n _resp) (load-bundle! store js #:search-params sps #:tower tower)) (cons name n)]
-             [(hash-ref js 'id #f) (fhir-update! store js #:search-params sps) (cons name 1)]
-             [else (fhir-create! store js #:search-params sps) (cons name 1)])])))
+      [(null? files) '()]
+      [(ndjson? (file-name (car files)))
+       (define-values (run rest) (splitf-at files (lambda (f) (ndjson? (file-name f)))))
+       (append (map cons (map file-name run) (bulk-load! (the-loader) store (map ndjson-source run)))
+               (loop rest))]
+      [else (cons (load-one! store (car files) sps base tower) (loop (cdr files)))])))
+
+;; load-one! : store path … -> (cons file-name count)   a Bundle, a resource or a CQL library
+(define (load-one! store f sps base tower)
+  (define name (file-name f))
+  (cond
+    [(regexp-match? #rx"[.]cql$" name)
+     (fhir-update! store (cql->library (file->string f) #:library-base base) #:search-params sps)
+     (cons name 1)]
+    [else
+     (define js (file-json f))
+     (cond [(not (and (hash? js) (hash-ref js 'resourceType #f))) (cons name 0)]
+           [(equal? (hash-ref js 'resourceType) "Bundle")
+            (define-values (n _resp) (load-bundle! store js #:search-params sps #:tower tower)) (cons name n)]
+           [(hash-ref js 'id #f) (fhir-update! store js #:search-params sps) (cons name 1)]
+           [else (fhir-create! store js #:search-params sps) (cons name 1)])]))

@@ -27,6 +27,7 @@
          fhir/model/registry
          fhir/result/result
          fhir/model/base
+         (only-in "patterns.rkt" pattern-matches?)
          (only-in "absent.rkt" absent)
          (only-in "temporal.rkt" temporal->string))
 
@@ -69,7 +70,7 @@
                        (list #'[(> (string-length raw) maxlen)
                                 (err (length-exceeded 'name url raw maxlen))])
                        '())
-                [(regexp-match? pat raw) (ok (sname id extension raw))]
+                [(pattern-matches? pat raw) (ok (sname id extension raw))]
                 [else (err (pattern-mismatch 'name url raw pat))]))]
          [(attribute lo)
           #'(lambda (raw #:id [id #f] #:extension [extension '()])

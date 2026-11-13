@@ -37,11 +37,22 @@
     [(not (hash-ref handlers cmd #f))
      (eprintf "raco ~a: unknown command ~a\n~a" tool cmd (overview tool usages)) (exit 2)]
     [(ormap help? (cdr args)) (printf "usage: ~a\n" (cadr (assoc cmd usages))) (exit 0)]
-    [else ((hash-ref handlers cmd) (cdr args))]))
+    [else
+     ;; `raco fhir guide workspace | head` closes the pipe early: end quietly, as a shell tool
+     ;; does (it printed "error writing to stream port … Broken pipe" and a stack trace)
+     (let ([default (uncaught-exception-handler)])
+       (uncaught-exception-handler (lambda (e) (if (broken-pipe? e) (exit 0) (default e)))))
+     ((hash-ref handlers cmd) (cdr args))]))
+
+;; broken-pipe? : exn -> boolean   stdout closed by its reader: not an error of ours
+(define (broken-pipe? e)
+  (and (exn:fail:filesystem:errno? e) (equal? (exn:fail:filesystem:errno-errno e) '(32 . posix))))
 
 (module+ test
   (require rackunit)
   (define usages '(("go" "raco t go <x>")))
   (define ran #f)
   (run-subcommands "t" usages (hash "go" (lambda (as) (set! ran as))) '("go" "1"))
-  (check-equal? ran '("1")))
+  (check-equal? ran '("1"))
+  (check-true (broken-pipe? (exn:fail:filesystem:errno "write" (current-continuation-marks) '(32 . posix))))
+  (check-false (broken-pipe? (exn:fail "other" (current-continuation-marks)))))

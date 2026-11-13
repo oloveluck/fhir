@@ -46,6 +46,9 @@
           [type-predicate-of   (-> symbol? (or/c #f procedure?))]
           [type-constructor-of (-> symbol? (or/c #f procedure?))]
           [type-registered?    (-> symbol? boolean?)]
+          ;; a number that changes whenever a type is registered: what a cache of facts derived
+          ;; from the registry (a type's ancestors, a path's static check) is valid for
+          [type-registry-generation (-> exact-nonnegative-integer?)]
           [pin-registered-types! (-> void?)]
           [unpin-registered-types! (-> void?)]
           [all-types           (-> (listof symbol?))]))
@@ -101,8 +104,11 @@
 ;; from a view). `pin-registered-types!` makes the types registered now win: a later registration
 ;; of a pinned name is ignored, a new name (ViewDefinition) is added. A workspace pins its own tower.
 (define pinned (make-hasheq))
+(define generation 0)
+(define (type-registry-generation) generation)
 (define (register-type! name spec #:schema [schema #f] #:predicate [pred #f] #:constructor [ctor #f])
   (unless (hash-ref pinned name #f)
+    (set! generation (add1 generation))
     (hash-set! type-registry name (type-info spec schema pred ctor)))
   (void))
 ;; pin-registered-types! : -> void   the types registered now are kept against later registrations
