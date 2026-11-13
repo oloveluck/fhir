@@ -137,29 +137,44 @@
 ;; problems are listed, each with its file, and nothing is loaded when one is an error. Without it the
 ;; load checks nothing (a store filled this way held `"gender": "femme"` and a server over it served it).
 (define (cmd-load db-path src [version "4.0.1"] #:validate? [validate? #f] #:packages [packages '()])
+  (define-values (tower core catalog) (version-catalog version "load"))
+  (when validate? (validate-before-load! src version core packages))
+  (define store ((dynamic-require 'fhir/store/fhir-sqlite 'open-fhir-store) db-path))
+  (define total (report-loaded ((dynamic-require 'fhir/store/load 'load-files!) store src
+                                #:search-params catalog #:tower tower)))
+  (printf "loaded ~a resources into ~a (indexed for FHIR ~a search)\n" total db-path version)
+  ((dynamic-require 'fhir/store/fhir-sqlite 'close-fhir-store) store))
+;; cmd-reindex : store-path version -> void   every stored resource indexed for search again, with
+;; the search parameters of the FHIR version (as `load` indexes): after an upgrade that changed how
+;; values are indexed, or for a store loaded with another catalogue
+(define (cmd-reindex db-path [version "4.0.1"])
+  (define-values (tower _core catalog) (version-catalog version "reindex"))
+  (define store ((dynamic-require 'fhir/store/fhir-sqlite 'open-fhir-store) db-path))
+  (define loader ((dynamic-require 'fhir/store/bulk 'make-bulk-loader) catalog tower))
+  (define n (dynamic-wind void
+                          (lambda () ((dynamic-require 'fhir/store/bulk 'reindex!) loader store))
+                          (lambda () ((dynamic-require 'fhir/store/bulk 'close-bulk-loader) loader))))
+  (printf "indexed ~a resources of ~a again (for FHIR ~a search)\n" n db-path version)
+  ((dynamic-require 'fhir/store/fhir-sqlite 'close-fhir-store) store))
+
+;; version-catalog : version command -> (values tower core-package-name catalog)   the type tower of
+;; a FHIR version (loaded), its core package and its search catalogue: the core package's over the
+;; engine's own (as a declared server searches); the engine's alone when the package is not installed
+(define (version-catalog version command)
   (define-values (tower core)
     (cond [(regexp-match? #rx"^(?i:r?4)" version) (values 'fhir/r4/schemas "hl7.fhir.r4.core.tgz")]
           [(regexp-match? #rx"^(?i:r?5)" version) (values 'fhir/r5/schemas "hl7.fhir.r5.core.tgz")]
           [(regexp-match? #rx"^(?i:r?6)" version) (values 'fhir/r6/types "hl7.fhir.r6.core.tgz")]
-          [else (eprintf "fhir-server load: --fhir-version takes 4.0.1, 5.0.0 or 6.0.0 (got ~a)\n" version) (exit 2)]))
+          [else (eprintf "fhir-server ~a: --fhir-version takes 4.0.1, 5.0.0 or 6.0.0 (got ~a)\n" command version) (exit 2)]))
   (dynamic-require tower #f)
-  (define open-store (dynamic-require 'fhir/store/fhir-sqlite 'open-fhir-store))
-  (define close-store (dynamic-require 'fhir/store/fhir-sqlite 'close-fhir-store))
   (define default-params (dynamic-require 'fhir/store/fhir-engine 'default-search-params))
   (define core-tgz ((dynamic-require 'fhir/spec-package 'spec-package-path) core #:optional? #t))
-  ;; the core catalogue over the engine's own (as a declared server searches); the engine's alone
-  ;; when the core package is not installed
-  (define catalog
-    (if core-tgz
-        ((dynamic-require 'fhir/store/ig-params 'merge-search-params)
-         default-params ((dynamic-require 'fhir/store/ig-params 'search-params-from-package) core-tgz))
-        default-params))
-  (when validate? (validate-before-load! src version core packages))
-  (define store (open-store db-path))
-  (define total (report-loaded ((dynamic-require 'fhir/store/load 'load-files!) store src
-                                #:search-params catalog #:tower tower)))
-  (printf "loaded ~a resources into ~a (indexed for FHIR ~a search)\n" total db-path version)
-  (close-store store))
+  (values tower core
+          (if core-tgz
+              ((dynamic-require 'fhir/store/ig-params 'merge-search-params)
+               default-params ((dynamic-require 'fhir/store/ig-params 'search-params-from-package) core-tgz))
+              default-params)))
+
 ;; validate-before-load! : path version core-file (listof package) -> void   exit 1 when a resource
 ;; the load would write has an error; warnings are printed and do not refuse
 (define (validate-before-load! src version core packages)
@@ -285,6 +300,7 @@
     ("check"            "raco fhir-server check <app.rkt>   the app's declarations compiled: one line per resource and operation, or its mistakes (exit 1)")
     ("serve"            "raco fhir-server serve <app.rkt> [port | --port n] [--store fhir.db] [--log]   (port 0: a free one, printed; --store: resources declared without a repository kept in that SQLite store, over the module's own #:store; --log: one line per request on stderr)")
     ("load"             "raco fhir-server load <store.db> <file|dir> [--fhir-version 4.0.1|5.0.0|6.0.0] [--validate [--package <name|file.tgz>]…]   (Bundles, resources, .cql libraries; indexed for search in that FHIR version, 4.0.1 unless said; --validate: every resource held to its type and the profiles it claims first, and nothing loaded when one has an error)")
+    ("reindex"          "raco fhir-server reindex <store.db> [--fhir-version 4.0.1|5.0.0|6.0.0]   (every stored resource indexed for search again, in one transaction: after an upgrade that changed how values are indexed, or for a store loaded as another FHIR version)")
     ("sql"              "raco fhir-server sql <store.db> \"SELECT …\"   (read-only; a view per type: id, versionId, lastUpdated, resource; resources, history; CSV out)")
     ("evaluate-measure" "raco fhir-server evaluate-measure <store.db> <Measure id|url> --period-start D --period-end D [--subject Patient/x] [--tz-offset ±hh:mm]")))
 
@@ -315,6 +331,9 @@
                                          (cond [(or (null? as) (null? (cdr as))) '()]
                                                [(equal? (car as) "--package") (cons (cadr as) (loop (cddr as)))]
                                                [else (loop (cdr as))]))))
+         "reindex" (lambda (as) (need as 0 "reindex")
+                     (unless (file-exists? (arg as 0)) (usage-error "fhir-server" usages "reindex" (format "no such store: ~a" (arg as 0))))
+                     (cmd-reindex (arg as 0) (let ([m (member "--fhir-version" as)]) (if (and m (pair? (cdr m))) (cadr m) "4.0.1"))))
          "sql" (lambda (as) (need as 1 "sql")
                  (unless (file-exists? (arg as 0)) (usage-error "fhir-server" usages "sql" (format "no such store: ~a" (arg as 0))))
                  (cmd-sql (arg as 0) (arg as 1)))
