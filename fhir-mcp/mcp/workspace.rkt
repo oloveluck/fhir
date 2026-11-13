@@ -30,6 +30,8 @@
   ;; open-hub : dir [#:data override] [#:packages extra] -> hub
   [open-hub        (->* (path-string?) (#:data (or/c string? #f) #:packages (listof string?)) hub?)]
   [hub-root        (-> hub? path?)]
+  ;; data-remote? : the workspace's data is a FHIR server (a base url)
+  [data-remote?    (-> hub? boolean?)]
   [with-hub        (-> hub? (-> any) any)]
   ;; with-manifest : hub manifest-argument thunk -> value   a call under the pins it names
   ;; (a Parameters resource, its JSON text, or Parameters/<id>); #f: the workspace's own

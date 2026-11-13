@@ -20,6 +20,7 @@
  (struct-out tool)
  (contract-out
   [tool->jsexpr      (-> tool? hash?)]
+  [with-hints        (-> tool? hash? tool?)]
   [call-tool         (-> tool? hash? (values string? boolean?))]
   [load-operations!  (-> (listof symbol?))]
   ;; apply-json : operation inputs resource|#f -> resource   inputs by name (a list for several
@@ -32,8 +33,18 @@
 
 (struct tool (name description input-schema run) #:transparent)
 
+;; A hinted tool also says how it behaves, as MCP's tool annotations (Tool.annotations: `title`,
+;; `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`): what a client reads to
+;; decide which calls it may make without asking its user. Hints is a hasheq of those keys.
+(struct hinted tool (hints) #:transparent)
+
+;; with-hints : tool Hints -> tool
+(define (with-hints t hints)
+  (hinted (tool-name t) (tool-description t) (tool-input-schema t) (tool-run t) hints))
+
 (define (tool->jsexpr t)
-  (hasheq 'name (tool-name t) 'description (tool-description t) 'inputSchema (tool-input-schema t)))
+  (define js (hasheq 'name (tool-name t) 'description (tool-description t) 'inputSchema (tool-input-schema t)))
+  (if (hinted? t) (hash-set js 'annotations (hinted-hints t)) js))
 
 ;; call-tool : tool arguments -> (values text error?)   never raises
 (define (call-tool t args)

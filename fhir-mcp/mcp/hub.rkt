@@ -34,7 +34,7 @@
          "tools.rkt" "calls.rkt" "results.rkt")
 
 ;; For the verbs' modules; what other code calls is workspace.rkt, where the contracts are.
-(provide (struct-out hub) (struct-out stored) (struct-out change) (struct-out staged) hub-root open-hub
+(provide (struct-out hub) (struct-out stored) (struct-out change) (struct-out staged) hub-root open-hub data-remote?
          configure! store-file? data-store-path open-store with-hub guide-file? current-manifest current-repository hub-manifest path-string rel from-here at-root?
          inside argument-source shown-path path-from-here files-by-language refresh! problems-of problem-json count-severity
          state-dir saved-names next-number save-state! staged->jsexpr store! result-of result-of* stage-of
@@ -132,6 +132,11 @@
                (list (format "the store holds ~a implementation guides (~a): none is taken as the workspace's — hand one back as its file (write path=sushi-config.yaml ref=ImplementationGuide/<id>)"
                              (length guides) (string-join (map reference guides) ", ")))
                #f)]))
+
+;; data-remote? : hub -> boolean   the data is a FHIR server (a base url), not files or a store here
+(define (data-remote? h)
+  (define d (or (hub-data-override h) (ws-config-data (workspace-config (hub-ws h)))))
+  (and (string? d) (rest-url? d)))
 
 ;; store-file? : data-setting -> boolean   a SQLite FHIR store (fhir-server's): `data: fhir.db`
 (define (store-file? d) (and (string? d) (regexp-match? #rx"[.](db|sqlite|sqlite3)$" d)))

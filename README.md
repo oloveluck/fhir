@@ -1,12 +1,26 @@
 # fhir
 
-Tools for working with [FHIR](https://hl7.org/fhir/), the standard for exchanging health data.
+A [FHIR](https://hl7.org/fhir/) implementation designed to be used by AI agents, and by the people
+who work with them.
 
-FHIR comes with a handful of small languages: one for saying what valid data looks like, one for
-clinical logic, one for converting data, one for naming sets of codes, one for asking questions of a
-record, one for turning records into tables. This project implements them all, with a validator, a
-terminology service and FHIR servers around them. Every tool tells you where a problem is, to the
-line and column.
+FHIR is the standard for exchanging health data. It comes with a handful of small languages: one
+for saying what valid data looks like, one for clinical logic, one for converting data, one for
+naming sets of codes, one for asking questions of a record, one for turning records into tables.
+This project implements them all, with a validator, a terminology service and FHIR servers around
+them, built so that an agent can do real work with health data and you can check what it did:
+
+- **Answers are small and exact.** A problem is one line at its file, line and column, saying what
+  was found and what would fix it. A resource can be read as a few lines of FHIR Shorthand instead
+  of a page of JSON, a result as a table.
+- **Nine tools, whatever the task.** One MCP server, `fhir-mcp`, gives an agent a workspace: write,
+  check, run, query, explain, describe, apply, stage, commit, over all six languages, a store,
+  search and SQL. The same nine work from a shell.
+- **Nothing is written unchecked, and every write can be traced.** A change is staged, held to your
+  rules, and committed with a FHIR Provenance: who, when, why, and the text that produced it.
+- **It teaches itself.** `fhir guide <topic>` prints a guide written for an agent, for each language
+  and for FHIR itself; every example in the guides is run by the tests.
+- **It is measured.** Against HL7's own test suites and published guides, and by handing new agents
+  real tasks with nothing but these documents, then fixing whatever slowed them down.
 
 | You want to | Language | Tool |
 |---|---|---|
@@ -40,15 +54,17 @@ fhir/build-tools.sh dist
 export PATH="$PWD/dist/bin:$PATH"
 ```
 
-For an AI agent, `fhir-mcp init my-workspace` then makes a directory it can work in.
+For an agent, `fhir-mcp init my-workspace` then makes a directory it can work in: a store, the
+MCP server's configuration (`.mcp.json`), and a note telling the agent where to start.
 
 ## Documentation
 
 **[oloveluck.github.io/fhir](https://oloveluck.github.io/fhir/)** is where to start: what each
 piece is for, a first example of each, and the reference.
 
+- For agents: the `fhir` skill, [.claude/skills/fhir/SKILL.md](.claude/skills/fhir/SKILL.md), and
+  `fhir guide`.
 - How well it works, measured against HL7's own test suites: [TESTING.md](TESTING.md).
-- For AI agents: the `fhir` skill, [.claude/skills/fhir/SKILL.md](.claude/skills/fhir/SKILL.md).
 - How it is built: [CLAUDE.md](CLAUDE.md).
 
 License: MIT. The HL7 packages in `fhir-spec/` are CC0-1.0.

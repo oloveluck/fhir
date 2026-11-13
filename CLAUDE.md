@@ -64,7 +64,8 @@ operation), stage (validated, diffed against the data) and commit (a data direct
 server only when allowed; a stage with errors is refused). `fhir/rest-data-source` is a FHIR server
 as a data source (paged searchsets, `patient` then `subject` learned per type, `rest-write!`); a
 server that cannot answer a ValueSet or Library search is treated as holding none. Tool definitions:
-~6 KB for the nine verbs (the 25 per-operation and per-language tools they replaced were ~53 KB).
+~12 KB for the nine verbs, held under a ceiling by `tests/tool-budget-test.rkt` (the 25
+per-operation and per-language tools they replaced were ~53 KB).
 
 Seams (each a one-module move):
 - `kernel/operation-entry.rkt` (fhir) holds the struct generated `operations.rkt` files need, so the
@@ -2041,6 +2042,20 @@ Limit of the manual, each has a test doing it):
   parameters as a form.
 - server-cli.rkt's `validate-before-load!` is three functions and a `Finding` (context, one
   resource's finding, the report).
+**fhir-mcp, what an agent pays and what a client may run unasked** (the start of "a FHIR
+implementation designed to be used by agents" as something measured):
+- **Tool annotations** (`mcp/verbs.rkt` `verb-behaviour`, a table; `mcp/tools.rkt` `hinted`,
+  `with-hints`): each verb says, in MCP's own terms, whether it only reads (`check`, `explain`,
+  `describe`), can replace something (`write`, `apply`, `commit`), is idempotent, and reaches
+  beyond the workspace (`apply` always; the others only when the data is a FHIR server —
+  `data-remote?`). A client can run the reading verbs without asking its user.
+- **Protocol negotiation** (`mcp/server.rkt` `negotiated-version`): 2025-06-18, 2025-03-26 and
+  2024-11-05; the server answered 2024-11-05 whatever it was asked.
+- **A token budget, ratcheted** (`tests/tool-budget-test.rkt`): the nine tools' definitions are a
+  ceiling that only comes down (12,300 bytes; they were 14,041 — and 6 KB thirty rounds earlier,
+  which is what this file still claimed). Two repetitions went: the `manifest` property's sentence
+  on seven tools, and `run`'s property descriptions repeated on `query` ("as for run").
+
 Left, named: a delete is not a history entry (it needs a tombstone row in `fhir_history`, vread of
 it answering 410, and fhir-mcp's `history`/`trail` views taught to show or skip it); conditional
 create/update/delete by search; `If-Match` is checked just before the write, not atomically with

@@ -40,14 +40,22 @@
     "A FHIR server is a <name>.capability.rkt file (#lang fhir/capability): run serves it over the same store. "
     "Read learn://fhir and learn://workspace first, and learn://<language> (fsh, cql, fhirpath, vcl, fml, sql-on-fhir, capability, search) before writing a language: each has a cheat sheet and links to its official specification.")))
 (provide current-server-instructions)
-(define protocol-version "2024-11-05")
+;; the protocol revisions this server speaks, newest first. What it uses of the protocol (tools,
+;; resources, prompts, instructions) reads the same in each; tool annotations are 2025-03-26's and
+;; are ignored by an older client.
+(define protocol-versions '("2025-06-18" "2025-03-26" "2024-11-05"))
+(define protocol-version (car protocol-versions))
+;; negotiated-version : requested|any -> string   the client's revision when this server speaks it,
+;; else this server's newest (the client then decides whether to go on) — MCP's version negotiation
+(define (negotiated-version requested)
+  (if (member requested protocol-versions) requested protocol-version))
 
 ;; ---- the handlers, a table: method -> (params state -> (values result state)) ----------------
 (define handlers
   (hash "initialize"
         (lambda (params st)
           (set-box! current-agent (agent-from-client (hash-ref params 'clientInfo #f)))   ; who the trail names
-          (values (hasheq 'protocolVersion protocol-version
+          (values (hasheq 'protocolVersion (negotiated-version (hash-ref params 'protocolVersion #f))
                           'capabilities (hasheq 'tools (hasheq 'listChanged #f)
                                                 'resources (hasheq 'listChanged #f 'subscribe #f)
                                                 'prompts (hasheq 'listChanged #f))
@@ -125,6 +133,11 @@
   (define st0 (state (list echo) #f))
   (define-values (r1 s1) (dispatch (request 1 "initialize" (hasheq 'protocolVersion protocol-version)) st0))
   (check-equal? (hash-ref (hash-ref r1 'result) 'protocolVersion) protocol-version)
+  ;; an older client is answered in its own revision; one this server does not know, in its newest
+  (let-values ([(r _s) (dispatch (request 1 "initialize" (hasheq 'protocolVersion "2024-11-05")) st0)])
+    (check-equal? (hash-ref (hash-ref r 'result) 'protocolVersion) "2024-11-05"))
+  (let-values ([(r _s) (dispatch (request 1 "initialize" (hasheq 'protocolVersion "1999-01-01")) st0)])
+    (check-equal? (hash-ref (hash-ref r 'result) 'protocolVersion) protocol-version))
   (define-values (r2 s2) (dispatch (notification "notifications/initialized") s1))
   (check-false r2) (check-true (state-initialized? s2))
   (define-values (r3 s3) (dispatch (request 2 "tools/list") s2))

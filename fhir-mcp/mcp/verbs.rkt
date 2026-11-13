@@ -12,7 +12,7 @@
 ;;; with error? true. Nothing raises.
 
 (require racket/contract racket/list racket/string json
-         (only-in "tools.rkt" tool tool-name tool-input-schema tool-run)
+         (only-in "tools.rkt" tool tool-name tool-input-schema tool-run with-hints)
          (only-in fhir/serialize/fhir-json key-order fhir-json->string)
          (only-in fhir/diagnostic exn:fail:diagnostic? exn:fail:diagnostic-diagnostic diagnostic->jsexpr diagnostic-message)
          (only-in fhir/operation exn:fail:operation? exn:fail:operation-outcome)
@@ -80,6 +80,11 @@
           'as (s "\"csv\": answer the result's rows as CSV (the result is kept and named all the same)")
           'columns (s "with as: \"csv\": the columns to keep, in order (\"patient,Latest Number,Latest Date\")")
           'sort (s "with as: \"csv\": the column to order rows by (\"Name\"; \"-Name\" descending)")))
+;; as-for-run : the same properties for `query`, each described by reference: the two verbs take
+;; them alike, and the sentences above are read once
+(define as-for-run
+  (for/hasheq ([(k v) (in-hash run-props)])
+    (values k (hash-set v 'description "as for run"))))
 
 ;; as-csv : hub args answer-jsexpr -> answer   a run's or query's rows as CSV when asked (`run … as=csv
 ;; columns="Name,Latest Number"`: a CQL run's table in one call — it took a SQL query and a describe)
@@ -92,8 +97,12 @@
 ;; it names, in place of the workspace's (CRMI's manifest parameters: which version an unversioned
 ;; canonical means)
 (define ((under-manifest h) t)
+  ;; said in full once (on `check`, the first tool that takes it) and by reference on the others:
+  ;; seven copies of the sentence were a sixth of the tool definitions an agent reads every session
   (define manifest-property
-    (s "pinned versions for this call, in place of the guide's: a Parameters resource (its JSON, or manifest=@pins.json) or Parameters/<id> — e.g. default-canonical-version = <url>|<version> holds the data to a draft"))
+    (s (if (equal? (tool-name t) "check")
+           "pinned versions for this call, in place of the guide's: a Parameters resource (its JSON, or manifest=@pins.json) or Parameters/<id> — e.g. default-canonical-version = <url>|<version> holds the data to a draft"
+           "pinned versions for this call (as for check)")))
   (cond
     [(member (tool-name t) '("write" "commit")) t]
     [else
@@ -107,7 +116,42 @@
                              ((tool-run t) args)))])]))
 
 (define (workspace-tools h)
-  (map (under-manifest h) (workspace-tools* h)))
+  (for/list ([t (in-list (workspace-tools* h))])
+    (with-hints ((under-manifest h) t) (verb-hints (tool-name t) (data-remote? h)))))
+
+;; verb-behaviour : what each verb does to the world, as MCP's tool annotations say it
+;; (https://modelcontextprotocol.io/specification — Tool.annotations). A row is
+;;   (name title reads-only? may-overwrite? idempotent? reaches-data?)
+;; reads-only?    nothing is changed: no file, no data, no stage, no result kept
+;; may-overwrite? what it changes can replace something that was there (a file, a stored version)
+;; idempotent?    the same call again changes nothing more
+;; reaches-data?  it reads or writes the workspace's data — the open world when the data is a FHIR
+;;                server, the workspace itself otherwise (`apply` can always be sent to a server)
+(define verb-behaviour
+  ;;  name       title                              reads  overwr idem   data
+  '(("write"    "Save a workspace file"             #f     #t     #t     #f)
+    ("check"    "Check the workspace"               #t     #f     #t     #t)
+    ("run"      "Run a file against the data"       #f     #f     #f     #t)
+    ("query"    "Ask once, without a file"          #f     #f     #f     #t)
+    ("explain"  "Explain one subject's answer"      #t     #f     #t     #t)
+    ("describe" "Read anything by reference"        #t     #f     #t     #t)
+    ("apply"    "Apply a FHIR operation"            #f     #t     #f     always)
+    ("stage"    "Prepare a write"                   #f     #f     #f     #t)
+    ("commit"   "Write a stage to the data"         #f     #t     #f     #t)))
+
+;; verb-hints : name remote? -> Hints   the row as MCP's keys. `run` and `query` keep a result (and
+;; `run` may start a served app), so they are not read-only, though they change no data.
+(define (verb-hints name remote?)
+  (define row (assoc name verb-behaviour))
+  (cond
+    [(not row) (hasheq)]
+    [else
+     (define-values (title reads? overwrites? idempotent? data) (apply values (cdr row)))
+     (hasheq 'title title
+             'readOnlyHint reads?
+             'destructiveHint (and (not reads?) overwrites?)
+             'idempotentHint idempotent?
+             'openWorldHint (or (eq? data 'always) (and data remote?)))]))
 
 (define (workspace-tools* h)
   (list
@@ -138,7 +182,7 @@
          (lambda (args) (answer (lambda () (as-csv h args (hub-run h (need args 'path) args))))))
    (tool "query"
          "Ask once without saving a file. language: fhirpath (an expression; `over` a type or Type/id), cql (an expression, evaluated per patient, or a whole library), vcl (an expression, expanded), search (Type?name=value…, a FHIR search over the data, files included), view (a ViewDefinition as JSON), sql (one SELECT over the tables: each *.view.json by its file name or `name`, earlier results by their names — a run of diabetes.cql is `diabetes`, a query given `name` that name — and as r1, r2 …; group, join, count, average). Answers like run."
-         (schema (hash-set* run-props 'language (hasheq 'type "string" 'enum '("fhirpath" "cql" "vcl" "search" "view" "sql"))
+         (schema (hash-set* as-for-run 'language (hasheq 'type "string" 'enum '("fhirpath" "cql" "vcl" "search" "view" "sql"))
                             'text (s "the expression, library, search, view or SQL statement")
                             'strict (hasheq 'type "boolean" 'description "search: refuse a search with a parameter it cannot apply (by default the answer lists them as `ignored`)"))
                  '("language" "text"))
@@ -194,6 +238,17 @@
 
 (module+ test
   (require rackunit)
+  ;; the verbs that only read say so (a client may run them without asking); the two that can
+  ;; replace something are marked; nothing reaches beyond the workspace unless its data is a server
+  (check-equal? (for/list ([r (in-list verb-behaviour)] #:when (hash-ref (verb-hints (car r) #f) 'readOnlyHint)) (car r))
+                '("check" "explain" "describe"))
+  (check-equal? (for/list ([r (in-list verb-behaviour)] #:when (hash-ref (verb-hints (car r) #f) 'destructiveHint)) (car r))
+                '("write" "apply" "commit"))
+  (check-equal? (for/list ([r (in-list verb-behaviour)] #:when (hash-ref (verb-hints (car r) #f) 'openWorldHint)) (car r))
+                '("apply"))
+  (check-equal? (for/list ([r (in-list verb-behaviour)] #:when (hash-ref (verb-hints (car r) #t) 'openWorldHint)) (car r))
+                '("check" "run" "query" "explain" "describe" "apply" "stage" "commit"))
+  (check-equal? (hash-ref (verb-hints "commit" #f) 'title) "Write a stage to the data")
   ;; a Quantity inside an answer reads value, unit, system, code (an explain printed them alphabetically)
   (check-equal? (answer-json (hasheq 'value (hasheq 'code "%" 'system "http://unitsofmeasure.org" 'unit "%" 'value 8.9)))
                 "{\"value\":{\"value\":8.9,\"unit\":\"%\",\"system\":\"http://unitsofmeasure.org\",\"code\":\"%\"}}"))
