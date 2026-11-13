@@ -48,8 +48,12 @@ that same catalog — advertised params and working search can't drift.
 ## Load resources / Bundles
 
 ```sh
-raco fhir-server load <store.db> <bundle.json | dir>
+raco fhir-server load <store.db> <bundle.json | dir> [--fhir-version 4.0.1|5.0.0|6.0.0]
 ```
+
+Indexed for every search FHIR defines for the type, in R4 unless `--fhir-version` says otherwise
+(a `#lang fhir/capability` app is R6). `load` does not validate; a server validates what is written
+through it, single writes and each entry of a transaction or batch alike.
 
 Handles `transaction` (atomic, one store transaction, `urn:uuid` reference resolution + spec-ordered
 apply), `batch` (per-entry outcomes), and `collection` (the Synthea create-batch shape). A

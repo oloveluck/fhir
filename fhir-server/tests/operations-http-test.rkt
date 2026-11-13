@@ -12,7 +12,7 @@
          (only-in fhir/capability/operations operations-app)
          (only-in fhir/operation apply-operation)
          (only-in fhir/conformance/operations $validate)
-         (only-in fhir/terminology/operations $expand))
+         (only-in fhir/terminology/operations $expand $validate-code $cs-validate-code))
 
 (define gender "http://hl7.org/fhir/ValueSet/administrative-gender")
 (define (get a path [query '()]) (let-values ([(st js) (handle a "GET" path query "")]) (values st js)))
@@ -43,6 +43,20 @@
 (let-values ([(st oo) (get a "/ValueSet/$expand" (list (cons 'url gender) (cons 'cuont "1")))])
   (check-equal? st 400)
   (check-regexp-match #rx"'cuont' is not an input of [$]expand [(]did you mean `count`[?][)]" (hash-ref (car (hash-ref oo 'issue)) 'diagnostics)))
+
+;; two definitions share the code validate-code: each route is held to its own type's inputs
+;; (/ValueSet/$validate-code refused `system`, an input of ValueSet's definition, not CodeSystem's)
+(let ([tx (operations-app (list $validate-code $cs-validate-code))]
+      [system "http://hl7.org/fhir/administrative-gender"])
+  (define (result ps) (for/or ([p (in-list (hash-ref ps 'parameter '()))]) (and (equal? (hash-ref p 'name) "result") (hash-ref p 'valueBoolean))))
+  (let-values ([(st ps) (get tx "/ValueSet/$validate-code" (list (cons 'url gender) (cons 'system system) (cons 'code "male")))])
+    (check-equal? st 200)
+    (check-true (result ps)))
+  (let-values ([(st ps) (get tx "/CodeSystem/$validate-code" (list (cons 'url system) (cons 'code "male")))])
+    (check-equal? st 200)
+    (check-true (result ps)))
+  (let-values ([(st oo) (get tx "/CodeSystem/$validate-code" (list (cons 'url system) (cons 'system system) (cons 'code "male")))])
+    (check-equal? st 400)))
 
 ;; ---- exposed from a #lang fhir/capability app -------------------------------------------------
 (define app (dynamic-require (collection-file-path "ops-app.rkt" "fhir" "tests") 'app))

@@ -209,17 +209,18 @@
   (string-append
    "#lang s-exp syntax/module-reader\n\n"
    ";;; GENERATED — reader: wrap each top form as (fhir-resource-form <form>); the module\n"
-   ";;; language " mod " (via fhir/kernel/kit) builds it to a typed node.\n\n"
+   ";;; language " mod " (via fhir/kernel/kit) builds it to a typed node. Forms are read as\n"
+   ";;; syntax, so a mistake in one is reported at its place in the file.\n\n"
    mod "\n"
    "#:read        lang-read\n"
    "#:read-syntax lang-read-syntax\n"
    "#:whole-body-readers? #t\n\n"
    "(define (lang-read-syntax src in)\n"
    "  (let loop ([acc '()])\n"
-   "    (define form (read in))\n"
+   "    (define form (read-syntax src in))\n"
    "    (if (eof-object? form)\n"
    "        (reverse acc)\n"
-   "        (loop (cons (datum->syntax #f (list 'fhir-resource-form form)) acc)))))\n\n"
+   "        (loop (cons (datum->syntax #f (list 'fhir-resource-form form) form) acc)))))\n\n"
    "(define (lang-read in)\n"
    "  (map syntax->datum (lang-read-syntax #f in)))\n"))
 

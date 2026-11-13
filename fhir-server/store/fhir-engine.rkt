@@ -31,6 +31,7 @@
          (only-in fhir/serialize/from-json from-json)
          (only-in fhir/result/result ok? ok-value)
          (only-in fhirpath/parser/parse parse-fhirpath)
+         (only-in fhirpath/parser/ast fp-binop? fp-binop-op fp-binop-lhs fp-binop-rhs)
          (only-in fhirpath/eval eval-fhirpath)
          (only-in fhir/model/node fhir? fhir-ref fhir-type)
          (only-in fhir/model/base primitive-type? primitive-type-value)
@@ -208,11 +209,29 @@
   (if (not node)
       '()
       (for*/list ([e (in-list entries)]
-                  [row (in-list (rows-for (cadr e)
-                                          (with-handlers ([exn:fail? (lambda (_) '())])
-                                            (eval-fhirpath (parse-fhirpath (caddr e)) (list node) #:strict? #f))))])
+                  [row (in-list (rows-for (cadr e) (path-values (caddr e) node)))])
         (define-values (table vals) (row-table+values row))
         (list (car e) table vals))))
+
+;; path-values : fhirpath-text node -> (listof item)
+;; What a search parameter's expression selects in a resource, one `|` branch at a time: a branch
+;; that does not evaluate on this type selects nothing, and the others still count. FHIR's own
+;; multi-type expressions carry branches written for another type without naming it (R6's `date`:
+;; `(start | requestedPeriod.start).first() | … | Observation.effective.ofType(dateTime) | …`), and
+;; evaluated whole, the one failing branch left every Observation without a date to search by.
+(define (path-values text node)
+  (define (branches ast)
+    (if (and (fp-binop? ast) (eq? (fp-binop-op ast) 'union))
+        (append (branches (fp-binop-lhs ast)) (branches (fp-binop-rhs ast)))
+        (list ast)))
+  (define ast (with-handlers ([exn:fail? (lambda (_) #f)]) (parse-fhirpath text)))
+  (if (not ast)
+      '()
+      (remove-duplicates
+       (for*/list ([b (in-list (branches ast))]
+                   [v (in-list (with-handlers ([exn:fail? (lambda (_) '())])
+                                 (eval-fhirpath b (list node) #:strict? #f)))])
+         v))))
 
 ;; index-rows/text : (list json-text entries) -> (listof IndexRow)   index-rows for a worker
 (define (index-rows/text item) (index-rows (string->jsexpr (car item)) (cadr item)))

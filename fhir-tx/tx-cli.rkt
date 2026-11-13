@@ -16,13 +16,14 @@
 ;;; operation's FHIR JSON (a ValueSet or a Parameters) on stdout.
 ;;; Exit codes: 0 ok · 1 the operation failed / a suite regression · 2 usage.
 
-(require racket/list racket/string
+(require racket/list racket/string (only-in racket/os getpid)
          (only-in json jsexpr->string)
          (only-in fhir/subcommands run-subcommands usage-error)
          (only-in fhir/spec-package spec-package-path)
          (only-in fhir/sd/sd-index current-sd-packages)
          (only-in fhir/terminology/service packages->resolver expand/json validate-code/json
-                  lookup/json translate/json subsumes/json))
+                  lookup/json translate/json subsumes/json
+                  implicit-vcl-valueset rule-systems-without-content))
 
 (provide resolver-of split-options)
 
@@ -66,7 +67,9 @@
   (define ops (dynamic-require 'fhir/terminology/operations 'terminology-operations))
   (define capabilities ((dynamic-require 'fhir/terminology/operations 'current-terminology-capabilities) #:url url))
   (define stop (serve-operations ops #:port port #:url url #:terminology-capabilities capabilities))
-  (printf "terminology server on http://localhost:~a  (GET /metadata, /metadata?mode=terminology; Ctrl-C to stop)\n" port)
+  (printf "terminology server on http://localhost:~a  (GET /metadata, /metadata?mode=terminology; Ctrl-C, or kill ~a, to stop)\n"
+          port (getpid))
+  (flush-output)                                   ; a script waiting on a log file reads the line now
   (with-handlers ([exn:break? (lambda (_) (stop))]) (sync/enable-break never-evt)))
 
 (define (option opts name [default #f])
@@ -74,10 +77,19 @@
 
 (define (print-json js) (displayln (jsexpr->string js)))
 
+;; known! : resolver kind url -> void   exits 1 with one line when the packages read define no such
+;; resource: an empty expansion or an empty Parameters said nothing of a misspelt url
+(define (known! r kind url packages)
+  (unless (or (r url) (and (equal? kind "ValueSet") (implicit-vcl-valueset url)))
+    (eprintf "fhir-tx: no ~a ~a in ~a\n" kind url
+             (if (null? packages) "the R5 core package (name others with --package)" (string-join packages ", ")))
+    (exit 1)))
+
 (define (run cmd args)
   (define-values (pos opts) (split-options args))
   (define (need n) (unless (= (length pos) n) (usage-error "fhir-tx" usages cmd)))
-  (define r (resolver-of (hash-ref opts "--package" '())))
+  (define packages (hash-ref opts "--package" '()))
+  (define r (resolver-of packages))
   (with-handlers ([exn:fail? (lambda (e) (eprintf "fhir-tx: ~a\n" (exn-message e)) (exit 1))])
     (case cmd
       [("expand")
@@ -86,18 +98,27 @@
          (for/hash ([k '("filter" "count" "offset")] #:when (option opts (string-append "--" k)))
            (values k (let ([v (option opts (string-append "--" k))])
                        (if (member k '("count" "offset")) (or (string->number v) v) v)))))
+       (known! r "ValueSet" (car pos) packages)
+       (define absent (rule-systems-without-content r (car pos)))
+       (unless (null? absent)
+         (eprintf "fhir-tx: not every code is listed: the value set selects from ~a by rule, and that content is not in the packages (the expansion is marked valueset-unclosed)\n"
+                  (string-join absent ", ")))
        (print-json (expand/json r (car pos) #f params))]
       [("validate-code")
        (need 3)
+       (known! r "ValueSet" (car pos) packages)
        (print-json (validate-code/json r (car pos) (caddr pos) (cadr pos) #:display (option opts "--display")))]
       [("lookup")
        (need 2)
+       (known! r "CodeSystem" (car pos) packages)
        (print-json (lookup/json r (car pos) (cadr pos)))]
       [("translate")
        (need 2)
+       (known! r "ConceptMap" (car pos) packages)
        (print-json (translate/json r (car pos) (cadr pos) (option opts "--system")))]
       [("subsumes")
        (need 3)
+       (known! r "CodeSystem" (car pos) packages)
        (print-json (subsumes/json r (car pos) (cadr pos) (caddr pos)))])))
 
 (module+ main

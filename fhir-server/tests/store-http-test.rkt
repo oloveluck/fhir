@@ -60,6 +60,10 @@
       (hash-ref (string->jsexpr b) 'id)))
   (let-values ([(s _) (req "POST" "/Patient" "{\"resourceType\":\"Patient\",\"gender\":\"male\"}")])
     (check-equal? s 201))
+  ;; a PUT that makes the resource is a create (201); the next PUT of it is an update (200)
+  (let ([chosen "{\"resourceType\":\"Patient\",\"id\":\"chosen\",\"gender\":\"unknown\"}"])
+    (let-values ([(s _) (req "PUT" "/Patient/chosen" chosen)]) (check-equal? s 201))
+    (let-values ([(s _) (req "PUT" "/Patient/chosen" chosen)]) (check-equal? s 200)))
 
   ;; search endpoints hit the store's indexes via the IG-derived FHIRPath
   (let-values ([(s b) (req "GET" "/Patient?gender=female")])

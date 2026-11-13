@@ -20,8 +20,7 @@
          (only-in fhir/registry registered-resources)
          (only-in fhir/serialize/read-json strip-jnum)
          (only-in fhir/conformance/validate validate-issues issue-severity issue-code issue-path issue-msg)
-         (only-in fhir/terminology/operations current-terminology-resolver)
-         (only-in fhir/terminology/service make-terminology/resolver))
+         (only-in fhir/terminology/operations current-terminology-resolver))
 
 (provide $validate ensure-valid)
 
@@ -53,7 +52,9 @@
                  (append ((data-source-all (current-data-source)) "StructureDefinition")
                          (registered-resources "StructureDefinition")))))
      (issues->outcome (validate-issues (strip-jnum r) #:profiles (remove-duplicates (append (if profile (list profile) '()) claimed))
-                                       #:terminology (make-terminology/resolver (current-terminology-resolver)))))))
+                                       ;; the resolver itself: asked as JSON, so a required code is
+                                       ;; checked whether or not the caller loaded a FHIR version
+                                       #:terminology (current-terminology-resolver))))))
 
 ;; ensure-valid : resource [#:profile canonical] -> resource   or exn:fail:operation with the outcome
 (define (ensure-valid r #:profile [profile #f])

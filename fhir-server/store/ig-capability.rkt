@@ -135,9 +135,13 @@
                                  (hasheq 'description (format "generated from ~a ~a" (ig-plan-name plan) (ig-plan-version plan))))
              'rest (list (hash-set* (hash-remove (hash-remove rest 'searchParam) 'operation)
                                     'resource resources
-                                    'interaction (filter (lambda (i) (member (hash-ref i 'code #f) '("transaction" "batch")))
-                                                         (append (hash-ref rest 'interaction '())
-                                                                 (list (hasheq 'code "transaction") (hasheq 'code "batch"))))))))
+                                    ;; transaction and batch, once each: the IG's own entry (it
+                                    ;; carries its expectation) where it has one
+                                    'interaction (remove-duplicates
+                                                  (filter (lambda (i) (member (hash-ref i 'code #f) '("transaction" "batch")))
+                                                          (append (hash-ref rest 'interaction '())
+                                                                  (list (hasheq 'code "transaction") (hasheq 'code "batch"))))
+                                                  #:key (lambda (i) (hash-ref i 'code #f)))))))
 
 ;; trim-resource : rest.resource Executes -> rest.resource
 ;; the resource's operations, includes, interactions and search parameters narrowed to what runs
@@ -213,6 +217,12 @@
   (check-false (hash-has-key? inst 'id))
   (define irest (car (hash-ref inst 'rest)))
   (check-equal? (map (lambda (x) (hash-ref x 'code)) (hash-ref irest 'interaction)) '("transaction" "batch"))
+  ;; a guide that lists transaction itself: once each, the guide's entry (with its expectation) kept
+  (let* ([own (hash-set cs 'rest (list (hash-set rest 'interaction (list (i "transaction")))))]
+         [plan (ig-plan "x.ig" "1.0.0" "4.0.1" 'fhir/r4/schemas "core.tgz" own (append served (list unserved)))]
+         [listed (hash-ref (car (hash-ref (instance-capability plan served ex "http://me") 'rest)) 'interaction)])
+    (check-equal? (map (lambda (x) (hash-ref x 'code)) listed) '("transaction" "batch"))
+    (check-equal? (hash-ref (car listed) 'extension #f) (list shall)))
   (check-false (hash-has-key? irest 'searchParam))
   (check-equal? (length (hash-ref irest 'resource)) 1)
   (define ipatient (car (hash-ref irest 'resource)))

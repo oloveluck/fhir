@@ -20,7 +20,9 @@
 ;; the reader's top-level wrapper: expands to the form itself (its type macro builds the node).
 (define-syntax (fhir-resource-form stx)
   (syntax-parse stx
-    [(_ (type . rest)) #'(type . rest)]))
+    ;; the form itself, as read: it keeps its place in the user's file, so a mistake the type macro
+    ;; finds is reported there (rebuilt from a template it was "at" this module)
+    [(_ (~and form (type . rest))) #'form]))
 
 (define-syntax (kit-module-begin stx)
   (syntax-parse stx

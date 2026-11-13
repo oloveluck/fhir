@@ -58,7 +58,10 @@
   ;; the CodeSystems a package list holds, and what a server publishes about all this
   [terminology-capabilities (->* ((listof hash?)) (#:url (or/c string? #f)) hash?)]
   ;; the ValueSet an implicit VCL url (http://fhir.org/VCL?v1=<expression>) stands for, else #f
-  [implicit-vcl-valueset (-> string? (or/c hash? #f))])
+  [implicit-vcl-valueset (-> string? (or/c hash? #f))]
+  ;; the code systems a value set selects from by rule whose content is not here: its expansion
+  ;; is short of them (marked valueset-unclosed) and membership of their codes is undecided
+  [rule-systems-without-content (->* (resolver/c string?) ((or/c string? #f) (listof string?)) (listof string?))])
  (struct-out version-policy)
  ;; the index layer (index.rkt): resolvers over packages or resources, and what they hold
  packages->resolver resources->resolver packages->code-systems
@@ -239,6 +242,34 @@
 ;;   includeDesignations    emit contains.designation
 ;;   property               emit contains.property for the named properties
 ;; `excludeNested` is accepted and ignored: our expansion is already flat, which is what it asks for.
+;; rule-systems-without-content : resolver url [version] -> (listof system-url)
+;; The code systems this value set selects from BY RULE — a filter, or the whole system — whose
+;; content is not here: no CodeSystem resource for it, or one that does not list every code
+;; (SNOMED CT, LOINC and RxNorm are `not-present` placeholders in the core packages). Such an include
+;; contributes nothing to an expansion made here, so the expansion is short of codes the definition
+;; includes, and "not in the expansion" does not mean "not in the value set". An include that LISTS
+;; its codes needs no content and is not counted. Imported value sets are followed.
+(define (rule-systems-without-content resource url [version #f] [visited '()])
+  (define vs (and (not (member url visited)) (or (resource url version) (implicit-vcl-valueset url))))
+  (remove-duplicates
+   (for*/list ([inc (in-list (if vs (jlist (jref vs 'compose) 'include) '()))]
+               [found (in-list
+                       (append
+                        (let ([system (jref inc 'system)])
+                          (if (and (string? system) (null? (jlist inc 'concept))
+                                   (let ([cs (resource system (jref inc 'version))])
+                                     (not (and cs (complete-codesystem? cs)))))
+                              (list system)
+                              '()))
+                        (for*/list ([v (in-list (jlist inc 'valueSet))] #:when (string? v)
+                                    [s (in-list (rule-systems-without-content resource v #f (cons url visited)))])
+                          s)))])
+     found)))
+
+;; the standard marker of an expansion that is not every code of the value set
+(define unclosed-extension
+  (hasheq 'url "http://hl7.org/fhir/StructureDefinition/valueset-unclosed" 'valueBoolean #t))
+
 (define (tx-expand resource url [vs-version #f] [params (hash)] [policy no-version-policy])
   (define (p name [d #f]) (hash-ref params name d))
   (define all (expand-members/cached resource url vs-version policy))
@@ -266,7 +297,9 @@
            'url url
            'expansion
            (drop-false
-            (hasheq 'total total
+            (hasheq 'extension (and (pair? (rule-systems-without-content resource url vs-version))
+                                    (list unclosed-extension))
+                    'total total
                     'offset (and (> offset 0) offset)
                     'contains contains)))))
 
@@ -399,19 +432,37 @@
       [valid-check valid-check]
       [(pair? checks) (car checks)]
       [else (hasheq 'ok #f 'message "no code supplied")]))
+  ;; "not in the expansion" decides nothing for a code of a system the value set selects from by
+  ;; rule while that system's content is not here: said in the message, and named as the reference
+  ;; server names it (x-caused-by-unknown-system), so a caller can tell "no" from "cannot say"
+  (define undecided
+    (and (not (hash-ref outcome 'ok #f)) (not (hash-ref outcome 'error? #f)) (hash-ref outcome 'code #f)
+         (let ([absent (rule-systems-without-content resource url vs-version)]
+               [system (hash-ref outcome 'system #f)])
+           (cond [(null? absent) #f]
+                 [(not system) (car absent)]
+                 [(member system absent) system]
+                 [else #f]))))
+  (define verdict
+    (if undecided
+        (hash-set outcome 'message
+                  (format "Whether '~a' is in the value set cannot be decided here: the value set selects from ~a by rule, and that code system's content is not in the packages"
+                          (hash-ref outcome 'code) undecided))
+        outcome))
   (values
    (hasheq 'resourceType "Parameters"
            'parameter
            (filter values
-                   (list (hasheq 'name "result" 'valueBoolean (and (hash-ref outcome 'ok #f) #t))
-                         (let ([c (hash-ref outcome 'code #f)])
+                   (list (hasheq 'name "result" 'valueBoolean (and (hash-ref verdict 'ok #f) #t))
+                         (let ([c (hash-ref verdict 'code #f)])
                            (and c (hasheq 'name "code" 'valueCode c)))
-                         (let ([s (hash-ref outcome 'system #f)])
+                         (let ([s (hash-ref verdict 'system #f)])
                            (and s (hasheq 'name "system" 'valueUri s)))
-                         (let ([d (hash-ref outcome 'display #f)])
+                         (let ([d (hash-ref verdict 'display #f)])
                            (and d (hasheq 'name "display" 'valueString d)))
-                         (let ([m (hash-ref outcome 'message #f)])
-                           (and m (hasheq 'name "message" 'valueString m))))))))
+                         (let ([m (hash-ref verdict 'message #f)])
+                           (and m (hasheq 'name "message" 'valueString m)))
+                         (and undecided (hasheq 'name "x-caused-by-unknown-system" 'valueCanonical undecided)))))))
 
 ;; one coding -> a hash of (ok? code system display message): membership first, then display
 (define (check-coding resource members c lenient? [system-version #f] [policy no-version-policy])
@@ -773,6 +824,31 @@
                    (hasheq 'resourceType "ValueSet" 'url "http://x/pre"
                            'expansion (hasheq 'contains (list (hasheq 'system "http://x/cs" 'code "c" 'display "C")))))))
   (define (codes url) (map (lambda (e) (hash-ref e 'code)) (hash-ref (hash-ref (tx-expand r url) 'expansion) 'contains)))
+  ;; a value set that selects by rule from a code system whose content is not here: its expansion
+  ;; is marked as not every code, and a code of that system is "cannot say", named as the reference
+  ;; server names it — an include that LISTS its codes needs no content and is decided
+  (let* ([absent "http://absent.example/cs"]
+         [r (resources->resolver
+             (list cs
+                   (vs "http://x/by-rule" 'include (list (inc 'system "http://x/cs" 'concept (list (hasheq 'code "a")))
+                                                         (inc 'system absent 'filter (list (hasheq 'property "concept" 'op "is-a" 'value "1")))))
+                   (vs "http://x/imports" 'include (list (inc 'valueSet (list "http://x/by-rule"))))
+                   (vs "http://x/listed" 'include (list (inc 'system absent 'concept (list (hasheq 'code "1")))))))]
+         [param (lambda (ps name) (for/or ([q (in-list (hash-ref ps 'parameter))]) (and (equal? (hash-ref q 'name) name) q)))])
+    (check-equal? (rule-systems-without-content r "http://x/by-rule") (list absent))
+    (check-equal? (rule-systems-without-content r "http://x/imports") (list absent))
+    (check-equal? (rule-systems-without-content r "http://x/listed") '())
+    (check-equal? (rule-systems-without-content r "http://x/ab") '())
+    (check-equal? (hash-ref (hash-ref (tx-expand r "http://x/by-rule") 'expansion) 'extension) (list unclosed-extension))
+    (check-false (hash-ref (hash-ref (tx-expand r "http://x/listed") 'expansion) 'extension #f))
+    (define undecided (tx-validate r "http://x/by-rule" "2" absent))
+    (check-false (hash-ref (param undecided "result") 'valueBoolean))
+    (check-equal? (hash-ref (param undecided "x-caused-by-unknown-system") 'valueCanonical) absent)
+    (check-regexp-match #rx"cannot be decided here" (hash-ref (param undecided "message") 'valueString))
+    ;; a code of the system that IS here is decided, either way, with no such marker
+    (check-true (hash-ref (param (tx-validate r "http://x/by-rule" "a" "http://x/cs") "result") 'valueBoolean))
+    (check-false (param (tx-validate r "http://x/by-rule" "b" "http://x/cs") "x-caused-by-unknown-system"))
+    (check-false (param (tx-validate r "http://x/listed" "2" absent) "x-caused-by-unknown-system")))
   (check-equal? (codes "http://x/leaf") '("c"))
   (check-equal? (codes "http://x/gen") '("a" "b" "c"))
   (check-equal? (codes "http://x/both") '("b"))

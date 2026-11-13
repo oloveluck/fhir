@@ -67,7 +67,8 @@
      (define bearer (opt "--bearer" #f))
      (define stop (listening serve-app (srv-app srv) port #:bearer bearer #:on-listen (lambda (p) (set! port p))))
      (when bearer (printf "requests need: Authorization: Bearer ~a  (GET /metadata is public)\n" bearer))
-     (printf "FHIR server for ~a on http://localhost:~a  (store: ~a; Ctrl-C to stop)\n" ig port db)
+     (printf "FHIR server for ~a on http://localhost:~a  (store: ~a; Ctrl-C, or kill ~a, to stop)\n" ig port db (getpid))
+     (flush-output)                                 ; a script waiting on a log file reads the line now
      (with-handlers ([exn:break? (lambda (_) (stop))]) (sync/enable-break never-evt))]))
 
 ;; raco fhir-server serve <app.rkt> [port] — serve a #lang fhir/capability module's `app` over HTTP
@@ -123,14 +124,33 @@
                    (lambda (e) (eprintf "fhir-server: cannot listen on port ~a (in use?); --port 0 picks a free one\n" port) (exit 1))])
     (serve-app app #:port port #:log? log? #:bearer bearer #:on-listen on-listen)))
 
-;; raco fhir-server load <store.db> <file|dir> — Bundles, single resources and .cql libraries (store/load.rkt)
-(define (cmd-load db-path src)
-  (dynamic-require 'fhir/r4/schemas #f)
+;; raco fhir-server load <store.db> <file|dir> [--fhir-version v] — Bundles, single resources and .cql
+;; libraries (store/load.rkt), indexed for search by the core package's own SearchParameters for the
+;; FHIR version (R4 unless said). It indexed with the engine's few built-in parameters, so a server
+;; later started over the store answered `Patient?birthdate=lt1980` with nothing. It does not
+;; validate: a server validates what is written through it.
+(define (cmd-load db-path src [version "4.0.1"])
+  (define-values (tower core)
+    (cond [(regexp-match? #rx"^(?i:r?4)" version) (values 'fhir/r4/schemas "hl7.fhir.r4.core.tgz")]
+          [(regexp-match? #rx"^(?i:r?5)" version) (values 'fhir/r5/schemas "hl7.fhir.r5.core.tgz")]
+          [(regexp-match? #rx"^(?i:r?6)" version) (values 'fhir/r6/types "hl7.fhir.r6.core.tgz")]
+          [else (eprintf "fhir-server load: --fhir-version takes 4.0.1, 5.0.0 or 6.0.0 (got ~a)\n" version) (exit 2)]))
+  (dynamic-require tower #f)
   (define open-store (dynamic-require 'fhir/store/fhir-sqlite 'open-fhir-store))
   (define close-store (dynamic-require 'fhir/store/fhir-sqlite 'close-fhir-store))
+  (define default-params (dynamic-require 'fhir/store/fhir-engine 'default-search-params))
+  (define core-tgz ((dynamic-require 'fhir/spec-package 'spec-package-path) core #:optional? #t))
+  ;; the core catalogue over the engine's own (as a declared server searches); the engine's alone
+  ;; when the core package is not installed
+  (define catalog
+    (if core-tgz
+        ((dynamic-require 'fhir/store/ig-params 'merge-search-params)
+         default-params ((dynamic-require 'fhir/store/ig-params 'search-params-from-package) core-tgz))
+        default-params))
   (define store (open-store db-path))
-  (define total (report-loaded ((dynamic-require 'fhir/store/load 'load-files!) store src)))
-  (printf "loaded ~a resources into ~a\n" total db-path)
+  (define total (report-loaded ((dynamic-require 'fhir/store/load 'load-files!) store src
+                                #:search-params catalog #:tower tower)))
+  (printf "loaded ~a resources into ~a (indexed for FHIR ~a search)\n" total db-path version)
   (close-store store))
 (define (report-loaded results)
   (for/sum ([r (in-list results)])
@@ -199,7 +219,7 @@
   '(("serve-ig"         "raco fhir-server serve-ig <ig> [--db store.db] [--port 8080] [--bearer token] [--capability id] [--load file|dir]… [--tz-offset ±hh:mm] [--no-examples] [--no-validate] [--gaps]")
     ("check"            "raco fhir-server check <app.rkt>   the app's declarations compiled: one line per resource and operation, or its mistakes (exit 1)")
     ("serve"            "raco fhir-server serve <app.rkt> [port | --port n] [--store fhir.db] [--log]   (port 0: a free one, printed; --store: resources declared without a repository kept in that SQLite store, over the module's own #:store; --log: one line per request on stderr)")
-    ("load"             "raco fhir-server load <store.db> <file|dir>   (Bundles, resources, .cql libraries)")
+    ("load"             "raco fhir-server load <store.db> <file|dir> [--fhir-version 4.0.1|5.0.0|6.0.0]   (Bundles, resources, .cql libraries; indexed for search in that FHIR version, 4.0.1 unless said; not validated)")
     ("sql"              "raco fhir-server sql <store.db> \"SELECT …\"   (read-only; a view per type: id, versionId, lastUpdated, resource; resources, history; CSV out)")
     ("evaluate-measure" "raco fhir-server evaluate-measure <store.db> <Measure id|url> --period-start D --period-end D [--subject Patient/x] [--tz-offset ±hh:mm]")))
 
@@ -223,7 +243,8 @@
          "load" (lambda (as) (need as 1 "load")
                   (unless (or (file-exists? (arg as 1)) (directory-exists? (arg as 1)))
                     (usage-error "fhir-server" usages "load" (format "no such file or directory: ~a" (arg as 1))))
-                  (cmd-load (arg as 0) (arg as 1)))
+                  (cmd-load (arg as 0) (arg as 1)
+                            (let ([m (member "--fhir-version" as)]) (if (and m (pair? (cdr m))) (cadr m) "4.0.1"))))
          "sql" (lambda (as) (need as 1 "sql")
                  (unless (file-exists? (arg as 0)) (usage-error "fhir-server" usages "sql" (format "no such store: ~a" (arg as 0))))
                  (cmd-sql (arg as 0) (arg as 1)))

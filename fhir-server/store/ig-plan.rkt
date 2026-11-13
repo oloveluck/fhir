@@ -23,7 +23,11 @@
 
 (require racket/contract racket/list racket/string racket/match
          (only-in fhir/package read-package)
-         (only-in fhir/spec-package spec-package-path current-package-directories))
+         (only-in fhir/spec-package spec-package-path)
+         ;; a package's manifest and the packages it builds on are the foundation's (fhir/package-set):
+         ;; the validator's command line reads the same set
+         (only-in fhir/package-set package-manifest version-matches?
+                  [package-dependencies dependency-packages]))
 
 (provide
  (struct-out ig-plan) (struct-out ig-resource)
@@ -42,9 +46,6 @@
 (define expectation-url "http://hl7.org/fhir/StructureDefinition/capabilitystatement-expectation")
 
 ;; ---- the package ------------------------------------------------------------------------------
-
-;; package-manifest : path -> jsexpr | #f   the package's package.json
-(define (package-manifest tgz) (let-values ([(m _r _e) (read-package tgz #:select (lambda (_) #f))]) m))
 
 ;; ig-package-path : "hl7.fhir.us.core" | "x.tgz" | a path -> the package file
 (define (ig-package-path s)
@@ -135,65 +136,9 @@
                                       'extension (list (hasheq 'url expectation-url 'valueCode (expectation-of res)))))))
       res))
 
-;; ---- dependencies -------------------------------------------------------------------------------
-
-;; dependency-packages : tgz -> (listof path)
-;; package.json `dependencies`, transitively (nearest first, each once), located as
-;; <name>-<version>.tgz (or <name>.tgz when that IS the version) in `current-package-directories` or
-;; fhir-spec; a version may be a pattern (`3.3.x`). Core packages and ones not found are left out
-;; (the core is added separately; a missing one only narrows validation)
-(define (dependency-packages tgz)
-  (let loop ([todo (direct-dependencies tgz)] [seen '()])
-    (cond [(null? todo) (reverse seen)]
-          [(member (car todo) seen) (loop (cdr todo) seen)]
-          [else (loop (append (cdr todo) (direct-dependencies (car todo))) (cons (car todo) seen))])))
-
-;; direct-dependencies : tgz -> (listof path)   the dependencies named in its package.json and found
-(define (direct-dependencies tgz)
-  (define m (package-manifest tgz))
-  (define ds (if (and m (hash? (hash-ref m 'dependencies #f))) (hash-ref m 'dependencies) (hash)))
-  (for*/list ([(name version) (in-hash ds)]
-              #:unless (core-package-name? (symbol->string name))
-              [p (in-value (find-package (symbol->string name) version))]
-              #:when p)
-    p))
-
-;; core-package-name? : String -> Boolean   a core, terminology or extensions package (never a dependency)
-(define (core-package-name? name)
-  (regexp-match? #px"^hl7[.]fhir[.]r[0-9]+b?[.]core$|^hl7[.]terminology|[.]extensions" name))
-
-;; find-package : name version-or-pattern -> path | #f
-(define (find-package name version)
-  (define (version-ok? q) (let ([qm (package-manifest q)])
-                            (and qm (version-matches? (hash-ref qm 'version "") version))))
-  (or (spec-package-path (format "~a-~a.tgz" name version) #:optional? #t)
-      (for*/first ([d (in-list (current-package-directories))]
-                   #:when (directory-exists? d)
-                   [f (in-list (sort (directory-list d) string>? #:key path->string))]   ; newest first
-                   #:when (regexp-match? (pregexp (format "^~a-[^-]+[.]tgz$" (regexp-quote name))) (path->string f))
-                   #:when (version-ok? (build-path d f)))
-        (build-path d f))
-      (let ([q (spec-package-path (format "~a.tgz" name) #:optional? #t)])
-        (and q (version-ok? q) q))))
-
-;; version-matches? : "3.3.2" "3.3.x" -> Boolean   (x / * stand for any one part)
-(define (version-matches? v pattern)
-  (define ps (string-split pattern "."))
-  (define vs (string-split v "."))
-  (and (= (length ps) (length vs))
-       (for/and ([p (in-list ps)] [x (in-list vs)]) (or (member p '("x" "X" "*")) (equal? p x)))
-       #t))
-
 ;; ---- living examples ----------------------------------------------------------------------------
 (module+ test
   (require rackunit)
-  (check-true (version-matches? "3.3.2" "3.3.x"))
-  (check-true (version-matches? "3.3.2" "3.3.2"))
-  (check-false (version-matches? "3.4.2" "3.3.x"))
-  (check-false (version-matches? "3.3" "3.3.x"))
-  (check-true (core-package-name? "hl7.fhir.r4.core"))
-  (check-true (core-package-name? "hl7.terminology.r4"))
-  (check-false (core-package-name? "hl7.fhir.us.core"))
   (let-values ([(tower core) (tower-for "4.0.1")]) (check-equal? (list tower core) '(fhir/r4/schemas "hl7.fhir.r4.core.tgz")))
   (check-exn #rx"unsupported FHIR version" (lambda () (tower-for "3.0.2")))
 

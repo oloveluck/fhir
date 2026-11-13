@@ -102,6 +102,49 @@
         (filter (lambda (i) (member (issue-severity i) '("error" "fatal"))) (validate-issues js)))
       '()))
 
+;; validated-bundle : Bundle validate? packages (Bundle -> response-Bundle) -> response-Bundle
+;; A Bundle's writes are held to what a single write is held to (base type and claimed profiles):
+;; POST / was the one way to store a resource the server would refuse at POST /Patient. A
+;; transaction with an invalid entry is refused whole (a raise: nothing is written); a batch
+;; answers each invalid entry with its problems and processes the others.
+(define (validated-bundle bundle validate? sd-packages process)
+  (define entries (let ([es (hash-ref bundle 'entry '())]) (if (list? es) es '())))
+  ;; problems : entry -> (listof string)   the errors of the resource an entry writes
+  (define (problems e)
+    (define r (and (hash? e) (hash-ref e 'resource #f)))
+    (define method (let ([q (hash-ref e 'request #f)]) (and (hash? q) (hash-ref q 'method #f))))
+    (if (and (hash? r) (member method '("POST" "PUT" #f)))
+        (for/list ([i (in-list (write-errors (strip-jnum r) validate? sd-packages))])
+          (format "~a~a" (if (issue-path i) (format "~a: " (issue-path i)) "") (issue-msg i)))
+        '()))
+  (define found (map problems entries))
+  (define (described i e ps)
+    (format "Bundle.entry[~a] (~a): ~a" i
+            (let ([r (hash-ref e 'resource #f)]) (if (hash? r) (hash-ref r 'resourceType "resource") "resource"))
+            (string-join ps "; ")))
+  (cond
+    [(andmap null? found) (process bundle)]
+    [(equal? (hash-ref bundle 'type #f) "transaction")
+     (error (format "the transaction was refused, and nothing was written: ~a"
+                    (string-join (for/list ([e (in-list entries)] [ps (in-list found)] [i (in-naturals)] #:when (pair? ps))
+                                   (described i e ps))
+                                 " | ")))]
+    [else
+     ;; batch: the valid entries are processed, the invalid ones answered in place
+     (define response (process (hash-set bundle 'entry (for/list ([e (in-list entries)] [ps (in-list found)] #:when (null? ps)) e))))
+     (define answered (hash-ref response 'entry '()))
+     (hash-set response 'entry
+               (let loop ([es entries] [fs found] [i 0] [rest answered])
+                 (cond [(null? es) '()]
+                       [(pair? (car fs))
+                        (cons (hasheq 'response
+                                      (hasheq 'status "422 Unprocessable Entity"
+                                              'outcome (hasheq 'resourceType "OperationOutcome"
+                                                               'issue (list (hasheq 'severity "error" 'code "processing"
+                                                                                    'diagnostics (described i (car es) (car fs)))))))
+                              (loop (cdr es) (cdr fs) (add1 i) rest))]
+                       [else (cons (if (pair? rest) (car rest) (hasheq)) (loop (cdr es) (cdr fs) (add1 i) (if (pair? rest) (cdr rest) '())))])))]))
+
 ;; a repository restricted to the IG's interactions, validating writes when asked
 (define (ig-repository store type catalog allowed validate? sd-packages)
   (define base (store-repository store type catalog))
@@ -177,8 +220,10 @@
                               (parameterize ([current-data-source data] [current-sd-packages sd-packages]
                                              [current-measure-offset offset])
                                 (thunk))))))
-               #:transaction (lambda (bundle-js) (process-bundle! store bundle-js #:search-params catalog
-                                                                  #:tower (ig-plan-tower plan)))))
+               #:transaction (lambda (bundle-js)
+                               (validated-bundle bundle-js validate? sd-packages
+                                                 (lambda (b) (process-bundle! store b #:search-params catalog
+                                                                              #:tower (ig-plan-tower plan)))))))
   (ig-server plan app gaps catalog sd-packages store validate? tgz))
 
 (define (ig-server-put! srv js0)

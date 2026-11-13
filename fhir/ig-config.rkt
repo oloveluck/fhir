@@ -21,7 +21,7 @@
 ;;; `{type, profile}` — a profile every resource of a type is held to (ImplementationGuide.global).
 
 (require racket/contract racket/string racket/file racket/match
-         json file/gunzip file/untar
+         (only-in "package-set.rkt" find-package)
          (only-in fhir/spec-package spec-package-path current-package-directories)
          "yaml.rkt")
 
@@ -119,9 +119,11 @@
 (define (dependency-packages deps)
   (for/fold ([found '()] [missing '()] #:result (values (reverse found) (reverse missing)))
             ([d (in-list deps)])
-    (define p (or (spec-package-path (format "~a-~a.tgz" (car d) (cdr d)) #:optional? #t)
-                  (let ([q (spec-package-path (format "~a.tgz" (car d)) #:optional? #t)])
-                    (and q (equal? (package-version q) (cdr d)) q))))
+    ;; found as every package is (fhir/package-set): <id>-<version>.tgz, the package directories,
+    ;; then <id>.tgz when that IS the version asked for. (A reader of its own here misread any
+    ;; unversioned package whose package.json was not its last entry — `untar: bad number` for a
+    ;; dependency on a version other than the one at hand.)
+    (define p (find-package (car d) (cdr d)))
     (if p (values (cons p found) missing) (values found (cons d missing)))))
 
 ;; the implicit packages, by the suffix the registry gives their FHIR-version builds
@@ -153,24 +155,14 @@
                 (cond [(and x y (not (= x y))) (> x y)]
                       [(and (not (and x y)) (not (equal? (car as) (car bs)))) (string>? (car as) (car bs))]
                       [else (loop (cdr as) (cdr bs))])])))
-;; package-version : tgz -> string|#f   package/package.json's version
-(define (package-version tgz)
-  (define v #f)
-  (call-with-input-file tgz
-    (lambda (gz)
-      (define-values (pin pout) (make-pipe))
-      (define t (thread (lambda () (gunzip-through-ports gz pout) (close-output-port pout))))
-      (untar pin #:handle-entry
-             (lambda (k n c sz a)
-               (when (and (eq? k 'file) (equal? (path->string n) "package/package.json"))
-                 (set! v (hash-ref (bytes->jsexpr (read-bytes sz c)) 'version #f)))
-               (when (eq? k 'file) (void (read-bytes sz c)))
-               '()))
-      (thread-wait t)))
-  v)
-
 (module+ test
   (require rackunit racket/path)
+  ;; a dependency on a version other than the unversioned package at hand is "not found", not a
+  ;; crash (a reader of its own here misread such a package: `untar: bad number`)
+  (when (spec-package-path "hl7.fhir.uv.ips.tgz" #:optional? #t)
+    (define-values (found missing) (dependency-packages '(("hl7.fhir.uv.ips" . "9.9.9"))))
+    (check-equal? found '())
+    (check-equal? missing '(("hl7.fhir.uv.ips" . "9.9.9"))))
   (define f (make-temporary-file))
   (with-output-to-file f #:exists 'truncate
     (lambda () (display "canonical: http://hl7.org/fhir/us/mcode\nfhirVersion: 4.0.1\ndependencies:\n  hl7.fhir.uv.genomics-reporting: 2.0.0\n#  hl7.fhir.uv.extensions: 5.1.0-cibuild\n  hl7.fhir.us.core: \n    version: 6.1.0\n    id: hl7fhiruscore\nextension:\n  - url: x\n")))

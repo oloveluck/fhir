@@ -177,13 +177,18 @@
   ;; element — so an IG-shipped OD (with its real canonical url) validates its operation too
   (define od-by-url
     (for/hash ([od (in-list ods)]) (values (od-url od) od)))
-  (define od-by-code
-    (for/hash ([od (in-list ods)]) (values (od-code od) od)))
+  ;; od-for : code target -> OperationDefinition | #f   two definitions may share a code
+  ;; (ValueSet/$validate-code and CodeSystem/$validate-code): the one defined on the entry's type
+  ;; answers there — /ValueSet/$validate-code was held to CodeSystem's inputs and refused `system`
+  (define (od-for code target)
+    (define same (filter (lambda (od) (equal? (od-code od) code)) ods))
+    (or (hash-ref od-by-url (op-code->canonical code) #f)
+        (and target (findf (lambda (od) (member target (od-resources od))) same))
+        (and (pair? same) (last same))))
   (define ops
     (for/hash ([e (in-list op-entries)])
       (define code (operation-entry-code e))
-      (define od (or (hash-ref od-by-url (op-code->canonical code) #f)
-                     (hash-ref od-by-code code #f)))
+      (define od (od-for code (operation-entry-target e)))
       (values (list (operation-entry-level e) code (operation-entry-target e))
               (operation-handler (operation-entry-proc e) od
                                  (operation-entry-level e) (operation-entry-target e)))))
@@ -191,6 +196,8 @@
 
 (define (od-url od) (leaf->string (single (navigate (list od) 'url))))
 (define (od-code od) (leaf->string (single (navigate (list od) 'code))))
+;; od-resources : OperationDefinition -> (listof string)   the types it is defined on
+(define (od-resources od) (map leaf->string (navigate (list od) 'resource)))
 
 ;; ---- dispatch -------------------------------------------------------------------------------
 

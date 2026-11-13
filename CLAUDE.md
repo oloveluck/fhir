@@ -191,8 +191,9 @@ constraint values) and scores a candidate four ways: `check` errors; facet fidel
 published differential; the published examples accepted by the candidate's profile; the candidate's
 examples valid under the published profile. `run --model '<cmd>' --rounds n --timeout s` asks any
 shell command (prompt and answer through files; past the timeout its process group is killed) and
-feeds `check`'s diagnostics back between rounds. Baselines: the IG's own FSH (TumorSize 28/34
-facets — the compiler's ceiling) and empty (0). Results: that repo's README and `results/`.
+feeds `check`'s diagnostics back between rounds. Baselines: the IG's own FSH (34/34, 20/20 and 8/8
+facets on the three recorded tasks; it was 28/34, 14/20, 5/8 when they were recorded) and empty (0).
+Results: that repo's TESTING.md and `results/`.
 
 ## Operations as procedures (`fhir/operation`, `fhir/data-source`)
 A FHIR operation is an OperationDefinition plus an implementation, with nothing about HTTP: a
@@ -1919,6 +1920,57 @@ as much as possible." fml/CLAUDE.md has the detail ("The specified language; the
 Not yet, named: `$infer-manifest-parameters`; the impact answer at stage time (dependents
 re-checked, results out of date); requirements against a data source's capabilities; the export of
 data that is not an example.
+
+## Defects the documentation pass found (2026-11-13)
+Rewriting the manuals for a first-time reader meant running every command; about forty things did
+not do what a reader would expect. Each fix has a test doing what the writer did. The language
+repositories' own are in their CLAUDE.md files (fsh, fml, cql, fhirpath, vcl, sql-on-fhir).
+- **What was not checked is said.** A profile a resource claims in `meta.profile` that nothing in
+  context defines (or whose base is not there) is a WARNING at `meta.profile[i]`
+  (validate.rkt `unchecked-profile-issues`): a Patient claiming US Core, validated with the core
+  package alone, was "All OK". `raco fhir-validate --package <name|file.tgz>` (repeatable) puts a
+  guide and what it depends on in context, and takes the guide's FHIR version.
+- **One reader of packages and their dependencies**: `fhir/package-set` (`package-file`,
+  `package-set`, `package-dependencies`, `find-package`, `package-manifest`), moved from
+  fhir-server's ig-plan; the validator's command line, the IG server and fsh's dependency lookup
+  (fhir/ig-config) use it.
+- **Required codes are checked whoever calls.** `$validate` passed the terminology service's
+  typed-node closures, which answer nothing when no FHIR version is loaded: `"gender": "florp"` was
+  "All OK" from a program that had not required a tower. `tx-member?` takes the resolver itself and
+  asks at the JSON level. And a binding the tower has no generated expansion for (a profile's own
+  value set, a guide's) is decided from the packages in context (`context-terminology`), so an FSH
+  project's `* gender from BinarySex (required)` refuses `#other`. Gates unchanged: IG validation
+  330 clean, validator fp 0 / recall 18, corpus 0 over-reported.
+- **A required extension is enforced**: a slice of `extension` typed by one extension profile holds
+  the entries with that url (`extension-slice-url`, the pin a differential never writes); any
+  extension at all used to satisfy `extension contains X named x 1..1`.
+- **The terminology service says "cannot say".** `rule-systems-without-content` (service.rkt): the
+  code systems a value set selects from by filter or whole, whose content is not here. Such an
+  expansion carries FHIR's `valueset-unclosed` extension; `$validate-code` for a code of such a
+  system answers false with a message and `x-caused-by-unknown-system` (the reference server's
+  parameter), which the validator reads as unknown. `raco fhir-tx` refuses a ValueSet, CodeSystem
+  or ConceptMap url no package has (it printed an empty answer, exit 0) and notes an unclosed
+  expansion on stderr. Suite 473/553, unchanged.
+- **Two definitions, one code**: `build-app` picks an operation's definition by the entry's type
+  (`od-for`), so `/ValueSet/$validate-code` is held to ValueSet's inputs (it refused `system`).
+- **Servers**: a Bundle's writes are validated as single writes are (`validated-bundle`: a
+  transaction with an invalid entry is refused whole, a batch answers that entry 422); a search
+  parameter's expression is evaluated one `|` branch at a time (`path-values`: R6's `date` carries
+  Appointment's branch unrooted, which failed on an Observation and left every date unindexed); a
+  PUT that makes the resource answers 201; `/metadata` lists transaction and batch once; `raco
+  fhir-server load` indexes with the core SearchParameters of `--fhir-version` (4.0.1 unless said;
+  it used the engine's few built-ins, so a server over the store could not search by birthdate);
+  the `serve-ig` and `fhir-tx serve` banners are flushed and name the pid; `raco fhir-lsp serve
+  --help` prints usage (it started the server).
+- **Form files point at their mistakes**: the generated `#lang` readers read syntax
+  (`read-syntax`, codegen `reader-source`; fhir/r6 and sql-on-fhir/model regenerated), and
+  `fhir-resource-form` keeps the form as read, so `patient.fhir6:3:36: Patient: "florp" is not in
+  the required value set …` (it was located in fhir/kernel/kit.rkt).
+- `build-tools.sh` lists what the changed commands load by name (fhir-validate: fhir/r6/types;
+  fhir-server: the catalogue reader; sql-on-fhir: the towers and its operations).
+Not done, named: `raco fhir-server load` does not validate (a server validates what is written
+through it); the fhir-lsp editor configurations are untested (no editor here); sql-on-fhir over R4
+data read as R6 is silent for a path valid in both versions (`--fhir-version 4.0.1` reads it as R4).
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

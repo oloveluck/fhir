@@ -40,7 +40,10 @@
 (module+ main
   (define args (vector->list (current-command-line-arguments)))
   (cond
-    [(or (null? args) (equal? (car args) "serve")) (serve)]
+    ;; `serve` alone starts the server; `serve --help` (or anything after it) is a subcommand call,
+    ;; so it prints usage instead of waiting on standard input for an editor that is not there
+    [(or (null? args) (equal? args '("serve"))) (serve)]
     [else (run-subcommands "fhir-lsp" usages
-                           (hash "serve" (lambda (_) (serve)) "check" check-files "languages" list-languages)
+                           (hash "serve" (lambda (as) (if (null? as) (serve) (usage-error "fhir-lsp" usages "serve")))
+                                 "check" check-files "languages" list-languages)
                            args)]))

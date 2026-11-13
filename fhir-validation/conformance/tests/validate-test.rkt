@@ -168,3 +168,37 @@
               '(("invalid" . "Observation.effective[x]")))
 (check-regexp-match #rx"'1940-02-30' is not a valid date [(]February 1940 has 29 days[)]"
                     (issue-msg (car (validate-issues (hasheq 'resourceType "Patient" 'birthDate "1940-02-30")))))
+
+;; ---- a claimed profile the resource was not held to is said (a Patient claiming US Core, validated
+;; with the core package alone, was "All OK") -------------------------------------------------------
+(let* ([claims (lambda (url) (hasheq 'resourceType "Patient" 'gender "female" 'meta (hasheq 'profile (list url))))]
+       [unknown "http://example.org/StructureDefinition/nowhere"]
+       [warnings (lambda (js #:profiles [ps '()])
+                   (for/list ([i (in-list (validate-issues js #:profiles ps))] #:when (equal? (issue-severity i) "warning"))
+                     (list (issue-code i) (issue-path i))))])
+  (check-equal? (warnings (claims unknown)) '(("not-found" "Patient.meta.profile[0]")))
+  (check-regexp-match #rx"claims profile `http://example.org/StructureDefinition/nowhere`, but nothing in context defines it: it was not checked"
+                      (issue-msg (car (validate-issues (claims unknown)))))
+  (check-equal? (errs (claims unknown)) '() "a warning: what was checked is still clean")
+  ;; a profile given in the call, or one the packages define, is checked and nothing is said
+  (check-equal? (warnings (claims (hash-ref fixed-gender-profile 'url)) #:profiles (list fixed-gender-profile)) '())
+  (check-equal? (warnings (hasheq 'resourceType "Patient" 'gender "female")) '()))
+
+;; ---- a slice of `extension` typed by an extension's profile is the entries with that url: a profile
+;; requiring one particular extension was met by any extension at all -------------------------------
+(let* ([ward "http://ex/StructureDefinition/ward"]
+       [profile (hasheq 'resourceType "StructureDefinition" 'id "wp" 'url "http://ex/wp" 'name "WP"
+                        'type "Patient" 'baseDefinition "http://hl7.org/fhir/StructureDefinition/Patient"
+                        'derivation "constraint"
+                        'differential
+                        (hasheq 'element
+                                (list (hasheq 'id "Patient.extension" 'path "Patient.extension" 'min 1
+                                              'slicing (hasheq 'discriminator (list (hasheq 'type "value" 'path "url")) 'rules "open"))
+                                      (hasheq 'id "Patient.extension:ward" 'path "Patient.extension" 'sliceName "ward"
+                                              'min 1 'max "1"
+                                              'type (list (hasheq 'code "Extension" 'profile (list ward)))))))]
+       [patient (lambda (url) (hasheq 'resourceType "Patient"
+                                      'extension (list (hasheq 'url url 'valueString "3B"))))])
+  (check-equal? (errs (patient ward) #:profiles (list profile)) '())
+  (check-equal? (errs (patient "http://ex/StructureDefinition/bed") #:profiles (list profile))
+                '(("required" . "Patient.extension"))))

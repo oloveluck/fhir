@@ -6,7 +6,7 @@
                      fhir/result/result fhir/model/node fhir/model/leaf fhir/model/registry fhir/registry
                      fhir/serialize/to-json fhir/serialize/from-json fhir/serialize/read-json
                      fhir/serialize/fhir-json fhir/serialize/lenient
-                     fhir/primitives/primitives fhir/package fhir/spec-package fhir/operation
+                     fhir/primitives/primitives fhir/package fhir/package-set fhir/spec-package fhir/operation
                      fhir/data-source fhir/rest-data-source fhir/diagnostic fhir/canonical fhir/suggest
                      fhir/check-files fhir/lang/support
                      fhir/sd/sd-index fhir/sd/snapshot (except-in fhir/sd/element-index opaque-type?)
@@ -120,12 +120,12 @@ $ racket patient.fhir6
 }|
 
 @bold{4. Make a mistake.} FHIR allows four values for a patient's gender. Write
-@racket[(gender "florp")] and the file no longer builds; the message lists the values that are
-allowed:
+@racket[(gender "florp")] and the file no longer builds; the message says where the mistake is
+(file, line and column) and lists the values that are allowed:
 
 @verbatim{
 $ racket patient.fhir6
-Patient: "florp" is not in the required value set for Patient.gender (http://hl7.org/fhir/ValueSet/administrative-gender); valid codes: (female male other unknown)
+patient.fhir6:3:36: Patient: "florp" is not in the required value set for Patient.gender (http://hl7.org/fhir/ValueSet/administrative-gender); valid codes: (female male other unknown)
   in: "florp"
   …
 }
@@ -376,9 +376,8 @@ invalid Patient (FHIR R5 (5.0.0)):
   Patient.gender code `florp` not in required value set http://hl7.org/fhir/ValueSet/administrative-gender; it holds female, male, other, unknown
 }
 
-Load a FHIR version before validating, as the example does. The check of codes against FHIR's fixed
-lists reads them from the loaded version; without one, that check is skipped and @tt{"florp"}
-passes.
+A value set of a profile's own, or of a guide, is checked too when its package is in
+@racket[current-sd-packages].
 
 The same functions are what @hyperlink["https://oloveluck.github.io/fhir/fhir-server/index.html"]{fhir-server}
 answers with over HTTP, and you can add your own: @racket[make-operation] and
@@ -776,6 +775,25 @@ then the @tt{fhir-spec} collection, the directories @tt{FHIR_PACKAGE_PATH} names
 @tt{share/fhir-packages} beside a standalone tool. Missing is an error unless @racket[optional?].}
 @defparam[current-package-directories dirs (listof path-string?)]{Directories of packages searched before @tt{fhir-spec}, for fetched IGs.}
 @defproc[(spec-package-available?) boolean?]{Is @tt{fhir-spec} installed.}
+
+@subsection[#:style 'unnumbered]{@tt{fhir/package-set}}
+@defmodule[fhir/package-set]
+
+A published guide is a package that names the packages it builds on. These find a package and what
+has to be read with it; nothing here reads a profile.
+
+@defproc[(package-file [ref string?]) (or/c path? #f)]{A package's file: @racket[ref] is a file
+(@racket["./x.tgz"]), a file name among the installed packages, or a package name
+(@racket["hl7.fhir.us.core-6.1.0"]). @racket[#f] when nothing has that name.}
+@defproc[(package-set [tgz path-string?]) (listof path?)]{The package, the packages it depends on
+(transitively, nearest first, each once) and the core package of its FHIR version: the list
+@racket[current-sd-packages] takes to validate against a guide.}
+@defproc[(package-dependencies [tgz path-string?]) (listof path?)]{The dependencies alone, as found
+among the installed packages and @racket[current-package-directories]; one that is not found is left out.}
+@defproc[(package-manifest [tgz path-string?]) (or/c hash? #f)]{Its @tt{package.json}.}
+@defproc[(package-fhir-version [tgz path-string?]) (or/c string? #f)]{The FHIR version it is written for.}
+@defproc[(find-package [name string?] [version string?]) (or/c path? #f)]{A package by name and
+version; the version may be a pattern (@racket["3.3.x"]).}
 
 @subsection[#:style 'unnumbered]{@tt{fhir/canonical}}
 @defmodule[fhir/canonical]

@@ -199,7 +199,8 @@ bp.json: error required at Observation.component: slice 'diastolic' requires 1, 
 another. The command checks against R5 unless you say otherwise with
 @litchar{--fhir-version 4.0.1} (R4), @litchar{5.0.0} (R5) or @litchar{6.0.0} (R6), or unless the
 resource states its own version in a @tt{fhirVersion} element, as a CapabilityStatement or a
-StructureDefinition does. US Core is written for R4, hence the option above.
+StructureDefinition does, or you name a guide's package (@secref["ig"]), which brings its own
+version. US Core is written for R4, hence the option above.
 
 If you write your profiles in FHIR Shorthand you do not need this command at all:
 @hyperlink["https://oloveluck.github.io/fsh/"]{@tt{raco fsh check}} validates every example in a
@@ -213,19 +214,21 @@ one purpose: US Core for exchanging records in the United States, the Internatio
 mCODE for cancer data. It is distributed as a @italic{package}, one @tt{.tgz} file. There are three
 ways to hold a resource to one.
 
-@bold{On the command line, with the profile's file.} A package is an archive of JSON files, one per
-profile, so take the one you need out of it. This is how the two files above were obtained:
+@bold{On the command line, with the package.} Name the guide's package with @litchar{--package}.
+The command reads it with the packages it depends on, finds in them every profile the resource
+claims, and validates in the FHIR version the guide is written for:
 
 @verbatim{
-$ tar -xzf hl7.fhir.us.core-6.1.0.tgz package/StructureDefinition-us-core-patient.json
-$ raco fhir-validate patient.json package/StructureDefinition-us-core-patient.json --fhir-version 4.0.1 --format text
-patient.json: error required at Patient.identifier: minimum required = 1, but found 0
+$ raco fhir-validate claims.json --package hl7.fhir.us.core-6.1.0 --format text
+claims.json: error required at Patient.identifier: minimum required = 1, but found 0
 }
 
-The command line reads the core FHIR package and the files you give, nothing else. So a resource
-that claims an IG's profile in @tt{meta.profile} is @italic{not} held to it unless you give that
-profile's file: the claim names an address the command cannot look up (@secref["trust"] shows this
-case).
+@tt{claims.json} is a patient that lists the US Core patient profile in its @tt{meta.profile} and
+has no identifier (it is shown in @secref["trust"]). A package is named as it is installed
+(@tt{hl7.fhir.us.core-6.1.0}) or by its file (@tt{./my-guide.tgz}); repeat the option for more than
+one. To hold a resource to one profile it does not claim, give that profile's file instead, as in
+the section above: a package is an archive of JSON files, one per profile, so
+@tt{tar -xzf hl7.fhir.us.core-6.1.0.tgz package/StructureDefinition-us-core-patient.json} takes one out.
 
 @bold{From a program, with the whole package.} There the validator takes a list of packages, and
 finds in them every profile a resource claims, the profiles those build on, and the value sets they
@@ -258,8 +261,9 @@ Core, the International Patient Summary and CRMI validates against its own profi
 @item{@bold{"All OK" means nothing was found in what could be checked.} It is not a certificate. A
 different validator, or this one with more to go on, may still find something.}]
 
-The clearest case is a profile it cannot find. This patient claims the US Core profile, and still
-has no identifier:
+One such case is said out loud, because it is the easiest to misread: a profile the resource
+claims that the validator could not find. This patient claims the US Core profile, and has no
+identifier:
 
 @verbatim|{{"resourceType": "Patient", "id": "ann",
  "meta": {"profile": ["http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient"]},
@@ -268,14 +272,18 @@ has no identifier:
 
 @verbatim{
 $ raco fhir-validate claims.json --fhir-version 4.0.1 --format text
-claims.json: information informational: All OK
-$ raco fhir-validate claims.json StructureDefinition-us-core-patient.json --fhir-version 4.0.1 --format text
+claims.json: warning not-found at Patient.meta.profile[0]: the resource claims profile
+  `http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient`, but nothing in context
+  defines it: it was not checked against that profile
+$ raco fhir-validate claims.json --package hl7.fhir.us.core-6.1.0 --format text
 claims.json: error required at Patient.identifier: minimum required = 1, but found 0
 }
 
-The first run had only FHIR's own rules, by which the patient is fine; it could not see the profile
-and said nothing about it. The second run was given the profile. So when a clean answer matters,
-make sure the validator had the profiles and packages the resource depends on.
+(The warning is one line; it is wrapped here to fit the page.) The first run had only FHIR's own
+rules, by which the patient is fine, so there is no error and the command exits 0. But it could not
+see the profile, and it says so. The second run was given the guide's package. So when a clean
+answer matters, make sure the validator had the profiles and packages the resource depends on, and
+read the warnings.
 
 One thing is decided rather than passed over: a name that is simply wrong. A misspelt resource type
 or element is reported, with the nearest real name, because the packages at hand define all the
@@ -291,7 +299,8 @@ What is never checked, whatever you give it, is listed in @secref["limits"].
 (list (list @tt{raco fhir-validate r.json} "check against FHIR's rules for its type; the answer is an OperationOutcome")
       (list @tt{raco fhir-validate r.json --format text} "one line per issue, for reading")
       (list @tt{raco fhir-validate r.json p1.json p2.json} "also against these profiles (StructureDefinition files)")
-      (list @tt{raco fhir-validate r.json --fhir-version 4.0.1} @elem{as FHIR R4; @tt{5.0.0} (the default) and @tt{6.0.0} likewise})
+      (list @tt{raco fhir-validate r.json --package hl7.fhir.us.core-6.1.0} @elem{with a guide's package (a name, or a @tt{.tgz} file) and what it depends on in reach, so the profiles the resource claims are found; repeatable})
+      (list @tt{raco fhir-validate r.json --fhir-version 4.0.1} @elem{as FHIR R4; @tt{5.0.0} and @tt{6.0.0} likewise. Without it: the version the resource names, else the first package's, else R5})
       (list @tt{raco fhir-validate --help} "the usage line"))]
 
 @litchar{--format} chooses the form of the answer. @tt{outcome}, the default, prints the
@@ -436,8 +445,7 @@ followed: not whether the target exists, not whether it is of an allowed type or
 @tt{#id} pointing into @tt{contained}.}
 @item{@bold{Extensions.} An extension's address, where it may be used and the rules of its own
 definition are not checked; the content of an @tt{extension} is not looked into. A profile that
-requires one particular extension is not enforced either: only the number of @tt{extension} entries
-is counted.}
+requires one particular extension is enforced: a resource without that extension is refused.}
 @item{@bold{Codes where the binding is not required.} Only @italic{required} bindings are checked.
 Extensible and preferred bindings, a maximum value set and additional bindings are not.}
 @item{@bold{Some slicing.} Slices told apart by a value or a pattern are checked. Slices told apart
@@ -453,9 +461,11 @@ that depends on following a reference (@tt{resolve()}) finds nothing to follow, 
 cannot be evaluated counts as held.}
 @item{@bold{Must-support.} A profile's "must support" flags are obligations on systems, not on a
 single resource, and are not checked, by design.}
-@item{@bold{The command line and packages.} @tt{raco fhir-validate} reads the core package and the
-profile files you give. It has no option for an IG package or a terminology service; use a program,
-@tt{raco fsh check} or a server for those (@secref["ig"]).}
+@item{@bold{A claimed profile that is not at hand.} The resource is checked without it, and a
+warning says so (@secref["trust"]). Give the guide's package with @litchar{--package}.}
+@item{@bold{No terminology service on the command line.} @tt{raco fhir-validate} checks codes against
+the value sets in the core package and in the packages you name. It has no option to ask a
+terminology server about SNOMED CT or LOINC codes.}
 @item{@bold{JSON only.} FHIR written as XML is not read.}]
 
 @section[#:tag "words"]{Words used here}

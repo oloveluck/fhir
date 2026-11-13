@@ -199,8 +199,8 @@ too.
 The big clinical code systems are not in any FHIR package. SNOMED CT, LOINC, RxNorm, ICD-10 and CPT
 are large, separately licensed, and distributed by their owners. This service does not ship them
 and does not call out to a server that has them. So it knows that @tt{http://loinc.org} is a code
-system, but not what is in it. That has three consequences, and the service does not flag them in
-its answers, so you need to know them.
+system, but not what is in it. That has three consequences. The service marks each of them in its
+answer, so you can tell "no" from "cannot say".
 
 @bold{A value set that lists such codes works, without displays.} Membership needs only the list.
 US Core's vital signs are LOINC codes written out one by one:
@@ -216,29 +216,57 @@ because the words live in LOINC.
 condition codes are one listed SNOMED CT code plus three rules of the form "this SNOMED CT code and
 everything beneath it".
 (It also takes all of ICD-10-CM and ICD-9-CM, which are not shipped either.) The expansion holds the
-one listed code and silently leaves out everything else:
+one listed code, and says that this is not every code:
 
 @verbatim|{$ raco fhir-tx expand http://hl7.org/fhir/us/core/ValueSet/us-core-condition-code \
     --package hl7.fhir.us.core-6.1.0.tgz --package hl7.fhir.r4.core.tgz
-{"expansion":{"contains":[{"code":"160245001","system":"http://snomed.info/sct"}],"total":1},"resourceType":"ValueSet","url":"http://hl7.org/fhir/us/core/ValueSet/us-core-condition-code"}}|
+fhir-tx: not every code is listed: the value set selects from http://snomed.info/sct,
+  http://hl7.org/fhir/sid/icd-10-cm, http://hl7.org/fhir/sid/icd-9-cm by rule, and that content
+  is not in the packages (the expansion is marked valueset-unclosed)
+{"expansion":{"contains":[{"code":"160245001","system":"http://snomed.info/sct"}],
+  "extension":[{"url":"http://hl7.org/fhir/StructureDefinition/valueset-unclosed","valueBoolean":true}],
+  "total":1},"resourceType":"ValueSet","url":"http://hl7.org/fhir/us/core/ValueSet/us-core-condition-code"}}|
 
-For the same reason @tt{validate-code} answers @tt{result} false for a SNOMED CT code that the
-rules do include (type 2 diabetes, @tt{44054006}, for one). For a value set like this, read an
-empty or short expansion as "cannot tell", and a false as "not among the codes listed outright",
-not as "not allowed".
+(Both the note and the JSON are one line each; they are wrapped here.) The note goes to standard
+error. The mark in the answer itself is FHIR's own @tt{valueset-unclosed} extension on the
+expansion, which a program can test for.
 
-@bold{Questions about the system itself have no answer.} @tt{lookup} on a LOINC code returns an
-empty Parameters, and @tt{subsumes} on SNOMED CT codes is an error: @tt{unknown code system
-http://snomed.info/sct}.
+For the same reason, a SNOMED CT code that the rules do include (type 2 diabetes, @tt{44054006},
+for one) cannot be confirmed. @tt{validate-code} answers @tt{result} false, as the operation must
+answer true or false, and says why in two more parameters:
 
-The family's validator is careful about this on your behalf: when it checks a resource's codes
-through this service and the value set rests on a system that is not there, it reports nothing
-rather than call the code invalid
-(@hyperlink["../fhir-validation/index.html"]{fhir-validation}).
+@verbatim|{$ raco fhir-tx validate-code http://hl7.org/fhir/us/core/ValueSet/us-core-condition-code \
+    http://snomed.info/sct 44054006 --package hl7.fhir.us.core-6.1.0.tgz --package hl7.fhir.r4.core.tgz
+{"parameter":[{"name":"result","valueBoolean":false},{"name":"code","valueCode":"44054006"},
+  {"name":"system","valueUri":"http://snomed.info/sct"},
+  {"name":"message","valueString":"Whether '44054006' is in the value set cannot be decided here:
+     the value set selects from http://snomed.info/sct by rule, and that code system's content is
+     not in the packages"},
+  {"name":"x-caused-by-unknown-system","valueCanonical":"http://snomed.info/sct"}],
+ "resourceType":"Parameters"}}|
 
-A related trap on the command line: a value set address that no package has is answered with an
-empty expansion, not an error. If an expansion is unexpectedly empty, check the address and the
-packages first. (The operations and the HTTP server do say "not found".)
+@tt{x-caused-by-unknown-system} is the parameter the reference terminology server uses for the
+same situation: read a false that carries it as "cannot say", not as "not allowed". A code of a
+system that @italic{is} at hand gets a plain true or false.
+
+@bold{Questions about the system itself are refused.} @tt{lookup} and @tt{subsumes} on a system
+whose content is not there say so and exit with 1:
+
+@verbatim{
+$ raco fhir-tx lookup http://loinc.org 4548-4
+fhir-tx: no CodeSystem http://loinc.org in the R5 core package (name others with --package)
+}
+
+The family's validator reads these marks: when it checks a resource's codes through this service
+and the value set rests on a system that is not there, it reports nothing rather than call the code
+invalid (@hyperlink["../fhir-validation/index.html"]{fhir-validation}).
+
+A misspelt address is an error too, on the command line as over HTTP, not an empty answer:
+
+@verbatim{
+$ raco fhir-tx expand http://example.org/ValueSet/nope
+fhir-tx: no ValueSet http://example.org/ValueSet/nope in the R5 core package (name others with --package)
+}
 
 @section[#:tag "serve"]{Serving it over HTTP}
 
@@ -247,7 +275,7 @@ One command starts such a server:
 
 @verbatim{
 $ raco fhir-tx serve --port 8080
-terminology server on http://localhost:8080  (GET /metadata, /metadata?mode=terminology; Ctrl-C to stop)
+terminology server on http://localhost:8080  (GET /metadata, /metadata?mode=terminology; Ctrl-C, or kill 8987, to stop)
 }
 
 It serves the R5 specification's terminology unless you give @litchar{--package}s, as above. The
@@ -304,10 +332,9 @@ it is reached through another name than @tt{localhost}. Serving needs the
 server generated from an Implementation Guide by @tt{raco fhir-server serve-ig} serves @tt{$expand}
 as well when the guide asks for it, over the value sets it stores and the guide's packages.
 
-Two things to know. Over HTTP, @tt{ValueSet/$validate-code} does not at present accept a separate
-@tt{system} input: give the code alone, as above, or a @tt{coding}. And the line the server prints
-when it is ready appears at once in a terminal, but only when the server stops if its output is
-sent to a file; a script should wait for @tt{/metadata} to answer instead.
+The line the server prints when it is ready ends with its process id (@tt{Ctrl-C, or kill 8987, to
+stop}), and is written at once, to a terminal or to a file: a script that started the server in the
+background can wait for that line, then stop the server by the id.
 
 @section[#:tag "program"]{From a program}
 
@@ -451,10 +478,7 @@ command's usage.
 
 @itemlist[
 @item{@bold{External code systems.} SNOMED CT, LOINC, RxNorm and the like are not shipped and not
-fetched. What follows from that, and how the answers look, is in @secref["offline"]. The service's
-own answers do not mark an expansion as incomplete.}
-@item{@bold{An unknown value set on the command line} is an empty expansion, exit code 0, not an
-error.}
+fetched. What follows from that, and how the answers are marked, is in @secref["offline"].}
 @item{@bold{@tt{$expand}} takes @tt{filter}, @tt{count}, @tt{offset}, @tt{activeOnly},
 @tt{excludeNested}, @tt{displayLanguage}, @tt{includeDesignations}, @tt{property} and
 @tt{useSupplement}. It does not take @tt{includeDefinition}, @tt{excludeNotForUI} or @tt{limit},
@@ -472,8 +496,6 @@ asked for, the highest is taken, comparing the version texts as strings.}
 @item{@bold{@tt{$find-matches}} matches properties exactly or by substring; it has no grammar for
 composed expressions.}
 @item{@bold{@tt{$closure}} tables live in the running process and are gone when it stops.}
-@item{@bold{Over HTTP}, @tt{ValueSet/$validate-code} does not accept the @tt{system} input (use the
-code alone, or a @tt{coding}).}
 @item{@bold{FHIRPath's @tt{%terminologies}} offers @tt{expand()} (with a Parameters argument),
 @tt{validateVS()} and @tt{translate()} (a code, a Coding or a CodeableConcept, and a system). It has
 no @tt{lookup()}, @tt{subsumes()} or @tt{validateCS()}.}]

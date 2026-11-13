@@ -40,7 +40,8 @@
          (only-in racket/format ~r)
          (only-in fhir/serialize/jsexpr-util drop-false)
          (only-in fhir/primitives/temporal calendar-problem)
-         (only-in fhirpath/terminology tx-service-validate tx-service-expand))
+         (only-in fhirpath/terminology tx-service-validate tx-service-expand)
+         (only-in fhir/terminology/service expand/json validate-code/json packages->resolver))
 
 (provide
  (struct-out issue)
@@ -106,7 +107,7 @@
        [else
         (define node (let ([r (from-json json #:lenient? #t)]) (and (ok? r) (ok-value r))))
         (define seen (make-hash))
-        (for/fold ([acc (reverse dup-issues)] #:result (reverse acc))
+        (for/fold ([acc (reverse (append dup-issues (unchecked-profile-issues rt json profiles)))] #:result (reverse acc))
                   ([i (in-list indexes)] #:when i)
           (define issues (append (walk i rt json tx) (if inv? (invariant-issues i rt node) '())))
           (for/fold ([acc acc]) ([is (in-list issues)])
@@ -125,12 +126,38 @@
 ;; supplied profiles whose `type` matches (their snapshots generated on demand)
 ;; target-indexes : type-code jsexpr (listof SD) -> (listof Index)
 (define (target-indexes rt json profiles)
-  (define metaprofs
-    (let ([m (hash-ref json 'meta #f)]) (if (hash? m) (let ([p (hash-ref m 'profile '())]) (if (list? p) p '())) '())))
+  (define metaprofs (claimed-profiles json))
   (define profile-sds
     (filter (lambda (sd) (and sd (equal? (hash-ref sd 'type #f) rt)))
             (append (filter-map resolve-sd-raw metaprofs) profiles)))
   (filter values (cons (type-index rt) (map idx-of profile-sds))))
+
+;; claimed-profiles : jsexpr -> (listof string)   the canonicals in meta.profile
+(define (claimed-profiles json)
+  (define m (and (hash? json) (hash-ref json 'meta #f)))
+  (define ps (if (hash? m) (hash-ref m 'profile '()) '()))
+  (if (list? ps) (filter string? ps) '()))
+
+;; unchecked-profile-issues : type-code jsexpr (listof SD) -> (listof Issue)
+;; A profile the resource claims that it was NOT held to is said, as a warning at its place in
+;; meta.profile: one nothing in context defines (the packages, the profiles supplied), or one whose
+;; own base definition is not there, so no element set could be built from it. Without this a
+;; resource claiming a guide's profile, validated with only the core package, was "All OK" — true
+;; of what was checked, and read as conforming to the guide.
+(define (unchecked-profile-issues rt json profiles)
+  (define (supplied url) (findf (lambda (sd) (and (hash? sd) (equal? (hash-ref sd 'url #f) url))) profiles))
+  ;; why : string -> string | #f   the reason the claimed profile was not checked, when it was not
+  (define (why p)
+    (define sd (or (resolve-sd-raw p) (supplied (canonical-url p))))
+    (cond [(not sd) "nothing in context defines it"]
+          [(and (equal? (hash-ref sd 'type #f) rt) (not (idx-of sd)))
+           (format "its base definition~a was not found"
+                   (let ([b (hash-ref sd 'baseDefinition #f)]) (if (string? b) (format " `~a`" b) "")))]
+          [else #f]))
+  (for*/list ([(p i) (in-parallel (claimed-profiles json) (in-naturals))]
+              [reason (in-value (why p))] #:when reason)
+    (issue "warning" "not-found" (format "~a.meta.profile[~a]" rt i)
+           (format "the resource claims profile `~a`, but ~a: it was not checked against that profile" p reason))))
 
 ;; a target's element index: its shipped snapshot, else one generated from its differential.
 ;; FAIL OPEN on a snapshot we could not really build: when a profile's baseDefinition is not
@@ -395,7 +422,7 @@
 ;; code-hint : value-set-url (listof (cons system code)) -> string   what the value set does hold, from
 ;; its offline expansion: the closest codes, and every code when there are at most 20 ("" otherwise)
 (define (code-hint vs codes)
-  (define members (binding-expansion-codes vs))
+  (define members (or (binding-expansion-codes vs) (context-codes vs)))
   (cond
     [(not (and members (pair? codes) (string? (cdr (car codes))))) ""]
     [else
@@ -404,17 +431,35 @@
          (format "~a; it holds ~a" near (string-join members ", "))
          near)]))
 
-;; -> 'yes | 'no | 'unknown. tx first when present; the offline expansion decides otherwise.
+;; -> 'yes | 'no | 'unknown. tx first when present; then the offline expansion generated with the
+;; tower; then the value sets of the packages in context — a profile's OWN value set (an FSH
+;; project's `* gender from BinarySex (required)`, a guide's) is in no tower, and a caller that
+;; supplied no terminology had such a binding decide nothing.
 ;; member? : tx|#f value-set-url code system|#f -> Membership
 (define (member? tx vs code system)
   (define via-tx (if tx (tx-member? tx vs code system) 'unknown))
   (cond
     [(not (eq? via-tx 'unknown)) via-tx]
-    [else
-     (define exp (binding-expansion vs))
-     (cond [(not exp) 'unknown]                        ; not offline-expandable -> undecidable
-           [(hash-ref exp code #f) 'yes]
-           [else 'no])]))
+    [(binding-expansion vs) => (lambda (exp) (if (hash-ref exp code #f) 'yes 'no))]
+    [(context-terminology) => (lambda (r) (tx-member? r vs code system))]
+    [else 'unknown]))
+
+;; context-terminology : -> resolver | #f   the terminology of the packages in context, one resolver
+;; per package list (its package indexes and expansions are kept with it)
+(define context-resolvers (make-weak-hash))
+(define (context-terminology)
+  (define pkgs (sd-context))
+  (and (pair? pkgs) (hash-ref! context-resolvers pkgs (lambda () (packages->resolver pkgs)))))
+
+;; context-codes : value-set-url -> (listof string) | #f   the codes of a value set the packages in
+;; context define, for the hint (#f when it does not expand there)
+(define (context-codes vs)
+  (define r (context-terminology))
+  (define contains
+    (and r (with-handlers ([exn:fail? (lambda (_) #f)])
+             (let ([e (hash-ref (expand/json r vs) 'expansion #f)]) (and (hash? e) (hash-ref e 'contains #f))))))
+  (and (pair? contains)
+       (for/list ([c (in-list contains)] #:when (string? (hash-ref c 'code #f))) (hash-ref c 'code))))
 
 ;; value/pattern discriminator slicing: each declared slice with min>=1 must have >=min matching
 ;; instances. Fail-open at every step: a slicing whose discriminators aren't all value/pattern, a
@@ -531,12 +576,26 @@
                        sl
                        (let ([id (hash-ref sl 'id #f)])
                          (and (string? id) (index-by-id idx (string-append id "." dp))))))
-      (define pin (and (hash? elem)
-                       (cond [(choice-value elem "fixed") => (lambda (v) (list 'fixed v))]
-                             [(choice-value elem "pattern") => (lambda (v) (list 'pattern v))]
-                             [else #f])))
+      (define pin (or (and (hash? elem)
+                           (cond [(choice-value elem "fixed") => (lambda (v) (list 'fixed v))]
+                                 [(choice-value elem "pattern") => (lambda (v) (list 'pattern v))]
+                                 [else #f]))
+                      (and (equal? dp "url") (extension-slice-url sl))))
       (and pin (cons dp pin))))
   (and (andmap values pins) pins))
+
+;; extension-slice-url : ElementDef -> Pin-value | #f
+;; A slice of `extension` typed by ONE extension profile holds the entries whose url is that
+;; profile's canonical (an extension's url is its definition's address): the pin a differential
+;; never writes on `<slice>.url`. Without it a profile's `extension contains X named x 1..1` was
+;; met by any extension at all.
+(define (extension-slice-url sl)
+  (define types (let ([t (hash-ref sl 'type '())]) (if (list? t) t '())))
+  (define profiles
+    (for*/list ([t (in-list types)] #:when (and (hash? t) (equal? (hash-ref t 'code #f) "Extension"))
+                [p (in-list (let ([ps (hash-ref t 'profile '())]) (if (list? ps) ps '())))] #:when (string? p))
+      (canonical-url p)))
+  (and (= (length types) 1) (= (length profiles) 1) (list 'fixed (car profiles))))
 
 ;; does the instance match EVERY pinned discriminator? fixed -> equality, pattern -> subset,
 ;; both on pruned values; a dotted path navigates the raw jsexpr (a list step matches any element)
@@ -840,12 +899,20 @@
 ;; -> 'yes | 'no | 'unknown. Fail-open: return 'no ONLY when the ValueSet demonstrably expands to a
 ;; non-empty set offline (so we truly know its members) and the code is absent; otherwise 'unknown.
 ;; tx-member? : tx value-set-url code system|#f -> Membership
+;; A Tx is a tx-service (fhirpath/terminology: closures answering typed nodes) or a terminology
+;; resolver ((url [version]) -> resource | #f, fhir-tx), asked directly.
 (define (tx-member? tx vs code system)
   (with-handlers ([exn:fail? (lambda (_) 'unknown)])
-    (define exp ((tx-service-expand tx) vs))
-    (define contains (and (pair? exp)
-                          (let ([e (hash-ref (node->jsexpr (car exp)) 'expansion #f)])
-                            (and (hash? e) (let ([c (hash-ref e 'contains #f)]) (and (list? c) c))))))
+    ;; the expansion and the verdict as JSON. A resolver is asked at the JSON level, so the answer
+    ;; needs no type tower: through the service's typed nodes a program that had loaded no FHIR
+    ;; version got nothing back, and `"gender": "florp"` was "All OK"
+    (define-values (expansion verdict)
+      (if (procedure? tx)
+          (values (expand/json tx vs) (lambda () (validate-code/json tx vs code system)))
+          (values (let ([e ((tx-service-expand tx) vs)]) (and (pair? e) (node->jsexpr (car e))))
+                  (lambda () (let ([o ((tx-service-validate tx) vs code system)]) (and (pair? o) (node->jsexpr (car o))))))))
+    (define contains (let ([e (and (hash? expansion) (hash-ref expansion 'expansion #f))])
+                       (and (hash? e) (let ([c (hash-ref e 'contains #f)]) (and (list? c) c)))))
     (define members (and contains (length contains)))
     (cond
       [(or (not members) (= members 0)) 'unknown]     ; VS unresolvable/empty -> undecidable
@@ -853,12 +920,16 @@
       ;; is undecidable, not absent
       [(and system (not (for/or ([c (in-list contains)]) (equal? (hash-ref c 'system #f) system)))) 'unknown]
       [else
-       (define out ((tx-service-validate tx) vs code system))
-       (define params (if (pair? out) (let ([p (hash-ref (node->jsexpr (car out)) 'parameter '())])
-                                        (if (list? p) p '())) '()))
-       (define result (for/or ([p (in-list params)]) (and (equal? (hash-ref p 'name #f) "result")
-                                                          (hash-ref p 'valueBoolean 'none))))
-       (cond [(eq? result #t) 'yes] [(eq? result #f) 'no] [else 'unknown])])))
+       (define out (verdict))
+       (define params (let ([p (if (hash? out) (hash-ref out 'parameter '()) '())]) (if (list? p) p '())))
+       (define (param name) (for/or ([p (in-list params)]) (and (equal? (hash-ref p 'name #f) name) p)))
+       (define result (let ([p (param "result")]) (if p (hash-ref p 'valueBoolean 'none) 'none)))
+       (cond [(eq? result #t) 'yes]
+             ;; "no" for a code of a system the value set selects from by rule, without that
+             ;; system's content, is the service saying it cannot tell
+             [(param "x-caused-by-unknown-system") 'unknown]
+             [(eq? result #f) 'no]
+             [else 'unknown])])))
 
 ;; ---- small helpers ---------------------------------------------------------------------------
 ;; elem-leaf : ElementDef parent-path -> leaf   the element's own step ("value[x]")

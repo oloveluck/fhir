@@ -89,5 +89,24 @@
 (check-equal? (car (go "GET" "/ValueSet/$expand" '((url . "http://example.org/none")))) 404)
 (check-equal? (car (go "GET" "/ValueSet/$expand")) 400)
 
+;; a Bundle's writes are held to what a single write is: a transaction with an invalid entry is refused
+;; whole, a batch answers that entry and writes the others (POST / stored "femme" before)
+(let* ([entry (lambda (id gender) (hasheq 'resource (hasheq 'resourceType "Patient" 'id id 'gender gender)
+                                          'request (hasheq 'method "PUT" 'url (string-append "Patient/" id))))]
+       [bundle (lambda (type) (jsexpr->string (hasheq 'resourceType "Bundle" 'type type
+                                                      'entry (list (entry "tx-ok" "female") (entry "tx-bad" "femme")))))]
+       [refused (go "POST" "/" '() (bundle "transaction"))])
+  (check-equal? (car refused) 400)
+  (check-regexp-match #rx"nothing was written: Bundle.entry\\[1\\] [(]Patient[)]: Patient.gender: code `femme`"
+                      (hash-ref (car (hash-ref (cadr refused) 'issue)) 'diagnostics))
+  (check-equal? (car (go "GET" "/Patient/tx-ok")) 404)
+  (define answered (go "POST" "/" '() (bundle "batch")))
+  (check-equal? (map (lambda (e) (hash-ref (hash-ref e 'response) 'status)) (hash-ref (cadr answered) 'entry))
+                '("201 Created" "422 Unprocessable Entity"))
+  (check-equal? (car (go "GET" "/Patient/tx-ok")) 200)
+  (check-equal? (car (go "GET" "/Patient/tx-bad")) 404))
+;; transaction and batch are listed once each (the IG lists them itself)
+(check-equal? (map (lambda (i) (hash-ref i 'code)) (hash-ref (car (hash-ref (cadr md) 'rest)) 'interaction)) '("transaction" "batch"))
+
 (close-fhir-store store)
 (delete-file db)

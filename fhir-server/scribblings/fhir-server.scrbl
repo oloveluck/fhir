@@ -218,7 +218,7 @@ That is a complete specification of a server, and @tt{serve-ig} builds the serve
 $ raco fhir-server serve-ig hl7.fhir.us.core --port 8080
 loaded 255 example(s); 0 rejected by validation
 0 IG requirement(s) not met (raco fhir-server serve-ig hl7.fhir.us.core --gaps); 0 of them SHALL
-FHIR server for hl7.fhir.us.core on http://localhost:8080  (store: /var/tmp/fhir-ig-17945801221794580122105.db; Ctrl-C to stop)
+FHIR server for hl7.fhir.us.core on http://localhost:8080  (store: /var/tmp/fhir-ig-17945801221794580122105.db; Ctrl-C, or kill 3282, to stop)
 }
 
 It takes about fifteen seconds to start. Everything came from the package:
@@ -479,14 +479,15 @@ JSON, Bundles (each entry is stored), and @tt{.cql} libraries (stored as Library
 $ raco fhir-server load clinic.db data/
 a1c.json: 1 resource(s)
 ann.json: 1 resource(s)
-loaded 2 resources into clinic.db
+loaded 2 resources into clinic.db (indexed for FHIR 4.0.1 search)
 }
 
 A resource with an @tt{id} keeps it, and loading the same file again replaces it with a new
-version. @tt{load} does not validate what it reads. It also indexes for only a handful of searches
-(see @secref["limits"]), so use it to prepare data for SQL and for measures; to fill a store that a
-server will search, send the resources to the running server, or give the files to @tt{serve-ig}
-with @litchar{--load}.
+version. The resources are indexed for every search FHIR defines for their type, in FHIR R4 unless
+you say @litchar{--fhir-version 5.0.0} or @litchar{6.0.0} (a server you declare is R6), so a server
+started over the store later finds them. @tt{load} does not validate what it reads: a server
+validates what is written through it, so to have data checked on the way in, send it to the
+running server.
 
 @subsection{Reading it with SQL}
 
@@ -529,13 +530,13 @@ patients from the public eCQM content (in the cql repository, under @tt{tests/ve
 @verbatim{
 $ raco fhir-server load measures.db ecqm/cql
 …
-loaded 12 resources into measures.db
+loaded 12 resources into measures.db (indexed for FHIR 4.0.1 search)
 $ raco fhir-server load measures.db ecqm/measure
 …
-loaded 4 resources into measures.db
+loaded 4 resources into measures.db (indexed for FHIR 4.0.1 search)
 $ raco fhir-server load measures.db ecqm/valueset
 …
-loaded 57 resources into measures.db
+loaded 57 resources into measures.db (indexed for FHIR 4.0.1 search)
 $ raco fhir-server load measures.db ecqm/tests/BreastCancerScreeningsFHIR/denom-EXM125
 $ raco fhir-server load measures.db ecqm/tests/BreastCancerScreeningsFHIR/numer-EXM125-diagnosticReport
 }
@@ -670,31 +671,23 @@ modifiers @litchar{:text}, @litchar{:above}, @litchar{:below}, @litchar{:in} and
 parameters defined for every resource (@litchar{_tag}, @litchar{_profile}, @litchar{_security}).
 A lenient server answers as if the unsupported part were not there (@secref["search"]). Quantity
 search does not convert units. String search covers names and addresses, not every complex type.}
-@item{@bold{Observations by date, on a declared server.} @tt{[date date]} on Observation is accepted
-and advertised, but at present finds nothing, whatever the date. A parameter of your own with the
-place written out does work: @tt{[when date "effective.ofType(dateTime)"]}. (A server generated from
-an R4 guide searches Observations by date correctly.)}
 @item{@bold{Paging.} @litchar{_count} and @litchar{_offset} take a page, but the Bundle has no
 @tt{next} link, and its @tt{total} is the number of entries returned, not of all matches.}
-@item{@bold{@tt{raco fhir-server load} indexes little.} It indexes Patient by @tt{identifier} and
-@tt{gender}, Observation by @tt{code}, @tt{status}, @tt{patient} and @tt{subject}, and Condition
-by @tt{code}, @tt{patient} and @tt{subject}; nothing else. A server later started over that store
-reads those resources by id and finds them by those parameters, but a search by any other
-parameter (@tt{birthdate}, say) does not find them, and does not say so. Resources written through
-a server, or loaded by @tt{serve-ig --load}, are indexed in full. @tt{load} does not validate
-either.}
+@item{@bold{@tt{raco fhir-server load} does not validate.} It stores and indexes what it reads.}
 @item{@bold{Conditional requests and caching headers.} No conditional create, update or delete
 (@tt{If-None-Exist}, @tt{PUT /Type?param}), no @tt{If-Match}, @tt{ETag}, @tt{Last-Modified} or
-@tt{If-Modified-Since}. A PUT that creates a resource answers 200, as an update does.}
+@tt{If-Modified-Since}. A PUT that creates a resource answers 201, except when it re-creates one
+that was deleted (200: the resource already has earlier versions).}
 @item{@bold{History.} Of one resource and of one type, with @litchar{_since} and @litchar{_count};
 not of the whole server, no @litchar{_at}, no paging. A delete removes the current resource and
 leaves its versions, but is not itself recorded as an entry.}
 @item{@bold{Transactions.} A server generated from a guide (and @racket[make-store-app]) accepts
 transaction and batch Bundles at @tt{POST /}: a transaction is all or nothing, and temporary
 @tt{urn:} references between its entries are resolved. Its entries may be POST, PUT and DELETE; no
-GET or PATCH entries, and no conditional ones. On a generated server, @bold{resources arriving in a
-transaction are not validated} against the guide's profiles, unlike single writes. A declared
-server has no transaction endpoint.}
+GET or PATCH entries, and no conditional ones. On a generated server each resource in a Bundle is
+validated as a single write is: a transaction with an invalid entry is refused whole, and a batch
+answers that entry with its problems (422) and writes the others. A declared server has no
+transaction endpoint.}
 @item{@bold{PATCH} takes JSON Patch only, not FHIRPath Patch.}
 @item{@bold{Transport.} JSON only, no XML and no content negotiation. HTTP/1.1, one request per
 connection; no HEAD or OPTIONS, no CORS headers.}
@@ -706,10 +699,9 @@ JSON is accepted where the two versions agree (the capability guide lists where 
 generated server has its guide's version.}
 @item{@bold{A generated server's CapabilityStatement} keeps some of the guide's flags as written
 (@tt{conditionalCreate}, @tt{conditionalUpdate}, @tt{versioning}, @tt{updateCreate}) although
-conditional requests are not done, and always adds transaction and batch.}
+conditional requests are not done, and always lists transaction and batch.}
 @item{@bold{Measures.} Proportion measures counted per patient; see the limits of
-@hyperlink["https://oloveluck.github.io/cql/"]{cql}. A subject that is not in the store gets a
-report of zeros, not an error.}]
+@hyperlink["https://oloveluck.github.io/cql/"]{cql}.}]
 
 @section[#:tag "words"]{Words used here}
 

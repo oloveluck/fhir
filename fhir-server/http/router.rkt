@@ -237,7 +237,16 @@
     [(operation-result? node) 200]                     ; $validate's answer, whatever it found
     [(and (fhir? node) (eq? (fhir-type node) 'OperationOutcome)) (outcome-status node)]
     [(eq? kind 'create) 201]
+    ;; a PUT that made the resource (its first version) created it: 201, as FHIR says, with Location
+    [(and (eq? kind 'update) (first-version? node)) 201]
     [else 200]))
+
+;; first-version? : node -> boolean   the resource a write answered is version 1
+(define (first-version? node)
+  (and (fhir? node)
+       (let* ([meta (fhir-ref node 'meta #f)]
+              [v (and (fhir? meta) (fhir-ref meta 'versionId #f))])
+         (and v (equal? (leaf->string v) "1")))))
 
 ;; map the first OperationOutcome issue's code to an HTTP status
 (define (outcome-status node)
