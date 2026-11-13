@@ -17,4 +17,4 @@
 (for ([e (in-list (ig-search-report-errors r))]) (eprintf "     EXPRESSION ERROR ~s\n" e))
 (check-equal? (ig-search-report-errors r) '() "a search parameter's expression errors on an example")
 (check-equal? (ig-search-report-misses r) '())
-(check-true (>= (ig-search-report-probes r) 2446) "fewer search probes than the floor")
+(check-true (>= (ig-search-report-probes r) 2468) "fewer search probes than the floor")

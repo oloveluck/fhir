@@ -579,7 +579,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | round-trip | HL7 examples + R4/R5 core packages | `raco fhir roundtrip-tck r5\|r4` | 2968+77, 4581+72 |
 | **IG examples** | **US Core 9.0.0, IPS 2.0.1 packages** | `tests/ig-examples-r4-test.rkt` | **274/274 parse+round-trip** |
 | **IG validation** | **US Core 9.0.0, IPS 2.0.1, CRMI 2.0.0: every example vs the IG profiles it claims** | `tests/ig-validation-r4-test.rkt` | **330/330 clean** (0 false positives) |
-| **IG search** | **US Core 9.0.0 examples, R4 core + US Core SearchParameters: each example found by its own values** | `tests/ig-search-r4-test.rkt` | **2446/2446 probes** |
+| **IG search** | **US Core 9.0.0 examples, R4 core + US Core SearchParameters: each example found by its own values** | `tests/ig-search-r4-test.rkt` | **2468/2468 probes** |
 | **IG server** | **a server generated from US Core 9.0.0: all 255 resources load through validation** | `tests/ig-server-r4-test.rkt` | **0 unmet requirements** (SHALL/SHOULD/MAY; auth aside) |
 | **IG FHIRPath** | **the same IGs: profile invariants on their examples + SearchParameter expressions** | `tests/ig-fhirpath-r4-test.rkt` | **6082 invariant checks, 0 fail** (2 dom-3 spec-conflict errors); **1330/1330 search** |
 | **snapshot** | **fhir-test-cases rX/snapshot-generation** | `conformance/tests/snapshot-conformance-test.rkt` | **paths 80/80, card 476/478, types 235/236** (id-matched) |
@@ -2072,6 +2072,15 @@ resources, 813,540 of them Observations, a 4.5 GB store — to run an agent benc
   lookup index (`idx_number_lookup`, `idx_quantity_lookup`). That search: ~2.7 s from the shell (`raco fhir-mcp call`, the
   process start included); the US Core search oracle is unchanged, 2446/2446. Still slow, named: a date
   range with a sort over one patient's 28,000 observations (~6 s: a range scan on `high >= ?`).
+
+- **A Period is a date** (`store/search-index.rkt` `date-rows`; found by the agent benchmark: "how
+  many times did the patient visit the hospital in 2125?" — the search said 0, the data held 2). A
+  Period's bounds were read as the parsed value PRINTED (`#(struct:t-datetime …)`), which is no
+  date, so no Period was ever indexed: `Encounter?date=…` (and every other Period-valued date
+  parameter: `location-period`, a Procedure's `performedPeriod` …) matched nothing and `_sort=date`
+  sorted nothing, both silently, while /metadata advertised them. The search oracle could not see
+  it — it probes with the values the INDEX holds — and now makes 2468 probes (2446).
+  `tests/period-search-test.rkt` (an open period, a zone, both sort orders).
 
 Left, named: a delete is not a history entry (it needs a tombstone row in `fhir_history`, vread of
 it answering 410, and fhir-mcp's `history`/`trail` views taught to show or skip it); conditional

@@ -174,9 +174,13 @@
   (cond
     [(scalar it) => (lambda (s) (let ([r (and (string? s) (date-range s))])
                                   (if r (list (date-row (car r) (cdr r))) '())))]
+    ;; a Period's bounds are read as FHIR writes them (`scalar`: the JSON text). They were read as
+    ;; the parsed value printed (`#(struct:t-datetime …)`), which is no date: no Period was ever
+    ;; indexed, so `Encounter?date=…` matched nothing and `_sort=date` sorted nothing
     [(type-is? it 'Period)
-     (define lo (let ([s (str-field it 'start)]) (and s (date-range s))))
-     (define hi (let ([s (str-field it 'end)]) (and s (date-range s))))
+     (define (bound k) (let* ([f (fhir-ref it k #f)] [s (and f (scalar f))]) (and (string? s) (date-range s))))
+     (define lo (bound 'start))
+     (define hi (bound 'end))
      (if (or lo hi) (list (date-row (if lo (car lo) min-instant) (if hi (cdr hi) max-instant))) '())]
     [(type-is? it 'Timing) (append-map date-rows (listify (fhir-ref it 'event '())))]
     [else '()]))

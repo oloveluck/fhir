@@ -825,7 +825,7 @@ Against published guides, used as the specification of a server:
 @itemlist[
 @item{@bold{US Core 9.0.0.} The generated server serves all 31 resource types with no unmet
 requirement at any level; the guide's examples load through validation with none rejected; and each
-example is found by searching on its own values, 2446 searches out of 2446.}
+example is found by searching on its own values, 2468 searches out of 2468.}
 @item{@bold{mCODE 4.0.0}, compiled from its FHIR Shorthand source, packed and served here: all 283
 examples validate against its profiles, with no unmet requirement.}
 @item{@bold{CQF Measures 5.0.0.} A measure server generated from the guide evaluates two published
