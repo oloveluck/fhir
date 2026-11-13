@@ -1,6 +1,11 @@
 #lang scribble/manual
 @(require (for-label racket/base racket/contract fhir/mcp/tools fhir/mcp/server fhir/mcp/workspace fhir/mcp/verbs))
 
+@; tt : code inside a sentence, exactly as typed (scribble's own tt would turn -- into a dash and
+@; 'x' into curly quotes)
+@(require (only-in scribble/core element))
+@(define (tt . text) (element 'tt text))
+
 @title{fhir-mcp: a FHIR workspace for an AI agent}
 
 An AI agent such as Claude can do real work with health data, if it has the right place to do it:

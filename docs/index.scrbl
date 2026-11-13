@@ -1,5 +1,10 @@
 #lang scribble/manual
 
+@; tt : code inside a sentence, exactly as typed (scribble's own tt would turn -- into a dash and
+@; 'x' into curly quotes)
+@(require (only-in scribble/core element))
+@(define (tt . text) (element 'tt text))
+
 @title{fhir: FHIR's languages and tools}
 
 @hyperlink["https://hl7.org/fhir/"]{FHIR} is the standard most health systems use to exchange data:
