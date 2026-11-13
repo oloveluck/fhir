@@ -151,8 +151,8 @@
 
 ;; artifact-text : hub artifact -> (cons language string)   the language a definition is written in
 ;; and its text: the text its commit kept (kept-text), else written from the resource — a library's
-;; CQL (FHIR keeps it as the library's content), the guide's sushi-config.yaml, FSH for the rest
-;; (decompiled). An archived version is written under its own id.
+;; CQL (FHIR keeps it as the library's content), the guide's sushi-config.yaml, a StructureMap as
+;; the mapping language, FSH for the rest (decompiled). An archived version is written under its own id.
 (define (artifact-text h stored)
   (define r (unarchived stored))
   (or (kept-text h stored)
@@ -160,8 +160,7 @@
         ["ImplementationGuide" (cons "ig" (guide-text r))]
         ["Library" (cond [(library-cql r) => (lambda (cql) (cons "cql" cql))]
                          [else (cons "fsh" (definition-fsh r))])]
-        ["StructureMap" (error 'describe (format "~a/~a: no commit here kept its FML, and a StructureMap is not written back as FML yet (describe it as JSON, or as=fsh)"
-                                                 (hash-ref r 'resourceType) (hash-ref r 'id "?")))]
+        ["StructureMap" (cons "fml" (map-text r))]
         [_ (cons "fsh" (definition-fsh r))])))
 
 ;; kept-text : hub stored -> (cons language string) | #f   the text the commit of this version kept
@@ -210,6 +209,13 @@
 ;; follow the guide
 (define (definition-fsh r)
   (text-answer-text (as-fsh (for/fold ([r r]) ([k (in-list '(version status experimental publisher))]) (hash-remove r k)))))
+
+;; map-text : StructureMap -> string   as the mapping language (fml's printer: the specified language)
+(define (map-text sm)
+  (define (fml module name)
+    (with-handlers ([exn:fail:filesystem? (lambda (_) (error 'describe "a StructureMap is written back as the mapping language by the fml package"))])
+      (dynamic-require module name)))
+  ((fml 'fml/print 'fml->text) ((fml 'fml/structuremap 'structuremap->fml) sm)))
 
 (define (guide-text g)
   ((with-handlers ([exn:fail? (lambda (_) (error 'describe "an implementation guide is written back as sushi-config.yaml by the fsh package"))])

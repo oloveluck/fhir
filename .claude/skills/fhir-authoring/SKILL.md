@@ -187,7 +187,7 @@ and the other elements in the order the specification lists them (a Quantity: va
 code) — `write-json` puts a hash's keys in no order at all.
 Without a birth date the map's Patient breaks the profile, and the error is at the map's rule:
 `the map's Patient is invalid against IntakePatient (…) (FHIR R5 (5.0.0)): … qr2patient.map:14:25: fml validate error: Patient.birthDate: minimum
-required = 1, but found 0 (the rule here wrote nothing: its source matched 2 items, but `where linkId = 'birthDate'` held for none (the linkId there: name, gender))` —
+required = 1, but found 0 (the rule here wrote nothing: its source matched 2 items, but `where (linkId = 'birthDate')` held for none (the linkId there: name, gender))` —
 the birthDate rule is there, but the QuestionnaireResponse had no `birthDate` item for it to read. `(ensure-valid patient #:profile url)` (`fhir/conformance/operations`)
 validates any resource the same way, naming the element but not the rule; it needs
 `(require (only-in fhir/conformance/operations ensure-valid))` (loading that module registers

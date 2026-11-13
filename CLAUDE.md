@@ -539,6 +539,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | FML | fhir-test-cases r5/structure-mapping | `raco fml --tck` | 6/6 exec, 15/15 parse |
 | **FML corpus 2** | **ahdis/matchbox's maps + the FHIR mapping-language tutorial (13 steps over logical models); FHIR/interversion R3/R4 maps parsed in CI** | `raco fml --tck` (fml repo, `tests/matchbox-harness.rkt`) | **43/43 parse, 17/17 run, tutorial 37/37** (2 stale result files set aside with evidence); interversion 332/332 parse |
 | **FML StructureMap form** | **every corpus map through its StructureMap and back; the tutorial run from the emitted resources by canonical; our StructureMap vs matchbox's rule by rule** | `raco fml --tck` | **58/58 round trip; 37/37 from our resources** (30/37 from the reference's, several predate their .map); **21/31 rules equal** |
+| **FML printer** | **every corpus map and every StructureMap resource matchbox ships written as the specified language (fml/print): parses, means the same StructureMap, a fixpoint, nothing beyond the specification but `conceptmap` and `share <id>`; the inter-version R4 maps in CI** | `raco fml --tck` | **58/58 maps, 25/25 resources** (332/332 in CI) |
 | **FML check** | **every corpus map checked against its structures** | `raco fml --tck` | **55/58 without an error finding** — the 3 are real (R4 elements R5 dropped; a typo in syntax.map) |
 | **UCUM** | **FHIR/Ucum-java UcumFunctionalTests.xml** | **`raco fhirpath --ucum-tck`** | **573/573** (all sections) |
 | VCL | the spec page's 60 examples | `raco test vcl/` | 60/60 parse + fixpoint |
@@ -1451,7 +1452,7 @@ Each fix has a test doing it:
   "above"` on a second use); the `copied` note is short.
 - **Racket route**: `--now` that is not a date is one line (`"01/05/2015" is not a date (2026-01-01) or a
   DateTime`, a user error); FML says when a `where` dropped what the source matched (`its source matched
-  1 item, but `where linkId = 'gender'` held for none (the first: …)`, recorded in transform.rkt
+  1 item, but `where (linkId = 'gender')` held for none (the first: …)`, recorded in transform.rkt
   `source-matches`); learn://racket gives the `main.rkt` shape `tests.rkt` drives and the ~3 s startup.
 - Capability guide: the eGFR block is pasted into the smallest server; a create says nothing of
   warnings (validate first).
@@ -1783,9 +1784,9 @@ Step 1, continued — the store alone, and edit (2026-11-12; `tests/artifacts-te
   (`definition-block`; comments included, the file's other entities left out), a library's `.cql`,
   a value set's `.vcl`, a map's `.map`, the guide's file. Written from the resource only where no
   commit kept such a text (an archived release, a definition loaded from elsewhere).
-Not yet, named: a stored StructureMap with no kept text is not written back as FML (fml has no
-printer); a definition staged alone in a store-only workspace is not added to the stored guide's
-`definition.resource`.
+Not yet, named: a definition staged alone in a store-only workspace is not added to the stored
+guide's `definition.resource`. (A stored StructureMap with no kept text comes back as the mapping
+language since 2026-11-13: `describe.rkt` `map-text`, fml's printer — below.)
 
 Step 2a — pins: which version a canonical means (2026-11-12; `tests/pins-test.rkt`):
 - **The pins are CRMI's manifest parameters**: a Parameters resource of `default-canonical-version`
@@ -1835,6 +1836,22 @@ copy. Writing `json-diff`'s tests found a defect: `text` was skipped at every de
 narrative is at the top, so a corrected `note.text` or `code.text` was "unchanged" — the stage said
 the resource was stored as it is and nothing was committed. Only a resource's own `meta` and
 narrative are left out now (trail-test corrects a note).
+
+## FML as its specification writes it; the printer (2026-11-13)
+The user's rule: "Print only the official grammar. My language should match the specified language
+as much as possible." fml/CLAUDE.md has the detail ("The specified language; the printer"); in short:
+- The specification's text and its formal grammar disagree (the header, url and rule-name quoting,
+  string quotes): both are read, the text's form is written.
+- Forms the specification has that fml lacked or dropped are implemented (metadata lines, the
+  `draft` default, a source's type, cardinality and default, `let` constants, the short form, calls
+  with nested rules, bare `share`, backticked names).
+- `fml/print` (`fml->text`) writes any map or StructureMap in the specified language only;
+  `raco fml --decompile`; fhir-mcp's edit hands a stored StructureMap back as a `.map` file
+  (`tests/artifacts-test.rkt` 7). So every workspace language now comes back out of the store as text.
+- What fml reads beyond the specification (unparenthesized `where`/`check`, `where` before the
+  alias, `share <id>`, `conceptmap`) is a warning at the form from `check-map`; the family's own
+  maps, guides and messages are in the specified form. `block-name` (guide blocks) and fml's editor
+  outline read the metadata header.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

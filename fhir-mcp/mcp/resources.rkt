@@ -77,6 +77,9 @@
        (and m (cadr m))))
    (let ([m (regexp-match #px"^\\s*library\\s+\"?([A-Za-z0-9_]+)" first)]) (and m (cadr m)))
    (let ([m (regexp-match #px"\"name\":\\s*\"([^\"]+)\"" first)]) (and m (cadr m)))
+   ;; a map, by either header: its `/// name = '…'` metadata line, or `map "url" = "name"`
+   (for/or ([l (in-list lines)])
+     (let ([m (regexp-match #px"^///\\s*name\\s*=\\s*['\"]([A-Za-z0-9_]+)" l)]) (and m (cadr m))))
    (let ([m (regexp-match #px"^\\s*map\\s+\"[^\"]*\"\\s*=\\s*\"?([A-Za-z0-9_]+)" first)]) (and m (cadr m)))))
 
 ;; guide-block-text : text 'list|n|name -> string|#f

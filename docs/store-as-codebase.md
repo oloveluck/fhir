@@ -42,8 +42,9 @@ entity with what it uses, the `.cql`, `.vcl` or `.map` text); **pins** — the g
 parameters (`parameters: path-expansion-params`, a Parameters resource the workspace defines,
 contained in the compiled guide under `cqf-expansionParameters`), in force for every resolver
 among stored versions, `manifest=` on a call, and CRMI's `$resolve` on its own
-OperationDefinition (`tests/pins-test.rkt`). Not yet: a stored StructureMap with no kept text
-written back as FML; a definition staged alone into a store-only workspace added to the stored
+OperationDefinition (`tests/pins-test.rkt`). A stored StructureMap with no kept text
+comes back as the mapping language (fml's printer, the specified language only). Not yet: a
+definition staged alone into a store-only workspace added to the stored
 guide's list; the manifest library; pins on a dependency package's artifacts; `X-Manifest`; the
 dependency index and the other operations.
 

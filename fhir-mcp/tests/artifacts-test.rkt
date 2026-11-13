@@ -22,6 +22,7 @@
 ;;;   6. edit: `write path=… ref=…` writes a stored definition as its file, and the text compiles
 ;;;      to what is stored; definitions are staged under a guide being drafted, `definitions:=true`
 ;;;      stages one file's own;
+;;;      (a StructureMap no commit kept a text for comes back as the mapping language: section 7)
 ;;;   7. the authoring rules are for what the workspace's languages wrote: a definition given as
 ;;;      JSON (somebody's published artifact) is staged as it is, with or without a guide.
 
@@ -247,6 +248,32 @@
   (check-regexp-match #rx"\"action\":\"create\",\"resource\":\"Questionnaire/intake\"\\}\\],\"errors\":0" (list-ref a 1))
   (check-false (regexp-match? #rx"Questionnaire/intake" (list-ref a 3)))        ; unchanged when the guide is staged
   (check-regexp-match #rx"\nintake,active,2.0.0\n" (list-ref a 4)))
+;; a published StructureMap, likewise given as JSON: no commit kept a text for it, so edit writes it
+;; from the resource — the mapping language as the specification writes it (fml's printer)
+(save "names.json" "{\"resourceType\": \"StructureMap\", \"id\": \"names\", \"url\": \"http://elsewhere.example/StructureMap/names\","
+      " \"version\": \"1.0.0\", \"name\": \"Names\", \"status\": \"active\","
+      " \"structure\": [{\"url\": \"http://hl7.org/fhir/StructureDefinition/Patient\", \"mode\": \"source\", \"alias\": \"In\"},"
+      "               {\"url\": \"http://hl7.org/fhir/StructureDefinition/Patient\", \"mode\": \"target\", \"alias\": \"Out\"}],"
+      " \"group\": [{\"name\": \"names\", \"typeMode\": \"none\","
+      "   \"input\": [{\"name\": \"src\", \"type\": \"In\", \"mode\": \"source\"}, {\"name\": \"tgt\", \"type\": \"Out\", \"mode\": \"target\"}],"
+      "   \"rule\": [{\"name\": \"gender\","
+      "     \"source\": [{\"context\": \"src\", \"element\": \"gender\", \"variable\": \"g\", \"condition\": \"g = 'female'\"}],"
+      "     \"target\": [{\"context\": \"tgt\", \"contextType\": \"variable\", \"element\": \"gender\", \"transform\": \"copy\", \"parameter\": [{\"valueId\": \"g\"}]}]}]}]}")
+(let ([a (batch "write path=names.json text=@names.json" "stage path=names.json" "commit stage=latest reason=\"a published map\""
+                "describe ref=StructureMap/names as=source"
+                "write path=names.map ref=http://elsewhere.example/StructureMap/names"
+                "!write path=names.fsh ref=StructureMap/names")])
+  (check-regexp-match #rx"\"action\":\"create\",\"resource\":\"StructureMap/names\"\\}\\],\"errors\":0" (list-ref a 1))
+  (define text (string-append "/// url = 'http://elsewhere.example/StructureMap/names'\n/// name = 'Names'\n/// version = '1.0.0'\n/// status = 'active'\n\n"
+                              "uses \"http://hl7.org/fhir/StructureDefinition/Patient\" alias In as source\n"
+                              "uses \"http://hl7.org/fhir/StructureDefinition/Patient\" alias Out as target\n\n"
+                              "group names(source src : In, target tgt : Out) {\n"
+                              "  src.gender as g where (g = 'female') -> tgt.gender = g \"gender\";\n"
+                              "}\n"))
+  (check-true (and (regexp-match? (regexp-quote text) (list-ref a 3)) #t) (list-ref a 3))
+  (check-regexp-match #rx"\"from\":\"http://elsewhere.example/StructureMap/names\",\"language\":\"fml\",\"path\":\"names.map\",\"problems\":\\[\\]" (list-ref a 4))
+  (check-equal? (file->string (build-path dir "ws" "names.map")) text)
+  (check-regexp-match #rx"StructureMap/names is written as FML: a .map file" (list-ref a 5)))
 ;; and in a workspace with no guide at all
 (let-values ([(ok _) (sh "raco fhir-mcp init ws2")]) (check-true ok))
 (save "session2.txt" "write path=q.json text=@q.json" "stage path=q.json keep:=false")
