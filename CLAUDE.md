@@ -2098,17 +2098,25 @@ in one process, the load itself), `query` (a fixed set of searches and SQL state
 patient with the most observations; medians). Compare runs on one machine with nothing else running:
 five leftover processes once made every number of an afternoon wrong.
 
-| | before | after |
+| | before (5a9d601) | after |
 |---|---|---|
-| load, the whole dataset | not done in 30 min (killed) | 2 min 15 s (6,880 /s) |
-| load, the sample | 95.7 s (642 /s); one worker 41.5 s | 9.9 s (6,222 /s) |
-| index extraction, one process | 202 µs a resource | 118 µs |
-| a patient's observations, first 10 | 225 ms | 28 ms |
-| … of one code (1,362) | 177 ms | 144 ms |
-| … from a date on, sorted, first 10 | 3,201 ms | 222 ms |
-| a patient's latest observation | 255 ms | 112 ms |
-| every observation of one code, counted | 47 ms | 7 ms |
-| `raco fhir roundtrip-tck r5` | 3.5 s after (not timed before: the pool bug below) | |
+| load, the whole dataset | not done in 30 min (killed; the first machine) | 3 min 19 s (4,674 /s) |
+| load, the sample | 102.2 s (601 /s) | 13.1 s (4,689 /s) |
+| a patient's observations, first 10 of 48,554 | 272 ms | 39 ms |
+| … of one code (1,362 returned) | 214 ms | 172 ms |
+| … from a date on, sorted, first 10 | 3,598 ms | 289 ms |
+| a patient's latest observation | 339 ms | 140 ms |
+| … of one code | 306 ms | 213 ms |
+| every observation of one code, counted | 58 ms | 9 ms |
+| SQL: a patient's observations by a JSON path | 1,996 ms | 2,012 ms |
+| SQL: the same through the reference index | 93 ms | 56 ms |
+
+Both columns were measured on ONE machine, one after the other, the old code checked out for the
+first (the container was replaced during the work by one about 1.4 times slower: indexing a
+resource, 118 µs there, is 162 µs here — so a number from another session is not comparable, only
+a pair taken together is; on the first machine the whole load took 2 min 15 s before the indexes
+carried the id, the sample 9.9 s, and indexing a resource went 202 -> 118 µs). `raco fhir
+roundtrip-tck r5` takes 3.5 s (the pool bug below had made its workers take turns).
 
 What was wrong, each found by measuring first (a profile, or timers around the hand-offs):
 - **Four workers gave 1.35 times one** (`fhir/parallel`). A worker's answer was written with a

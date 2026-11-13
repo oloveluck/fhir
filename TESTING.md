@@ -40,19 +40,20 @@ that only rises. The languages' own suites are in their repositories: [fsh](http
 Measured, not gated: `fhir-server/bench/store-bench.rkt` loads a bulk export and asks a fixed set
 of questions of the store, the same way each time. The numbers below are on the MIMIC-IV Clinical
 Database Demo on FHIR 2.1.0 (PhysioNet; 30 files, 928,935 resources, 813,540 of them Observations),
-on a four-core machine with nothing else running. "Before" is this repository on 2026-11-13,
-before the work the benchmark prompted.
+on a four-core machine with nothing else running. "Before" is this repository at commit 5a9d601
+(2026-11-13, before the work the benchmark prompted), checked out and measured on the same machine
+as "now": timings from different machines, or different days on a shared one, are not comparable.
 
 | | Before | Now |
 |---|---|---|
-| `raco fhir-server load`, the whole dataset | not finished in 30 minutes | 2 min 15 s (6,880 resources a second) |
-| …a 61,396-resource sample of it | 95.7 s | 9.9 s |
-| a patient's observations, the first 10 of 48,554 | 225 ms | 28 ms |
-| …of one code (1,362 resources returned) | 177 ms | 144 ms |
-| …from a date on, sorted by date, the first 10 | 3,201 ms | 222 ms |
-| a patient's latest observation | 255 ms | 112 ms |
-| every observation of one code, counted (19,330) | 47 ms | 7 ms |
-| SQL over raw JSON: a patient's observations by `subject.reference` | 1.9 s | 1.9 s (41 ms through the reference index) |
+| `raco fhir-server load`, the whole dataset | not finished in 30 minutes | 3 min 19 s (4,674 resources a second) |
+| …a 61,396-resource sample of it | 102.2 s | 13.1 s |
+| a patient's observations, the first 10 of 48,554 | 272 ms | 39 ms |
+| …of one code (1,362 resources returned) | 214 ms | 172 ms |
+| …from a date on, sorted by date, the first 10 | 3,598 ms | 289 ms |
+| a patient's latest observation | 339 ms | 140 ms |
+| every observation of one code, counted (19,330) | 58 ms | 9 ms |
+| SQL over raw JSON: a patient's observations by `subject.reference` | 2.0 s | 2.0 s (56 ms through the reference index) |
 
 ```sh
 racket fhir-server/bench/store-bench.rkt sample <ndjson-dir> sample/     # the first 4,000 lines of each file

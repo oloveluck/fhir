@@ -574,7 +574,7 @@ hold hundreds of thousands of resources. @tt{load} reads such files as a stream 
 work over every core of the machine: worker processes read the lines, stamp the resources and work
 out their search index entries, and one process writes. When the store is empty, the search
 indexes are built once at the end instead of entry by entry. The hospital dataset this is measured
-on (a public intensive-care dataset of 928,935 resources, most of them observations) loads in a little over two minutes on four cores, about 6,900 resources a second. What is stored is
+on (a public intensive-care dataset of 928,935 resources, most of them observations) loads in a little over three minutes on four cores, about 4,700 resources a second. What is stored is
 exactly what loading the resources one by one stores.
 
 @subsection{Indexing again}
@@ -861,8 +861,8 @@ every OperationDefinition and a search result are run through the validator. The
 capability guide are run as written, over a real socket.}]
 
 Speed is measured on one dataset, the same way each time (@tt{fhir-server/bench/store-bench.rkt}):
-a public intensive-care dataset of 928,935 resources. It loads in a little over two minutes, and a search for one patient's ten most recent observations among
-them answers in about a tenth of a second.
+a public intensive-care dataset of 928,935 resources. It loads in a little over three minutes, and a search for one patient's ten most recent observations among
+them answers in under a fifth of a second.
 
 The repository's @hyperlink["https://github.com/oloveluck/fhir/blob/main/TESTING.md"]{@tt{TESTING.md}}
 has every suite, names the misses, and has the timings.
