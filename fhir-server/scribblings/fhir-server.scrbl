@@ -533,7 +533,9 @@ next open.
 @subsection{Loading files}
 
 @tt{raco fhir-server load} fills a store from files, with no server running: FHIR resources as
-JSON, Bundles (each entry is stored), and @tt{.cql} libraries (stored as Library resources). Here
+JSON, Bundles (each entry is stored), bulk-data files (@tt{.ndjson} or @tt{.ndjson.gz}: one
+resource to a line, read a batch at a time, so a file of any size loads), and @tt{.cql} libraries
+(stored as Library resources). Here
 @tt{data/} holds a patient and one of her lab results:
 
 @verbatim{

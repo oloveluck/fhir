@@ -57,7 +57,8 @@ that same catalog — advertised params and working search can't drift.
 raco fhir-server load <store.db> <bundle.json | dir> [--fhir-version 4.0.1|5.0.0|6.0.0] [--validate [--package <guide>]…]
 ```
 
-Indexed for every search FHIR defines for the type, in R4 unless `--fhir-version` says otherwise
+It reads `.json` (resources, Bundles), bulk data (`.ndjson`, `.ndjson.gz`: a resource to a line,
+ids kept) and `.cql`. Indexed for every search FHIR defines for the type, in R4 unless `--fhir-version` says otherwise
 (a `#lang fhir/capability` app is R6). `load` checks nothing unless `--validate` is given: then
 every resource (a Bundle's entries too) is held to its type and the profiles it claims first, each
 problem printed as `file: Type/id: error: path: message`, and nothing is loaded when one is an
