@@ -31,9 +31,10 @@
     (define q2 (call b "query" (hasheq 'language "sql" 'text "SELECT count(*) AS n FROM Patient")))
     (check-equal? (hash-ref q2 'result) "result://r2")             ; numbers continue from what is saved
     (check-equal? (hash-ref q2 'rows) (list (hasheq 'n 1)))
-    ;; a search answers the resources by reference; their JSON is a describe away (it was in every row)
+    ;; a search answers each resource by reference and what it holds; its JSON is a describe away
+    ;; (it was in every row)
     (define s1 (call b "query" (hasheq 'language "search" 'text "Patient")))
-    (check-equal? (hash-ref s1 'rows) (list (hasheq 'resource "Patient/ann")))
+    (check-equal? (hash-ref s1 'rows) (list (hasheq 'resource "Patient/ann" 'gender "female")))
     (check-regexp-match #rx"for each resource's JSON" (hash-ref s1 'more))
     (check-equal? (hash-ref (hash-ref (car (hash-ref (call b "describe" (hasheq 'ref (hash-ref s1 'result))) 'rows)) 'json) 'gender) "female")
     (check-equal? (hash-ref (call b "stage" (hasheq 'fsh "Instance: bob\nInstanceOf: Patient\n")) 'stage) "stage-2")))  ; a committed stage's number is not reused

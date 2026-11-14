@@ -29,7 +29,9 @@
  (contract-out
   [store-census (-> fhir-store? hash?)]
   [type-census  (->* (fhir-store? hash? string?) (#:top exact-positive-integer? #:sample exact-positive-integer?) hash?)]
-  [store-find   (->* (fhir-store? string?) (#:limit exact-positive-integer?) (listof hash?))]))
+  [store-find   (->* (fhir-store? string?) (#:limit exact-positive-integer?) (listof hash?))]
+  ;; subject-census : store catalog "Type" id -> (listof (cons type count))   largest first
+  [subject-census (-> fhir-store? hash? string? string? (listof (cons/c string? exact-nonnegative-integer?)))]))
 
 ;; ---- the store as a whole -----------------------------------------------------------------------
 ;; store-census : store -> {resources, types: [{type, count}]}   largest first
@@ -40,9 +42,31 @@
       (hasheq 'resources (for/sum ([r (in-list rows)]) (vector-ref r 1))
               'types (for/list ([r (in-list rows)]) (hasheq 'type (vector-ref r 0) 'count (vector-ref r 1)))))))
 
+;; ---- what is recorded about one subject --------------------------------------------------------
+;; subject-census : store catalog type id -> (listof (cons type count))
+;; How many resources of each stored type name this resource (a Patient, usually) as their
+;; `patient`, else their `subject`: a lookup per type in the reference index, so it costs the same
+;; for a patient with fifty thousand observations as for one with five.
+(define (subject-census store catalog type id)
+  (call-with-store-connection store
+    (lambda (c)
+      (define counts
+        (for*/list ([t (in-list (query-list c "SELECT DISTINCT resource_type FROM fhir_resources"))]
+                    [names (in-value (map search-param-name
+                                          (filter (lambda (p) (eq? (search-param-kind p) 'reference))
+                                                  (hash-ref catalog (string->symbol t) '()))))]
+                    [param (in-value (for/first ([n (in-list '("patient" "subject"))] #:when (member n names)) n))]
+                    #:when param
+                    [n (in-value (query-value c "SELECT COUNT(DISTINCT resource_id) FROM fhir_reference_index WHERE resource_type=? AND param_name=? AND target_type=? AND target_id=?"
+                                              t param type id))]
+                    #:when (positive? n))
+          (cons t n)))
+      (sort counts > #:key cdr))))
+
 ;; ---- one type -----------------------------------------------------------------------------------
 ;; A ParamFacts is a jsexpr hash saying what one search parameter's index holds for the type:
-;;   token:     {kind, values, distinct, [system], top: [line …]}  or, when nearly every value is
+;;   token:     {kind, values, distinct, system, top: [line …]}, or top: {system: [line …]} when
+;;              the commonest codes are of several systems; or, when nearly every value is
 ;;              its own (an identifier), {kind, values, distinct, systems: [line …]}
 ;;   reference: {kind, values, targets: [line …]}
 ;;   date:      {kind, values, from, to}
@@ -74,7 +98,12 @@
 (define (merged facts)
   (define groups (group-by cdr facts))
   (for/hasheq ([g (in-list groups)])
-    (values (string->symbol (string-join (map car g) ", ")) (cdr (car g)))))
+    (values (string->symbol (string-join (shortest-first (map car g)) ", ")) (cdr (car g)))))
+
+;; shortest-first : (listof name) -> (listof name)   `code` before `combo-code`: the plain name first
+(define (shortest-first names)
+  (sort names (lambda (a b) (or (< (string-length a) (string-length b))
+                                (and (= (string-length a) (string-length b)) (string<? a b))))))
 
 ;; param-facts : connection type name kind top -> ParamFacts | #f   #f when the index holds nothing
 (define (param-facts c type name kind top)
@@ -118,14 +147,20 @@
                          "       GROUP BY code, system ORDER BY n DESC LIMIT ?) t")
                       type name type name top))
         (define systems (remove-duplicates (map (lambda (r) (vector-ref r 0)) rows)))
-        ;; one system for every code shown: said once, not on every line
-        (define one (and (= (length systems) 1) (not (sql-null? (car systems))) (car systems)))
         (define (line r)
-          (match-define (vector system code count text) r)
-          (format "~a~a~a ×~a" (if (or one (sql-null? system)) "" (string-append system "|")) code
-                  (if (sql-null? text) "" (format " ~s" text)) count))
-        (let ([h (hash-set base 'top (map line rows))])
-          (if one (hash-set h 'system one) h))])]))
+          (match-define (vector _system code count text) r)
+          (format "~a~a ×~a" code (if (sql-null? text) "" (format " ~s" text)) count))
+        ;; a system is said once, not on every line: `system` and `top` when the codes shown share
+        ;; one (or have none), else `top` by system
+        (cond
+          [(null? (cdr systems))
+           (let ([h (hash-set base 'top (map line rows))])
+             (if (sql-null? (car systems)) h (hash-set h 'system (car systems))))]
+          [else
+           (hash-set base 'top
+                     (for/hasheq ([sys (in-list systems)])
+                       (values (if (sql-null? sys) '|(no system)| (string->symbol sys))
+                               (for/list ([r (in-list rows)] #:when (equal? (vector-ref r 0) sys)) (line r)))))])])]))
 
 ;; reference-facts : what a reference parameter points at, by type, and how many different ones
 (define (reference-facts c type name top)
@@ -209,10 +244,10 @@
              (define r (or (for/first ([r (in-list g)] #:unless (sql-null? (vector-ref r 4))) r) (car g)))
              (match-define (vector type param system code text n) r)
              (define value (if (sql-null? system) code (string-append system "|" code)))
-             (define params (remove-duplicates (map (lambda (r) (vector-ref r 1)) g)))
+             (define params (shortest-first (remove-duplicates (map (lambda (r) (vector-ref r 1)) g))))
              (define finding (hasheq 'where (format "~a.~a" type (string-join params ", "))
                                      'value value 'resources n
-                                     'search (format "~a?~a=~a" type param value)))
+                                     'search (format "~a?~a=~a" type (car params) value)))
              (if (sql-null? text) finding (hash-set finding 'text text))))
          (define strings
            (for/list ([r (in-list named)])
@@ -285,6 +320,10 @@
   (check-regexp-match #rx"^Observation/" (hash-ref oc 'example))
   ;; a type with nothing stored
   (check-equal? (hash-ref (type-census store cat "Condition") 'count) 0)
+
+  ;; what is recorded about one patient, by type (40 of the 60 observations cycle three patients)
+  (check-equal? (subject-census store cat "Patient" "p0") '(("Observation" . 20)))
+  (check-equal? (subject-census store cat "Patient" "nobody") '())
 
   ;; find: codes called so (once, with the parameters that hold them), values, names
   (define found (store-find store "glu"))

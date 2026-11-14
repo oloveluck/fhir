@@ -77,7 +77,7 @@
           'over (s "what to run over: Patient/<id> for CQL; a type or Type/id for FHIRPath and FML (default: every patient, or the type the expression or map starts from)")
           'parameters (hasheq 'type "object" 'description "CQL parameters by name, each a CQL expression (\"Measurement Period\": \"Interval[@2025-01-01T00:00:00.000, @2025-12-31T23:59:59.999]\"); a Measure takes periodStart and periodEnd")
           'name (s "a name for the result, its table in SQL and result://<name> (default for run: the file's name, `diabetes` for diabetes.cql); the latest result of a name is the one read")
-          'as (s "\"csv\": answer the result's rows as CSV (the result is kept and named all the same)")
+          'as (s "\"csv\": the result's rows as CSV (the result is kept all the same)")
           'columns (s "with as: \"csv\": the columns to keep, in order (\"patient,Latest Number,Latest Date\")")
           'sort (s "with as: \"csv\": the column to order rows by (\"Name\"; \"-Name\" descending)")))
 ;; as-for-run : the same properties for `query`, each described by reference: the two verbs take
@@ -172,19 +172,19 @@
    (tool "check"
          "Every problem in the workspace (or in the files named), each at its file, line and column, with the workspace's configuration: FHIR version, packages, data. With data: true, also every stored resource held to its base type and the workspace's profiles (workspace.yaml `profiles`), violations counted by rule."
          (schema (hasheq 'paths (hasheq 'type "array" 'items (hasheq 'type "string") 'description "files to check (default: all)")
-                         'data (hasheq 'type "boolean" 'description "also validate the stored data against the workspace's constraints"))
+                         'data (hasheq 'type "boolean" 'description "also validate the stored data"))
                  '())
          (lambda (args) (answer (lambda () (hub-check h (let ([ps (hash-ref args 'paths '())]) (if (list? ps) (filter string? ps) '()))
                                                       #:data? (eq? (hash-ref args 'data #f) #t))))))
    (tool "run"
-         "Run a workspace file against the data: CQL -> every define per patient; FHIRPath -> the value per resource; VCL -> the expansion; FML -> each source transformed and validated; a ViewDefinition -> its rows; FSH -> the resources it defines, examples validated; a Measure -> its populations. Answers a summary, the first rows and a handle (result://rN, and result://<name>: the file's name unless `name` says otherwise) for describe, explain and SQL."
+         "Run a workspace file against the data: CQL -> every define per patient; FHIRPath -> the value per resource; VCL -> the expansion; FML -> each source transformed and validated; a ViewDefinition -> its rows; FSH -> the resources it defines, examples validated; a Measure -> its populations. Answers a summary, the first rows and a handle (result://rN, result://<name>) for describe, explain and SQL."
          (schema (hash-set run-props 'path (s "the file, relative to the workspace")) '("path"))
          (lambda (args) (answer (lambda () (as-csv h args (hub-run h (need args 'path) args))))))
    (tool "query"
-         "Ask once without saving a file. language: fhirpath (an expression; `over` a type or Type/id), cql (an expression, evaluated per patient, or a whole library), vcl (an expression, expanded), search (Type?name=value…, a FHIR search over the data, files included), view (a ViewDefinition as JSON), sql (one SELECT over the tables: each *.view.json by its file name or `name`, earlier results by their names — a run of diabetes.cql is `diabetes`, a query given `name` that name — and as r1, r2 …; group, join, count, average). Answers like run."
-         (schema (hash-set* as-for-run 'language (hasheq 'type "string" 'enum '("fhirpath" "cql" "vcl" "search" "view" "sql"))
-                            'text (s "the expression, library, search, view or SQL statement")
-                            'strict (hasheq 'type "boolean" 'description "search: refuse a search with a parameter it cannot apply (by default the answer lists them as `ignored`)"))
+         "Ask once without saving a file. language: fhirpath (an expression; `over` a type or Type/id), cql (an expression, evaluated per patient, or a whole library), vcl (an expression, expanded), search (Type?name=value…: a page of rows saying what each resource holds, `total` every match; `_count`, `_offset`, `_summary=count`; `code:text=words`), find (words: where they occur — codes by name, identifiers, names — and the search for each), view (a ViewDefinition as JSON), sql (one SELECT over the tables: each *.view.json by its file name or `name`, earlier results by name or as r1, r2 …, the store's types and search indexes). Answers like run."
+         (schema (hash-set* as-for-run 'language (hasheq 'type "string" 'enum '("fhirpath" "cql" "vcl" "search" "find" "view" "sql"))
+                            'text (s "the expression, library, search, words, view or SQL statement")
+                            'strict (hasheq 'type "boolean" 'description "search: refuse a parameter it cannot apply (default: listed as `ignored`)"))
                  '("language" "text"))
          (lambda (args) (answer (lambda () (as-csv h args (hub-query h (need args 'language) (need args 'text) args))))))
    (tool "explain"
@@ -195,14 +195,14 @@
                  '("ref" "subject"))
          (lambda (args) (answer (lambda () (hub-explain h (need args 'ref) (need args 'subject) args)))))
    (tool "describe"
-         "Read anything by reference: result://rN (paged with offset and limit; as CSV with as: \"csv\"; compared with another result by `against`), \"stages\" (the stages not committed), Type/id (data, then what the workspace defines), a canonical url, a type or element (Observation, Observation.component.code), an operation ($expand, ValueSet/$validate-code) and its inputs, or a fragment of a definition's name or url."
+         "Read anything by reference: result://rN (paged with offset and limit; as CSV with as: \"csv\"; compared with another result by `against`), \"stages\" (the stages not committed), \"data\" (its types and counts), data/<Type> (a type's codes with their names, references, dates, elements: read it before querying data you do not know), Type/id (data, then what the workspace defines), a canonical url, a type or element (Observation, Observation.component.code), an operation ($expand, ValueSet/$validate-code) and its inputs, or a fragment of a definition's name or url."
          (schema (hasheq 'ref (s "what to describe")
                          'offset (hasheq 'type "integer" 'description "results: the first row")
                          'limit (hasheq 'type "integer" 'description "results: at most this many rows (default 20)")
                          'against (s "results: an earlier result to compare with")
-                         'columns (s "results as CSV: the columns to keep, in order (\"Name,Latest Number\")")
+                         'columns (s "results as CSV: the columns to keep, in order")
                          'sort (s "results as CSV: the column to order rows by (\"-Name\" descending)")
-                         'as (s "\"fsh\": a resource (Type/id, a canonical) as an FSH Instance, shorter than JSON for coded data; \"csv\": a result's rows as CSV (default limit 1000), the compact form of a table; \"source\": the text a commit's Provenance (or a DocumentReference, a Binary) carries, decoded — on Type/id, the FSH Instance that wrote it; \"trail\" on a type (Observation): every stored one with who, when, why and the file and line it came from, as CSV"))
+                         'as (s "\"fsh\": a resource (Type/id, a canonical) as an FSH Instance, shorter than JSON for coded data; \"csv\": a result's rows as CSV (default limit 1000); \"source\": the text a commit's Provenance carries, decoded — on Type/id, the FSH Instance that wrote it; \"summary\" on Patient/id: what is recorded about the patient by type, and the latest encounters; \"trail\" on a type: every stored one with who, when, why and the file and line it came from, as CSV"))
                  '("ref"))
          (lambda (args) (answer (lambda () (hub-describe h (need args 'ref) args)))))
    (tool "apply"
@@ -223,8 +223,8 @@
                          'result (s "a result whose rows hold resources")
                          'path (s "an FSH file (its instances), a JSON file, or sushi-config.yaml (the whole guide)")
                          'definitions (hasheq 'type "boolean" 'description "true: stage what an FSH text or file defines too (profiles, value sets), not its instances alone")
-                         'drop (s "a stage id to discard instead, \"latest\", \"refused\" (every stage with errors) or \"all\" (describe(\"stages\") lists the stages not committed)")
-                         'keep (hasheq 'type "boolean" 'description "false: check only — the same answer (changes, errors, warnings), and nothing kept to commit or drop"))
+                         'drop (s "a stage id to discard instead, \"latest\", \"refused\" (every stage with errors) or \"all\"")
+                         'keep (hasheq 'type "boolean" 'description "false: check only — the same answer, nothing kept"))
                  '())
          (lambda (args) (answer (lambda () (hub-stage! h args)))))
    (tool "commit"

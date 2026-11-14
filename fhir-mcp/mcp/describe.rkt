@@ -13,7 +13,7 @@
          (only-in fhir/operation operation operation-definition operation-code operation-url operation-levels
                   operation-resource-types)
          "sql.rkt" "trail.rkt" "views.rkt" "fsh-source.rkt" "tools.rkt" "calls.rkt" "json-diff.rkt"
-         "results.rkt" "hub.rkt" "data.rkt" "run.rkt" "check.rkt" "artifacts.rkt"
+         "results.rkt" "hub.rkt" "data.rkt" "run.rkt" "check.rkt" "artifacts.rkt" "digest.rkt"
          (only-in fhir/ig-config parse-ig-config ig-config-version ig-config-id))
 
 ;; Contracted in workspace.rkt; stage reads a history and the definition kinds.
@@ -122,6 +122,9 @@
               (if block (text-answer block) whole))]
         [(regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)/_history$" ref)
          => (lambda (m) (history-from-here h (describe-history h (cadr m) (caddr m))))]
+        ;; what is recorded about one patient (or any resource others name as their subject)
+        [(and (equal? (hash-ref args 'as #f) "summary") (regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)$" ref))
+         => (lambda (m) (describe-subject h (cadr m) (caddr m)))]
         [(regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)$" ref)
          => (lambda (m) (shown (or ((data-source-read (current-data-source)) (cadr m) (caddr m))
                                    (registered-resource (cadr m) (caddr m))
@@ -403,6 +406,41 @@
                     (call-text "describe" (list (cons 'ref (hash-ref census 'example (string-append type "/<id>"))) (cons 'as "fsh")))
                     (call-text "query" (list (cons 'language "search") (cons 'text (string-append type "?<parameter>=<value>&_count=20"))))
                     (call-text "query" (list (cons 'language "search") (cons 'text (string-append type "?<parameter>=<value>&_summary=count")))))))
+
+;; describe-subject : hub type id -> jsexpr   what is recorded about one resource — a Patient,
+;; usually — in one answer: the resource in a line, how many resources of each type name it as
+;; their patient or subject (store/census `subject-census`: a lookup per type), and for a Patient
+;; the latest encounters (class, period, status), so "the current stay" and "the last visit" are
+;; read, not searched for
+(define (describe-subject h type id)
+  (define r (or ((data-source-read (current-data-source)) type id)
+                (error 'describe (format "no ~a/~a in the data" type id))))
+  (define-values (store catalog) (search-store h 'describe))
+  (define ref (format "~a/~a" type id))
+  (define counts ((dynamic-require 'fhir/store/census 'subject-census) store catalog type id))
+  (define (row x) (for/hasheq ([kv (in-list (digest x))] #:unless (memq (car kv) '(subject patient))) (values (car kv) (cdr kv))))
+  ;; the trail's own records (a commit's Provenance and AuditEvent name what they wrote) apart from
+  ;; what is recorded about the patient
+  (define-values (trail held) (partition (lambda (c) (member (car c) '("Provenance" "AuditEvent"))) counts))
+  (define base0
+    (hasheq 'resource ref
+            'is (row r)
+            'holds (for/hasheq ([c (in-list held)]) (values (string->symbol (car c)) (cdr c)))
+            'next (format "~a for a page of one type, newest first (date is the type's own date parameter: ~a names it)"
+                          (call-text "query" (list (cons 'language "search") (cons 'text (format "<Type>?patient=~a&_sort=-date&_count=20" ref))))
+                          (call-text "describe" (list (cons 'ref "data/<Type>"))))))
+  (define base (if (null? trail) base0
+                   (hash-set base0 'trail (for/hasheq ([c (in-list trail)]) (values (string->symbol (car c)) (cdr c))))))
+  (cond
+    [(and (equal? type "Patient") (assoc "Encounter" counts))
+     (define-values (encounters _ignored total)
+       ((dynamic-require 'fhir/store/fhir-engine 'fhir-search/page) store "Encounter"
+        (list (cons "patient" ref) (cons "_sort" "-date") (cons "_count" "10")) #:search-params catalog))
+     (hash-set base 'encounters
+               (hasheq 'total total
+                       'latest (for/list ([e (in-list encounters)])
+                                 (hash-set (row e) 'resource (format "Encounter/~a" (hash-ref e 'id "?"))))))]
+    [else base]))
 
 (define (result-csv h uri offset limit #:columns [wanted #f] #:sort [sort-by #f])
   (define st (or (result-of h uri) (error 'describe (format "no result ~a (results: ~a)" uri (result-listing h)))))

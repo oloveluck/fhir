@@ -6,7 +6,7 @@
 
 (require racket/contract racket/list racket/string racket/path json
          (only-in fhir/lang/workspace run-result run-result? run-result-kind run-result-columns run-result-rows run-result-summary)
-         (only-in fhir/suggest did-you-mean)
+         (only-in fhir/suggest did-you-mean) (only-in fhir/serialize/fhir-json fhir-json->string)
          "calls.rkt")
 
 (provide
@@ -50,11 +50,20 @@
 (define preview-rows 10)
 (define max-preview 400)
 
-;; elide : jsexpr -> jsexpr   a value too long to preview names its size
-(define (elide v)
+;; elide : jsexpr [uri] -> jsexpr   a value too long to preview names its size and the call that
+;; reads it whole (it said "describe the result", and a second call found the same elision)
+(define (elide v [uri #f])
   (define s (jsexpr->string v))
-  (if (> (string-length s) max-preview) (format "… ~a characters (describe the result to read it whole)" (string-length s)) v))
-(define (preview row) (if (hash? row) (for/hasheq ([(k v) (in-hash row)]) (values k (elide v))) (elide row)))
+  (if (> (string-length s) max-preview)
+      (format "… ~a characters (~a)" (string-length s)
+              (if uri (string-append (call-text "describe" (list (cons 'ref uri) (cons 'as "csv"))) " has it whole") "describe the result as csv to read it whole"))
+      v))
+;; preview : row [uri] -> row
+(define (preview row [uri #f]) (if (hash? row) (for/hasheq ([(k v) (in-hash row)]) (values k (elide v uri))) (elide row uri)))
+;; small? : rows -> boolean   an answer of a row or two that is short enough to give whole: the
+;; question was for that value
+(define whole-answer 4000)
+(define (small? rows) (and (<= (length rows) 2) (<= (string-length (jsexpr->string rows)) whole-answer)))
 ;; search-row : row -> row   a found resource as its preview shows it: without its JSON, and without
 ;; the columns it has nothing in
 (define max-search-preview 50)
@@ -92,7 +101,9 @@
           'columns (if resources? (remove "json" (run-result-columns r)) (run-result-columns r))
           'total total
           'summary (if (and resources? (hash? sm0)) (hash-remove (hash-remove sm0 'count) 'total) sm0)
-          'rows (if resources? (map search-row shown) (map preview shown))))
+          'rows (cond [resources? (map search-row shown)]
+                      [(small? shown) shown]
+                      [else (map (lambda (row) (preview row uri)) shown)])))
   ;; `more` only when there is more to read (`"more": null` said nothing); a wide table says how to
   ;; have it compact (11 columns of JSON objects was a long answer for a yes/no question)
   (define cols (run-result-columns r))
@@ -181,7 +192,7 @@
 (define (csv-cell v)
   (define s (cond [(eq? v 'null) ""] [(string? v) v] [(boolean? v) (if v "true" "false")]
                   [(number? v) (number->string (if (and (inexact? v) (= v (round v)) (< (abs v) 1e15)) (inexact->exact v) v))]
-                  [else (jsexpr->string v)]))
+                  [else (fhir-json->string v)]))            ; a FHIR value in FHIR's order (a Quantity: value, unit, system, code)
   (if (regexp-match? #rx"[,\"\n\r]" s) (string-append "\"" (string-replace s "\"" "\"\"") "\"") s))
 
 ;; ---- two results compared ----------------------------------------------------------------------
@@ -247,6 +258,12 @@
   (check-equal? (column-list "Name, Latest Date,") '("Name" "Latest Date"))
   (check-equal? (column-list '("a" "b")) '("a" "b"))
   (check-false (column-list 3))
+  ;; a long cell says how to read it whole; an answer of a row or two is given whole
+  (define long (make-string 900 #\x))
+  (define wide (for/list ([i (in-range 3)]) (hasheq 'id i 'text long)))
+  (check-regexp-match #rx"^… 902 characters [(]describe[(]\"result://r5\", as: \"csv\"[)] has it whole[)]$"
+                      (hash-ref (car (hash-ref (result-json "result://r5" (run-result "table" '("id" "text") wide (hasheq))) 'rows)) 'text))
+  (check-equal? (hash-ref (result-json "result://r6" (run-result "table" '("id" "text") (take wide 1) (hasheq))) 'rows) (take wide 1))
   ;; RFC 4180 cells
   (check-equal? (map csv-cell (list 'null "a" #t 8.0 8.5 "x, y" "say \"hi\"" (hasheq 'a 1)))
                 '("" "a" "true" "8" "8.5" "\"x, y\"" "\"say \"\"hi\"\"\"" "\"{\"\"a\"\":1}\""))
