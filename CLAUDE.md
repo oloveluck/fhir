@@ -2209,8 +2209,24 @@ identifier, a stay's kind in an identifier's system. What was built for it, each
   the call that reads it whole, an answer of a row or two is given whole, a CSV cell of FHIR JSON
   is in FHIR's order. The nine tools' definitions stay at 12,300 bytes.
 - **Servers**: a searchset's OperationOutcome entry (what the search left out) comes first.
-Not yet, named: the pilot re-run with these; `_elements`; chained search; a census over a FHIR
-server's data (it reads the store's indexes).
+- **Measured, twice** (pilots 2 and 3: the same 20 questions, opus, both arms over the full store;
+  the scratchpad's bench/pilot2 and pilot3 RESULT.md): workspace 17/20 then 16/20, REST 18/20;
+  precision 0.80 then 0.68 against 0.68; tokens equal. No agent of pilot 2 found the census (the
+  workspace guide did not name it); after it led the guide, the server instructions and init's
+  CLAUDE.md, every agent of pilot 3 used it and called the Encounter census "the key", and the
+  scores did not move: the misses are the questions' own ambiguity ("this hospital stay" that had
+  ended), and 20 questions × 4 agents vary by 1-2 answers run to run. One miss was ours: a
+  prescription's row showed `authoredOn` as its only date, and the benchmark meant the dispense
+  start (now a column, `validityPeriod`). Also from the pilots: workspace search honours
+  `_include`/`_revinclude`; a preview says when it is cut; `result://latest`; a dose reads with its
+  route; an Identifier reads with its system's last step (`28998349 (encounter-hosp)`); an
+  Encounter's row has its identifier and `partOf`; `find` says what refers to a found resource,
+  with the search for the referrers.
+Not yet, named: a benchmark that can measure this (the whole test split, agents without the
+repositories' notes in context — every subagent carried ~240k tokens of them —, several runs per
+arm, questions needing joins and counts); views materialised between processes (SQL over a view
+rebuilds it per call, ~8 s over 17,552 prescriptions); `_elements`; chained search; a census
+over a FHIR server's data (it reads the store's indexes).
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

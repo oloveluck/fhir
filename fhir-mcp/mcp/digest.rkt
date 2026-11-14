@@ -34,6 +34,14 @@
     (subject patient beneficiary)
     (encounter context)))
 
+;; type-slots : type -> (listof Slot)   what a type's rows say beyond the common slots: an
+;; Encounter's identifier (a dataset often tells a hospital stay from an ICU stay by its system)
+;; and the stay it is part of; a prescription's validity period (when it starts and ends, beside
+;; when it was written)
+(define type-slots
+  (hash "Encounter" '((identifier) (partOf))
+        "MedicationRequest" '((dispenseRequest.validityPeriod))))
+
 ;; candidate-value : resource candidate -> (cons column value) | #f
 (define (candidate-value r cand)
   (define s (symbol->string cand))
@@ -48,11 +56,16 @@
                                         (string=? (substring ks 0 (string-length base)) base)
                                         (char-upper-case? (string-ref ks (string-length base)))))))
             (cons (string->symbol base) v)))]
+    ;; a path (`dispenseRequest.validityPeriod`): its last step names the column
+    [(regexp-match? #rx"[.]" s)
+     (define steps (map string->symbol (string-split s ".")))
+     (define v (for/fold ([v r]) ([k (in-list steps)]) (and (hash? v) (hash-ref v k #f))))
+     (and v (cons (last steps) v))]
     [(hash-ref r cand #f) => (lambda (v) (cons cand v))]
     [else #f]))
 
 (define (digest r)
-  (for*/list ([slot (in-list slots)]
+  (for*/list ([slot (in-list (append slots (hash-ref type-slots (hash-ref r 'resourceType #f) '())))]
               [found (in-value (for/or ([c (in-list slot)]) (candidate-value r c)))]
               #:when found
               [text (in-value (if (eq? (car found) 'component) (components-text (cdr found)) (value-text (cdr found))))]
@@ -129,7 +142,11 @@
      (format "~a – ~a" (or (text-of (hash-ref v 'low #f)) "…") (or (text-of (hash-ref v 'high #f)) "…"))]
     [(and (hash-ref v 'numerator #f) (hash-ref v 'denominator #f))
      (format "~a / ~a" (or (text-of (hash-ref v 'numerator)) "?") (or (text-of (hash-ref v 'denominator)) "?"))]
-    ;; an Identifier or another value with a `value` that is text
+    ;; an Identifier: its value, and the last step of its system — the kind of identifier a
+    ;; dataset uses it for (`28998349 (encounter-hosp)`)
+    [(and (str 'value) (str 'system))
+     (format "~a (~a)" (str 'value) (last (string-split (str 'system) #rx"[/:#]")))]
+    ;; another value with a `value` that is text
     [(str 'value) => values]
     [else #f]))
 
@@ -179,6 +196,15 @@
   (check-equal? (digest (hasheq 'resourceType "Encounter" 'status "finished" 'class (hasheq 'code "AMB")
                                 'period (hasheq 'start "2125-01-01") 'subject (hasheq 'reference "Patient/p")))
                 '((class . "AMB") (period . "2125-01-01 – …") (status . "finished") (subject . "Patient/p")))
+  ;; an Encounter's identifier says its kind by its system; the stay it is part of
+  (check-equal? (digest (hasheq 'resourceType "Encounter" 'class (hasheq 'code "ACUTE")
+                                'identifier (list (hasheq 'system "http://mimic.mit.edu/fhir/mimic/identifier/encounter-icu" 'value "3001"))
+                                'partOf (hasheq 'reference "Encounter/h1")))
+                '((class . "ACUTE") (identifier . "3001 (encounter-icu)") (partOf . "Encounter/h1")))
+  ;; a prescription's validity beside when it was written
+  (check-equal? (digest (hasheq 'resourceType "MedicationRequest" 'authoredOn "2150-07-10T00:23:27-04:00"
+                                'dispenseRequest (hasheq 'validityPeriod (hasheq 'start "2150-07-10T01:00:00-04:00" 'end "2150-07-11T01:00:00-04:00"))))
+                '((authoredOn . "2150-07-10T00:23:27-04:00") (validityPeriod . "2150-07-10T01:00:00-04:00 – 2150-07-11T01:00:00-04:00")))
   ;; a Condition's status is a concept
   (check-equal? (digest (hasheq 'clinicalStatus (hasheq 'coding (list (hasheq 'code "active"))) 'code (hasheq 'text "Diabetes")))
                 '((code . "Diabetes") (clinicalStatus . "active")))
