@@ -58,7 +58,9 @@
 (check-equal? sst 200)
 (define bundle (bundle-with-urls sjs "http://localhost:8080" "/Patient?gender=female&bogus=1"))
 (check-equal? (problems bundle) '())
-(check-regexp-match #rx"^http://localhost:8080/Patient/" (hash-ref (car (hash-ref bundle 'entry)) 'fullUrl))
+;; the outcome entry (the ignored `bogus`) comes first, with a urn:uuid; the match has its own url
+(check-regexp-match #rx"^urn:uuid:" (hash-ref (car (hash-ref bundle 'entry)) 'fullUrl))
+(check-regexp-match #rx"^http://localhost:8080/Patient/" (hash-ref (cadr (hash-ref bundle 'entry)) 'fullUrl))
 (check-equal? (hash-ref (car (hash-ref bundle 'link)) 'url) "http://localhost:8080/Patient?gender=female&bogus=1")
 ;; the router's Bundle alone is what the validator refused
 (check-not-equal? (problems sjs) '())

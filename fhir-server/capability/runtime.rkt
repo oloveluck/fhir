@@ -839,9 +839,11 @@
                                'total total)])
               ([key (in-list '(link entry))]
                ;; a nested resource inside a Bundle entry is given to from-json as jsexpr
-               [items (in-list (list links (append (for/list ([n (in-list matches)]) (entry n "match"))
-                                                   (for/list ([n (in-list includes)]) (entry n "include"))
-                                                   outcome)))]
+               ;; the outcome first: what the search left out is read before its matches (it came after
+               ;; thousands of them, where a client reading a page's start never saw it)
+               [items (in-list (list links (append outcome
+                                                   (for/list ([n (in-list matches)]) (entry n "match"))
+                                                   (for/list ([n (in-list includes)]) (entry n "include")))))]
                #:when (pair? items))
       (hash-set bundle key items)))))
 

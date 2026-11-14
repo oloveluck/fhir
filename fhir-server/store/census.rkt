@@ -308,7 +308,7 @@
                                    "2339-0 \"Glucose [Mass/volume] in Blood\" ×20")))
   ;; an identifier: one per resource, so its systems
   (check-equal? (hash-ref search 'identifier) (hasheq 'kind "token" 'values 60 'distinct 60 'systems '("urn:lab ×60")))
-  (check-equal? (hash-ref search (string->symbol "subject, patient"))
+  (check-equal? (hash-ref search (string->symbol "patient, subject"))
                 (hasheq 'kind "reference" 'values 60 'targets '("Patient ×60 (3 different)")))
   (check-equal? (hash-ref search 'date) (hasheq 'kind "date" 'values 60 'from "2025-03-01" 'to "2025-03-28"))
   (check-equal? (hash-ref (hash-ref search 'value-quantity) 'units) '("% ×40"))

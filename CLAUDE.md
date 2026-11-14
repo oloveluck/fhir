@@ -2176,6 +2176,42 @@ a patient's observations of one code (144 ms for 1,362: mostly producing 1,362 r
 process start of each shell call. The loading process is now the limit of a load (SQLite and the
 hand-offs share one OS thread); the next step there is workers that write shard files to merge.
 
+## Data an agent has not seen (2026-11-14)
+The FHIR-AgentBench pilot (twenty questions over MIMIC-IV on FHIR, workspace verbs against a plain
+REST server: 18/20 against 17/20, about the same tokens) showed where both spent their effort:
+learning the data's shape. A search answered ids, ten at a time, its `total` the page's length;
+nothing said which codes the data uses or what they are called; a medication's name sat in an
+identifier, a stay's kind in an identifier's system. What was built for it, each tested
+(`fhir-mcp/tests/data-census-test.rkt` runs them all over one store):
+- **What a code is called** (fhir-server, store/search-index.rkt `text-row`, `shared-tables`;
+  fhir-sqlite.rkt `fhir_token_text`): a token's index rows bring the Coding's display, its concept's
+  text and an Identifier's type text into a dictionary kept once per (type, parameter, system, code,
+  text) — rows of no resource, inserted OR IGNORE by the engine's writes and the bulk load (queued
+  once per load), emptied and filled again by `reindex`. A token's `:text` modifier
+  (`text-clause`) reads it: the codes whose text holds the words (folded, anywhere), then their
+  resources in the token index. FHIR asks `:text` for "begins with or is"; this matches anywhere,
+  which is what someone looking for "hemoglobin" in "Glycated hemoglobin" needs.
+- **A census** (fhir-server, store/census.rkt, pure over the indexes): `store-census` (types and
+  counts); `type-census` (per search parameter: a token's commonest codes with their names — or,
+  when nearly every value is its own, the identifier systems —, a reference's target types, a
+  date's span, a quantity's units, parameters holding the same facts said once; and the elements
+  a sample of the resources carries, choice members by their JSON names); `store-find` (where words
+  occur: codes called so, code and identifier values, names — with the search that finds each);
+  `subject-census` (how many resources of each type name one resource as patient or subject).
+- **The workspace** (fhir-mcp): `describe ref=data` and `data/<Type>`; `query language=find`;
+  `describe ref=Patient/<id> as=summary` (counts by type, the trail's own records apart, the
+  latest encounters); a search answers a PAGE (`fhir-search/page`: 1,000 rows unless `_count`),
+  `total` every match, `next` the search for the page after, `_summary=count` the total alone, and
+  each row is the resource's digest (mcp/digest.rkt: code, value, effective/date, status, subject,
+  encounter … by slot, from the JSON of any FHIR version), its JSON kept in the result; SQL has the
+  search indexes as tables (`refs`, `tokens`, `dates`, `quantities`, `numbers`, `strings`,
+  `token_text`): "a patient's observations" is a lookup, not a scan of the JSON; a long cell says
+  the call that reads it whole, an answer of a row or two is given whole, a CSV cell of FHIR JSON
+  is in FHIR's order. The nine tools' definitions stay at 12,300 bytes.
+- **Servers**: a searchset's OperationOutcome entry (what the search left out) comes first.
+Not yet, named: the pilot re-run with these; `_elements`; chained search; a census over a FHIR
+server's data (it reads the store's indexes).
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

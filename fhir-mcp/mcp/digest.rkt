@@ -25,7 +25,7 @@
   [value-text (-> any/c (or/c string? #f))]))
 
 (define slots
-  '((code medication\[x\] vaccineCode name type class)
+  '((code medication\[x\] vaccineCode name class type)
     (value\[x\] component)
     (dosageInstruction dosage)
     (effective\[x\] onset\[x\] performed\[x\] occurrence\[x\] authoredOn recordedDate period issued whenHandedOver date birthDate)

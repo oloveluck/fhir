@@ -12,7 +12,7 @@ that only rises. The languages' own suites are in their repositories: [fsh](http
 |---|---|---|
 | Round-trip, R5 and R4 core packages | every resource parses into the typed model and serialises back unchanged | R5 2968/2968 and 77 test-case examples; R4 4581/4581 and 72 |
 | IG examples (US Core 9.0.0, IPS 2.0.1) | every published example parses and round-trips | 274/274 |
-| IG validation (US Core, IPS) | every example validates against the IG profiles it claims, with no false error | 260/260 clean (216 + 44) |
+| IG validation (US Core, IPS, CRMI) | every example validates against the IG profiles it claims, with no false error | 330/330 clean (216 + 44 + 70) |
 | Validator differential (fhir-test-cases validator, with the Java validator's recorded outcomes) | each case's verdict against the reference's | no false positives; 18 of 26 invalid cases caught |
 | Invariants over the R5 core package | no error-level invariant violation on a valid resource | 2957/2968; the 11 are the package's own (sdf-27, scs-1) |
 | IG FHIRPath (US Core, IPS) | profile invariants on their examples; SearchParameter expressions | 6082 invariant checks pass and none fail (3 warnings; 2 dom-3 errors, from a multi-item `as()` the FHIRPath spec makes an error); 1330/1330 search expressions |

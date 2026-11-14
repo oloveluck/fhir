@@ -25,6 +25,9 @@ one line, `file:line:col severity: message`, with "did you mean …" for a missp
 **Which call answers which question** (each one a tested recipe):
 | question | where |
 |---|---|
+| what does this data hold — which types, codes, where names and dates are kept | `describe ref=data`, then `describe ref=data/<Type>` (a type's codes with what they are called, its references, dates, elements); `query language=find text="<words>"` finds where words occur and gives the search for each |
+| everything recorded about one patient | `describe ref=Patient/<id> as=summary` (counts by type, the latest encounters); then `query language=search text="Observation?patient=Patient/<id>&_sort=-date&_count=20"` — rows say code, value, date, status; `total` is every match |
+| how many | `_summary=count` on a search (`total` alone); or SQL over the search indexes (`refs`, `tokens`, `dates`: `raco fhir guide search`, "Counting and joining with SQL") |
 | is the latest HbA1c above 9 %, per patient (and "never tested") | `raco fhir guide cql`, "the latest value per patient" (copy its library as `LatestA1c.cql`); the table: `run path=LatestA1c.cql as=csv columns="Name,Latest Result,Latest Date,Above 9,Ever Above 9"` (latest and ever, side by side; add `No HbA1c` for who was never tested) |
 | which patients have no HbA1c at all | the same library's `"No HbA1c"` define (CQL), not a search: FHIR search has no "has none", and a `_has` search is refused (`raco fhir guide search`) |
 | was any result above a threshold | a FHIR search: `query language=search text="Observation?code=…&value-quantity=gt9"`; per patient beside the latest, the CQL guide's `Ever Above 9` |

@@ -369,6 +369,9 @@ in the resource to look, as a FHIRPath expression: @tt{[family string "name.fami
 Every type also answers @tt{_id}, @tt{_lastUpdated}, @tt{_count} (how many to return),
 @tt{_offset} and @tt{_sort}. A reference search can pull the referenced resources into the same
 answer with @tt{_include} (and the resources that refer to the matches with @tt{_revinclude}).
+A code can be searched by what it is called: @tt{Observation?code:text=hemoglobin} finds the
+observations whose code's display, or whose concept's text, holds the word, in any case. (FHIR asks
+@tt{:text} for text that begins with the words; here they may stand anywhere in it.)
 
 @subsection{@tt{operation}: a service of your own}
 
@@ -769,7 +772,7 @@ network.}
 @item{@bold{Search that is not done.} Chained searches (@tt{patient.name=…}), reverse chaining
 (@litchar{_has}), composite and special parameters, @litchar{_summary}, @litchar{_elements},
 @litchar{_total}, @litchar{_filter}, @litchar{_text}, @litchar{_content}, @litchar{:iterate}, the
-modifiers @litchar{:text}, @litchar{:above}, @litchar{:below}, @litchar{:in} and
+modifiers @litchar{:above}, @litchar{:below}, @litchar{:in} and
 @litchar{:identifier}, searching across all types at once, and the
 parameters defined for every resource (@litchar{_tag}, @litchar{_profile}, @litchar{_security}).
 Of @litchar{_summary} only @tt{count} is done. A lenient server answers as if the unsupported part

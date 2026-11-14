@@ -61,6 +61,8 @@
 (define p3 (search "gender=female&bogus=1&_count=1"))
 (check-equal? (hash-ref p3 'total) 3)
 (check-equal? (length (hash-ref p3 'entry)) 2 "one match and the outcome entry")
+(check-equal? (map (lambda (e) (hash-ref (hash-ref e 'search) 'mode)) (hash-ref p3 'entry)) '("outcome" "match")
+              "the outcome first: a client reading the page's start sees what was left out")
 
 ;; over HTTP the links are absolute, `self` first
 (define wire (bundle-with-urls p1 "http://localhost:8080" "/Patient?gender=female&_count=2"))
