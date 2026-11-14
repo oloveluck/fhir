@@ -138,6 +138,16 @@
    "CREATE INDEX IF NOT EXISTS idx_quantity_owner ON fhir_quantity_index (resource_type, resource_id)"
    "CREATE INDEX IF NOT EXISTS idx_number_find ON fhir_number_index (resource_type, param_name, value, resource_id)"
    "CREATE INDEX IF NOT EXISTS idx_quantity_find ON fhir_quantity_index (resource_type, param_name, value, resource_id)"
+   ;; what each code is CALLED, once per code (not per resource): the display of a Coding, the
+   ;; text of the CodeableConcept it is in, an Identifier's type text. `code:text=…` finds the codes
+   ;; whose text holds the words here and then the resources in the token index; a census of the
+   ;; data names its codes from it. Entries are added, never removed (one of a code no resource
+   ;; has any more matches no resource); `reindex` makes the table again.
+   "CREATE TABLE IF NOT EXISTS fhir_token_text (
+      resource_type TEXT NOT NULL, param_name TEXT NOT NULL,
+      system TEXT, code TEXT NOT NULL, text TEXT NOT NULL, text_norm TEXT NOT NULL)"
+   "CREATE UNIQUE INDEX IF NOT EXISTS idx_token_text
+      ON fhir_token_text (resource_type, param_name, code, IFNULL(system,''), text)"
    ;; the indexes `find` replaces (a store made before them drops these when it is opened)
    "DROP INDEX IF EXISTS idx_date_owner"
    "DROP INDEX IF EXISTS idx_token_lookup"

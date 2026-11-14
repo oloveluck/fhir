@@ -75,6 +75,10 @@
                      #:sort (let ([v (hash-ref args 'sort #f)]) (and (string? v) v)))]
         [(regexp-match? #rx"^result://" ref) (describe-result h ref offset limit against)]
         [(equal? ref "stages") (describe-stages h)]
+        ;; what the data holds: its types and how many (`data`); one type's search parameters with
+        ;; their commonest values, and the elements its resources carry (`data/Observation`)
+        [(equal? ref "data") (describe-data h)]
+        [(regexp-match #px"^data/([A-Z][A-Za-z]+)$" ref) => (lambda (m) (describe-data-type h (cadr m)))]
         [(regexp-match #px"^(?:([A-Za-z]+)/)?[$]([A-Za-z-]+)$" ref) (describe-operation ref)]
         [(regexp-match? #rx"/OperationDefinition/" ref) (describe-operation ref)]
         ;; where each stored value came from, for a type: its current version with who, when, why and
@@ -374,12 +378,39 @@
 ;; #:columns: only these, in this order (a CQL run's table of the defines a person reads: `columns=
 ;; "Name,Latest Number,Latest Date"`); a name the result lacks is an error listing its columns
 ;; #:sort: a column to order the rows by (`-Name` descending), numbers as numbers, nulls last
+;; ---- the data, described -----------------------------------------------------------------------
+;; describe-data : hub -> jsexpr   the data's resource types, largest first, and where to look next
+(define (describe-data h)
+  (define-values (store _catalog) (search-store h 'describe))
+  (define census ((dynamic-require 'fhir/store/census 'store-census) store))
+  (hasheq 'data (hub-data-label h)
+          'resources (hash-ref census 'resources)
+          'types (for/hasheq ([t (in-list (hash-ref census 'types))]) (values (string->symbol (hash-ref t 'type)) (hash-ref t 'count)))
+          'next (format "~a: what a type's resources hold (its codes with their names, references, dates, elements); ~a: where a word occurs and the search that finds it"
+                        (call-text "describe" (list (cons 'ref "data/<Type>")))
+                        (call-text "query" (list (cons 'language "find") (cons 'text "<words>"))))))
+
+;; describe-data-type : hub type -> jsexpr   one type's census (store/census `type-census`): each
+;; search parameter that has values with what it holds, the elements the resources carry
+(define (describe-data-type h type)
+  (define-values (store catalog) (search-store h 'describe))
+  (define census ((dynamic-require 'fhir/store/census 'type-census) store catalog type))
+  (when (zero? (hash-ref census 'count))
+    (define types (map (lambda (t) (hash-ref t 'type)) (hash-ref ((dynamic-require 'fhir/store/census 'store-census) store) 'types)))
+    (error 'describe (format "the data holds no ~a~a (it holds: ~a)" type (did-you-mean type types) (string-join types ", "))))
+  (hash-set census 'next
+            (format "~a for one as FSH; ~a for a page of them; ~a for a count"
+                    (call-text "describe" (list (cons 'ref (hash-ref census 'example (string-append type "/<id>"))) (cons 'as "fsh")))
+                    (call-text "query" (list (cons 'language "search") (cons 'text (string-append type "?<parameter>=<value>&_count=20"))))
+                    (call-text "query" (list (cons 'language "search") (cons 'text (string-append type "?<parameter>=<value>&_summary=count")))))))
+
 (define (result-csv h uri offset limit #:columns [wanted #f] #:sort [sort-by #f])
   (define st (or (result-of h uri) (error 'describe (format "no result ~a (results: ~a)" uri (result-listing h)))))
   (define r (stored-result st))
   (define all-cols (map (lambda (c) (format "~a" c)) (run-result-columns r)))
   (define cols
-    (cond [(not wanted) all-cols]
+    ;; a search's rows as a table are their digests; the JSON is a column only when asked for
+    (cond [(not wanted) (if (equal? (run-result-kind r) "resources") (remove "json" all-cols) all-cols)]
           [else (for ([c (in-list wanted)] #:unless (member c all-cols))
                   (error 'describe (format "~a has no column ~s~a (columns: ~a)" uri c (did-you-mean c all-cols) (string-join all-cols ", "))))
                 wanted]))

@@ -70,7 +70,7 @@
      (for ([n (in-list names)]) (load-table! c n ((hash-ref tables n)) #:temp? (and store #t)))
      ;; the tables the statement reads (after FROM or JOIN): a column named `patient` is not the
      ;; `Patient` table (SQL names ignore case), so a column hint listed a table never named
-     (define named (tables-read sql (remove-duplicates (append names (tables-named sql (append types '("resources" "history")))))))
+     (define named (tables-read sql (remove-duplicates (append names (tables-named sql types)))))
      (define r (with-handlers ([exn:fail:sql? (lambda (e) (raise-user-error 'sql (with-columns (sql-message e) c named)))])
                  (query c (regexp-replace #px";\\s*$" (string-trim sql) ""))))
      (define cols (for/list ([h (in-list (rows-result-headers r))]) (cdr (assq 'name h))))
@@ -109,11 +109,36 @@
     (query-exec c (format "CREATE TEMP VIEW ~a AS SELECT id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_resources WHERE resource_type = '~a'"
                           (q t) (string-replace t "'" "''"))))
   (define (view! name sql) (and (free? name) (begin (query-exec c sql) name)))
+  (define stored (query-list c "SELECT name FROM main.sqlite_master WHERE type='table'"))
   (append (filter values
-                  (list (view! "resources" "CREATE TEMP VIEW resources AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_resources")
-                        ;; every version of every resource, the current one included: what changed, when
-                        (view! "history" "CREATE TEMP VIEW history AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_history")))
+                  (list* (view! "resources" "CREATE TEMP VIEW resources AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_resources")
+                         ;; every version of every resource, the current one included: what changed, when
+                         (view! "history" "CREATE TEMP VIEW history AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_history")
+                         ;; the search indexes (index-views): a row per resource and value of a search parameter
+                         (for/list ([v (in-list index-views)] #:when (member (cadr v) stored))
+                           (view! (car v) (format "CREATE TEMP VIEW ~a AS SELECT ~a FROM main.~a" (car v) (caddr v) (cadr v))))))
           types))
+
+;; index-views : (listof (list view table columns))   the store's search indexes as tables. The
+;; store keeps, for every resource and search parameter, the values the parameter reads: finding
+;; "this patient's observations" in them is a lookup, where a filter on the JSON
+;; (`resource ->> '$.subject.reference' = …`) reads every resource of the type. `type` and `id`
+;; are the resource's, `param` the search parameter's name.
+;;   refs       (type, id, param, target_type, target_id)   references: who or what it points at
+;;   tokens     (type, id, param, system, code)             codes, identifiers, statuses
+;;   dates      (type, id, param, low, high)                a date as the range it means (UTC)
+;;   quantities (type, id, param, value, system, code)      a quantity's number and unit
+;;   numbers    (type, id, param, value)
+;;   strings    (type, id, param, value, folded)            names and addresses (folded: lower case, no accents)
+;;   token_text (type, param, system, code, text)           what each code is called, once per code
+(define index-views
+  '(("refs" "fhir_reference_index" "resource_type AS type, resource_id AS id, param_name AS param, target_type, target_id")
+    ("tokens" "fhir_token_index" "resource_type AS type, resource_id AS id, param_name AS param, system, code")
+    ("dates" "fhir_date_index" "resource_type AS type, resource_id AS id, param_name AS param, low, high")
+    ("quantities" "fhir_quantity_index" "resource_type AS type, resource_id AS id, param_name AS param, value, system, code")
+    ("numbers" "fhir_number_index" "resource_type AS type, resource_id AS id, param_name AS param, value")
+    ("strings" "fhir_string_index" "resource_type AS type, resource_id AS id, param_name AS param, value_exact AS value, value_norm AS folded")
+    ("token_text" "fhir_token_text" "resource_type AS type, param_name AS param, system, code, text")))
 (define (q s) (string-append "\"" (string-replace s "\"" "\"\"") "\""))
 
 ;; load-table! : connection name table [#:temp?] -> void

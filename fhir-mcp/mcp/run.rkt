@@ -11,11 +11,11 @@
          (only-in fhir/model/registry type-registered?) (only-in fhir/model/introspect full-field-specs)
          (only-in fhir/model/schema field-spec? field-spec-name)
          (only-in fhir/sd/sd-index current-sd-packages) (only-in fhir/operation apply-operation)
-         "search-index.rkt" "sql.rkt" "views.rkt" "results.rkt" "hub.rkt" "data.rkt"
+         "search-index.rkt" "sql.rkt" "views.rkt" "results.rkt" "hub.rkt" "data.rkt" "digest.rkt"
          (only-in "dependencies.rkt" dependency-rows dependency-columns))
 
 ;; Contracted in workspace.rkt; describe and stage use the rest.
-(provide execute hub-run hub-query current-extra-tables view-table element? hub-explain)
+(provide execute hub-run hub-query current-extra-tables view-table element? hub-explain search-store)
 
 ;; ---- run, query --------------------------------------------------------------------------------
 ;; options : hash -> Options   the verbs' arguments as a language's options
@@ -35,6 +35,7 @@
       (cond
         [(equal? lang "fhir") (run-json h text opts)]
         [(equal? lang "search") (run-search h text opts)]
+        [(equal? lang "find") (run-find h text)]
         [else (define sup (support-for lang))
               (unless (ws-support-run sup) (error 'run (format "~a files do not run" lang)))
               ((ws-support-run sup) (hub-ws h) path text opts)]))))
@@ -50,10 +51,10 @@
                      (lambda () (execute h lang full text opts))))
   (result-json (store! h (stored lang full text opts r)) r (hash-ref opts 'name #f) #:path (rel h full)))
 
-(define query-languages (hash "fhirpath" "fhirpath" "cql" "cql" "vcl" "vcl" "search" "search" "view" "sql-on-fhir" "sql-on-fhir" "sql-on-fhir" "sql" "sql"))
+(define query-languages (hash "fhirpath" "fhirpath" "cql" "cql" "vcl" "vcl" "search" "search" "find" "find" "view" "sql-on-fhir" "sql-on-fhir" "sql-on-fhir" "sql" "sql"))
 (define (hub-query h language text args)
   (define lang (or (hash-ref query-languages language #f)
-                   (error 'query (format "query takes fhirpath, cql, vcl, search, view or sql (got ~a)" language))))
+                   (error 'query (format "query takes fhirpath, cql, vcl, search, find, view or sql (got ~a)" language))))
   (refresh! h)
   ;; what the result came from besides its text: the file it was read from (`text=@table.sql`) and,
   ;; for SQL, the earlier results it reads (`r1`), so a derived table's trail is complete too
@@ -167,28 +168,45 @@
 
 ;; ---- search ------------------------------------------------------------------------------------
 ;; run-search : "Type?params" options -> run-result   FHIR search where the data source can run it.
+;;
+;; The rows are for reading: each resource as `Type/id` and its Digest (digest.rkt: what it is
+;; about, its value, when, its status, whose it is), the JSON kept in the result. The answer is a
+;; PAGE: `_count` resources (default-page when the search names none) from `_offset`, and `total`
+;; says how many match in all — a patient's 48,000 observations are counted, not read.
+;; `_summary=count` (or `_count=0`) answers the total alone.
+;;
 ;; A parameter the search could not apply (unknown to the type, `_has`, chaining, an unsupported
 ;; modifier) is said in the answer (`ignored`, with the nearest name); `strict:=true` refuses such a
 ;; search — `Patient?_has:Observation:subject:code=4548-4` answered every patient, silently
+(define default-page 1000)
+
 (define (run-search h text opts)
   (define m (regexp-match #px"^\\s*([A-Za-z]+)(?:\\?(.*))?\\s*$" text))
   (unless m (error 'search "a search is Type?name=value&… (Observation?code=http://loinc.org|4548-4)"))
   (define type (cadr m))
   (define params (if (and (caddr m) (not (string=? (caddr m) ""))) (form-urlencoded->alist (caddr m)) '()))
-  (define qps (for/list ([p (in-list params)]) (cons (symbol->string (car p)) (or (cdr p) ""))))
+  (define asked (for/list ([p (in-list params)]) (cons (symbol->string (car p)) (or (cdr p) ""))))
+  (define (asked-number name) (let ([c (assoc name asked)]) (and c (string->number (cdr c)))))
+  (define count-only? (or (equal? (cond [(assoc "_summary" asked) => cdr] [else #f]) "count") (eqv? (asked-number "_count") 0)))
+  ;; the search as the store is asked it: `_summary` is answered here, and a page is always asked for
+  (define qps
+    (let* ([q (filter (lambda (p) (not (member (car p) '("_summary" "_count")))) asked)])
+      (append q (list (cons "_count" (number->string (cond [count-only? 0] [(asked-number "_count") => values] [else default-page])))))))
+  (define offset (or (asked-number "_offset") 0))
   (define ds (current-data-source))
   (define store-path (data-store-path h))
-  (define-values (found ignored names)
+  (define-values (found ignored total names)
     (cond [(and store-path (search-index-available?))
            (define-values (store catalog) (open-store store-path (hub-packages h)))
-           (define-values (rs ig) ((dynamic-require 'fhir/store/fhir-engine 'fhir-search/ignored) store type qps #:search-params catalog))
-           (values rs ig (search-param-names catalog type))]
-          [(data-source-search ds) (values ((data-source-search ds) type qps) '() '())]
-          [(null? params) (values ((data-source-all ds) type) '() '())]
+           (define-values (rs ig total) ((dynamic-require 'fhir/store/fhir-engine 'fhir-search/page) store type qps #:search-params catalog))
+           (values rs ig total (search-param-names catalog type))]
+          ;; a FHIR server answers its own page; what it holds in all is its to say
+          [(data-source-search ds) (let ([rs ((data-source-search ds) type asked)]) (values (if count-only? '() rs) '() (length rs) '()))]
+          [(null? params) (let ([rs ((data-source-all ds) type)]) (values rs '() (length rs) '()))]
           [(file-search-index h)
-           => (lambda (search)
-                (define-values (rs ig) (search type qps))
-                (values rs ig (search-param-names (search-catalog (hub-packages h)) type)))]
+           => (lambda (index)
+                (define-values (rs ig total) ((search-index-search index) type qps))
+                (values rs ig total (search-param-names (search-catalog (hub-packages h)) type)))]
           [else (error 'search "searching files needs the fhir-server package (raco pkg install fhir-server); meanwhile ask with FHIRPath: query(\"fhirpath\", \"Observation.where(…)\")")]))
   (define (why n)
     (cond [(regexp-match? #rx"^_has:" n) (format "`~a`: reverse chaining (_has) is not supported — ask CQL or SQL (learn://search)" n)]
@@ -206,15 +224,53 @@
   (when (and (pair? ignored) (hash-ref opts 'strict #f))
     (error 'search (format "not applied: ~a (~a searches on ~a and _id, _lastUpdated, _count, _sort)"
                            (string-join (map why ignored) "; ") type (string-join names ", "))))
-  (run-result "resources" '("resource" "json")
-              (for/list ([r (in-list found)]) (hasheq 'resource (format "~a/~a" (hash-ref r 'resourceType "?") (hash-ref r 'id "?")) 'json r))
-              (if (null? ignored)
-                  (hasheq 'resources (length found))
-                  (hasheq 'resources (length found)
-                          'ignored (map why ignored)
-                          'note "the answer is the search WITHOUT these parameters; strict:=true refuses such a search"))))
+  (define digests (map digest found))
+  (define columns (digest-columns digests))
+  (define next (+ offset (length found)))
+  (define summary
+    (let* ([s (hasheq 'resources (length found) 'total total)]
+           [s (if (assoc "_count" asked) (hash-set s 'count (asked-number "_count")) s)]
+           [s (if (and (< next total) (not count-only?))
+                  (hash-set s 'next (format "~a~a_offset=~a" (regexp-replace #px"[?&]_offset=[0-9]+" (string-trim text) "")
+                                            (if (regexp-match? #rx"[?]" (regexp-replace #px"[?&]_offset=[0-9]+" (string-trim text) "")) "&" "?") next))
+                  s)]
+           [s (if (null? ignored) s
+                  (hash-set* s 'ignored (map why ignored)
+                             'note "the answer is the search WITHOUT these parameters; strict:=true refuses such a search"))])
+      s))
+  (run-result "resources" (append '("resource") (map symbol->string columns) '("json"))
+              (for/list ([r (in-list found)] [d (in-list digests)])
+                (for/fold ([row (hasheq 'resource (format "~a/~a" (hash-ref r 'resourceType "?") (hash-ref r 'id "?")) 'json r)])
+                          ([c (in-list columns)])
+                  (hash-set row c (cond [(assq c d) => cdr] [else 'null]))))
+              summary))
 
-;; file-search-index : hub -> (type params -> resources) | #f   the data's files indexed for FHIR
+;; search-store : hub symbol -> (values store catalog)   the store that indexes the data — the
+;; workspace's own, or the one its files were indexed into — with its search parameters; an error
+;; saying why when the data has none (a FHIR server keeps its own indexes)
+(define (search-store h who)
+  (define store-path (data-store-path h))
+  (cond [(and store-path (search-index-available?)) (open-store store-path (hub-packages h))]
+        [(data-source-search (current-data-source))
+         (error who "the data is a FHIR server: its indexes are its own (ask it with query search)")]
+        [(file-search-index h) => (lambda (index) (values (search-index-store index) (search-catalog (hub-packages h))))]
+        [else (error who "this reads the data's search indexes, which needs the fhir-server package (raco pkg install fhir-server)")]))
+
+;; ---- find --------------------------------------------------------------------------------------
+;; run-find : hub words -> run-result   where the words occur in the data (fhir-server's
+;; store/census `store-find`): the codes CALLED so, the code and identifier values and the names
+;; that hold them — each with how many resources and the search that finds them. The step before a
+;; search when a question names something by its words ("a hemoglobin A1c", "miconazole").
+(define (run-find h words)
+  (define-values (store _catalog) (search-store h 'find))
+  (define found ((dynamic-require 'fhir/store/census 'store-find) store words))
+  (run-result "table" '("where" "value" "text" "resources" "search")
+              (for/list ([f (in-list found)]) (if (hash-has-key? f 'text) f (hash-set f 'text 'null)))
+              (if (null? found)
+                  (hasheq 'found 0 'note "no code is called so, and no code, identifier or name holds the words: try one word, or a part of it")
+                  (hasheq 'found (length found)))))
+
+;; file-search-index : hub -> Index | #f   the data's files indexed for FHIR
 ;; search (search-index.rkt), built on the first search and kept until the data is read again (a
 ;; commit, a new workspace.yaml): keyed by the data source, which configure! replaces
 (define file-indexes (make-weak-hasheq))

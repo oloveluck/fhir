@@ -55,39 +55,62 @@
   (define s (jsexpr->string v))
   (if (> (string-length s) max-preview) (format "… ~a characters (describe the result to read it whole)" (string-length s)) v))
 (define (preview row) (if (hash? row) (for/hasheq ([(k v) (in-hash row)]) (values k (elide v))) (elide row)))
+;; search-row : row -> row   a found resource as its preview shows it: without its JSON, and without
+;; the columns it has nothing in
+(define max-search-preview 50)
+(define (search-row row)
+  (if (hash? row)
+      (for/hasheq ([(k v) (in-hash row)] #:unless (or (eq? k 'json) (eq? v 'null))) (values k v))
+      row))
 
 (define (result-json uri r [name #f] #:path [path #f])
   (define rows (run-result-rows r))
   (define base (result-json* uri r rows path))
   (if name (hash-set base 'name (string-append "result://" name)) base))
 (define (result-json* uri r rows [path #f])
-  ;; a search's preview names the resources; their JSON (kept in the result: describe it, stage from
-  ;; it) would be most of the answer's tokens
+  ;; a search's preview is each resource's digest (what, value, when, status, whose); their JSON
+  ;; (kept in the result: describe it, stage from it) would be most of the answer's tokens
   (define resources? (equal? (run-result-kind r) "resources"))
-  (define shown (take rows (min preview-rows (length rows))))
+  (define sm0 (run-result-summary r))
+  ;; a search that asked for `_count` rows is shown that many (to max-search-preview): it said how
+  ;; many it wants to read
+  (define to-show
+    (let ([asked (and resources? (hash? sm0) (hash-ref sm0 'count #f))])
+      (if (exact-positive-integer? asked) (min asked max-search-preview) preview-rows)))
+  (define shown (take rows (min to-show (length rows))))
+  ;; a search's total is every match, of which the result holds a page
+  (define total (or (and resources? (hash? sm0) (hash-ref sm0 'total #f)) (length rows)))
   (define more
-    (cond [(> (length rows) preview-rows)
-           (format "~a for the next rows~a" (call-text "describe" (list (cons 'ref uri) (cons 'offset preview-rows))) (if resources? ", with each resource's JSON" ""))]
-          [resources? (format "~a for each resource's JSON, or ~a for one" (call-text "describe" (list (cons 'ref uri))) (call-text "describe" (list (cons 'ref "Type/id"))))]
+    (cond [(> (length rows) to-show)
+           (format "~a for the next rows~a" (call-text "describe" (list (cons 'ref uri) (cons 'offset to-show))) (if resources? ", with each resource's JSON" ""))]
+          [(and resources? (pair? rows))
+           (format "~a for each resource's JSON, or ~a for one" (call-text "describe" (list (cons 'ref uri))) (call-text "describe" (list (cons 'ref "Type/id"))))]
           [else #f]))
   (define answer
    (hasheq 'result uri
           'kind (run-result-kind r)
           'columns (if resources? (remove "json" (run-result-columns r)) (run-result-columns r))
-          'total (length rows)
-          'summary (run-result-summary r)
-          'rows (if resources? (map (lambda (row) (if (hash? row) (hash-remove row 'json) row)) shown) (map preview shown))))
+          'total total
+          'summary (if (and resources? (hash? sm0)) (hash-remove (hash-remove sm0 'count) 'total) sm0)
+          'rows (if resources? (map search-row shown) (map preview shown))))
   ;; `more` only when there is more to read (`"more": null` said nothing); a wide table says how to
   ;; have it compact (11 columns of JSON objects was a long answer for a yes/no question)
   (define cols (run-result-columns r))
   (define with-more0 (if more (hash-set answer 'more more) answer))
   ;; what a search could not apply is at the top of the answer, where it cannot be missed
-  (define sm (run-result-summary r))
-  (define with-more
+  (define sm (hash-ref answer 'summary))
+  (define with-ignored
     (if (and (hash? sm) (hash-ref sm 'ignored #f))
         (hash-set* with-more0 'ignored (hash-ref sm 'ignored) 'note (hash-ref sm 'note "")
                    'summary (hash-remove (hash-remove sm 'ignored) 'note))
         with-more0))
+  ;; a search that matched more than its page says how to read on, beside the total
+  (define with-more
+    (let ([sm (hash-ref with-ignored 'summary)])
+      (if (and resources? (hash? sm) (hash-ref sm 'next #f))
+          (hash-set* with-ignored 'next (call-text "query" (list (cons 'language "search") (cons 'text (hash-ref sm 'next))))
+                     'summary (hash-remove sm 'next))
+          with-ignored)))
   (if (and (not resources?) (> (length cols) 6))
       ;; a file's run says it as the run itself (`run path=… as=csv columns=…`, the skill's idiom), a
       ;; query's result through describe

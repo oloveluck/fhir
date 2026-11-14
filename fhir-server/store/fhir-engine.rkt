@@ -281,13 +281,23 @@
     (query-exec c (format "DELETE FROM ~a WHERE resource_type=? AND resource_id=?" (car t)) rtype id))
   (for ([row (in-list rows)])
     (define table (cadr row))
-    (define cols (cdr (assoc table index-tables)))
-    (apply query-exec c
-           (format "INSERT INTO ~a (resource_type,resource_id,param_name,~a) VALUES (?,?,?,~a)"
-                   table (string-join (map symbol->string cols) ",")
-                   (string-join (map (lambda (_) "?") cols) ","))
-           rtype id (car row)
-           (map (lambda (v) (or v sql-null)) (caddr row)))))
+    (define vals (map (lambda (v) (or v sql-null)) (caddr row)))
+    (cond
+      ;; a dictionary's row belongs to no resource: added when it is new
+      [(assoc table shared-tables)
+       => (lambda (t)
+            (apply query-exec c
+                   (format "INSERT OR IGNORE INTO ~a (resource_type,param_name,~a) VALUES (?,?,~a)"
+                           table (string-join (map symbol->string (cdr t)) ",")
+                           (string-join (map (lambda (_) "?") (cdr t)) ","))
+                   rtype (car row) vals))]
+      [else
+       (define cols (cdr (assoc table index-tables)))
+       (apply query-exec c
+              (format "INSERT INTO ~a (resource_type,resource_id,param_name,~a) VALUES (?,?,?,~a)"
+                      table (string-join (map symbol->string cols) ",")
+                      (string-join (map (lambda (_) "?") cols) ","))
+              rtype id (car row) vals)])))
 
 ;; ---- search -----------------------------------------------------------------
 (define (fhir-search store rtype query-params #:search-params [sps default-search-params])
@@ -537,6 +547,7 @@
                          (search-param "gender" 'token "gender")
                          (search-param "active" 'token "active"))
           'Observation (list (search-param "value-quantity" 'quantity "value.ofType(Quantity)")
+                             (search-param "code" 'token "code")
                              (search-param "date" 'date "effective"))))
   (define (pat family given birth [extra (hasheq)])
     (define-values (_t i _v)
@@ -602,5 +613,28 @@
   (check-equal? (obs '(("value-quantity" . "72.0|http://unitsofmeasure.org|kg"))) 0) ; [71.95,72.05)
   (check-equal? (obs '(("value-quantity" . "gt70||kg"))) 1)
   (check-equal? (obs '(("value-quantity" . "72.4||g"))) 0)
+  ;; a token's :text — what the code is CALLED: a coding's display, its concept's text; anywhere in
+  ;; the text, any case; kept once per code however many resources say it; with other parameters
+  (define (lab code display text)
+    (define-values (_t id _v)
+      (fhir-create! store (hasheq 'resourceType "Observation" 'status "final"
+                                  'code (hasheq 'coding (list (hasheq 'system "http://loinc.org" 'code code 'display display)) 'text text))
+                    #:search-params cat))
+    id)
+  (define a1c (lab "4548-4" "Hemoglobin A1c/Hemoglobin.total in Blood" "HbA1c"))
+  (define a1c-again (lab "4548-4" "Hemoglobin A1c/Hemoglobin.total in Blood" "HbA1c"))
+  (define glucose (lab "2339-0" "Glucose [Mass/volume] in Blood" "Glucose"))
+  (define (obs-ids q) (sort (map (lambda (r) (hash-ref r 'id)) (fhir-search store "Observation" q #:search-params cat)) string<?))
+  (check-equal? (obs-ids '(("code:text" . "hemoglobin"))) (sort (list a1c a1c-again) string<?))
+  (check-equal? (obs-ids '(("code:text" . "A1C"))) (sort (list a1c a1c-again) string<?) "the concept's text too, any case")
+  (check-equal? (obs-ids '(("code:text" . "in blood"))) (sort (list a1c a1c-again glucose) string<?))
+  (check-equal? (obs-ids '(("code:text" . "glucose,a1c"))) (sort (list a1c a1c-again glucose) string<?) "comma is OR")
+  (check-equal? (obs-ids '(("code:text" . "100%"))) '() "a % in the words is a %")
+  (check-equal? (obs-ids (list (cons "code:text" "blood") (cons "_id" glucose))) (list glucose))
+  (let-values ([(rs ig total) (fhir-search/page store "Observation" '(("code:text" . "hemoglobin") ("_count" . "1")) #:search-params cat)])
+    (check-equal? (list (length rs) ig total) '(1 () 2)))
+  (check-equal? (call-with-store-connection store
+                  (lambda (c) (query-value c "SELECT COUNT(*) FROM fhir_token_text WHERE code='4548-4' AND param_name='code'")))
+                2 "one row per code and text (display, concept text), not per resource")
   (close-fhir-store store)
   (delete-file tmp))

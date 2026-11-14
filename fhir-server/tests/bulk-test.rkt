@@ -73,6 +73,7 @@
             'history (for/list ([r (in-list (rows "SELECT resource_type, id, version_id, json(resource) FROM fhir_history"))])
                        (list (car r) (cadr r) (caddr r) (without-instant (cadddr r))))
             'tokens (rows "SELECT resource_type, resource_id, param_name, system, code FROM fhir_token_index")
+            'texts (rows "SELECT resource_type, param_name, system, code, text, text_norm FROM fhir_token_text")
             'references (rows "SELECT resource_type, resource_id, param_name, target_type, target_id FROM fhir_reference_index")
             'strings (rows "SELECT resource_type, resource_id, param_name, value_norm, value_exact FROM fhir_string_index")
             'dates (rows "SELECT resource_type, resource_id, param_name, low, high FROM fhir_date_index")
@@ -91,6 +92,7 @@
 ;; once: version 1 of everything, the same index rows, and the search indexes back in place
 (check-same-stores "first load")
 (check-true (> (length (hash-ref (contents by-bulk) 'tokens)) 1000))
+(check-true (> (length (hash-ref (contents by-bulk) 'texts)) 100))   ; what the codes are called, once each
 (check-true (>= (length (hash-ref (contents by-bulk) 'indexes)) 12))
 
 ;; the hash kept with a version is the stored text's
@@ -115,6 +117,7 @@
 (call-with-store-connection by-bulk
   (lambda (c)
     (query-exec c "DELETE FROM fhir_date_index")
+    (query-exec c "DELETE FROM fhir_token_text WHERE rowid % 3 = 0")
     (query-exec c "DELETE FROM fhir_token_index WHERE rowid % 2 = 0")
     (query-exec c "INSERT INTO fhir_token_index (resource_type, resource_id, param_name, system, code) VALUES ('Patient','nobody','gender',NULL,'stray')")))
 (check-not-equal? (hash-ref (contents by-bulk) 'tokens) (hash-ref (contents by-engine) 'tokens))

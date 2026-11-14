@@ -47,10 +47,10 @@
          (only-in fhir/model/leaf pv listify))
 
 (provide
- (struct-out token-row) (struct-out reference-row) (struct-out string-row)
+ (struct-out token-row) (struct-out text-row) (struct-out reference-row) (struct-out string-row)
  (struct-out date-row) (struct-out number-row) (struct-out quantity-row)
  (struct-out clause) (struct-out index-clause)
- index-tables table-of owner-index
+ index-tables shared-tables shared-table? table-of owner-index
  (contract-out
   [indexed-kind?   (-> symbol? boolean?)]
   [rows-for        (-> symbol? list? list?)]
@@ -64,6 +64,9 @@
   [date-range      (-> string? (or/c (cons/c string? string?) #f))]))
 
 (struct token-row (system code) #:transparent)
+;; what a code is called where it was read (a Coding's display, its concept's text): a row of the
+;; SHARED table fhir_token_text, one per code and text, not per resource
+(struct text-row (system code text) #:transparent)
 (struct reference-row (target-type target-id) #:transparent)
 (struct string-row (norm exact) #:transparent)
 (struct date-row (low high) #:transparent)
@@ -90,11 +93,18 @@
 (define (row-table+values row)
   (match row
     [(token-row s c)      (values "fhir_token_index" (list s c))]
+    [(text-row s c t)     (values "fhir_token_text" (list s c t (fold-string t)))]
     [(reference-row t i)  (values "fhir_reference_index" (list t i))]
     [(string-row n e)     (values "fhir_string_index" (list n e))]
     [(date-row l h)       (values "fhir_date_index" (list l h))]
     [(number-row v)       (values "fhir_number_index" (list v))]
     [(quantity-row v s c) (values "fhir_quantity_index" (list v s c))]))
+
+;; shared-tables : tables whose rows belong to no resource (a dictionary: added when new, never
+;; replaced with a resource's rows)
+(define shared-tables
+  '(("fhir_token_text" system code text text_norm)))
+(define (shared-table? table) (and (assoc table shared-tables) #t))
 
 (define (table-of kind)
   (case kind
@@ -143,14 +153,26 @@
         [else '()]))
     items)))
 
+;; token-rows : item -> (listof (token-row | text-row))   the codes an item holds, and what each
+;; is called there: a Coding's display, the text of the CodeableConcept it is in, an Identifier's
+;; type text (what FHIR's `:text` modifier on a token searches)
 (define (token-rows it)
+  (define (called rows text)                             ; the tokens, and each one under this text
+    (if (and text (not (string=? text "")))
+        (append rows (for/list ([r (in-list rows)] #:when (token-row? r)) (text-row (token-row-system r) (token-row-code r) text)))
+        rows))
   (cond
     [(scalar it) => (lambda (s) (list (token-row #f (render s))))]
-    [(type-is? it 'CodeableConcept) (append-map token-rows (listify (fhir-ref it 'coding '())))]
+    [(type-is? it 'CodeableConcept)
+     (called (append-map token-rows (listify (fhir-ref it 'coding '()))) (str-field it 'text))]
     [(type-is? it 'Coding)
-     (let ([c (str-field it 'code)]) (if c (list (token-row (str-field it 'system) c)) '()))]
+     (let ([c (str-field it 'code)])
+       (if c (called (list (token-row (str-field it 'system) c)) (str-field it 'display)) '()))]
     [(type-is? it 'Identifier)
-     (let ([v (str-field it 'value)]) (if v (list (token-row (str-field it 'system) v)) '()))]
+     (let ([v (str-field it 'value)] [type (fhir-ref it 'type #f)])
+       (if v
+           (called (list (token-row (str-field it 'system) v)) (and (fhir? type) (str-field type 'text)))
+           '()))]
     [(type-is? it 'ContactPoint)
      (let ([v (str-field it 'value)]) (if v (list (token-row #f v)) '()))]
     [else '()]))
@@ -318,6 +340,11 @@
     [(equal? modifier "missing")
      (define c (exists-in (table-of kind) name "" '() #:rank 8))
      (if (equal? value "true") (clause (string-append "NOT " (clause-sql c)) (clause-args c)) c)]
+    ;; a token's `:text`: the codes whose display or concept text holds the words, then the
+    ;; resources that have such a code (FHIR asks for "begins with or is"; this matches anywhere
+    ;; in the text, as someone looking for "hemoglobin" in "Glycated hemoglobin A1c" needs)
+    [(and (eq? kind 'token) (equal? modifier "text"))
+     (or-clauses (map (lambda (v) (text-clause name v)) (split-or value)))]
     [(and (eq? kind 'token) (equal? modifier "not"))
      (define c (or-clauses (map (lambda (v) (token-clause name v)) (split-or value))))
      (and c (clause (string-append "NOT " (clause-sql c)) (clause-args c)))]
@@ -346,6 +373,20 @@
     [(list _ sys "")  (exists-in "fhir_token_index" name "x.system=?" (list sys) #:rank 6)]
     [(list _ sys code) (exists-in "fhir_token_index" name "x.code=? AND x.system=?" (list code sys))]
     [#f (exists-in "fhir_token_index" name "x.code=?" (list v))]))
+
+;; text-clause : name words -> Clause   resources with a token of this parameter whose text (in
+;; fhir_token_text) holds the words: the dictionary's few rows first, then the token index by code
+(define (text-clause name v)
+  (define pattern (string-append "%" (like-escape (fold-string v)) "%"))
+  (define codes "x.code=d.code AND x.system IS d.system AND d.resource_type=x.resource_type AND d.param_name=x.param_name AND d.text_norm LIKE ? ESCAPE '\\'")
+  (define ids (string-append "SELECT x.resource_id FROM fhir_token_text d JOIN fhir_token_index x ON " codes
+                             " WHERE d.resource_type=? AND d.param_name=?"))
+  (index-clause (string-append "r.id IN (" ids ")")
+                (list pattern the-resource-type name)
+                (string-append "EXISTS (SELECT 1 FROM fhir_token_index x INDEXED BY idx_token_owner JOIN fhir_token_text d ON " codes
+                               " WHERE x.resource_id=r.id AND x.resource_type=? AND x.param_name=?)")
+                3
+                ids))
 
 (define (reference-clause name v)
   (match (regexp-match #px"(?:^|/)([A-Z][A-Za-z]+)/([A-Za-z0-9.-]{1,64})$" v)

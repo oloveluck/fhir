@@ -37,7 +37,7 @@
          (only-in file/sha1 sha1)
          (only-in fhir/parallel make-worker-pool pool-map close-worker-pool pool?)
          "fhir-sqlite.rkt" "fhir-engine.rkt"
-         (only-in "search-index.rkt" index-tables))
+         (only-in "search-index.rkt" index-tables shared-tables shared-table?))
 
 (provide
  (contract-out
@@ -229,7 +229,7 @@
          (call-with-transaction c
            (lambda ()
              (drop-indexes! c ix)
-             (for ([t (in-list index-tables)]) (query-exec c (string-append "DELETE FROM " (car t))))
+             (for ([t (in-list (append index-tables shared-tables))]) (query-exec c (string-append "DELETE FROM " (car t))))
              (define pending (make-hash))
              (define total
                (let loop ([after 0] [total 0])
@@ -268,12 +268,15 @@
 ;; rows-per-statement : how many index rows one INSERT carries
 (define rows-per-statement 24)
 
-;; insert-rows-sql : table Nat -> string   an INSERT of n rows into an index table
+;; insert-rows-sql : table Nat -> string   an INSERT of n rows into an index table, or into a
+;; shared table (a dictionary: no resource id, a row that is there already left alone)
 (define (insert-rows-sql table n)
-  (define cols (cdr (assoc table index-tables)))
-  (define one (string-append "(?,?,?" (apply string-append (for/list ([_ (in-list cols)]) ",?")) ")"))
-  (format "INSERT INTO ~a (resource_type,resource_id,param_name,~a) VALUES ~a"
-          table (string-join (map symbol->string cols) ",") (string-join (for/list ([_ (in-range n)]) one) ",")))
+  (define shared? (shared-table? table))
+  (define cols (cdr (assoc table (if shared? shared-tables index-tables))))
+  (define one (string-append (if shared? "(?,?" "(?,?,?") (apply string-append (for/list ([_ (in-list cols)]) ",?")) ")"))
+  (format "INSERT~a INTO ~a (resource_type,~aparam_name,~a) VALUES ~a"
+          (if shared? " OR IGNORE" "") table (if shared? "" "resource_id,")
+          (string-join (map symbol->string cols) ",") (string-join (for/list ([_ (in-range n)]) one) ",")))
 
 ;; write-prepared! : connection (listof Prepared) Indexes -> Void   inside the caller's transaction
 (define (write-prepared! c prepared ix)
@@ -304,14 +307,21 @@
 ;; queued for flush-rows!
 (define (queue-rows! pending type id rows)
   (for ([row (in-list rows)])
-    (hash-update! pending (cadr row)
-                  (lambda (acc) (cons (list* type id (car row) (map (lambda (v) (or v sql-null)) (caddr row))) acc))
-                  '())))
+    (define vals (map (lambda (v) (or v sql-null)) (caddr row)))
+    (cond
+      ;; a dictionary row is queued once: most resources of a load say again what a code is called
+      [(shared-table? (cadr row))
+       (define entry (list* type (car row) vals))
+       (define seen (hash-ref! pending 'seen make-hash))
+       (unless (hash-ref seen entry #f)
+         (hash-set! seen entry #t)
+         (hash-update! pending (cadr row) (lambda (acc) (cons entry acc)) '()))]
+      [else (hash-update! pending (cadr row) (lambda (acc) (cons (list* type id (car row) vals) acc)) '())])))
 
 ;; flush-rows! : connection (hash table -> rows) -> Void   every queued index row inserted, many
 ;; to a statement, and the queue emptied
 (define (flush-rows! c pending)
-  (for ([(table rows) (in-hash pending)])
+  (for ([(table rows) (in-hash pending)] #:when (string? table))
     (define many (prepare c (insert-rows-sql table rows-per-statement)))
     (define one (prepare c (insert-rows-sql table 1)))
     (let loop ([rows (reverse rows)] [n (length rows)])
@@ -320,7 +330,8 @@
              (apply query-exec c many (append* now))
              (loop later (- n rows-per-statement))]
             [else (for ([r (in-list rows)]) (apply query-exec c one r))])))
-  (hash-clear! pending))
+  ;; the queue emptied; what the dictionaries were told is remembered for the next rows
+  (for ([table (in-list (hash-keys pending))] #:when (string? table)) (hash-remove! pending table)))
 
 ;; restamped : text version instant -> (values version text sha1)   the prepared text (stamped as
 ;; version 1) stamped as the version it turns out to be: its id was stored before
