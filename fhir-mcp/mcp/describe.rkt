@@ -464,8 +464,9 @@
     (let ([next (+ offset (length page))])
       (if (< next (length rows)) (format "\n… ~a more rows: ~a" (- (length rows) next) (call-text "describe" (list (cons 'ref uri) (cons 'as "csv") (cons 'offset next)))) "")))))
 
-(define (describe-result h uri offset limit against)
-  (define st (or (result-of h uri) (error 'describe (format "no result ~a (results: ~a)" uri (result-listing h)))))
+(define (describe-result h uri0 offset limit against)
+  (define st (or (result-of h uri0) (error 'describe (format "no result ~a (results: ~a)" uri0 (result-listing h)))))
+  (define uri (or (result-uri h uri0) uri0))                ; result://latest, a name: the numbered result
   (define r (stored-result st))
   (cond
     [against

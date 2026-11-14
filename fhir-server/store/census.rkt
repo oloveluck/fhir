@@ -42,6 +42,40 @@
       (hasheq 'resources (for/sum ([r (in-list rows)]) (vector-ref r 1))
               'types (for/list ([r (in-list rows)]) (hasheq 'type (vector-ref r 0) 'count (vector-ref r 1)))))))
 
+;; ---- what refers to what was found -------------------------------------------------------------
+;; A word is often found on a resource the question is not about: a medication's name on the
+;; Medication, while the question is about the prescriptions that point at it. A finding held by a
+;; few resources says what refers to them, by type and reference parameter, with the search that
+;; finds the referrers (`MedicationRequest?medication=Medication/a,Medication/b`).
+(define max-holders 10)
+
+;; with-referrers : connection type count (-> (listof id)) Finding -> Finding
+(define (with-referrers c type n holder-ids finding)
+  (cond
+    [(or (> n (* 4 max-holders)) (member type '("Patient"))) finding]   ; a patient is referred to by everything
+    [else
+     (define ids (holder-ids))
+     (cond
+       [(or (null? ids) (> (length ids) max-holders)) finding]
+       [else
+        (define targets (string-join (for/list ([id (in-list ids)]) (format "~a/~a" type id)) ","))
+        (define rows
+          (apply query-rows c
+                 (string-append "SELECT resource_type, param_name, COUNT(DISTINCT resource_id) FROM fhir_reference_index"
+                                " WHERE target_type=? AND target_id IN (" (string-join (map (lambda (_) "?") ids) ",") ")"
+                                ;; the trail's own records name what they wrote; they are not the data's
+                                " AND resource_type NOT IN ('Provenance','AuditEvent')"
+                                " GROUP BY resource_type, param_name ORDER BY 3 DESC")
+                 type ids))
+        ;; one line per referring type: its plainest parameter, how many resources
+        (define by-type (group-by (lambda (r) (vector-ref r 0)) rows))
+        (if (null? by-type) finding
+            (hash-set finding 'referencedBy
+                      (for/list ([g (in-list by-type)])
+                        (define param (car (shortest-first (map (lambda (r) (vector-ref r 1)) g))))
+                        (define count (for/first ([r (in-list g)] #:when (equal? (vector-ref r 1) param)) (vector-ref r 2)))
+                        (format "~a ×~a: ~a?~a=~a" (vector-ref (car g) 0) count (vector-ref (car g) 0) param targets))))])]))
+
 ;; ---- what is recorded about one subject --------------------------------------------------------
 ;; subject-census : store catalog type id -> (listof (cons type count))
 ;; How many resources of each stored type name this resource (a Patient, usually) as their
@@ -248,12 +282,18 @@
              (define finding (hasheq 'where (format "~a.~a" type (string-join params ", "))
                                      'value value 'resources n
                                      'search (format "~a?~a=~a" type (car params) value)))
-             (if (sql-null? text) finding (hash-set finding 'text text))))
+             (with-referrers c type n
+                             (lambda () (query-list c "SELECT DISTINCT resource_id FROM fhir_token_index WHERE resource_type=? AND param_name=? AND code=? AND system IS ? LIMIT ?"
+                                                    type (car params) code system (add1 max-holders)))
+                             (if (sql-null? text) finding (hash-set finding 'text text)))))
          (define strings
            (for/list ([r (in-list named)])
              (match-define (vector type param value n) r)
-             (hasheq 'where (format "~a.~a" type param) 'value value 'resources n
-                     'search (format "~a?~a=~a" type param value))))
+             (with-referrers c type n
+                             (lambda () (query-list c "SELECT DISTINCT resource_id FROM fhir_string_index WHERE resource_type=? AND param_name=? AND value_exact=? LIMIT ?"
+                                                    type param value (add1 max-holders)))
+                             (hasheq 'where (format "~a.~a" type param) 'value value 'resources n
+                                     'search (format "~a?~a=~a" type param value)))))
          (define all (append tokens strings))
          (take all (min limit (length all)))))]))
 
@@ -338,5 +378,20 @@
   (check-equal? (store-find store "hemoglobin glucose") '())
   (check-equal? (hash-ref (car (store-find store "L59")) 'search) "Observation?identifier=urn:lab|L59")
   (check-equal? (store-find store "  ") '())
+  ;; a name held by a resource another type refers to: what refers to it, and the search for them
+  (define cat2 (hash-set* cat
+                          'Medication (list (search-param "identifier" 'token "identifier"))
+                          'MedicationRequest (list (search-param "medication" 'reference "medication")
+                                                   (search-param "patient" 'reference "subject"))))
+  (let-values ([(_t mid _v) (fhir-create! store (hasheq 'resourceType "Medication"
+                                                        'identifier (list (hasheq 'system "urn:name" 'value "Glucagon 1 mg"))) #:search-params cat2)])
+    (for ([p (in-list '("p1" "p2"))])
+      (let-values ([(_a _b _c) (fhir-create! store (hasheq 'resourceType "MedicationRequest" 'status "active" 'intent "order"
+                                                           'medicationReference (hasheq 'reference (string-append "Medication/" mid))
+                                                           'subject (hasheq 'reference (string-append "Patient/" p))) #:search-params cat2)])
+        (void)))
+    (check-equal? (hash-ref (car (store-find store "glucagon")) 'referencedBy)
+                  (list (format "MedicationRequest ×2: MedicationRequest?medication=Medication/~a" mid))))
+
   (close-fhir-store store)
   (delete-file tmp))

@@ -195,19 +195,26 @@
   (define offset (or (asked-number "_offset") 0))
   (define ds (current-data-source))
   (define store-path (data-store-path h))
-  (define-values (found ignored total names)
+  ;; found: the matches; store: the store that answered (its _include/_revinclude pull in more), or #f
+  (define-values (found ignored total names store)
     (cond [(and store-path (search-index-available?))
            (define-values (store catalog) (open-store store-path (hub-packages h)))
            (define-values (rs ig total) ((dynamic-require 'fhir/store/fhir-engine 'fhir-search/page) store type qps #:search-params catalog))
-           (values rs ig total (search-param-names catalog type))]
+           (values rs ig total (search-param-names catalog type) store)]
           ;; a FHIR server answers its own page; what it holds in all is its to say
-          [(data-source-search ds) (let ([rs ((data-source-search ds) type asked)]) (values (if count-only? '() rs) '() (length rs) '()))]
-          [(null? params) (let ([rs ((data-source-all ds) type)]) (values rs '() (length rs) '()))]
+          [(data-source-search ds) (let ([rs ((data-source-search ds) type asked)]) (values (if count-only? '() rs) '() (length rs) '() #f))]
+          [(null? params) (let ([rs ((data-source-all ds) type)]) (values rs '() (length rs) '() #f))]
           [(file-search-index h)
            => (lambda (index)
                 (define-values (rs ig total) ((search-index-search index) type qps))
-                (values rs ig total (search-param-names (search-catalog (hub-packages h)) type)))]
+                (values rs ig total (search-param-names (search-catalog (hub-packages h)) type) (search-index-store index)))]
           [else (error 'search "searching files needs the fhir-server package (raco pkg install fhir-server); meanwhile ask with FHIRPath: query(\"fhirpath\", \"Observation.where(…)\")")]))
+  ;; what `_include` / `_revinclude` pull in beside the matches (rows of their own, `mode` include;
+  ;; the workspace ignored them without a word)
+  (define included
+    (if (and store (pair? found) (ormap (lambda (p) (member (car p) '("_include" "_revinclude"))) asked))
+        ((dynamic-require 'fhir/store/fhir-engine 'fhir-includes) store type found asked)
+        '()))
   (define (why n)
     (cond [(regexp-match? #rx"^_has:" n) (format "`~a`: reverse chaining (_has) is not supported — ask CQL or SQL (learn://search)" n)]
           [(regexp-match? #rx"[.]" n) (format "`~a`: chained parameters are not supported — ask CQL or SQL (learn://search)" n)]
@@ -224,11 +231,13 @@
   (when (and (pair? ignored) (hash-ref opts 'strict #f))
     (error 'search (format "not applied: ~a (~a searches on ~a and _id, _lastUpdated, _count, _sort)"
                            (string-join (map why ignored) "; ") type (string-join names ", "))))
-  (define digests (map digest found))
-  (define columns (digest-columns digests))
+  (define all-found (append found included))
+  (define digests (map digest all-found))
+  (define columns (append (if (null? included) '() '(mode)) (digest-columns digests)))
   (define next (+ offset (length found)))
   (define summary
     (let* ([s (hasheq 'resources (length found) 'total total)]
+           [s (if (null? included) s (hash-set s 'included (length included)))]
            [s (if (assoc "_count" asked) (hash-set s 'count (asked-number "_count")) s)]
            [s (if (and (< next total) (not count-only?))
                   (hash-set s 'next (format "~a~a_offset=~a" (regexp-replace #px"[?&]_offset=[0-9]+" (string-trim text) "")
@@ -239,10 +248,11 @@
                              'note "the answer is the search WITHOUT these parameters; strict:=true refuses such a search"))])
       s))
   (run-result "resources" (append '("resource") (map symbol->string columns) '("json"))
-              (for/list ([r (in-list found)] [d (in-list digests)])
+              (for/list ([r (in-list all-found)] [d (in-list digests)] [i (in-naturals)])
                 (for/fold ([row (hasheq 'resource (format "~a/~a" (hash-ref r 'resourceType "?") (hash-ref r 'id "?")) 'json r)])
                           ([c (in-list columns)])
-                  (hash-set row c (cond [(assq c d) => cdr] [else 'null]))))
+                  (hash-set row c (cond [(eq? c 'mode) (if (< i (length found)) "match" "include")]
+                                        [(assq c d) => cdr] [else 'null]))))
               summary))
 
 ;; search-store : hub symbol -> (values store catalog)   the store that indexes the data — the
@@ -264,8 +274,9 @@
 (define (run-find h words)
   (define-values (store _catalog) (search-store h 'find))
   (define found ((dynamic-require 'fhir/store/census 'store-find) store words))
-  (run-result "table" '("where" "value" "text" "resources" "search")
-              (for/list ([f (in-list found)]) (if (hash-has-key? f 'text) f (hash-set f 'text 'null)))
+  (run-result "table" '("where" "value" "text" "resources" "search" "referencedBy")
+              (for/list ([f (in-list found)])
+                (for/fold ([f f]) ([k '(text referencedBy)] #:unless (hash-has-key? f k)) (hash-set f k 'null)))
               (if (null? found)
                   (hasheq 'found 0 'note "no code is called so, and no code, identifier or name holds the words: try one word, or a part of it")
                   (hasheq 'found (length found)))))

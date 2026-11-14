@@ -9,7 +9,9 @@ The answer is a page: one row per resource, saying what it holds — `code`, `va
 the type's own date), `status`, `subject`, `encounter` — and `total`, how many resources match in
 all. The resources' JSON is kept in the result (`describe ref=result://rN`). A page is `_count`
 resources (1,000 when the search names none) from `_offset`; `next` gives the search for the page
-after. `_summary=count` answers the total alone.
+after. `_summary=count` answers the total alone. `_include=MedicationRequest:medication` (and
+`_revinclude`) adds the resources the matches point at as rows of their own (`mode` include).
+`describe ref=result://latest` reads the newest result, whatever its number.
 
 ## Before searching data you do not know
 - `describe ref=data`: the resource types and how many of each.
@@ -18,7 +20,8 @@ after. `_summary=count` answers the total alone.
   units — and which elements the resources carry (a choice's members by their JSON names).
 - `query language=find text="hemoglobin"`: where the words occur — codes called so (a Coding's
   display, a concept's text), code and identifier values, names — each with how many resources and
-  the search that finds them.
+  the search that finds them; when a few resources hold the words, `referencedBy` says what points
+  at them (a Medication named "Glucagon": `MedicationRequest ×3: MedicationRequest?medication=Medication/…`).
 - `describe ref=Patient/<id> as=summary`: how many resources of each type name the patient, and
   the latest encounters.
 

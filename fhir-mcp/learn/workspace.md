@@ -8,6 +8,15 @@ To start a new workspace from a shell: `raco fhir-mcp init [dir]` writes `worksp
 `data: fhir.db`, a SQLite FHIR store created on first use), a `.mcp.json` that registers this
 server, a `CLAUDE.md` that points here and a `.gitignore`. It never overwrites a file.
 
+**Data you have not seen yet** (someone else's FHIR data: start here, before searching or SQL):
+`describe ref=data` (its types and counts), then `describe ref=data/<Type>` for each type a question
+needs — its codes with what they are called, which identifier systems it uses (MIMIC tells a hospital
+stay from an ICU stay by an Encounter identifier's system), its references, dates and elements.
+`query language=find text="glucagon"` says where words occur — a code's name, an identifier, a name —
+with the search for each; `describe ref=Patient/<id> as=summary` is what is recorded about one patient,
+by type, with the latest encounters. A search answers rows that say what each resource holds and
+`total`, every match (`raco fhir guide search`).
+
 **Find your task** (each a section below, with a tested recipe):
 - store data, with who and why: "The data", then "The trail" (`stage` → `commit reason=… agent=…`)
 - a rule the data must keep, and its refusal: "Constraints" ("Rules cookbook"; the blood-pressure rule)

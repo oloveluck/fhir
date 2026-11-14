@@ -486,6 +486,8 @@
   (define m (and (string? uri) (regexp-match #px"^result://(.+)$" uri)))
   (cond [(not m) #f]
         [(regexp-match? #px"^r[0-9]+$" (cadr m)) (and (or (hash-ref (hub-results h) uri #f) (load-state h "results" (cadr m))) uri)]
+        ;; the newest result, whatever its number (as `commit stage=latest`): a CSV answer names none
+        [(equal? (cadr m) "latest") (let ([us (hub-result-uris h)]) (and (pair? us) (last us)))]
         ;; a name as it was asked (`a1c-table`) or as it was kept (`a1c_table`), in any case, as SQL reads it
         [else (define want (string-downcase (or (result-name (cadr m)) (cadr m))))
               (for/last ([u (in-list (hub-result-uris h))]

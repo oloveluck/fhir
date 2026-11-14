@@ -97,6 +97,14 @@
     [(number? (hash-ref v 'value #f))
      (string-append (or (str 'comparator) "") (number-text (hash-ref v 'value))
                     (let ([u (or (str 'unit) (str 'code) (str 'currency))]) (if u (string-append " " u) "")))]
+    ;; a Dosage: its dose (else its text) and its route — `40 mEq, PO`
+    [(or (hash-ref v 'doseAndRate #f) (hash-ref v 'route #f))
+     (define dose
+       (for/or ([d (in-list (let ([ds (hash-ref v 'doseAndRate '())]) (if (list? ds) ds '())))] #:when (hash? d))
+         (let ([q (candidate-value d 'dose\[x\])]) (and q (text-of (cdr q))))))
+     (define route (let ([r (hash-ref v 'route #f)]) (and (hash? r) (text-of r))))
+     (define parts (filter values (list (or dose (str 'text)) route)))
+     (and (pair? parts) (string-join parts ", "))]
     ;; CodeableConcept: its text, else its first coding
     [(or (hash-ref v 'coding #f) (str 'text))
      (or (str 'text) (text-of (hash-ref v 'coding '())))]
@@ -121,11 +129,6 @@
      (format "~a – ~a" (or (text-of (hash-ref v 'low #f)) "…") (or (text-of (hash-ref v 'high #f)) "…"))]
     [(and (hash-ref v 'numerator #f) (hash-ref v 'denominator #f))
      (format "~a / ~a" (or (text-of (hash-ref v 'numerator)) "?") (or (text-of (hash-ref v 'denominator)) "?"))]
-    ;; a Dosage: its text, else the dose
-    [(hash-ref v 'doseAndRate #f)
-     (or (str 'text)
-         (for/or ([d (in-list (let ([ds (hash-ref v 'doseAndRate)]) (if (list? ds) ds '())))] #:when (hash? d))
-           (let ([q (candidate-value d 'dose\[x\])]) (and q (text-of (cdr q))))))]
     ;; an Identifier or another value with a `value` that is text
     [(str 'value) => values]
     [else #f]))
@@ -159,12 +162,16 @@
   (check-equal? (digest (hasheq 'resourceType "MedicationRequest" 'status "stopped" 'authoredOn "2130-11-01T09:43:48-04:00"
                                 'medicationReference (hasheq 'reference "Medication/m1")
                                 'dosageInstruction (list (hasheq 'text "10mEq ER Tablet" 'doseAndRate (list (hasheq 'doseQuantity (hasheq 'value 40 'unit "mEq")))))))
-                '((medication . "Medication/m1") (dosageInstruction . "10mEq ER Tablet")
+                '((medication . "Medication/m1") (dosageInstruction . "40 mEq")
                   (authoredOn . "2130-11-01T09:43:48-04:00") (status . "stopped")))
   (check-equal? (digest (hasheq 'medicationCodeableConcept (hasheq 'coding (list (hasheq 'code "00064065001")))
                                 'dosageInstruction (list (hasheq 'doseAndRate (list (hasheq 'doseQuantity (hasheq 'value 40 'unit "mEq")))))))
                 '((medication . "00064065001") (dosageInstruction . "40 mEq")))
   (check-equal? (digest (hasheq 'medication (hasheq 'concept (hasheq 'text "Metformin")))) '((medication . "Metformin")))
+  ;; a dose with its route
+  (check-equal? (digest (hasheq 'dosageInstruction (list (hasheq 'text "Floor Stock Bag" 'route (hasheq 'coding (list (hasheq 'code "IV")))
+                                                                 'doseAndRate (list (hasheq 'doseQuantity (hasheq 'value 40 'unit "mEq")))))))
+                '((dosageInstruction . "40 mEq, IV")))
   ;; a Patient: name, birth date, gender; an Encounter: class and period
   (check-equal? (digest (hasheq 'resourceType "Patient" 'gender "female" 'birthDate "1960-01-01"
                                 'name (list (hasheq 'family "Ng" 'given '("Ann" "Marie")) (hasheq 'family "Lee"))))

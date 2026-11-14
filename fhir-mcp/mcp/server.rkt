@@ -36,8 +36,8 @@
     "query asks once without a file; describe reads any reference (results paged, types and elements, operations, Type/id, canonicals); "
     "apply runs a FHIR operation; stage then commit writes validated, diffed changes to the data (SQLite, every resource as JSONB), leaving a Provenance and an AuditEvent: give commit a reason. "
     "Rules the data must keep are FSH profiles named in workspace.yaml `profiles`; check(data: true) holds the store to them. "
-    "describe(\"Type/id/_history\") and SQL over history, Provenance and AuditEvent compute over the trail. "
     "A FHIR server is a <name>.capability.rkt file (#lang fhir/capability): run serves it over the same store. "
+    "Data you have not seen: describe(\"data\"), describe(\"data/<Type>\"), query(\"find\", words) first. "
     "Read learn://fhir and learn://workspace first, and learn://<language> (fsh, cql, fhirpath, vcl, fml, sql-on-fhir, capability, search) before writing a language: each has a cheat sheet and links to its official specification.")))
 (provide current-server-instructions)
 ;; the protocol revisions this server speaks, newest first. What it uses of the protocol (tools,

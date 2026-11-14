@@ -42,6 +42,7 @@
                  "`learn://workspace` first, then the guide of the language you write (`learn://fsh`, `learn://cql`, …).\n"
                  "The loop: `write` a file, fix the problems it answers at their lines, `run` it, `explain` a surprise.\n"
                  "The data is fhir.db (SQLite, resources as JSONB): `stage` then `commit` writes it; `query` searches it or runs SQL on it.\n"
+                 "Data you have not seen: `describe ref=data`, `describe ref=data/<Type>` and `query language=find text=<words>` first.\n"
                  "Without the MCP tools, from the shell: `raco fhir guide workspace` (or `raco fhir guide fsh`, `… cql`, …) prints a\n"
                  "guide, and `raco fhir-mcp call <tool> key=value …` (or `raco fhir-mcp batch -`, one call per line) runs a tool.\n"))
 

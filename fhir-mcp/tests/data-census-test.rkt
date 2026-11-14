@@ -49,7 +49,11 @@
    "Instance: glu1\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#2339-0 \"Glucose [Mass/volume] in Blood\"\n"
    "* subject = Reference(Patient/bob)\n* effectiveDateTime = \"2125-02-01\"\n* valueQuantity = 99 'mg/dL'\n\n"
    "Instance: med1\nInstanceOf: Medication\n* identifier.system = \"http://example.org/medication-name\"\n"
-   "* identifier.value = \"Miconazole 2% Cream\"\n"))
+   "* identifier.value = \"Miconazole 2% Cream\"\n\n"
+   "Instance: rx1\nInstanceOf: MedicationRequest\n* status = #active\n* intent = #order\n"
+   "* medicationReference = Reference(Medication/med1)\n* subject = Reference(Patient/bob)\n"
+   "* dosageInstruction.route = http://example.org/route#TOP\n"
+   "* dosageInstruction.doseAndRate.doseQuantity = 1 'g'\n"))
 
 (with-hub h
   (lambda ()
@@ -84,6 +88,18 @@
     (define med (hash-ref (call "query" (hasheq 'language "find" 'text "miconazole cream")) 'rows))
     (check-equal? (map (lambda (r) (hash-ref r 'where)) med) '("Medication.identifier"))
     (check-equal? (total-of (hash-ref (car med) 'search)) 1)
+    ;; and what refers to the resource that holds it: the prescriptions, by the search that finds them
+    (check-equal? (hash-ref (car med) 'referencedBy) '("MedicationRequest ×1: MedicationRequest?medication=Medication/med1"))
+    ;; the newest result, whatever its number
+    (check-equal? (hash-ref (call "describe" (hasheq 'ref "result://latest")) 'result)
+                  (hash-ref (call "describe" (hasheq 'ref "result://latest")) 'result))
+    (check-regexp-match #rx"^result://r[0-9]+$" (hash-ref (call "describe" (hasheq 'ref "result://latest")) 'result))
+    ;; _include pulls the referenced resources in, as rows of their own; a dose reads with its route
+    (define rx (call "query" (hasheq 'language "search" 'text "MedicationRequest?patient=Patient/bob&_include=MedicationRequest:medication")))
+    (check-equal? (map (lambda (r) (list (hash-ref r 'resource) (hash-ref r 'mode))) (hash-ref rx 'rows))
+                  '(("MedicationRequest/rx1" "match") ("Medication/med1" "include")))
+    (check-equal? (hash-ref (car (hash-ref rx 'rows)) 'dosageInstruction) "1 g, TOP")
+    (check-equal? (list (hash-ref rx 'total) (hash-ref (hash-ref rx 'summary) 'included)) '(1 1))
     (check-equal? (hash-ref (call "query" (hasheq 'language "find" 'text "aspirin")) 'total) 0)
 
     ;; ---- a search: a page of rows that read, the total, the next page ------------------------
@@ -94,6 +110,11 @@
                   (hasheq 'resource "Observation/hb0" 'code "Hemoglobin [Mass/volume] in Blood" 'value "10 g/dL"
                           'effective "2125-01-01T08:00:00Z" 'status "final" 'subject "Patient/ann" 'encounter "Encounter/stay1"))
     (check-regexp-match #rx"_offset=2" (hash-ref page 'next))
+    ;; a page longer than its preview says so, and how to read it all
+    (let ([p (call "query" (hasheq 'language "search" 'text "Observation?code:text=hemoglobin&_count=60"))])
+      (check-equal? (length (hash-ref p 'rows)) 6))
+    (let ([p (call "query" (hasheq 'language "search" 'text "Observation?patient=Patient/ann"))])
+      (check-false (hash-ref p 'next #f)))
     (check-equal? (map (lambda (r) (hash-ref r 'resource))
                        (hash-ref (call "query" (hasheq 'language "search" 'text "Observation?code:text=hemoglobin&_sort=date&_count=2&_offset=4")) 'rows))
                   '("Observation/hb4" "Observation/hb5"))

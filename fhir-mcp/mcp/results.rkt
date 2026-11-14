@@ -91,7 +91,10 @@
   (define total (or (and resources? (hash? sm0) (hash-ref sm0 'total #f)) (length rows)))
   (define more
     (cond [(> (length rows) to-show)
-           (format "~a for the next rows~a" (call-text "describe" (list (cons 'ref uri) (cons 'offset to-show))) (if resources? ", with each resource's JSON" ""))]
+           (format "these are the first ~a of the ~a rows this result holds: ~a for the next~a, or ~a for all"
+                   to-show (length rows)
+                   (call-text "describe" (list (cons 'ref uri) (cons 'offset to-show))) (if resources? ", with each resource's JSON" "")
+                   (call-text "describe" (list (cons 'ref uri) (cons 'as "csv"))))]
           [(and resources? (pair? rows))
            (format "~a for each resource's JSON, or ~a for one" (call-text "describe" (list (cons 'ref uri))) (call-text "describe" (list (cons 'ref "Type/id"))))]
           [else #f]))
