@@ -2224,9 +2224,32 @@ identifier, a stay's kind in an identifier's system. What was built for it, each
   with the search for the referrers.
 Not yet, named: a benchmark that can measure this (the whole test split, agents without the
 repositories' notes in context — every subagent carried ~240k tokens of them —, several runs per
-arm, questions needing joins and counts); views materialised between processes (SQL over a view
-rebuilds it per call, ~8 s over 17,552 prescriptions); `_elements`; chained search; a census
-over a FHIR server's data (it reads the store's indexes).
+arm, questions needing joins and counts); `_elements`; chained search; a census
+over a FHIR server's data (it reads the store's indexes). (Views kept between processes: done,
+next section.)
+
+## A view's rows kept between calls (2026-11-15)
+SQL over a workspace view ran the view over the data on every call: over the MIMIC store, a view
+of the 17,552 MedicationRequests took ~5 s each time (profiled: reading the typed nodes leniently
+~1.2 s and comparing what the read dropped ~0.7 s, the JSON ~0.7 s, the view itself ~0.2 s), for a
+statement SQLite answers in milliseconds — and an agent asks one view many statements.
+- `fhir-mcp/mcp/view-cache.rkt` (`kept-rows`, `key-of`): a view's rows are written once to
+  `.fhir-mcp/views.db` (one table per view and kind, its catalogue `kept`) and read there in place:
+  sql.rkt takes a Kept (file, table, columns) where it took a Table, attaches the file (read-only
+  on a store's read-only connection) and makes a TEMP view over the table — nothing is loaded. A
+  cache that cannot be written answers the rows uncached.
+- The key (run.rkt `kept-view`) is everything the rows depend on: the view's text, the FHIR version
+  and packages, the data (`data-stamp`: the store's last history rowid — every create and update
+  adds one — and the count of the view's type, which a delete changes), the workspace's files
+  (a definition a file states is read before the store's) and the engine (`engine-stamp`: size and
+  time of the .rkt files of sql-on-fhir, fhirpath, fhir/serialize, fhir/primitives and fhir-mcp's
+  mcp/, once per process). Views over files or a FHIR server are not kept: a hub reads a directory
+  when it opens, so a stamp of the files on disk could describe rows it did not read.
+- `<view>_history` is kept the same way. `tests/view-cache-test.rkt`: kept once, read by a second
+  hub, made again after a commit and after the view's text changes, one table per view.
+- Measured on the MIMIC store (`count(*)` over the MedicationRequest view): from the shell 5.9 s ->
+  1.3 s a call (the process start is most of it); in one process 4.9 s -> 58 ms. The stamp costs
+  ~35 ms over the 813,540 Observations.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

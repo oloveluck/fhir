@@ -5,13 +5,14 @@
 ;;; Measure evaluated, any other resource validated), FHIR search, and SQL over the workspace's
 ;;; ViewDefinitions, results and store.
 
-(require racket/list racket/string racket/file racket/path racket/match json net/uri-codec
+(require racket/list racket/string racket/file racket/path racket/match racket/promise json net/uri-codec
          fhir/lang/workspace (only-in fhir/suggest did-you-mean)
          (only-in fhir/data-source current-data-source data-source-all data-source-search resources->data-source)
          (only-in fhir/model/registry type-registered?) (only-in fhir/model/introspect full-field-specs)
          (only-in fhir/model/schema field-spec? field-spec-name)
          (only-in fhir/sd/sd-index current-sd-packages) (only-in fhir/operation apply-operation)
-         "search-index.rkt" "sql.rkt" "views.rkt" "results.rkt" "hub.rkt" "data.rkt" "digest.rkt"
+         (only-in db sqlite3-connect disconnect query-value) (only-in file/sha1 sha1)
+         "search-index.rkt" "sql.rkt" "views.rkt" "view-cache.rkt" "results.rkt" "hub.rkt" "data.rkt" "digest.rkt"
          (only-in "dependencies.rkt" dependency-rows dependency-columns))
 
 ;; Contracted in workspace.rkt; describe and stage use the rest.
@@ -120,6 +121,66 @@
                         (with-handlers ([exn:fail? (lambda (_) #f)])
                           (let ([n (hash-ref (call-with-input-file f read-json) 'name #f)]) (and (string? n) n)))))))
 
+;; ---- a view's rows kept between calls (view-cache.rkt) -------------------------------------------
+;; kept-view : hub view-file kind (-> table) -> (or/c kept table)   the view's rows over the data
+;; (kind 'current) or over every stored version ('history), kept in `.fhir-mcp/views.db` under a
+;; key of everything they depend on: the view's text, the workspace's FHIR version and packages,
+;; the data (data-stamp), the workspace's files (a definition a file states is read before the
+;; store's) and the engine (engine-stamp). Only a store's views are kept (data-stamp).
+(define (kept-view h f kind compute)
+  (define stamp (data-stamp h (view-resource f)))
+  (if (not stamp)
+      (compute)
+      (kept-rows (build-path (hub-root h) ".fhir-mcp" "views.db")
+                 (format "~a ~a" kind (path->string f))
+                 (key-of (list 'view-cache 1 kind (file->string f)
+                               (ws-config-fhir-version (workspace-config (hub-ws h))) (hub-packages h)
+                               stamp (files-stamp (workspace-files (hub-ws h))) (engine-stamp)))
+                 compute)))
+
+;; view-resource : view-file -> type   the resource type a ViewDefinition reads
+(define (view-resource f)
+  (with-handlers ([exn:fail? (lambda (_) "?")])
+    (let ([t (hash-ref (call-with-input-file f read-json) 'resource "?")]) (if (string? t) t "?"))))
+
+;; data-stamp : hub type -> datum | #f   what changes whenever the data a view of the type reads
+;; changes, for a store (read live, so a stamp read now describes what a view reads now): the last
+;; version written (every create and update adds one to its history) and how many resources of the
+;; type it holds (a delete adds none). Not for files: a hub reads a directory when it opens, so a
+;; stamp of the files on disk could describe rows the hub did not read; nor for a FHIR server.
+(define (data-stamp h type)
+  (define p (data-store-path h))
+  (and p
+       (let ([c (sqlite3-connect #:database p #:mode 'read-only)])
+         (dynamic-wind void
+                       (lambda ()
+                         (list 'store (path->string p)
+                               (query-value c "SELECT coalesce(max(rowid), 0) FROM fhir_history")
+                               (query-value c "SELECT count(*) FROM fhir_resources WHERE resource_type = ?" type)))
+                       (lambda () (disconnect c))))))
+
+;; files-stamp : (listof path) -> (listof (list string size seconds))
+(define (files-stamp fs)
+  (sort (for/list ([f (in-list fs)] #:when (file-exists? f))
+          (list (path->string f) (file-size f) (file-or-directory-modify-seconds f)))
+        string<? #:key car))
+
+;; engine-stamp : -> string   the source of what computes a view's rows (sql-on-fhir, fhirpath, the
+;; foundation's JSON reading and primitives, this module), by size and time: a changed engine is a
+;; new key. Once per process.
+(define engine
+  (delay
+    (define (dir-of mod coll . sub) (let-values ([(d _n _x) (split-path (apply collection-file-path mod coll sub))]) d))
+    (define dirs (list (dir-of "view.rkt" "sql-on-fhir") (dir-of "eval.rkt" "fhirpath")
+                       (dir-of "from-json.rkt" "fhir" "serialize") (dir-of "primitives.rkt" "fhir" "primitives")
+                       (dir-of "run.rkt" "fhir" "mcp")))
+    (sha1 (open-input-string
+           (format "~s" (for*/list ([d (in-list dirs)])
+                          (files-stamp (for/list ([f (in-directory d (lambda (p) (not (regexp-match? #rx"compiled$" (path->string p)))))]
+                                                  #:when (regexp-match? #rx"[.]rkt$" (path->string f)))
+                                         f))))))))
+(define (engine-stamp) (force engine))
+
 ;; run-sql : hub sql -> run-result   SQL over the workspace's tables (sql.rkt): each ViewDefinition
 ;; file's rows, named by its file (`patients.view.json` is `patients`) and by its `name`, and every
 ;; earlier result whose rows are a table (`r1`, `r2`, …: a CQL run's defines per patient, a view's
@@ -129,8 +190,9 @@
     (for*/list ([f (in-list (workspace-files (hub-ws h)))]
                 #:when (equal? (workspace-language-of f) "sql-on-fhir")
                 [name (in-list (view-names f))])
-      (cons name (lambda () (let ([r (execute h "sql-on-fhir" f (file->string f) (hasheq))])
-                              (table (run-result-columns r) (run-result-rows r)))))))
+      (cons name (lambda () (kept-view h f 'current
+                                       (lambda () (let ([r (execute h "sql-on-fhir" f (file->string f) (hasheq))])
+                                                    (table (run-result-columns r) (run-result-rows r)))))))))
   ;; each view over EVERY version too (`bp_history`): the store's history as the view's input, so the
   ;; values of a corrected reading are a column, not json_each over JSONB (a `meta.versionId` column
   ;; says which version a row is)
@@ -143,11 +205,12 @@
                                         #:when (equal? (workspace-language-of f) "sql-on-fhir")
                                         #:when (member (car v) (view-names f)))
                               f))
-                  (define type (hash-ref (call-with-input-file f read-json) 'resource "?"))
-                  (define r (parameterize ([current-sd-packages (hub-packages h)]
-                                           [current-data-source (resources->data-source (history-resources (data-store-path h) type))])
-                              ((ws-support-run (support-for "sql-on-fhir")) (hub-ws h) f (file->string f) (hasheq))))
-                  (table (run-result-columns r) (run-result-rows r)))))))
+                  (kept-view h f 'history
+                             (lambda ()
+                               (define r (parameterize ([current-sd-packages (hub-packages h)]
+                                                        [current-data-source (resources->data-source (history-resources (data-store-path h) (view-resource f)))])
+                                           ((ws-support-run (support-for "sql-on-fhir")) (hub-ws h) f (file->string f) (hasheq))))
+                               (table (run-result-columns r) (run-result-rows r)))))))))
   (define (result-table st)
     (lambda () (table (map (lambda (c) (format "~a" c)) (run-result-columns (stored-result st)))
                       (run-result-rows (stored-result st)))))

@@ -13,13 +13,17 @@
 ;;; A Table is (table columns rows): columns (listof string), rows (listof (hash column-symbol ->
 ;;; jsexpr)). A cell that is a JSON array or object (a collection column) is stored as its JSON text,
 ;;; a boolean as 1/0, null as NULL. Tables are given as thunks, so only the ones a query names are
-;;; computed.
+;;; computed. A thunk may answer a Kept table instead — (kept file name columns), rows already
+;;; written to table `name` of the SQLite file `file` (view-cache.rkt keeps a view's rows between
+;;; calls): it is attached read-only and read in place, nothing loaded.
 
-(require racket/contract racket/list racket/string racket/file json db (only-in fhir/suggest did-you-mean))
+(require racket/contract racket/list racket/string racket/file racket/match json db (only-in fhir/suggest did-you-mean))
 
 (provide
- (struct-out table)
+ (struct-out table) (struct-out kept)
  (contract-out
+  ;; cell-in : jsexpr -> sql value   how a cell is written (a collection as its JSON text, a boolean 1/0)
+  [cell-in (-> any/c any/c)]
   ;; sql-query : sql (hash name -> (-> table)) [#:database store-file] -> table   the statement's answer
   [sql-query (->* (string? (hash/c string? procedure?)) (#:database (or/c path-string? #f)) table?)]
   ;; tables-named : sql (listof name) -> (listof name)   the names the statement mentions
@@ -36,6 +40,8 @@
                 (lambda () (disconnect c))))
 
 (struct table (columns rows) #:transparent)
+;; A Kept is (kept file name columns): a table already written to table `name` of SQLite file `file`
+(struct kept (file name columns) #:transparent)
 
 (define (tables-named sql names)
   (for/list ([n (in-list names)]
@@ -67,7 +73,11 @@
      (define names (tables-named sql (hash-keys tables)))
      (when (and (null? names) (null? (tables-named sql types)))
        (raise-user-error 'sql (format "the statement names none of the tables: ~a" (string-join (sort (append (hash-keys tables) types) string<?) ", "))))
-     (for ([n (in-list names)]) (load-table! c n ((hash-ref tables n)) #:temp? (and store #t)))
+     (define attached (make-hash))                       ; file -> schema name
+     (for ([n (in-list names)])
+       (match ((hash-ref tables n))
+         [(kept file name cols) (view-kept! c n file name cols attached)]
+         [t (load-table! c n t #:temp? (and store #t))]))
      ;; the tables the statement reads (after FROM or JOIN): a column named `patient` is not the
      ;; `Patient` table (SQL names ignore case), so a column hint listed a table never named
      (define named (tables-read sql (remove-duplicates (append names (tables-named sql types)))))
@@ -140,6 +150,18 @@
     ("strings" "fhir_string_index" "resource_type AS type, resource_id AS id, param_name AS param, value_exact AS value, value_norm AS folded")
     ("token_text" "fhir_token_text" "resource_type AS type, param_name AS param, system, code, text")))
 (define (q s) (string-append "\"" (string-replace s "\"" "\"\"") "\""))
+
+;; view-kept! : connection name file table-name columns attached -> void   a TEMP view `name` over a
+;; table of another SQLite file, attached once (read-only when the connection is: a store's is)
+(define (view-kept! c name file tbl cols attached)
+  (define schema
+    (hash-ref! attached file
+               (lambda ()
+                 (define s (format "kept~a" (hash-count attached)))
+                 (query-exec c (format "ATTACH DATABASE ? AS ~a" s) (path->string (path->complete-path file)))
+                 s)))
+  (query-exec c (format "CREATE TEMP VIEW ~a AS SELECT ~a FROM ~a.~a" (q name)
+                        (if (null? cols) "*" (string-join (map q cols) ", ")) schema (q tbl))))
 
 ;; load-table! : connection name table [#:temp?] -> void
 (define (load-table! c name t #:temp? [temp? #f])
