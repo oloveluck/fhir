@@ -2384,6 +2384,41 @@ patients with exactly HAPI's resources. Running it found two server defects, fix
   does not read is `search parameter `date`: `…` is not a date: <the forms>`, 400, and the workspace's
   search says the same. `tests/period-search-test.rkt`.
 
+## Fewer calls, fewer tokens: what the benchmarks' misses asked for (2026-11-15)
+Sorting the 30 FHIR-AgentBench questions both arms of the baseline missed, and the calls the agents
+made (fhir-examples agent-bench), gave four kinds of miss and a cost profile: most of an agent's
+tokens are turns (each re-reads ~34k tokens of context), then the guide it read first, then data.
+Each change is generic FHIR or generic workspace behaviour, tested:
+- **Chained search** (fhir-server `fhir-engine` `unchained`): `medication.identifier=Heparin`,
+  `subject:Patient.name=…` — the chain is asked as the search it means and becomes the reference
+  (`medication=Medication/a,…`); a target that cannot be searched that way leaves it not applied,
+  said. An agent took 12 calls to find a patient's heparin orders through Medication; it takes one.
+- **`_profile`, `_tag`, `_security`, `_source` on every type** (ig-params `with-every-type`,
+  catalogue format 2): a dataset's kinds of one type (MIMIC: chart events, lab results,
+  microbiology tests are all Observations) can be asked for, and the census lists them.
+  `raco fhir-server reindex --param <name>` indexes named parameters only (a whole reindex's log
+  can be larger than the disk left: MIMIC's took 1 min 29 s for `_profile`).
+- **The census** says a reference parameter's few targets by name, and what points at a type
+  (`referencedBy`, asked per referring type and parameter through their index: 1 s, where asking
+  by target alone read the whole reference index, 20 s).
+- **Search rows** (fhir-mcp `digest`, `run` `with-labels`, `results` `shared-cells`): a reference
+  to another resource carries its name (`Medication/920f… (63323026201 / HEPA5I / Heparin)`), a
+  Quantity's number and unit are two columns (MedAgentBench wanted `94`, agents copied `94 mg/dL`),
+  a prescription's `validityPeriod` precedes `authoredOn`, each row has its profile as `profile`,
+  and cells every row shares are said once under `every`.
+- **A patient as of a time** (`describe ref=Patient/x as=summary asof=…`): the encounters begun by
+  then, which were `open` (else "none: no encounter was open"), how many began `later` — "this
+  hospital visit" is a question about a time.
+- **FSH as the reading format**: `describe ref=result://n as=fsh` is a page as FSH, and a
+  resource's FSH names each code system it repeats once (`Alias: $loinc = http://loinc.org`;
+  `fsh-aliased`): a 20-Observation page 26.1k -> 16.3k characters, compiled back the same 20
+  resources. fsh's decompiler writes a code with spaces as one quoted coding.
+- **`raco fhir guide data`** (`learn/data.md`): reading a store on one page, which the benchmarks'
+  workspace arms get where the REST arms get their curl lines.
+- The REST server's large-search gap to HAPI (the baseline's 2x) is gone with the lazy read and
+  the fast JSON reader: a 1,000-Observation page takes about what HAPI's does.
+Results: fhir-examples `agent-bench/results/`.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.
