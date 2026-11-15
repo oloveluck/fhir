@@ -11,4 +11,4 @@
 - SQL over the search indexes: `query language=sql text="SELECT …"` (tables `refs`, `tokens`, `dates`, `quantities`, `strings`).
 - Writing a resource: an FSH Instance (`Instance: x` / `InstanceOf: Observation` / `* status = #final` …), checked with `stage fsh=@file.fsh keep:=false`.
 
-The full guide: `raco fhir guide workspace`.
+The full guide: `raco fhir guide workspace`. FHIR search: https://hl7.org/fhir/R4/search.html

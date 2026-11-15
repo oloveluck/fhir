@@ -202,8 +202,8 @@
                          'against (s "results: an earlier result to compare with")
                          'columns (s "results as CSV: the columns to keep, in order")
                          'sort (s "results as CSV: the column to order rows by (\"-Name\" descending)")
-                         'asof (s "summary: the current time (2116-12-31 23:59)")
-                         'as (s "\"fsh\": a resource (Type/id, a canonical) as an FSH Instance, shorter than JSON for coded data; \"csv\": a result's rows as CSV (default limit 1000); \"source\": the text a commit's Provenance carries, decoded — on Type/id, the FSH Instance that wrote it; \"summary\" on Patient/id: what is recorded about the patient by type, and the latest encounters (with asof: those begun by then, which were still open); \"trail\" on a type: every stored one with who, when, why and the file and line it came from, as CSV"))
+                         'asof (s "summary: now")
+                         'as (s "\"fsh\": a resource, or a result's page, as FSH (shorter than JSON); \"csv\": a result's rows as CSV (default limit 1000); \"source\": the text a commit's Provenance holds (on Type/id: its FSH Instance); \"summary\" on Patient/id: what is recorded about the patient by type, and the latest encounters (asof: open then); \"trail\" on a type: who wrote each, when, why, from which file and line (CSV)"))
                  '("ref"))
          (lambda (args) (answer (lambda () (hub-describe h (need args 'ref) args)))))
    (tool "apply"
