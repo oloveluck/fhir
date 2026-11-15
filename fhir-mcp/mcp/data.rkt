@@ -4,6 +4,7 @@
 ;;; rules, and writes the trail beside it.
 
 (require racket/match (only-in fhir/registry registered-by) (only-in fhir/data-source data-source-read) racket/list json fhir/lang/workspace (only-in fhir/data-source data-source-all bundle-resources)
+         (only-in fhir/serialize/fast-json fast-string->jsexpr fast-bytes->jsexpr fast-read-json)
          (only-in fhir/rest-data-source rest-url?) (only-in db sqlite3-connect query-list disconnect)
          (only-in fhir/operation apply-operation exn:fail:operation?) "artifacts.rkt" "trail.rkt" "hub.rkt")
 
@@ -31,7 +32,7 @@
   (define p (data-store-path h))
   (cond
     [p (define c (sqlite3-connect #:database p #:mode 'read-only))
-       (begin0 (map string->jsexpr (query-list c "SELECT json(resource) FROM fhir_resources ORDER BY resource_type, id"))
+       (begin0 (map fast-string->jsexpr (query-list c "SELECT json(resource) FROM fhir_resources ORDER BY resource_type, id"))
                (disconnect c))]
     [else (append-map bundle-resources (data-resources h))]))
 

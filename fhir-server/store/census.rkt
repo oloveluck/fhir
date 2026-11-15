@@ -21,6 +21,7 @@
 ;;; Counts are exact (read from the indexes); the element shares are of a sample and say so.
 
 (require racket/contract racket/list racket/string racket/match db json
+         (only-in fhir/serialize/fast-json fast-string->jsexpr fast-bytes->jsexpr fast-read-json)
          "fhir-sqlite.rkt"
          (only-in "search-index.rkt" fold-string)
          (only-in "fhir-engine.rkt" search-param-name search-param-kind))
@@ -228,7 +229,7 @@
     [(zero? n) #f]
     [else
      (define counts
-       (for*/fold ([h (hash)]) ([t (in-list texts)] [k (in-list (hash-keys (string->jsexpr t)))]
+       (for*/fold ([h (hash)]) ([t (in-list texts)] [k (in-list (hash-keys (fast-string->jsexpr t)))]
                                 #:unless (memq k '(resourceType id meta text)))
          (hash-update h k add1 0)))
      (define-values (always sometimes) (partition (lambda (kv) (= (cdr kv) n)) (hash->list counts)))

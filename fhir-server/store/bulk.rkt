@@ -34,6 +34,7 @@
 ;;;     values) — or #f for a line that is not a resource.
 
 (require racket/contract racket/list racket/string racket/match json db
+         (only-in fhir/serialize/fast-json fast-string->jsexpr fast-bytes->jsexpr fast-read-json)
          (only-in file/sha1 sha1)
          (only-in fhir/parallel make-worker-pool pool-map close-worker-pool pool?)
          "fhir-sqlite.rkt" "fhir-engine.rkt"
@@ -68,7 +69,7 @@
   (match chunk
     [(list 'index texts)
      (for/list ([text (in-list texts)])
-       (define js (string->jsexpr text))
+       (define js (fast-string->jsexpr text))
        (index-rows js (hash-ref entries (hash-ref js 'resourceType "") '())))]
     [(list now lines)
      (for/list ([line (in-list (regexp-split #rx#"\r?\n" lines))])
@@ -77,7 +78,7 @@
 ;; prepare-line : bytes instant Entries -> Prepared | #f
 (define (prepare-line line now entries)
   (define js (and (regexp-match? #rx#"^[ \t]*{" line)
-                  (with-handlers ([exn:fail? (lambda (_) #f)]) (bytes->jsexpr line))))
+                  (with-handlers ([exn:fail? (lambda (_) #f)]) (fast-bytes->jsexpr line))))
   (and (hash? js)
        (string? (hash-ref js 'resourceType #f))
        (let* ([type (hash-ref js 'resourceType)]

@@ -8,6 +8,7 @@
 ;;; so a published Measure runs against locally loaded CQL.
 
 (require racket/contract racket/file racket/list racket/string racket/port json
+         (only-in fhir/serialize/fast-json fast-string->jsexpr fast-bytes->jsexpr fast-read-json)
          (only-in file/gunzip gunzip-through-ports)
          (only-in cql/library cql->library)
          "fhir-sqlite.rkt" "fhir-engine.rkt" (only-in "bundle.rkt" load-bundle!)
@@ -29,7 +30,7 @@
             string<? #:key path->string)
       (list (if (path? src) src (string->path src)))))
 (define (file-name f) (let-values ([(_b n _d) (split-path f)]) (path->string n)))
-(define (file-json f) (with-handlers ([exn:fail? (lambda (_) #f)]) (call-with-input-file f read-json)))
+(define (file-json f) (with-handlers ([exn:fail? (lambda (_) #f)]) (call-with-input-file f fast-read-json)))
 
 ;; ---- bulk data ----------------------------------------------------------------------------------
 ;; FHIR's bulk format is NDJSON (https://hl7.org/fhir/uv/bulkdata/export.html#file-format): one
@@ -59,7 +60,7 @@
       [(eof-object? line) (reverse acc)]
       [else
        (define js (and (regexp-match? #rx"^[ \t]*{" line)
-                       (with-handlers ([exn:fail? (lambda (_) #f)]) (string->jsexpr line))))
+                       (with-handlers ([exn:fail? (lambda (_) #f)]) (fast-string->jsexpr line))))
        (if (and (hash? js) (string? (hash-ref js 'resourceType #f)))
            (loop (cons js acc) (add1 k))
            (loop acc k))])))

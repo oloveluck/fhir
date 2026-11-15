@@ -17,7 +17,8 @@
 ;;; the Patient itself by id.
 
 (require racket/contract racket/list
-         (only-in json read-json))
+         (only-in json read-json)
+         (only-in "serialize/fast-json.rkt" fast-read-json))
 
 (provide
  (struct-out data-source)
@@ -69,7 +70,7 @@
   (resources->data-source
    (for*/list ([f (in-directory dir)]
                #:when (regexp-match? #rx"[.]json$" (path->string f))
-               [js (in-value (with-handlers ([exn:fail? (lambda (_) #f)]) (call-with-input-file f read-json)))]
+               [js (in-value (with-handlers ([exn:fail? (lambda (_) #f)]) (call-with-input-file f fast-read-json)))]
                #:when (and (hash? js) (string? (hash-ref js 'resourceType #f))))
      js)))
 

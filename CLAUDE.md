@@ -2314,6 +2314,30 @@ on a view of the MIMIC store's 17,552 MedicationRequests (~5 s): reading the typ
   ~1.3 s of the JSON reader, ~0.5 s of SQLite). Search indexing reads nearly all of each resource,
   so it is unchanged (~7 s for the sample, within run-to-run noise).
 
+## JSON and dates read directly (2026-11-15)
+With the typed read lazy, reading a resource out of a store was mostly racket/json and date parsing.
+- **`fhir/serialize/fast-json`** (`fast-string->jsexpr`, `fast-bytes->jsexpr`, `fast-read-json`):
+  scans the string itself — a string without an escape is one `substring`, a number is read from its
+  digits as racket/json reads it (exact integers; a fraction or an exponent made inexact by the same
+  `n × 10^exp`, the same `safe-exponential->inexact`), an object built from its pairs with
+  `make-immutable-hasheq` (a repeated key keeps its last value). It only ACCEPTS one value with JSON
+  whitespace around it; anything else (two values, an unknown escape, a lone surrogate, other
+  whitespace, a literal run into a name, a malformed number) is racket/json's to read, value or error.
+  Used where resources are read in bulk: fhir-server's engine (read, vread, search, history, index
+  extraction), bulk load and `load`, the census, `directory->data-source`, fhir-mcp's data and store
+  reads. `tests/fast-json-test.rkt`: the same value or the same error message as racket/json over the
+  examples and 3,000 package files, 4,000 generated values and 4,000 mutated texts, and the scan reads
+  every valid one itself (it caught a slip: a text that is just `false` went to racket/json).
+  26,790 MIMIC resources: 870 -> 200 ms.
+- **Dates** (`fhir/primitives/temporal.rkt` `full-parts`): the two shapes nearly every value has, a
+  full date and a full dateTime with a zone, are read character by character, each field held to the
+  range the spec's pattern allows and the day to its month; anything else goes through the regular
+  expressions as before (their value or error). Its test compares both ways on the edges (Feb 29, day
+  31 of a 30-day month, 0000, 24:00, a second of 60, ±14:00 and ±14:01, nine and ten fraction digits).
+- Held to: the 69,823-resource dump (lenient read, written back, drops) byte-identical again.
+  Measured: reading the 61,396 MIMIC sample resources and every node of them 2.5 -> 2.0 s; the
+  MedicationRequest view uncached 4.9 s (before the lazy read) -> 4.2 -> 3.0 s.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

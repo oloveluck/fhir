@@ -20,6 +20,7 @@
 ;;; workspace.rkt is their contracted interface.
 
 (require racket/list racket/string racket/file racket/path racket/match json fhir/lang/workspace
+         (only-in fhir/serialize/fast-json fast-string->jsexpr fast-bytes->jsexpr fast-read-json)
          (only-in fhir/serialize/json-position json-path-location)
          (only-in fhir/diagnostic diagnostic loc loc-source loc-line loc-column diagnostic-loc diagnostic-severity
                   diagnostic-message)
@@ -116,7 +117,7 @@
         (with-handlers ([exn:fail? (lambda (_) '())])
           (define c (sqlite3-connect #:database p #:mode 'read-only))
           (begin0 (current-versions
-                   (map string->jsexpr (query-list c "SELECT json(resource) FROM fhir_resources WHERE resource_type = 'ImplementationGuide'")))
+                   (map fast-string->jsexpr (query-list c "SELECT json(resource) FROM fhir_resources WHERE resource_type = 'ImplementationGuide'")))
                   (disconnect c)))
         '()))
   (define (reference g) (format "ImplementationGuide/~a" (hash-ref g 'id "?")))

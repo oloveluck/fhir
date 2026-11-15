@@ -17,7 +17,8 @@
 ;;; written to table `name` of the SQLite file `file` (view-cache.rkt keeps a view's rows between
 ;;; calls): it is attached read-only and read in place, nothing loaded.
 
-(require racket/contract racket/list racket/string racket/file racket/match json db (only-in fhir/suggest did-you-mean))
+(require racket/contract racket/list racket/string racket/file racket/match json db (only-in fhir/suggest did-you-mean)
+         (only-in fhir/serialize/fast-json fast-string->jsexpr fast-bytes->jsexpr fast-read-json))
 
 (provide
  (struct-out table) (struct-out kept)
@@ -36,7 +37,7 @@
   (define c (sqlite3-connect #:database store #:mode 'read-only))
   (dynamic-wind void
                 (lambda () (for/list ([t (in-list (query-list c "SELECT json(resource) FROM fhir_history WHERE resource_type = ? ORDER BY id, version_id" type))])
-                             (string->jsexpr t)))
+                             (fast-string->jsexpr t)))
                 (lambda () (disconnect c))))
 
 (struct table (columns rows) #:transparent)

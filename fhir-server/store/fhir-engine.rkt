@@ -27,6 +27,7 @@
 (require racket/contract racket/string racket/list racket/random racket/match
          db json file/sha1
          "fhir-sqlite.rkt"
+         (only-in fhir/serialize/fast-json fast-string->jsexpr fast-bytes->jsexpr fast-read-json)
          "search-index.rkt"
          (only-in fhir/serialize/from-json from-json)
          (only-in fhir/result/result ok? ok-value)
@@ -118,7 +119,7 @@
   (define raw (call-with-store-connection store
                 (lambda (c) (query-maybe-value c "SELECT json(resource) FROM fhir_resources WHERE resource_type=? AND id=?"
                                                rtype id))))
-  (and raw (string->jsexpr raw)))
+  (and raw (fast-string->jsexpr raw)))
 
 (define (fhir-update! store resource #:search-params [sps default-search-params])
   (call-with-store-transaction store (lambda (c) (update-in! c resource sps))))
@@ -156,7 +157,7 @@
                                  (if (exact-nonnegative-integer? count) (format " LIMIT ~a" count) "")))
       (define since-key (and since (let ([r (date-range since)]) (and r (substring (car r) 0 19)))))
       (for/list ([raw (in-list (apply query-list c sql (append args (if since (list (or since-key since)) '()))))])
-        (string->jsexpr raw)))))
+        (fast-string->jsexpr raw)))))
 
 ;; fhir-vread : one specific version from the immutable history
 (define (fhir-vread store rtype id vid)
@@ -164,7 +165,7 @@
                 (lambda (c) (query-maybe-value c "SELECT json(resource) FROM fhir_history
                                                   WHERE resource_type=? AND id=? AND version_id=?"
                                                rtype id vid))))
-  (and raw (string->jsexpr raw)))
+  (and raw (fast-string->jsexpr raw)))
 
 ;; fhir-delete! : remove the CURRENT resource + its indexes (history is immutable and remains);
 ;; -> #t when something was deleted
@@ -272,7 +273,7 @@
                  #t))))
 
 ;; index-rows/text : (list json-text entries) -> (listof IndexRow)   index-rows for a worker
-(define (index-rows/text item) (index-rows (string->jsexpr (car item)) (cadr item)))
+(define (index-rows/text item) (index-rows (fast-string->jsexpr (car item)) (cadr item)))
 
 ;; write-index! : connection type id (listof IndexRow) -> Void
 ;; replace every index row of one resource (inside the write transaction)
@@ -343,7 +344,7 @@
                          (if (exact-positive-integer? offset) (format " OFFSET ~a" offset) "")))
         (define rows
           (for/list ([raw (in-list (apply query-list c sql rtype (append where-args (if order (append-map cdr order) '()))))])
-            (string->jsexpr raw)))
+            (fast-string->jsexpr raw)))
         (values rows
                 (cond [(not paged?) (length rows)]
                       ;; one lookup and nothing else: its distinct ids, counted without the
@@ -463,7 +464,7 @@
                                                  (string-join (map (lambda (_) "?") match-ids) ",") "))")
                                                 source source (append (if (equal? param "*") '() (list param))
                                                                       (list rtype) match-ids)))]
-                           [js (in-value (string->jsexpr raw))]
+                           [js (in-value (fast-string->jsexpr raw))]
                            #:when (fresh! source (hash-ref js 'id #f)))
                  js)]
               [else '()])]))))))
