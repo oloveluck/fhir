@@ -21,6 +21,8 @@
          racket/match (only-in "mcp/resources.rkt" current-result-resources learn-topics learn-text guide-blocks guide-block-text)
          (only-in "mcp/trail.rkt" current-agent))
 
+(provide call-command batch-command)   ; for the warm process (mcp-daemon.rkt)
+
 (define flags "[--workspace <dir>] [--package <tgz|name>]… [--data <dir|file|url>] [--indent]")
 (define usages
   `(("serve" ,(format "raco fhir-mcp [serve] ~a   the server over stdin/stdout" flags))

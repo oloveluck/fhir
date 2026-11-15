@@ -5,6 +5,9 @@
 ;;; with latest and ever side by side, and the trail whose files open from there (two rerun agents
 ;;; asked for the batch first; one opened `../patients.fsh` from the wrong folder).
 
+;; each call in its own process, as the test means (no warm process: mcp-main.rkt)
+(putenv "FHIR_MCP_DAEMON" "0")
+
 (require rackunit racket/file racket/port racket/system racket/string)
 
 (define skill (file->string (collection-file-path "../.claude/skills/fhir/SKILL.md" "fhir")))

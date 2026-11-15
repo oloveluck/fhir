@@ -18,5 +18,5 @@
 (define build-deps '("rackunit-lib" "scribble-lib" "racket-doc" "fhir-spec" "fhirpath" "vcl" "fhir-tx" "fhir-validation" "cql" "fml" "fsh" "sql-on-fhir" "fhir-server"))
 (define scribblings '(("scribblings/fhir-mcp.scrbl" ())))
 (define raco-commands
-  '(("fhir-mcp" (submod fhir/mcp-cli main) "the Model Context Protocol server over the FHIR operations and languages (stdio); list or call tools" #f)))
+  '(("fhir-mcp" (submod fhir/mcp-main main) "the Model Context Protocol server over the FHIR operations and languages (stdio); list or call tools" #f)))
 (define test-omit-paths '("scribblings"))

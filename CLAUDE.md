@@ -24,7 +24,7 @@ never `../model/node.rkt`. Dependency order (base first):
 | `fsh` | `oloveluck/fsh` | `#lang fsh` (bidirectional), projects + packaging, `check.rkt`; `raco fsh`, `raco fsh check` | fhir, fhirpath, fhir-validation |
 | `fhir-server` | `oloveluck/fhir` → `fhir-server/` | `capability/ http/ store/` (SQLite), IG-generated servers, `$evaluate-measure`, `server-cli.rkt` (`raco fhir-server`), server tests | fhir, fhir-spec, fhirpath, fhir-tx, fhir-validation, cql, db-lib |
 | `fhir-lsp` | `oloveluck/fhir` → `fhir-lsp/` | the Language Server Protocol server for the five languages: `lsp/jsonrpc.rkt` (framing), `lsp/diagnostics.rkt` (fhir/diagnostic -> LSP), `lsp/languages.rkt` (the catalogue over `fhir/lang/support`), `lsp/server.rkt` (state, dispatch, loop; hover/definition/completion/symbols handed to the document's language support with its project), `lsp-cli.rkt` (`raco fhir-lsp`, `check`) | fhir (+ the languages' `support` modules at run time) |
-| `fhir-mcp` | `oloveluck/fhir` → `fhir-mcp/` | the Model Context Protocol server over a WORKSPACE (below): `mcp/workspace.rkt` (the hub's contracted interface over `hub.rkt` — config, packages, data source, artifacts registered, results, stages — and a module per verb: `check.rkt`, `run.rkt`, `describe.rkt`, `apply.rkt`, `stage.rkt`), `mcp/verbs.rkt` (the nine tools), `learn/*.md` (`learn://` guides with the official references for the workspace, search and the languages that do not ship their own yet; a language's own guide comes from its repo, below; their examples compile in the test), `mcp/tools.rkt` (the Tool struct; operations loaded and applied to JSON; elements and definitions in the packages), `mcp/resources.rkt` (guides, packages, definitions, learn, results; prompts), `mcp/server.rkt` (dispatch, one JSON line per message), `mcp/init.rkt` (`raco fhir-mcp init`: workspace.yaml, data/, .mcp.json, CLAUDE.md), `mcp/search-index.rkt` (FHIR search over data that is files, through fhir-server's store, loaded on demand), `mcp/sql.rkt` (SQL over views and results, and over the workspace's store read-only), `mcp-cli.rkt` (`raco fhir-mcp [--workspace d]`, `init`, `guide`, `tools`, `call`) | fhir, fhir-lsp (+ the operations and languages at run time) |
+| `fhir-mcp` | `oloveluck/fhir` → `fhir-mcp/` | the Model Context Protocol server over a WORKSPACE (below): `mcp/workspace.rkt` (the hub's contracted interface over `hub.rkt` — config, packages, data source, artifacts registered, results, stages — and a module per verb: `check.rkt`, `run.rkt`, `describe.rkt`, `apply.rkt`, `stage.rkt`), `mcp/verbs.rkt` (the nine tools), `learn/*.md` (`learn://` guides with the official references for the workspace, search and the languages that do not ship their own yet; a language's own guide comes from its repo, below; their examples compile in the test), `mcp/tools.rkt` (the Tool struct; operations loaded and applied to JSON; elements and definitions in the packages), `mcp/resources.rkt` (guides, packages, definitions, learn, results; prompts), `mcp/server.rkt` (dispatch, one JSON line per message), `mcp/init.rkt` (`raco fhir-mcp init`: workspace.yaml, data/, .mcp.json, CLAUDE.md), `mcp/search-index.rkt` (FHIR search over data that is files, through fhir-server's store, loaded on demand), `mcp/sql.rkt` (SQL over views and results, and over the workspace's store read-only), `mcp-cli.rkt` (`raco fhir-mcp [--workspace d]`, `init`, `guide`, `tools`, `call`), `mcp-main.rkt` + `mcp-daemon.rkt` (shell calls answered by a warm process) | fhir, fhir-lsp (+ the operations and languages at run time) |
 | `sql-on-fhir` | `oloveluck/sql-on-fhir` | `#lang sql-on-fhir`: ViewDefinition model and operation definitions GENERATED from the IG package (`target.rkt`, `model/`), the view engine, `$sql-run`/`$sql-export` as operations; `raco sql-on-fhir` | fhir, fhirpath (fhir-spec to regenerate) |
 | `fhir-examples` | `oloveluck/fhir-examples` | `examples/` (operations applied as procedures), `bench.rkt` (prose → FSH tasks from a published IG, scored), recorded runs; `raco spec-bench` | fhir, fhir-spec, fhir-validation, fsh, fml |
 
@@ -2250,6 +2250,35 @@ statement SQLite answers in milliseconds — and an agent asks one view many sta
 - Measured on the MIMIC store (`count(*)` over the MedicationRequest view): from the shell 5.9 s ->
   1.3 s a call (the process start is most of it); in one process 4.9 s -> 58 ms. The stamp costs
   ~35 ms over the 813,540 Observations.
+
+## Shell calls answered by a warm process (2026-11-15)
+A call from the shell cost ~1 s before the tool ran: the dispatch of the `raco` command (~0.2 s), loading the modules
+(~0.45 s), reading the workspace with its FHIR version's types and opening its store (~0.35 s). In a
+process that has done that once, opening the workspace afresh and answering takes ~60 ms.
+- `fhir-mcp/mcp-main.rkt` is now `raco fhir-mcp` (info.rkt): it loads almost nothing, and for `call`
+  and `batch` asks the workspace's warm process over a Unix socket (`socket-path`: the SHA-1 of the
+  workspace directory, the add-on directory, the collection paths and Racket's version, under
+  `<tmp>/fhir-mcp-<user>/`, mode 700); with none, it starts one in the background (`setsid`, its own
+  session) and runs the call itself through mcp-cli.rkt, as before. Everything else (serve, tools,
+  init, guide, export) is mcp-cli.rkt unchanged; the standalone build still launches mcp-cli.
+- `fhir-mcp/mcp-daemon.rkt` (`racket -l- fhir/mcp-daemon <dir>`): one call at a time, each with the
+  caller's arguments, working directory, environment and standard input, its output, standard error
+  and exit status sent back (`answer-request`: mcp-cli's `call-command`/`batch-command` under
+  parameterized ports, directory, environment and `exit-handler`). The commands open a hub per call,
+  so files, saved results and stages are read as a new process reads them; what stays warm is the
+  loaded modules, the types, the open store and the search catalogue. It stops after
+  `idle-seconds` (300) without a call, when the workspace directory is gone, when asked
+  (`{stop: true}`), and — checked at each call — when a `compiled` directory of the family changed
+  since it started (the call is answered `stale` and runs in the caller).
+- `FHIR_MCP_DAEMON=0` keeps every call in its own process; state-test, bp-session-test and
+  skill-batch-test set it. `tests/daemon-test.rkt`: two workspaces made alike, the same eleven calls
+  through `raco fhir-mcp` with the warm process off and through `answer-request` (results numbered, a stage
+  kept and committed, an error, a usage error, a file relative to the caller, standard input, a
+  batch): the same output, standard error and exit status (paths, Provenance ids and times aside);
+  then the warm process started by a first call answers the second as the first was answered, and
+  stops on request.
+- Measured (the MIMIC workspace, a SQL statement over a kept view): 1.2-1.3 s a call -> 0.27-0.36 s
+  (the first call, which starts it, as before).
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

@@ -271,6 +271,12 @@ Run them inside the workspace folder, or add @litchar{--workspace <dir>}. An arg
 @tt{name=value}; @tt{name=@"@"file} gives a file's contents; @tt{name:=<json>} gives a number, true or
 false, or a JSON object. A call that finds errors exits with status 1.
 
+The first call starts a background process for the workspace that answers the next ones: they take
+about a third of a second instead of one to four. It reads the workspace afresh for every call, so
+its answers are the ones a separate process would give, and it stops after five minutes without a
+call, when the workspace folder is removed, or when the installed code changes. Set
+@tt{FHIR_MCP_DAEMON=0} to run every call in a process of its own.
+
 @section{Words used here}
 
 @itemlist[

@@ -4,6 +4,9 @@
 ;;; (as two `raco fhir-mcp call`s are), a stage made by the first committed by the second, a result
 ;;; described, joined in SQL and staged from; numbers continue; results and stages count apart.
 
+;; each call in its own process, as the test means (no warm process: mcp-main.rkt)
+(putenv "FHIR_MCP_DAEMON" "0")
+
 (require rackunit racket/file racket/string json racket/system
          fhir/mcp/workspace fhir/mcp/verbs fhir/mcp/init
          (only-in fhir/mcp/tools tool-name tool-run))

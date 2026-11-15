@@ -4,6 +4,9 @@
 ;;; saved from the guide by its block name, `raco fhir-mcp init ws`, then the `bp-session` block as a
 ;;; batch (a rerun's agent asked for the program as one session to save and run, not a paragraph).
 
+;; each call in its own process, as the test means (no warm process: mcp-main.rkt)
+(putenv "FHIR_MCP_DAEMON" "0")
+
 (require rackunit racket/file racket/port racket/system racket/string)
 
 (define dir (make-temporary-directory "bp-session-~a"))

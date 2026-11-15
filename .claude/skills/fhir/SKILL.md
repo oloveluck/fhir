@@ -70,7 +70,9 @@ is described or joined in SQL later. Arguments are a JSON object and/or `key=val
 `sort=Name` (`sort=-Name` descending); `name=` names a query's result, `keep:=false` checks a stage
 without keeping it, `strict:=true` refuses a search with a parameter it cannot apply.
 
-Each call is a process of its own (1–4 s of startup), so a session is a **batch**: one call per line
+A call is answered by the workspace's warm process (started by the first call, stopped after five
+idle minutes; ~0.3 s a call, the first ~1–4 s; `FHIR_MCP_DAEMON=0` runs each call in a process of
+its own), and a session is still best a **batch**: one call per line
 in one process, quoted as a shell would, each answer under a `### <line>` header, every line run
 (exit 1 if any failed; a line starting with `!` is expected to fail); `--workspace` applies to every
 line. The whole cohort session — data in, table out, trail — is one batch:
