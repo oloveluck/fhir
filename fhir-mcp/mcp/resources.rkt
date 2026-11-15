@@ -118,6 +118,7 @@
 (define-runtime-path learn-dir "../learn")
 (define learn-topics
   '(("fhir" . "FHIR for agents: which resource holds which fact, the shapes that recur (codes, quantities, references, choice elements), the usual code systems, links to the specification")
+    ("data" . "Reading a FHIR store in one page: what a type holds, a patient as of a time, words to codes, search (chains, profiles, counts), rows, FSH answers, SQL")
     ("workspace" . "The workspace: files, the tools (write, check, run, query, explain, describe, apply, stage, commit), which language for which question, workspace.yaml")
     ("fsh" . "FHIR Shorthand: profiles, extensions, value sets, examples; cheat sheet, worked example, links to the FSH specification")
     ("cql" . "Clinical Quality Language: patient logic and cohorts; cheat sheet, worked example, links to the CQL specification and reference")

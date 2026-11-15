@@ -7,7 +7,7 @@
 
 (require racket/list racket/string racket/file racket/path racket/match racket/promise json net/uri-codec
          fhir/lang/workspace (only-in fhir/suggest did-you-mean)
-         (only-in fhir/data-source current-data-source data-source-all data-source-search resources->data-source)
+         (only-in fhir/data-source current-data-source data-source-all data-source-search data-source-read resources->data-source)
          (only-in fhir/model/registry type-registered?) (only-in fhir/model/introspect full-field-specs)
          (only-in fhir/model/schema field-spec? field-spec-name)
          (only-in fhir/sd/sd-index current-sd-packages) (only-in fhir/operation apply-operation)
@@ -280,13 +280,15 @@
         '()))
   (define (why n)
     (cond [(regexp-match? #rx"^_has:" n) (format "`~a`: reverse chaining (_has) is not supported — ask CQL or SQL (learn://search)" n)]
-          [(regexp-match? #rx"[.]" n) (format "`~a`: chained parameters are not supported — ask CQL or SQL (learn://search)" n)]
+          [(regexp-match? #rx"[.]" n)
+           (format "`~a`: a chain is a reference parameter of ~a, then a parameter of the type it points at (medication.code=…, subject:Patient.name=…)" n type)]
           [else (let* ([base (car (string-split n ":"))])
                   (if (member base names)
                       (format "`~a`: the modifier is not supported" n)
                       (format "`~a`: ~a does not search on it~a" n type (did-you-mean base names))))]))
-  ;; reverse chaining and chaining can never be applied here: refused, not answered as if absent (a
-  ;; `_has` search answered every patient beside its note, and a reader of the rows got a wrong list)
+  ;; reverse chaining, and a chain the store could not apply, are refused, not answered as if absent
+  ;; (a `_has` search answered every patient beside its note, and a reader of the rows got a wrong
+  ;; list); a chain the store can apply was answered (fhir-engine's `unchained`)
   (define never (filter (lambda (n) (or (regexp-match? #rx"^_has:" n) (regexp-match? #rx"[.]" n))) ignored))
   (when (pair? never)
     (error 'search (format "not supported: ~a — ask \"has a …\" or \"has none\" with CQL (exists [Observation: …], the CQL guide's \"No HbA1c\") or SQL over a view"
@@ -295,7 +297,7 @@
     (error 'search (format "not applied: ~a (~a searches on ~a and _id, _lastUpdated, _count, _sort)"
                            (string-join (map why ignored) "; ") type (string-join names ", "))))
   (define all-found (append found included))
-  (define digests (map digest all-found))
+  (define digests (with-labels (map digest all-found) (data-source-read ds)))
   (define columns (append (if (null? included) '() '(mode)) (digest-columns digests)))
   (define next (+ offset (length found)))
   (define summary
@@ -317,6 +319,26 @@
                   (hash-set row c (cond [(eq? c 'mode) (if (< i (length found)) "match" "include")]
                                         [(assq c d) => cdr] [else 'null]))))
               summary))
+
+;; with-labels : (listof Digest) read -> (listof Digest)   a cell that is a reference to a resource
+;; the row is not about (its medication; not its subject or encounter, which the rows share) says
+;; what that resource is called: `Medication/920f… (63323026201 / HEPA5I / Heparin)`. A
+;; prescription's row named only `Medication/920f…`, and every reader looked each one up.
+(define shared-references '(subject patient encounter partOf context beneficiary))
+(define (with-labels digests read)
+  (define labels (make-hash))
+  (define (label ref)
+    (hash-ref! labels ref
+               (lambda ()
+                 (match (regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)$" ref)
+                   [(list _ type id)
+                    (define r (with-handlers ([exn:fail? (lambda (_) #f)]) (read type id)))
+                    (and (hash? r) (label-of r))]
+                   [_ #f]))))
+  (for/list ([d (in-list digests)])
+    (for/list ([cell (in-list d)])
+      (define l (and (not (memq (car cell) shared-references)) (label (cdr cell))))
+      (if l (cons (car cell) (format "~a (~a)" (cdr cell) l)) cell))))
 
 ;; search-store : hub symbol -> (values store catalog)   the store that indexes the data — the
 ;; workspace's own, or the one its files were indexed into — with its search parameters; an error

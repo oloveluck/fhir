@@ -42,6 +42,35 @@
   (define r* (cond [(not meta) r] [(zero? (hash-count meta)) (hash-remove r 'meta)] [else (hash-set r 'meta meta)]))
   (text-answer (regexp-replace #rx"\nUsage: #example(?=\n|$)" (fhir->fsh r*) "")))
 
+;; stamped-profiles : hub resource -> (listof canonical)   the profiles staging claims by itself
+(define (stamped-profiles h r)
+  (hash-ref (ws-config-profiles (workspace-config (hub-ws h))) (hash-ref r 'resourceType) '()))
+
+;; fsh-aliased : string [#:more line] -> string   FSH whose code systems are named once: each url
+;; written before a code (`http://…/mimic-chartevents-d-items#223943`) becomes an alias
+;; (`$mimic-chartevents-d-items#223943`) declared at the top — a system said in every coding was
+;; most of an instance's text. The aliased text compiles to the same resources.
+(define (fsh-aliased text #:more [more #f])
+  ;; a url written once is left as it is: its alias would cost more than it saves
+  (define found (map cadr (regexp-match* #px"(?<=[ (=])(https?://[^\\s#\"|()]+)(?=[|#])" text #:match-select values)))
+  (define urls (filter (lambda (u) (> (count (lambda (x) (equal? x u)) found) 1)) (remove-duplicates found)))
+  (define names
+    (for/fold ([acc '()] #:result (reverse acc)) ([u (in-list urls)])
+      (define base (let* ([seg (last (string-split u "/"))]
+                             [seg (if (regexp-match? #rx"[.]" seg) (car (string-split seg ".")) seg)]   ; loinc.org -> loinc
+                             [b (regexp-replace* #px"[^A-Za-z0-9_-]" seg "")])
+                        (if (string=? b "") "cs" b)))
+      (define name (let loop ([n 1]) (let ([c (if (= n 1) (string-append "$" base) (format "$~a~a" base n))])
+                                       (if (assoc c (map (lambda (p) (cons (cdr p) #t)) acc)) (loop (add1 n)) c))))
+      (cons (cons u name) acc)))
+  (define body
+    (for/fold ([t text]) ([p (in-list names)])
+      (regexp-replace* (pregexp (string-append "(?<=[ (=])" (regexp-quote (car p)) "(?=[|#])")) t (regexp-replace-quote (cdr p)))))
+  (string-append
+   (if (null? names) "" (string-append (string-join (for/list ([p (in-list names)]) (format "Alias: ~a = ~a" (cdr p) (car p))) "\n") "\n\n"))
+   body
+   (if more (string-append "\n\n" more) "")))
+
 ;; as-source : resource -> text-answer   the text a resource carries as an attachment: the source a
 ;; commit's Provenance holds (a contained DocumentReference, base64), a DocumentReference's, a Binary's
 (define (as-source r)
@@ -60,7 +89,7 @@
   (define fsh? (equal? (hash-ref args 'as #f) "fsh"))
   (define source? (equal? (hash-ref args 'as #f) "source"))
   (define (shown r) (cond [(and fsh? (hash? r) (string? (hash-ref r 'resourceType #f)))
-                                (as-fsh r (hash-ref (ws-config-profiles (workspace-config (hub-ws h))) (hash-ref r 'resourceType) '()))]
+                                (text-answer (fsh-aliased (text-answer-text (as-fsh r (stamped-profiles h r)))))]
                           [(and source? (hash? r)) (as-source r)]
                           [else r]))
   (define offset (let ([o (hash-ref args 'offset 0)]) (if (exact-nonnegative-integer? o) o 0)))
@@ -73,6 +102,19 @@
          (result-csv h ref offset (let ([l (hash-ref args 'limit #f)]) (if (exact-positive-integer? l) l 1000))
                      #:columns (column-list (hash-ref args 'columns #f))
                      #:sort (let ([v (hash-ref args 'sort #f)]) (and (string? v) v)))]
+        ;; a page of a search's resources as FSH: one Alias block for the code systems they share
+        [(and (regexp-match? #rx"^result://" ref) fsh? (not against))
+         (define st (or (result-of h ref) (error 'describe (format "no result ~a (results: ~a)" ref (result-listing h)))))
+         (define rows (run-result-rows (stored-result st)))
+         (define page (take (drop rows (min offset (length rows))) (min limit (max 0 (- (length rows) offset)))))
+         (define rs (for/list ([row (in-list page)] #:when (and (hash? row) (hash? (hash-ref row 'json #f)))) (hash-ref row 'json)))
+         (when (null? rs) (error 'describe (format "~a holds no resources to write as FSH (as=\"csv\" gives its rows)" ref)))
+         (text-answer
+          (fsh-aliased
+           (string-join (for/list ([r (in-list rs)]) (text-answer-text (as-fsh r (stamped-profiles h r)))) "\n\n")
+           #:more (and (> (length rows) (+ offset (length page)))
+                       (format "// ~a more: ~a" (- (length rows) offset (length page))
+                               (call-text "describe" (list (cons 'ref ref) (cons 'as "fsh") (cons 'offset (+ offset (length page))))))))) ]
         [(regexp-match? #rx"^result://" ref) (describe-result h ref offset limit against)]
         [(equal? ref "stages") (describe-stages h)]
         ;; what the data holds: its types and how many (`data`); one type's search parameters with
@@ -124,7 +166,7 @@
          => (lambda (m) (history-from-here h (describe-history h (cadr m) (caddr m))))]
         ;; what is recorded about one patient (or any resource others name as their subject)
         [(and (equal? (hash-ref args 'as #f) "summary") (regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)$" ref))
-         => (lambda (m) (describe-subject h (cadr m) (caddr m)))]
+         => (lambda (m) (describe-subject h (cadr m) (caddr m) #:asof (hash-ref args 'asof #f)))]
         [(regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)$" ref)
          => (lambda (m) (shown (or ((data-source-read (current-data-source)) (cadr m) (caddr m))
                                    (registered-resource (cadr m) (caddr m))
@@ -412,7 +454,7 @@
 ;; their patient or subject (store/census `subject-census`: a lookup per type), and for a Patient
 ;; the latest encounters (class, period, status), so "the current stay" and "the last visit" are
 ;; read, not searched for
-(define (describe-subject h type id)
+(define (describe-subject h type id #:asof [asof #f])
   (define r (or ((data-source-read (current-data-source)) type id)
                 (error 'describe (format "no ~a/~a in the data" type id))))
   (define-values (store catalog) (search-store h 'describe))
@@ -432,7 +474,7 @@
   (define base (if (null? trail) base0
                    (hash-set base0 'trail (for/hasheq ([c (in-list trail)]) (values (string->symbol (car c)) (cdr c))))))
   (cond
-    [(and (equal? type "Patient") (assoc "Encounter" counts))
+    [(and (equal? type "Patient") (assoc "Encounter" counts) (not asof))
      (define-values (encounters _ignored total)
        ((dynamic-require 'fhir/store/fhir-engine 'fhir-search/page) store "Encounter"
         (list (cons "patient" ref) (cons "_sort" "-date") (cons "_count" "10")) #:search-params catalog))
@@ -440,7 +482,35 @@
                (hasheq 'total total
                        'latest (for/list ([e (in-list encounters)])
                                  (hash-set (row e) 'resource (format "Encounter/~a" (hash-ref e 'id "?"))))))]
+    [(and (equal? type "Patient") (assoc "Encounter" counts))
+     (define-values (encounters _ignored _total)
+       ((dynamic-require 'fhir/store/fhir-engine 'fhir-search/page) store "Encounter"
+        (list (cons "patient" ref) (cons "_sort" "-date") (cons "_count" "1000")) #:search-params catalog))
+     (hash-set base 'encounters (encounters-at (instant-text asof) encounters row))]
     [else base]))
+
+;; ---- a patient as of a time ----------------------------------------------------------------------
+;; "During this hospital visit", "the current ICU stay": a question asked at a time means the
+;; encounters open then. Every encounter of a dataset recorded after the fact has ended, so a
+;; reader that computes from "the last stay" answers a question whose true answer is that there is
+;; no open stay. The summary as of a time says which began by then, and which of those were open.
+
+;; instant-text : string -> string   "2116-12-31 23:59" -> "2116-12-31T23:59", comparable as text
+;; with a FHIR dateTime's leading part (the zone is not compared: a few hours at most)
+(define (instant-text s) (string-replace (string-trim s) " " "T"))
+
+;; encounters-at : asof (listof Encounter) (Encounter -> row) -> jsexpr
+(define (encounters-at asof encounters row)
+  (define (bound e k) (let* ([p (hash-ref e 'period (hasheq))] [v (and (hash? p) (hash-ref p k #f))]) (and (string? v) v)))
+  (define (before? a b) (string<=? (substring a 0 (min (string-length a) (string-length b))) b))
+  (define begun (filter (lambda (e) (let ([s (bound e 'start)]) (and s (before? s asof)))) encounters))
+  (define open (filter (lambda (e) (let ([end (bound e 'end)]) (or (not end) (not (before? end asof))))) begun))
+  (define (listed es) (for/list ([e (in-list es)]) (hash-set (row e) 'resource (format "Encounter/~a" (hash-ref e 'id "?")))))
+  (hasheq 'asof asof
+          'open (if (null? open) (format "none: no encounter was open at ~a (every one had ended)" asof) (listed open))
+          'begun (length begun)
+          'later (- (length encounters) (length begun))
+          'latest (listed (take begun (min 10 (length begun))))))
 
 (define (result-csv h uri offset limit #:columns [wanted #f] #:sort [sort-by #f])
   (define st (or (result-of h uri) (error 'describe (format "no result ~a (results: ~a)" uri (result-listing h)))))

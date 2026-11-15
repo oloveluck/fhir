@@ -314,8 +314,9 @@
 ;; Bundle.total is "the total number of matches", not the size of the page
 ;; (https://hl7.org/fhir/http.html#paging). The count is asked of the store only when the page
 ;; could be a part: without `_count` and `_offset` it is the page's own length.
-(define (fhir-search/page store rtype query-params #:search-params [sps default-search-params])
+(define (fhir-search/page store rtype query-params0 #:search-params [sps default-search-params])
   (define catalog (hash-ref sps (string->symbol rtype) '()))
+  (define query-params (unchained store sps rtype query-params0))
   (define-values (clauses ignored)
     (for/fold ([cs '()] [ig '()]) ([qp (in-list query-params)])
       (define c (param->clause catalog (car qp) (cdr qp)))
@@ -468,6 +469,51 @@
                            #:when (fresh! source (hash-ref js 'id #f)))
                  js)]
               [else '()])]))))))
+
+;; ---- chained parameters ---------------------------------------------------------------------------
+;; FHIR's chaining (search.html#chaining): `medication.code=…` on a MedicationRequest is the
+;; requests whose `medication` reference names a resource that `code=…` finds; `subject:Patient.name`
+;; names the target type when the reference may point at several. A chain is answered as the
+;; search it means: the targets are searched (a chain within the chain the same way), and the
+;; parameter becomes the reference to them (`medication=Medication/a,Medication/b`). A chain whose
+;; first step is not a reference parameter, or whose rest the target does not search on, is left
+;; as it was, and so reported as not applied.
+(define chain-limit 5000)
+
+;; unchained : store catalogs type query-params -> query-params
+(define (unchained store sps rtype qps)
+  (define catalog (hash-ref sps (string->symbol rtype) '()))
+  (for/list ([qp (in-list qps)])
+    (match (regexp-match #px"^([^.:]+)(?::([A-Z][A-Za-z]+))?[.](.+)$" (car qp))
+      [(list _ ref target rest)
+       (define sp (findf (lambda (sp) (equal? (search-param-name sp) ref)) catalog))
+       (cond
+         [(not (and sp (eq? (search-param-kind sp) 'reference))) qp]
+         [else
+          (define targets (if target (list target) (reference-target-types store rtype ref)))
+          (define found
+            (for/list ([t (in-list targets)])
+              (define-values (rs ignored _total)
+                (fhir-search/page store t (list (cons rest (cdr qp)) (cons "_count" (number->string (add1 chain-limit))))
+                                  #:search-params sps))
+              (cons ignored (for/list ([r (in-list rs)]) (format "~a/~a" t (hash-ref r 'id))))))
+          (define refs (append-map cdr found))
+          (cond
+            ;; the target cannot be searched that way: not applied, and said so
+            [(or (null? targets) (ormap (lambda (f) (pair? (car f))) found)) qp]
+            [(> (length refs) chain-limit)
+             (raise-user-error 'search "`~a=~a` finds more than ~a ~a: narrow it" (car qp) (cdr qp) chain-limit (string-join targets ", "))]
+            ;; nothing found: a reference nothing has
+            [else (cons ref (if (null? refs) (format "~a/-" (car targets)) (string-join refs ",")))])])]
+      [_ qp])))
+
+;; reference-target-types : store type param -> (listof type)   the types the stored references of
+;; that parameter point at
+(define (reference-target-types store rtype param)
+  (call-with-store-connection store
+    (lambda (c)
+      (filter string? (query-list c "SELECT DISTINCT target_type FROM fhir_reference_index WHERE resource_type=? AND param_name=?"
+                                  rtype param)))))
 
 ;; param->clause : catalog name value -> Clause | #f   (#f = ignore: unknown or unsupported)
 (define (param->clause catalog full-name value)
@@ -637,5 +683,24 @@
   (check-equal? (call-with-store-connection store
                   (lambda (c) (query-value c "SELECT COUNT(*) FROM fhir_token_text WHERE code='4548-4' AND param_name='code'")))
                 2 "one row per code and text (display, concept text), not per resource")
+  ;; chaining: the requests whose medication `identifier` holds a name — the chain asked as the
+  ;; search it means; a target type named; a chain the target cannot search is not applied
+  (define cat2 (hash-set* cat
+                          'Medication (list (search-param "identifier" 'token "identifier"))
+                          'MedicationRequest (list (search-param "medication" 'reference "medication.reference")
+                                                   (search-param "subject" 'reference "subject"))))
+  (define (make! r) (let-values ([(_t id _v) (fhir-create! store r #:search-params cat2)]) id))
+  (define hep (make! (hasheq 'resourceType "Medication" 'identifier (list (hasheq 'system "urn:name" 'value "Heparin")))))
+  (define asp (make! (hasheq 'resourceType "Medication" 'identifier (list (hasheq 'system "urn:name" 'value "Aspirin")))))
+  (define (order m) (make! (hasheq 'resourceType "MedicationRequest" 'status "active" 'intent "order"
+                                   'medication (hasheq 'reference (hasheq 'reference (string-append "Medication/" m))))))
+  (define o1 (order hep)) (define o2 (order hep)) (define _o3 (order asp))
+  (define (mr q) (call-with-values (lambda () (fhir-search/page store "MedicationRequest" q #:search-params cat2))
+                                   (lambda (rs ig total) (list (sort (map (lambda (r) (hash-ref r 'id)) rs) string<?) ig))))
+  (check-equal? (mr '(("medication.identifier" . "urn:name|Heparin"))) (list (sort (list o1 o2) string<?) '()))
+  (check-equal? (mr '(("medication:Medication.identifier" . "Heparin"))) (list (sort (list o1 o2) string<?) '()))
+  (check-equal? (mr '(("medication.identifier" . "Nothing"))) (list '() '()) "a chain that finds nothing finds nothing")
+  (check-equal? (cadr (mr '(("medication.nope" . "x")))) '("medication.nope") "the target does not search on it")
+  (check-equal? (cadr (mr '(("status.code" . "x")))) '("status.code") "not a reference")
   (close-fhir-store store)
   (delete-file tmp))

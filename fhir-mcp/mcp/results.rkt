@@ -67,10 +67,21 @@
 ;; search-row : row -> row   a found resource as its preview shows it: without its JSON, and without
 ;; the columns it has nothing in
 (define max-search-preview 50)
-(define (search-row row)
+(define (search-row row [shared (hasheq)])
   (if (hash? row)
-      (for/hasheq ([(k v) (in-hash row)] #:unless (or (eq? k 'json) (eq? v 'null))) (values k v))
+      (for/hasheq ([(k v) (in-hash row)] #:unless (or (eq? k 'json) (eq? v 'null) (hash-has-key? shared k))) (values k v))
       row))
+
+;; shared-cells : (listof row) -> hash   the cells two or more rows all have, alike (not the
+;; resource itself, nor whether it matched)
+(define (shared-cells rows)
+  (cond
+    [(or (< (length rows) 2) (not (andmap hash? rows))) (hasheq)]
+    [else
+     (for/hasheq ([(k v) (in-hash (car rows))]
+                  #:unless (memq k '(resource mode))
+                  #:when (for/and ([r (in-list (cdr rows))]) (equal? (hash-ref r k #f) v)))
+       (values k v))]))
 
 (define (result-json uri r [name #f] #:path [path #f])
   (define rows (run-result-rows r))
@@ -98,15 +109,19 @@
           [(and resources? (pair? rows))
            (format "~a for each resource's JSON, or ~a for one" (call-text "describe" (list (cons 'ref uri))) (call-text "describe" (list (cons 'ref "Type/id"))))]
           [else #f]))
-  (define answer
+  ;; a cell every row shown has alike (the patient asked about, the stay, the profile) is said once,
+  ;; under `every`, not in each row
+  (define shared (if resources? (shared-cells (map search-row shown)) (hasheq)))
+  (define answer0
    (hasheq 'result uri
           'kind (run-result-kind r)
           'columns (if resources? (remove "json" (run-result-columns r)) (run-result-columns r))
           'total total
           'summary (if (and resources? (hash? sm0)) (hash-remove (hash-remove sm0 'count) 'total) sm0)
-          'rows (cond [resources? (map search-row shown)]
+          'rows (cond [resources? (map (lambda (row) (search-row row shared)) shown)]
                       [(small? shown) shown]
                       [else (map (lambda (row) (preview row uri)) shown)])))
+  (define answer (if (hash-empty? shared) answer0 (hash-set answer0 'every shared)))
   ;; `more` only when there is more to read (`"more": null` said nothing); a wide table says how to
   ;; have it compact (11 columns of JSON objects was a long answer for a yes/no question)
   (define cols (run-result-columns r))

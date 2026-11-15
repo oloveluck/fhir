@@ -22,7 +22,9 @@
   [digest-columns (-> (listof (listof (cons/c symbol? string?))) (listof symbol?))]
   ;; value-text : jsexpr -> string | #f   a FHIR value as a person reads it (`8.9 %`, a concept's
   ;; text, `2125-03-01 – 2125-03-04`), #f when there is nothing to say
-  [value-text (-> any/c (or/c string? #f))]))
+  [value-text (-> any/c (or/c string? #f))]
+  ;; label-of : resource -> string | #f   what a resource is called, for a row that points at it
+  [label-of (-> hash? (or/c string? #f))]))
 
 (define slots
   '((code medication\[x\] vaccineCode name class type)
@@ -36,11 +38,21 @@
 
 ;; type-slots : type -> (listof Slot)   what a type's rows say beyond the common slots: an
 ;; Encounter's identifier (a dataset often tells a hospital stay from an ICU stay by its system)
-;; and the stay it is part of; a prescription's validity period (when it starts and ends, beside
-;; when it was written)
+;; and the stay it is part of
 (define type-slots
-  (hash "Encounter" '((identifier) (partOf))
-        "MedicationRequest" '((dispenseRequest.validityPeriod))))
+  (hash "Encounter" '((identifier) (partOf))))
+
+;; leading-slots : type -> (listof Slot)   said before the common slots' date: a prescription's
+;; validity period — when it is to be given, from and until — ahead of `authoredOn`, when it was
+;; written (a reader asked "when was X prescribed" took the first date the row showed)
+(define leading-slots
+  (hash "MedicationRequest" '((dispenseRequest.validityPeriod))))
+
+;; slots-of : type -> (listof Slot)
+(define (slots-of type)
+  (define lead (hash-ref leading-slots type '()))
+  (define-values (before after) (splitf-at slots (lambda (s) (not (memq 'authoredOn s)))))
+  (append before lead after (hash-ref type-slots type '())))
 
 ;; candidate-value : resource candidate -> (cons column value) | #f
 (define (candidate-value r cand)
@@ -65,12 +77,51 @@
     [else #f]))
 
 (define (digest r)
-  (for*/list ([slot (in-list (append slots (hash-ref type-slots (hash-ref r 'resourceType #f) '())))]
-              [found (in-value (for/or ([c (in-list slot)]) (candidate-value r c)))]
-              #:when found
-              [text (in-value (if (eq? (car found) 'component) (components-text (cdr found)) (value-text (cdr found))))]
-              #:when text)
-    (cons (car found) text)))
+  (append
+   (for*/list ([slot (in-list (slots-of (hash-ref r 'resourceType #f)))]
+               [found (in-value (for/or ([c (in-list slot)]) (candidate-value r c)))]
+               #:when found
+               [cell (in-list (cells (car found) (cdr found)))])
+     cell)
+   (let ([k (kind-of r)]) (if k (list (cons 'profile k)) '()))))
+
+;; cells : column value -> (listof (cons column text))   a slot's cells: a Quantity value as its
+;; number and its unit apart (`value 94`, `unit mg/dL`: a reader answering with the number copied
+;; `94 mg/dL`), components joined, anything else as a person reads it
+(define (cells col v)
+  (cond
+    [(eq? col 'component) (let ([t (components-text v)]) (if t (list (cons col t)) '()))]
+    [(and (eq? col 'value) (hash? v) (number? (hash-ref v 'value #f)))
+     (define unit (let ([u (or (hash-ref v 'unit #f) (hash-ref v 'code #f))]) (and (string? u) u)))
+     (define n (string-append (let ([c (hash-ref v 'comparator #f)]) (if (string? c) c "")) (number-text (hash-ref v 'value))))
+     (cons (cons col n) (if unit (list (cons 'unit unit)) '()))]
+    [else (let ([t (value-text v)]) (if t (list (cons col t)) '()))]))
+
+;; kind-of : resource -> string | #f   the profile it claims, by its url's last step
+;; (`mimic-observation-micro-test`): a dataset tells its kinds of one type apart by profile — a lab
+;; result, a chart event, a microbiology test are all Observations
+(define (kind-of r)
+  (define ps (hash-ref (let ([m (hash-ref r 'meta #f)]) (if (hash? m) m (hasheq))) 'profile '()))
+  (and (list? ps) (pair? ps) (string? (car ps))
+       (last (string-split (car (string-split (car ps) "|")) "/"))))
+
+;; label-of : resource -> string | #f   what a resource another one points at is called: its
+;; concept's name (a display or text), else its identifiers' values (MIMIC keeps a medication's
+;; name there: `63323026201 / HEPA5I / Heparin`), else its name, else its code
+(define (label-of r)
+  (define code (for/or ([k (in-list '(code vaccineCode type))]) (hash-ref r k #f)))
+  (define (named c) (and (hash? c)
+                         (or (let ([t (hash-ref c 'text #f)]) (and (string? t) t))
+                             (for/or ([cd (in-list (let ([l (hash-ref c 'coding '())]) (if (list? l) l '())))])
+                               (and (hash? cd) (let ([d (hash-ref cd 'display #f)]) (and (string? d) d)))))))
+  (define ids (let ([l (hash-ref r 'identifier '())])
+                (for/list ([i (in-list (if (list? l) l '()))] #:when (and (hash? i) (string? (hash-ref i 'value #f))))
+                  (hash-ref i 'value))))
+  (define t (or (named code)
+                (and (pair? ids) (string-join (take ids (min 3 (length ids))) " / "))
+                (let ([n (hash-ref r 'name #f)]) (and n (text-of n)))
+                (and code (text-of code))))
+  (and t (cut t)))
 
 (define (digest-columns ds)
   (remove-duplicates (append-map (lambda (d) (map car d)) ds)))
@@ -165,8 +216,19 @@
                                 'encounter (hasheq 'reference "Encounter/e1")
                                 'effectiveDateTime "2025-03-01"
                                 'valueQuantity (hasheq 'value 8.9 'unit "%" 'code "%")))
-                '((code . "Hemoglobin A1c") (value . "8.9 %") (effective . "2025-03-01") (status . "final")
+                '((code . "Hemoglobin A1c") (value . "8.9") (unit . "%") (effective . "2025-03-01") (status . "final")
                   (subject . "Patient/ann") (encounter . "Encounter/e1")))
+  ;; the kind a profile says
+  (check-equal? (digest (hasheq 'resourceType "Observation" 'meta (hasheq 'profile '("http://x.org/StructureDefinition/obs-micro-test|1.0"))
+                                'valueQuantity (hasheq 'value 5 'comparator "<")))
+                '((value . "<5") (profile . "obs-micro-test")))
+  ;; what a referenced resource is called
+  (check-equal? (label-of (hasheq 'resourceType "Medication" 'code (hasheq 'coding (list (hasheq 'system "ndc" 'code "6332")))
+                                  'identifier (list (hasheq 'value "6332") (hasheq 'value "HEPA5I") (hasheq 'value "Heparin"))))
+                "6332 / HEPA5I / Heparin")
+  (check-equal? (label-of (hasheq 'code (hasheq 'coding (list (hasheq 'code "c" 'display "Aspirin"))))) "Aspirin")
+  (check-equal? (label-of (hasheq 'name "Ward 3")) "Ward 3")
+  (check-false (label-of (hasheq)))
   ;; a blood pressure: its components joined; a period; a coded value
   (check-equal? (digest (hasheq 'resourceType "Observation" 'code (hasheq 'text "BP")
                                 'effectivePeriod (hasheq 'start "2025-03-01" 'end "2025-03-02")
@@ -204,7 +266,7 @@
   ;; a prescription's validity beside when it was written
   (check-equal? (digest (hasheq 'resourceType "MedicationRequest" 'authoredOn "2150-07-10T00:23:27-04:00"
                                 'dispenseRequest (hasheq 'validityPeriod (hasheq 'start "2150-07-10T01:00:00-04:00" 'end "2150-07-11T01:00:00-04:00"))))
-                '((authoredOn . "2150-07-10T00:23:27-04:00") (validityPeriod . "2150-07-10T01:00:00-04:00 – 2150-07-11T01:00:00-04:00")))
+                '((validityPeriod . "2150-07-10T01:00:00-04:00 – 2150-07-11T01:00:00-04:00") (authoredOn . "2150-07-10T00:23:27-04:00")))
   ;; a Condition's status is a concept
   (check-equal? (digest (hasheq 'clinicalStatus (hasheq 'coding (list (hasheq 'code "active"))) 'code (hasheq 'text "Diabetes")))
                 '((code . "Diabetes") (clinicalStatus . "active")))

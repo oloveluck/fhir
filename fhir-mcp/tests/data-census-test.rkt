@@ -105,10 +105,12 @@
     ;; ---- a search: a page of rows that read, the total, the next page ------------------------
     (define page (call "query" (hasheq 'language "search" 'text "Observation?code:text=hemoglobin&_sort=date&_count=2")))
     (check-equal? (hash-ref page 'total) 6)
-    (check-equal? (hash-ref page 'columns) '("resource" "code" "value" "effective" "status" "subject" "encounter"))
+    ;; a Quantity's number and unit apart; what every row shown has alike, said once under `every`
+    (check-equal? (hash-ref page 'columns) '("resource" "code" "value" "unit" "effective" "status" "subject" "encounter"))
     (check-equal? (car (hash-ref page 'rows))
-                  (hasheq 'resource "Observation/hb0" 'code "Hemoglobin [Mass/volume] in Blood" 'value "10 g/dL"
-                          'effective "2125-01-01T08:00:00Z" 'status "final" 'subject "Patient/ann" 'encounter "Encounter/stay1"))
+                  (hasheq 'resource "Observation/hb0" 'value "10" 'effective "2125-01-01T08:00:00Z"))
+    (check-equal? (hash-ref page 'every)
+                  (hasheq 'code "Hemoglobin [Mass/volume] in Blood" 'unit "g/dL" 'status "final" 'subject "Patient/ann" 'encounter "Encounter/stay1"))
     (check-regexp-match #rx"_offset=2" (hash-ref page 'next))
     ;; a page longer than its preview says so, and how to read it all
     (let ([p (call "query" (hasheq 'language "search" 'text "Observation?code:text=hemoglobin&_count=60"))])
@@ -121,7 +123,7 @@
     (let ([n (call "query" (hasheq 'language "search" 'text "Observation?patient=Patient/ann&_summary=count"))])
       (check-equal? (list (hash-ref n 'total) (hash-ref n 'rows)) '(4 ())))
     ;; the rows as CSV are the digests, not the JSON
-    (check-regexp-match #rx"^resource,code,value,effective,status,subject,encounter\nObservation/hb0,"
+    (check-regexp-match #rx"^resource,code,value,unit,effective,status,subject,encounter\nObservation/hb0,"
                         (call "query" (hasheq 'language "search" 'text "Observation?code:text=hemoglobin&_sort=date" 'as "csv")))
 
     ;; ---- what is recorded about one patient --------------------------------------------------
@@ -132,6 +134,24 @@
     (check-equal? (hash-ref (hash-ref ann 'encounters) 'total) 2)
     (check-equal? (map (lambda (e) (list (hash-ref e 'resource) (hash-ref e 'class))) (hash-ref (hash-ref ann 'encounters) 'latest))
                   '(("Encounter/stay2" "EMER") ("Encounter/stay1" "IMP")) "newest first")
+
+    ;; ---- as of a time: which stays were open, and which began later -------------------------
+    (define (at t) (hash-ref (call "describe" (hasheq 'ref "Patient/ann" 'as "summary" 'asof t)) 'encounters))
+    (check-regexp-match #rx"^none: no encounter was open at 2125-02-01" (hash-ref (at "2125-02-01") 'open))
+    (check-equal? (list (hash-ref (at "2125-02-01") 'begun) (hash-ref (at "2125-02-01") 'later)) '(1 1))
+    (check-equal? (map (lambda (e) (hash-ref e 'resource)) (hash-ref (at "2125-03-05 12:00") 'open)) '("Encounter/stay2")
+                  "an encounter with no end is open")
+
+    ;; ---- a chain through a reference; what a referenced resource is called ------------------
+    (define chained (call "query" (hasheq 'language "search" 'text "MedicationRequest?medication.identifier=http://example.org/medication-name|Miconazole%202%25%20Cream")))
+    (check-equal? (map (lambda (r) (list (hash-ref r 'resource) (hash-ref r 'medication))) (hash-ref chained 'rows))
+                  '(("MedicationRequest/rx1" "Medication/med1 (Miconazole 2% Cream)")))
+    (check-equal? (hash-ref (call "query" (hasheq 'language "search" 'text "MedicationRequest?medication.identifier=nothing")) 'total) 0)
+
+    ;; ---- a page as FSH: the code systems it repeats named once, compiled back alike ----------
+    (define fsh-page (call "describe" (hasheq 'ref (hash-ref page 'result) 'as "fsh")))
+    (check-regexp-match #rx"^Alias: \\$loinc = http://loinc.org\n" fsh-page)
+    (check-regexp-match #rx"\\* code = \\$loinc#718-7 \"Hemoglobin" fsh-page)
 
     ;; ---- SQL over the search indexes, and the guide's own block ------------------------------
     (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT COUNT(*) AS n FROM refs WHERE type = 'Observation' AND param = 'patient' AND target_id = 'bob'")) 'rows)

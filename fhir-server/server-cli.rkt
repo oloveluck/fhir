@@ -147,12 +147,17 @@
 ;; cmd-reindex : store-path version -> void   every stored resource indexed for search again, with
 ;; the search parameters of the FHIR version (as `load` indexes): after an upgrade that changed how
 ;; values are indexed, or for a store loaded with another catalogue
-(define (cmd-reindex db-path [version "4.0.1"])
-  (define-values (tower _core catalog) (version-catalog version "reindex"))
+(define (cmd-reindex db-path [version "4.0.1"] #:params [params #f])
+  (define-values (tower _core whole) (version-catalog version "reindex"))
+  (define catalog
+    (if params
+        (for/hash ([(t sps) (in-hash whole)])
+          (values t (filter (lambda (sp) (member ((dynamic-require 'fhir/store/fhir-engine 'search-param-name) sp) params)) sps)))
+        whole))
   (define store ((dynamic-require 'fhir/store/fhir-sqlite 'open-fhir-store) db-path))
   (define loader ((dynamic-require 'fhir/store/bulk 'make-bulk-loader) catalog tower))
   (define n (dynamic-wind void
-                          (lambda () ((dynamic-require 'fhir/store/bulk 'reindex!) loader store))
+                          (lambda () ((dynamic-require 'fhir/store/bulk 'reindex!) loader store #:params params))
                           (lambda () ((dynamic-require 'fhir/store/bulk 'close-bulk-loader) loader))))
   (printf "indexed ~a resources of ~a again (for FHIR ~a search)\n" n db-path version)
   ((dynamic-require 'fhir/store/fhir-sqlite 'close-fhir-store) store))
@@ -300,7 +305,7 @@
     ("check"            "raco fhir-server check <app.rkt>   the app's declarations compiled: one line per resource and operation, or its mistakes (exit 1)")
     ("serve"            "raco fhir-server serve <app.rkt> [port | --port n] [--store fhir.db] [--log]   (port 0: a free one, printed; --store: resources declared without a repository kept in that SQLite store, over the module's own #:store; --log: one line per request on stderr)")
     ("load"             "raco fhir-server load <store.db> <file|dir> [--fhir-version 4.0.1|5.0.0|6.0.0] [--validate [--package <name|file.tgz>]…]   (Bundles, resources, .cql libraries; indexed for search in that FHIR version, 4.0.1 unless said; --validate: every resource held to its type and the profiles it claims first, and nothing loaded when one has an error)")
-    ("reindex"          "raco fhir-server reindex <store.db> [--fhir-version 4.0.1|5.0.0|6.0.0]   (every stored resource indexed for search again, in one transaction: after an upgrade that changed how values are indexed, or for a store loaded as another FHIR version)")
+    ("reindex"          "raco fhir-server reindex <store.db> [--fhir-version 4.0.1|5.0.0|6.0.0] [--param <name>]…   (every stored resource indexed for search again, in one transaction: after an upgrade that changed how values are indexed, or for a store loaded as another FHIR version; --param: those parameters only)")
     ("sql"              "raco fhir-server sql <store.db> \"SELECT …\"   (read-only; a view per type: id, versionId, lastUpdated, resource; resources, history; CSV out)")
     ("evaluate-measure" "raco fhir-server evaluate-measure <store.db> <Measure id|url> --period-start D --period-end D [--subject Patient/x] [--tz-offset ±hh:mm]")))
 
@@ -333,7 +338,9 @@
                                                [else (loop (cdr as))]))))
          "reindex" (lambda (as) (need as 0 "reindex")
                      (unless (file-exists? (arg as 0)) (usage-error "fhir-server" usages "reindex" (format "no such store: ~a" (arg as 0))))
-                     (cmd-reindex (arg as 0) (let ([m (member "--fhir-version" as)]) (if (and m (pair? (cdr m))) (cadr m) "4.0.1"))))
+                     (cmd-reindex (arg as 0) (let ([m (member "--fhir-version" as)]) (if (and m (pair? (cdr m))) (cadr m) "4.0.1"))
+                                  #:params (let ([ps (let loop ([as as]) (cond [(member "--param" as) => (lambda (m) (if (pair? (cdr m)) (cons (cadr m) (loop (cddr m))) '()))] [else '()]))])
+                                             (and (pair? ps) ps))))
          "sql" (lambda (as) (need as 1 "sql")
                  (unless (file-exists? (arg as 0)) (usage-error "fhir-server" usages "sql" (format "no such store: ~a" (arg as 0))))
                  (cmd-sql (arg as 0) (arg as 1)))

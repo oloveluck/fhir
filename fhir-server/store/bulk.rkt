@@ -56,7 +56,7 @@
   ;; every stored resource's index rows extracted again, and the indexes replaced by them — after
   ;; the catalogue changed (a guide's search parameters), or the way values are indexed did; how
   ;; many resources. One transaction: a reindex that fails leaves the indexes as they were.
-  [reindex! (-> bulk-loader? fhir-store? exact-nonnegative-integer?)]))
+  [reindex! (->* (bulk-loader? fhir-store?) (#:params (or/c #f (listof string?))) exact-nonnegative-integer?)]))
 
 ;; ---- preparing (a worker's part; no store) ------------------------------------------------------
 ;; catalog-entries : catalog -> Entries
@@ -220,17 +220,23 @@
 ;; the workers extract a page's rows while nothing else waits on this process. The search indexes
 ;; are dropped for the fill and built at its end, all inside one transaction.
 (define reindex-page 2000)
-(define (reindex! l store)
+(define (reindex! l store #:params [params #f])
   (call-with-store-connection store
     (lambda (c)
-      (define ix (search-indexes c))
+      ;; some parameters only (`--param _profile`: one added to the catalogue): their rows replaced,
+      ;; the others and the indexes kept — a whole reindex rewrites every row, and its log can be
+      ;; larger than the disk left (the loader was made with a catalogue of these parameters alone)
+      (define ix (and (not params) (search-indexes c)))
       (dynamic-wind
        (lambda () (query c "PRAGMA cache_size=-262144"))
        (lambda ()
          (call-with-transaction c
            (lambda ()
-             (drop-indexes! c ix)
-             (for ([t (in-list (append index-tables shared-tables))]) (query-exec c (string-append "DELETE FROM " (car t))))
+             (when ix (drop-indexes! c ix))
+             (if params
+                 (for* ([t (in-list index-tables)] [p (in-list params)])
+                   (query-exec c (string-append "DELETE FROM " (car t) " WHERE param_name=?") p))
+                 (for ([t (in-list (append index-tables shared-tables))]) (query-exec c (string-append "DELETE FROM " (car t)))))
              (define pending (make-hash))
              (define total
                (let loop ([after 0] [total 0])
@@ -245,7 +251,7 @@
                       (queue-rows! pending (vector-ref r 1) (vector-ref r 2) rows))
                     (flush-rows! c pending)
                     (loop (vector-ref (last page) 0) (+ total (length page)))])))
-             (restore-indexes! c ix)
+             (when ix (restore-indexes! c ix))
              total)))
        (lambda ()
          (query c "PRAGMA cache_size=-2000")

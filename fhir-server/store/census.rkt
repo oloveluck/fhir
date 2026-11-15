@@ -125,9 +125,35 @@
       (define elements (element-shares c type sample))
       (define example (query-maybe-value c "SELECT id FROM fhir_resources WHERE resource_type=? LIMIT 1" type))
       (define base (hasheq 'type type 'count n 'search (merged facts)))
+      (define referrers (referenced-by c catalog type top))
       (let* ([h (if elements (hash-set base 'elements elements) base)]
+             [h (if (pair? referrers) (hash-set h 'referencedBy referrers) h)]
              [h (if (string? example) (hash-set h 'example (format "~a/~a" type example)) h)])
         h))))
+
+;; referenced-by : connection type top -> (listof line)   what points at the type's resources, by
+;; type and reference parameter (`Observation.specimen ×1893`): a Specimen holds no test name, the
+;; Observations that point at it do — a reader of the Specimens alone did not find them. The
+;; trail's own records are left out.
+;; Each stored type's reference parameters are asked in turn, through the index that leads with
+;; the referring type and parameter: asked by target alone, the whole reference index was read
+;; (20 s over MIMIC's 929,000 resources).
+(define (referenced-by c catalog type top)
+  (define counts
+    (for*/list ([t (in-list (query-list c "SELECT DISTINCT resource_type FROM fhir_resources"))]
+                #:unless (member t (list type "Provenance" "AuditEvent"))
+                [p (in-list (remove-duplicates (map search-param-name
+                                                    (filter (lambda (sp) (eq? (search-param-kind sp) 'reference))
+                                                            (hash-ref catalog (string->symbol t) '())))))]
+                [n (in-value (query-value c "SELECT COUNT(*) FROM fhir_reference_index WHERE resource_type=? AND param_name=? AND target_type=?" t p type))]
+                #:when (positive? n))
+      (list t p n)))
+  ;; parameters with the same count over one type are one fact (`patient`, `subject`): said once
+  (define merged
+    (for/list ([g (in-list (group-by (lambda (x) (list (car x) (caddr x))) counts))])
+      (list (car (car g)) (string-join (shortest-first (map cadr g)) ", ") (caddr (car g)))))
+  (for/list ([x (in-list (take (sort merged > #:key caddr) (min top (length merged))))])
+    (format "~a.~a ×~a" (car x) (cadr x) (caddr x))))
 
 ;; merged : (listof (cons name ParamFacts)) -> hash   names with equal facts joined ("patient, subject")
 (define (merged facts)
@@ -202,9 +228,17 @@
   (define rows (query-rows c "SELECT target_type, COUNT(*), COUNT(DISTINCT target_id) FROM fhir_reference_index WHERE resource_type=? AND param_name=? GROUP BY target_type ORDER BY 2 DESC LIMIT ?" type name top))
   (and (pair? rows)
        (hasheq 'kind "reference" 'values (for/sum ([r (in-list rows)]) (vector-ref r 1))
-               'targets (for/list ([r (in-list rows)])
-                          (format "~a ×~a (~a different)" (if (sql-null? (vector-ref r 0)) "(no type)" (vector-ref r 0))
-                                  (vector-ref r 1) (vector-ref r 2))))))
+               'targets (append*
+                         (for/list ([r (in-list rows)])
+                           (match-define (vector t n distinct) r)
+                           (cond
+                             ;; a few targets (the profiles a type's resources claim, a dataset's
+                             ;; wards): each one, with how many point at it — they are a kind, and
+                             ;; a reader asks for one kind by naming it
+                             [(and (not (sql-null? t)) (<= distinct top) (not (member t (quote ("Patient" "Group" "Encounter")))))
+                              (for/list ([x (in-list (query-rows c "SELECT target_id, COUNT(*) FROM fhir_reference_index WHERE resource_type=? AND param_name=? AND target_type=? GROUP BY target_id ORDER BY 2 DESC" type name t))])
+                                (format "~a/~a ×~a" t (vector-ref x 0) (vector-ref x 1)))]
+                             [else (list (format "~a ×~a (~a different)" (if (sql-null? t) "(no type)" t) n distinct))]))))))
 
 ;; range-facts : a number's or a quantity's span, and a quantity's commonest units
 (define (range-facts c table type name kind units? top)

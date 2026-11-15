@@ -47,7 +47,23 @@
   (define catalog (make-hash))    ; type-sym -> reversed (listof search-param)
   (define-values (_m sps _e) (read-package tgz #:select (lambda (f) (string-prefix? f "SearchParameter-"))))
   (for ([sp (in-list sps)]) (add-search-parameter! catalog (cdr sp) #f))
-  (for/hash ([(k v) (in-hash catalog)]) (values k (reverse v))))
+  (with-every-type (for/hash ([(k v) (in-hash catalog)]) (values k (reverse v)))))
+
+;; with-every-type : catalog -> catalog   the parameters FHIR defines on Resource for every type
+;; (`_profile`, `_tag`, `_security`, `_source`: a resource's meta), each type's after its own. The
+;; engine answers `_id` and `_lastUpdated` from the row itself; `_content`, `_query`, `_text` are
+;; not indexable this way. A dataset tells its kinds of Observation apart by profile (a lab result,
+;; a chart event, a microbiology test): without `_profile` a reader could not ask for one kind.
+(define every-type-params '("_profile" "_tag" "_security" "_source"))
+(define (with-every-type catalog)
+  (define shared (filter (lambda (sp) (member (search-param-name sp) every-type-params))
+                         (hash-ref catalog 'Resource '())))
+  (for/hash ([(k v) (in-hash catalog)])
+    (values k (if (memq k '(Resource DomainResource))
+                  v
+                  (append v (for/list ([sp (in-list shared)]
+                                       #:unless (findf (lambda (o) (equal? (search-param-name o) (search-param-name sp))) v))
+                              sp))))))
 
 ;; ---- the catalogue kept between processes -------------------------------------
 ;; Reading a core package's ~1,700 SearchParameters (parse + narrow each FHIRPath) takes seconds,
@@ -55,7 +71,7 @@
 ;; result depends only on the package file, so it is written once to the user's cache directory
 ;; (`FHIR_CACHE_DIR`, else Racket's cache-dir), keyed by the file's path, size and modification
 ;; time and this reader's version; a cache that cannot be read or written is simply not used.
-(define catalog-format 1)
+(define catalog-format 2)
 (define (cache-root)
   (define d (getenv "FHIR_CACHE_DIR"))
   (if (and d (not (string=? d ""))) (string->path d) (build-path (find-system-path 'cache-dir) "fhir-racket")))
