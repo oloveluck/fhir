@@ -14,6 +14,7 @@
          (only-in net/uri-codec uri-unreserved-encode)
          racket/list (only-in racket/string string-join string-append*) (only-in net/uri-codec uri-decode)
          (only-in fhir/suggest did-you-mean)
+         (only-in fhir/capability/search-value exn:fail:search-value?)
          (only-in fhir/model/node fhir? fhir-type fhir-ref fhir-field-names)
          (only-in fhir/serialize/from-json from-json)
          (only-in fhir/serialize/to-json node->jsexpr)
@@ -379,10 +380,14 @@
                         (append (filter (lambda (p) (not (memq (car p) '(_summary _count _offset)))) (request-params req))
                                 '((_count . "0")))
                         (request-params req)))
-     (define r (fn params))
-     (define-values (_ms _is names total) (search-facts r))
-     ;; Prefer: handling=strict — a parameter the server cannot apply is an error, not a note
-     (if (and (current-search-strict?) (pair? names))
+     ;; a value the server cannot read is the client's error, 400 (search-value.rkt): ignored, it
+     ;; would answer another search than the one asked
+     (define r (with-handlers ([exn:fail:search-value? (lambda (e) e)]) (fn params)))
+     (define-values (_ms _is names total) (if (exn? r) (values '() '() '() 0) (search-facts r)))
+     (cond
+       [(exn? r) (operation-outcome-invalid (exn-message r))]
+       ;; Prefer: handling=strict — a parameter the server cannot apply is an error, not a note
+       [(and (current-search-strict?) (pair? names))
          (let* (
                 [declared (advertised-search-names (current-app) (request-type req))]
                 [near (string-append* (for/list ([n (in-list names)]) (or (patient-subject-hint n declared) (did-you-mean n declared))))])
@@ -391,8 +396,8 @@
                                               (apply string-append (add-between (map (lambda (n) (format "`~a`" n)) names) ", "))
                                               near
                                               ;; and the parameters every type has (a rerun's agent found them by trying)
-                                              (if (pair? declared) (format " (~a: ~a; every type: _id, _lastUpdated, _count, _offset, _sort)" (request-type req) (string-join declared ", ")) ""))))
-         (make-searchset r #:links (paging-links (request-type req) params total)))]
+                                              (if (pair? declared) (format " (~a: ~a; every type: _id, _lastUpdated, _count, _offset, _sort)" (request-type req) (string-join declared ", ")) ""))))]
+       [else (make-searchset r #:links (paging-links (request-type req) params total))])]
     [(patch)
      ;; JSON Patch (RFC 6902): read, apply atomically, then the repository's own UPDATE — so a patched
      ;; resource is validated exactly like a PUT; a malformed or failing patch is 422

@@ -2362,6 +2362,28 @@ work takes ~550 s — a quarter less wall time, the same tokens and answers. Wha
 time, and one slow kind of call: `query find` over a phrase (`"5% dextrose"`, 18.9 s).
 The replay: scratchpad `replay/replay.py ARM` and `compare.py` (not vendored, like the store).
 
+## Two third-party agent benchmarks (2026-11-15)
+fhir-examples' `agent-bench/` runs FHIR-AgentBench (MIMIC-IV on FHIR; its `evaluation_metrics.py`
+unmodified, its litellm calls answered by the claude CLI) and MedAgentBench (the data of its HAPI
+image, exported and loaded into our store in 1 min 52 s: 785,902 resources, 1.9 GB against HAPI's
+4.2 GB; its `refsol.py`), each item a headless `claude -p` agent in an empty directory. Arms: curl on
+a plain FHIR server (HAPI's and ours), the workspace verbs, and MedAgentBench's own one-action-per-turn
+protocol against either server. Our server answers the 784 searches its grader makes over the 98
+patients with exactly HAPI's resources. Running it found two server defects, fixed:
+- **`_format` and `_pretty` are every interaction's** (http/router.rkt `route/format`): MedAgentBench's
+  harness appends `&_format=json` to every GET, and the searchset said "search parameter `_format` is
+  not supported here: it was ignored". JSON (`json`, `application/json`, `application/fhir+json`, with
+  parameters, a `+` decoded as a space) is honoured; anything else is a 406 saying this server writes JSON.
+- **A search value the server cannot read is a 400, not an ignored parameter**
+  (capability/search-value.rkt; store/search-index.rkt `date-clause`, `number-clause`,
+  `quantity-clause`; runtime.rkt's search): `date=ge2023-11-12T10:15:00+00:00` written unencoded
+  arrives with a space for the `+`, the date did not parse, and the search answered every
+  Observation of the patient as if no date had been asked — the agent reported a value from days
+  before the window (HAPI reads it, and answered right). A space where a zone's sign stands is now
+  the `+` it was; a date off the calendar (`2125-13-45`, `2024-02-30`: `on-calendar?`) or a number that
+  does not read is `search parameter `date`: `…` is not a date: <the forms>`, 400, and the workspace's
+  search says the same. `tests/period-search-test.rkt`.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

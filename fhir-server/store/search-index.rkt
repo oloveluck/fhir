@@ -44,7 +44,8 @@
          (only-in fhir/model/node fhir? fhir-ref fhir-type)
          (only-in fhir/model/base primitive-type? primitive-type-value)
          (only-in fhir/primitives/primitives primitive->jsexpr)
-         (only-in fhir/model/leaf pv listify))
+         (only-in fhir/model/leaf pv listify)
+         (only-in fhir/capability/search-value raise-search-value))
 
 (provide
  (struct-out token-row) (struct-out text-row) (struct-out reference-row) (struct-out string-row)
@@ -244,10 +245,13 @@
 
 ;; date-range : ISO-8601 date/dateTime/instant (any precision) -> (cons low high), or #f
 ;; low/high are "YYYY-MM-DDThh:mm:ss.fff"; a value with a zone is shifted to UTC.
+;; A space where the zone's sign stands is a `+`: in a query string an unencoded `+` arrives decoded
+;; as a space (`date=ge2023-11-12T10:15:00+00:00` written by hand), and nothing else puts one there.
 (define (date-range s)
-  (match (regexp-match #px"^(\\d{4})(?:-(\\d{2})(?:-(\\d{2})(?:T(\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.(\\d+))?)?)?)?)?(Z|[+-]\\d{2}:\\d{2})?$" s)
+  (match (regexp-match #px"^(\\d{4})(?:-(\\d{2})(?:-(\\d{2})(?:T(\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.(\\d+))?)?)?)?)?(Z|[+ -]\\d{2}:\\d{2})?$" s)
     [#f #f]
     [(list _ y mo d h mi se fr tz)
+     #:when (on-calendar? y mo d h mi se)
      (define Y (string->number y))
      (define (n x dflt) (if x (string->number x) dflt))
      (define lo (list Y (n mo 1) (n d 1) (n h 0) (n mi 0) (n se 0)
@@ -260,10 +264,19 @@
              [(not fr) (list Y (n mo 1) (n d 1) (n h 0) (n mi 0) (n se 0) 999)]
              [else lo]))
      (define off (match tz [(or #f "Z") 0]
-                   [_ (let ([m (regexp-match #px"([+-])(\\d{2}):(\\d{2})" tz)])
+                   [_ (let ([m (regexp-match #px"([+ -])(\\d{2}):(\\d{2})" tz)])
                         (* (if (equal? (cadr m) "-") -1 1)
                            (+ (* 60 (string->number (caddr m))) (string->number (cadddr m)))))]))
-     (cons (fmt (shift lo (- off))) (fmt (shift hi (- off))))]))
+     (cons (fmt (shift lo (- off))) (fmt (shift hi (- off))))]
+    [_ #f]))
+
+;; on-calendar? : the matched parts (strings, or #f where absent) -> boolean   a month, a day its
+;; month has, an hour, a minute and a second that are ones (`2125-13-45` matches the pattern)
+(define (on-calendar? y mo d h mi se)
+  (define (in? s lo hi) (or (not s) (<= lo (string->number s) hi)))
+  (and (in? mo 1 12)
+       (or (not d) (<= 1 (string->number d) (days-in (string->number y) (string->number mo))))
+       (in? h 0 23) (in? mi 0 59) (in? se 0 59)))
 
 ;; shift : components minutes -> components moved by `minutes` (carrying through the calendar)
 (define (shift c minutes)
@@ -422,11 +435,15 @@
   (define args (for/list ([s (in-list slots)] #:when (memq s '(plo phi))) (if (eq? s 'plo) plo phi)))
   (values (apply format template cols) args))
 
+;; a value that is no date is an error, not an ignored parameter (search-value.rkt)
 (define (date-clause name v)
   (define-values (p rest) (split-prefix v))
   (define r (date-range rest))
-  (and r (let-values ([(sql args) (build-range p "low" "high" (car r) (cdr r))])
-           (exists-in "fhir_date_index" name sql args))))
+  (unless r
+    (raise-search-value name v (string-append "a date: YYYY, YYYY-MM, YYYY-MM-DD or YYYY-MM-DDThh:mm[:ss][Z|±hh:mm] after an optional"
+                                              " prefix (eq ne gt lt ge le sa eb ap); a + in a query string is written %2B")))
+  (let-values ([(sql args) (build-range p "low" "high" (car r) (cdr r))])
+    (exists-in "fhir_date_index" name sql args)))
 
 ;; number-range : "100" -> (values 99.5 100.5); "1.5e2" etc. via the lexical precision
 (define (number-range s)
@@ -450,6 +467,7 @@
 (define (number-clause name v)
   (define-values (p rest) (split-prefix v))
   (define-values (lo hi) (number-bounds p rest))
+  (unless lo (raise-search-value name v "a number after an optional prefix (eq ne gt lt ge le sa eb ap)"))
   (and lo (let-values ([(sql args) (if (eq? p 'eq)
                                          (values "x.value >= ? AND x.value < ?" (list lo hi))
                                          (build-range p "value" "value" lo hi))])
@@ -461,6 +479,7 @@
       (list (car parts) (and (> (length parts) 1) (cadr parts)) (and (> (length parts) 2) (caddr parts)))))
   (define-values (p rest) (split-prefix num))
   (define-values (lo hi) (number-bounds p rest))
+  (unless lo (raise-search-value name v "a quantity: [prefix]number[|system|code]"))
   (and lo
        (let*-values ([(sql args) (if (eq? p 'eq)
                                      (values "x.value >= ? AND x.value < ?" (list lo hi))
@@ -483,6 +502,13 @@
   (check-equal? (date-range "2024-03-01T01:30:00+02:00") (cons "2024-02-29T23:30:00.000" "2024-02-29T23:30:00.999"))
   (check-equal? (date-range "1999-12-31T23:00:00-05:00") (cons "2000-01-01T04:00:00.000" "2000-01-01T04:00:00.999"))
   (check-false (date-range "not a date"))
+  ;; an unencoded `+` decoded as a space is the zone's sign it was
+  (check-equal? (date-range "2024-03-01T01:30:00 02:00") (date-range "2024-03-01T01:30:00+02:00"))
+  ;; the calendar's: no month 13, no 30 February, no 24 o'clock
+  (check-false (date-range "2125-13-01"))
+  (check-false (date-range "2024-02-30"))
+  (check-false (date-range "2024-02-01T24:00"))
+  (check-true (pair? (date-range "2024-02-29")))
   (check-equal? (fold-string "Bénédicte") "benedicte")
   ;; comma = OR; escaped comma is literal
   (check-equal? (split-or "a,b\\,c") '("a" "b,c"))

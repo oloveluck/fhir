@@ -45,4 +45,15 @@
 (check-equal? (ids "_sort=date") '("a" "b" "c"))
 (check-equal? (ids "_sort=-date") '("c" "b" "a"))
 
+;; a zone's `+` written unencoded in the query string arrives as a space: it is read as the `+` it
+;; was (MedagentBench's agents write `date=ge2023-11-12T10:15:00+00:00`; HAPI reads it so). It was
+;; "search parameter `date` is not supported here: it was ignored", and every visit came back.
+(check-equal? (ids "date=ge2126-01-05T13:00:00+00:00") (ids "date=ge2126-01-05T13:00:00%2B00:00"))
+(check-equal? (ids "date=lt2125-03-01T00:00:00+00:00") '("a"))
+;; a date that is no date is the client's error, said with the form: ignored, the search would answer
+;; every visit to a question about some
+(define-values (bad-status bad) (handle app "GET" "/Encounter" (parse-query "date=ge2125-13-45") ""))
+(check-equal? bad-status 400)
+(check-regexp-match #rx"`date`: `ge2125-13-45` is not a date" (hash-ref (car (hash-ref bad 'issue)) 'diagnostics))
+
 (delete-directory/files dir)

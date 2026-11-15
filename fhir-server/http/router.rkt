@@ -48,24 +48,55 @@
 ;; ---- the router ----------------------------------------------------------------------------
 (define (handle app method path query body)
   (define segs (path-segments path))
-  (define-values (kind node) (route app method segs query body))
+  (define-values (kind node) (route/format app method segs query body))
   (values (status-of app segs kind node) (and node (node->jsexpr node))))
 
 ;; status-of : app segments kind node -> status   an interaction the app does not offer on a type it
-;; serves is 405 Method Not Allowed (the type exists here); an unknown type or route stays 404
+;; serves is 405 Method Not Allowed (the type exists here); an unknown type or route stays 404; a
+;; format this server does not write is 406 Not Acceptable
 (define (status-of app segs kind node)
   (define s (status-for kind node))
-  (if (and (= s 404) (equal? (issue-code node) "not-supported") (pair? segs)
-           (not (ormap op-seg? segs))
-           (hash-has-key? (app-repositories app) (string->symbol (car segs))))
-      405
-      s))
+  (cond
+    [(eq? kind 'not-acceptable) 406]
+    [(and (= s 404) (equal? (issue-code node) "not-supported") (pair? segs)
+          (not (ormap op-seg? segs))
+          (hash-has-key? (app-repositories app) (string->symbol (car segs))))
+     405]
+    [else s]))
+
+;; ---- the parameters of every interaction -----------------------------------------------------
+;; FHIR defines `_format` (the content type the client asks for) and `_pretty` for all interactions
+;; (https://hl7.org/fhir/http.html#parameters): they are the transport's, never a search's. This
+;; server writes FHIR JSON: `_format` naming JSON is honoured by doing nothing, any other is a 406.
+(define json-formats '("json" "application/json" "application/fhir+json"))
+
+;; format-refused : query -> string | #f   the `_format` asked for when it is not JSON
+(define (format-refused query)
+  (define f (assq '_format query))
+  (and f
+       (let* ([v (cdr f)]
+              ;; a `+` in a query string may arrive decoded as a space (application/fhir json)
+              [mime (string-downcase (string-replace (string-trim (car (string-split (string-append v ";") ";"))) " " "+"))])
+         (and (not (member mime json-formats)) v))))
+
+;; without-transport : query -> query   the query without `_format` and `_pretty`
+(define (without-transport query)
+  (filter (lambda (p) (not (memq (car p) '(_format _pretty)))) query))
+
+;; route/format : app method segments query body -> (values kind node)
+(define (route/format app method segs query body)
+  (define refused (format-refused query))
+  (if refused
+      (values 'not-acceptable
+              (operation-outcome "error" "not-supported"
+                                 (format "_format=~a: this server writes FHIR JSON only (_format=json)" refused)))
+      (route app method segs (without-transport query) body)))
 
 (define fhir-json-type "application/fhir+json; charset=utf-8")
 
 (define (handle/raw app method path query body)
   (define segs (path-segments path))
-  (define-values (kind node) (route app method segs query body))
+  (define-values (kind node) (route/format app method segs query body))
   (define status (status-of app segs kind node))
   (cond
     [(and (eq? kind 'invoke) (fhir? node) (eq? (fhir-type node) 'Binary))
@@ -306,4 +337,19 @@
                           'resourceType)
                 "TerminologyCapabilities")
   ;; parse-query decodes + splits
-  (check-equal? (parse-query "a=1&b=x%20y") '((a . "1") (b . "x y"))))
+  (check-equal? (parse-query "a=1&b=x%20y") '((a . "1") (b . "x y")))
+  ;; _format and _pretty belong to every interaction, not to a search: JSON is honoured, the rest 406
+  (define seen (box #f))
+  (define repo/seen (make-repository #:read (lambda (id) pt)
+                                     #:search (lambda (params) (set-box! seen params) (list pt))))
+  (define app/seen
+    (build-app #:capability (app-capability-statement app) #:operation-definitions '()
+               #:repositories (list (cons 'Patient repo/seen)) #:operations '()))
+  (define (go/seen method path q) (call-with-values (lambda () (handle app/seen method path q "")) list))
+  (check-equal? (car (go/seen "GET" "/Patient" '((gender . "female") (_format . "json") (_pretty . "true")))) 200)
+  (check-false (assq '_format (unbox seen)))
+  (check-false (assq '_pretty (unbox seen)))
+  (check-equal? (car (go/seen "GET" "/Patient/1" '((_format . "application/fhir json")))) 200)
+  (check-equal? (car (go/seen "GET" "/Patient/1" '((_format . "application/fhir+json; fhirVersion=4.0")))) 200)
+  (check-equal? (car (go/seen "GET" "/Patient/1" '((_format . "xml")))) 406)
+  (check-equal? (car (go/seen "GET" "/metadata" '((_format . "json")))) 200))
