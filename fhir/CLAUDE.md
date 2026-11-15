@@ -11,9 +11,12 @@ at run time and say so).
 ## Architecture (bottom-up)
 - **Result, not exceptions** (`result/`): validation returns `(ok v)`/`(err e)`; every error carries
   the `spec-url` it violated.
-- **Canonical value is a typed node** (`model/node.rkt`): one generic `(struct fhir (type fields))`.
+- **Canonical value is a typed node** (`model/node.rkt`): one generic node, `(fhir type fields)`.
   Leaves are primitive newtype instances; nested values are `fhir` nodes. jsexpr is DERIVED
-  (`serialize/to-json.rkt`) — do not reintroduce "jsexpr is the only value".
+  (`serialize/to-json.rkt`) — do not reintroduce "jsexpr is the only value". A lenient read makes
+  LAZY nodes (`lazy-fhir`: fields read when `fhir-fields` first asks, what was left out recorded as
+  `fhir-drops`); always reach the fields through `fhir-fields`/`fhir-ref` (the root CLAUDE.md, "A
+  lenient read is lazy").
 - **Spec-linking registry** (`model/registry.rkt`): `prop:fhir-spec` on values + type/primitive/
   element registries. `from-json`, and future langs, read this.
 - **Compile-time validation** (`lang-gen/form-syntax.rkt`): `build-fhir-form` is the crown jewel —

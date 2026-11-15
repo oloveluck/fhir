@@ -11,9 +11,14 @@
 ;;;
 ;;; A Drop is (list path value): path a string like `item[2].answer[0].valueDate`, value the JSON
 ;;; that was not read.
+;;;
+;;; `node-drops` answers the same from what the read recorded on each node (model/node.rkt
+;;; `fhir-drops`), without writing the node back as JSON; `#:read-only? #t` keeps to the nodes whose
+;;; fields have been read (a lazy node never asked for its fields left nothing out yet) — so after
+;;; an expression ran over a resource, what it could not read on the way.
 
 (require racket/contract racket/list racket/string
-         (only-in "../model/node.rkt" fhir?)
+         (only-in "../model/node.rkt" fhir? fhir-fields fhir-drops fhir-read?)
          (only-in "to-json.rkt" node->jsexpr)
          (only-in "../primitives/temporal.rkt" calendar-problem))
 
@@ -21,6 +26,8 @@
  (contract-out
   ;; lenient-drops : jsexpr node -> (listof Drop)   the values of the JSON the node does not hold
   [lenient-drops (-> any/c fhir? (listof (list/c string? any/c)))]
+  ;; node-drops : node [#:read-only? b] -> (listof Drop)   the same, from what the read recorded
+  [node-drops (->* (fhir?) (#:read-only? boolean?) (listof (list/c string? any/c)))]
   ;; drop->string : Drop -> string   `item[0].answer[0].valueDate ("01/05/1950")`
   [drop->string (-> (list/c string? any/c) string?)]
   ;; drops-message : (listof Drop) type -> string   "<drops> not read: <why>" — the calendar's reason
@@ -29,6 +36,27 @@
 
 (define (lenient-drops js node)
   (missing js (with-handlers ([exn:fail? (lambda (_) (hasheq))]) (node->jsexpr node)) ""))
+
+;; node-drops : node -> (listof Drop)   structural recursion over the node: its own drops and its
+;; nested nodes' (a field's, a list's items'), key by key in the order lenient-drops names them
+(define (node-drops n #:read-only? [read-only? #f])
+  (let walk ([n n] [path ""])
+    (define (at k) (if (string=? path "") (format "~a" k) (format "~a.~a" path k)))
+    (cond
+      [(and read-only? (not (fhir-read? n))) '()]
+      [else
+       (define fields (fhir-fields n))
+       (define own (for/hasheq ([d (in-list (fhir-drops n))]) (values (car d) (cdr d))))
+       (append*
+        (for/list ([k (in-list (sort (remove-duplicates (append (hash-keys own) (hash-keys fields))) symbol<?))])
+          (cond
+            [(hash-has-key? own k) (list (list (at k) (hash-ref own k)))]
+            [else
+             (define v (hash-ref fields k))
+             (cond [(fhir? v) (walk v (at k))]
+                   [(list? v) (append* (for/list ([x (in-list v)] [i (in-naturals)] #:when (fhir? x))
+                                         (walk x (format "~a[~a]" (at k) i))))]
+                   [else '()])])))])))
 
 ;; missing : given held path -> (listof Drop)   structural recursion over the JSON given
 (define (missing given held path)
@@ -89,6 +117,10 @@
   (define node (ok-value (from-json qr #:lenient? #t)))
   ;; the date that does not parse is named, by its path; what was read is not
   (check-equal? (map drop->string (lenient-drops qr node)) '("item[1].answer[0].valueDate (\"01/05/1950\")"))
+  (check-equal? (node-drops node) (lenient-drops qr node))
+  ;; read-only: only what has been read (the resource itself, then its first item)
+  (define fresh (ok-value (from-json qr #:lenient? #t)))
+  (check-equal? (node-drops fresh #:read-only? #t) '())
   (check-equal? (map drop->string (lenient-drops (hasheq 'resourceType "Patient" 'gender "female" 'nmae "x")
                                                  (ok-value (from-json (hasheq 'resourceType "Patient" 'gender "female" 'nmae "x") #:lenient? #t))))
                 '("nmae (\"x\")"))

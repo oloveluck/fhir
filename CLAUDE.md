@@ -2280,6 +2280,40 @@ process that has done that once, opening the workspace afresh and answering take
 - Measured (the MIMIC workspace, a SQL statement over a kept view): 1.2-1.3 s a call -> 0.27-0.36 s
   (the first call, which starts it, as before).
 
+## A lenient read is lazy (2026-11-15)
+FHIRPath is how the family reads a resource (views, search indexing, invariants, CQL's and FML's
+paths, the workspace's queries), and before it can, a resource is read into a typed node. Profiled
+on a view of the MIMIC store's 17,552 MedicationRequests (~5 s): reading the typed nodes leniently
+~1.2 s, comparing what the read dropped ~0.7 s, the JSON ~0.7 s — the view's FHIRPath ~0.2 s.
+- **A lazy node** (`fhir/model/node`: `lazy-fhir`, `fhir-read?`, `fhir-drops`): a lenient read
+  (`from-json #:lenient? #t`) answers a node whose fields are read the first time `fhir-fields` asks,
+  its nested nodes lazy in turn. A lenient read of an object never fails (a field that does not read
+  is left out), so reading it later is the node reading it now: equal (`prop:equal+hash` reads the
+  fields), printed as the transparent struct was, written back as the same JSON. A strict read is
+  eager as before (its errors are its answer). The `fhir` constructor, `fhir?`, `fhir-type`,
+  `fhir-fields`, `fhir-ref`, `fhir-has?` are unchanged; nothing in the family matched on the struct.
+  The lenient flag is an argument threaded through the read (a `parameterize` per node cost ~1 µs).
+- **What a read left out is recorded on the node** (`serialize/from-json.rkt` `lenient-fields`: the
+  keys the type lacks, the values that do not read with their `_key` siblings, a value-less `_key`
+  that does not read; a JSON null is not data), and `fhir/serialize/lenient`'s `node-drops` answers
+  the Drops from those records — `#:read-only? #t` from the nodes read so far — without writing the
+  node back as JSON and comparing (`lenient-drops`, kept: FML's callers use it on small inputs).
+- **SQL on FHIR's read log** asks a resource's node for its drops after the view ran
+  (`read-log-reads`, `node-drops #:read-only? #t`): what the view read and could not, which
+  `unread.rkt`'s chains then filter as before.
+- Held to: every resource of the R4 core, US Core, the eCQM data and the MIMIC sample (66,759) and
+  of the R5 core and HL7's R5 examples (3,064), read leniently, written back as the same JSON with
+  the same `lenient-drops` before and after (a dump, byte-identical); `node-drops` = `lenient-drops`
+  on all of them but one R4 StructureDefinition, where the comparison named two `null` placeholders of
+  a `_targetProfile` list (not data, by its own rule elsewhere). `fhir/tests/lazy-read-test.rkt`:
+  nothing read until asked, a strict read `equal?` to the lenient one and written alike, the two
+  drops agreeing with planted mistakes (4,661 checks).
+- Measured (one machine): reading the 61,396 MIMIC sample resources leniently 2.5 s -> 0.1 s, and
+  2.5 s either way when every node is then read; the MedicationRequest view (uncached, in process)
+  4.9 -> ~4.2 s, its typed reading and drops 1.9 -> ~0.9 s; what is left is the JSON (store reads:
+  ~1.3 s of the JSON reader, ~0.5 s of SQLite). Search indexing reads nearly all of each resource,
+  so it is unchanged (~7 s for the sample, within run-to-run noise).
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.
