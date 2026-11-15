@@ -2338,6 +2338,30 @@ With the typed read lazy, reading a resource out of a store was mostly racket/js
   Measured: reading the 61,396 MIMIC sample resources and every node of them 2.5 -> 2.0 s; the
   MedicationRequest view uncached 4.9 s (before the lazy read) -> 4.2 -> 3.0 s.
 
+## What the speed work bought an agent (2026-11-15)
+The agent pilots (above) were run before the speed work, and 20 questions cannot show it in a score.
+So the work was measured on what agents actually DO: the 78 shell commands the four pilot-3 agents
+issued (from their transcripts), replayed in order on fresh workspaces over the full MIMIC store, one
+machine, back to back, under the code the pilot ran (fhir 9f682fc, fhirpath e24ab32, fsh ee23219, cql
+3357306, sql-on-fhir c2a4e46 — built in a copy) and under today's. Every answer is byte-identical
+(76 of 78; the other two are `ls -la` timestamps): the work changed nothing an agent reads.
+
+| the 78 commands | old (warm disk) | new, no warm process | new |
+|---|---|---|---|
+| total | 272.5 s | 199.5 s | 93.3 s |
+| `query search` (21) | 40.3 | 37.9 | 13.3 |
+| `query find` (8) | 40.7 | 37.7 | 28.1 |
+| `query sql` (7) | 55.9 | 16.0 | 6.0 |
+| `describe Type/id` (14) | 33.4 | 32.7 | 11.2 |
+| a call: median / over 5 s | 2.10 s / 9 | 1.77 s / 3 | 0.61 s / 1 |
+
+(The old code's first, cold-disk run took 319.9 s.) The engine work (views kept, lazy reads, JSON,
+parsers) took 73 s off, mostly SQL over views; the warm process took 106 s more, the start of every
+call. In the pilot the agents spent 265 s of their 726 s in commands; at a third of that, the same
+work takes ~550 s — a quarter less wall time, the same tokens and answers. What is left is model
+time, and one slow kind of call: `query find` over a phrase (`"5% dextrose"`, 18.9 s).
+The replay: scratchpad `replay/replay.py ARM` and `compare.py` (not vendored, like the store).
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.
