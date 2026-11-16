@@ -236,9 +236,9 @@
       (check-regexp-match #rx"has 1 validation error[(]s[)].*discards it[)]:\\\\n  fsh:3: .*femme" text)
       (check-regexp-match #rx"stage[(]drop: \\\\\"stage-[0-9]+\\\\\"[)] discards it" text))
     (call e "stage" (hasheq 'drop bad-stage))
-    ;; a table's rows list their keys in its column order, as the CSV does
+    ;; a table's rows list their keys in its column order, as the CSV does, each row on a line of its own
     (let-values ([(text err?) ((tool-run (hash-ref (tools-of e) "query")) (hasheq 'language "sql" 'text "SELECT id AS zeta, 1 AS alpha FROM Patient LIMIT 1"))])
-      (check-regexp-match #rx"\"rows\":[[][{]\"zeta\":\"[^\"]+\",\"alpha\":1[}]" text))))
+      (check-regexp-match #rx"\"rows\":[[]\n[{]\"zeta\":\"[^\"]+\",\"alpha\":1[}]\n[]]" text))))
 ;; the shell: a call whose answer counts errors exits 1
 (define (shell . words)
   (define out (open-output-string))

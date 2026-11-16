@@ -17,6 +17,7 @@
          (only-in fhir/spec-package spec-package-path)
          (only-in fhir/store/fhir-sqlite open-fhir-store close-fhir-store)
          fhir/store/ig-server
+         (only-in fhir/diagnostic diagnostic-severity)
          fsh/project)
 
 (define mcode-fsh (collection-file-path "tests/vendor/mcode-4.0.0/fsh" "fsh"))
@@ -41,7 +42,8 @@
    (check-true (>= pn 283))
    ;; our package
    (define p (compile-project mcode-fsh))
-   (check-equal? (project-diagnostics p) '())
+   ;; no error (mCODE's four patterns that carry a display are warnings)
+   (check-equal? (filter (lambda (d) (eq? (diagnostic-severity d) 'error)) (project-diagnostics p)) '())
    (define tgz (make-temporary-file "mcode-~a.tgz"))
    (pack-project! p tgz)
    (define-values (srv n rejected) (serve-and-load tgz))
