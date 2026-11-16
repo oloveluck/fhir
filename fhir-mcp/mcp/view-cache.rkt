@@ -26,6 +26,10 @@
   ;; their key is `key`, else computed, written and answered as kept (or as computed when the file
   ;; cannot be written)
   [kept-rows (-> path-string? string? string? (-> table?) (or/c kept? table?))]
+  ;; kept-select : cache-file name key (listof (cons sql-name table-name)) statement -> kept
+  ;; a table DEFINED by a statement over tables already kept in the cache file (each named in the
+  ;; statement by `sql-name`): computed once inside the file, indexed, and answered as kept
+  [kept-select (-> path-string? string? string? (listof (cons/c string? string?)) string? kept?)]
   ;; key-of : any -> string   the SHA-1 of a datum's printed form: a Key from what the rows depend on
   [key-of (-> any/c string?)]))
 
@@ -78,6 +82,40 @@
                  name key tbl (jsexpr->string cols) (length (table-rows t)))))
   (kept file tbl cols))
 
+;; ---- a table defined over kept tables -------------------------------------------------------------
+;; A `<name>.sql` table over views (a join, a GROUP BY for a dictionary of items) was a statement run
+;; again inside every query that named it: over 668,862 chart events, 0.8 s for the dictionary and
+;; as much for the join, per query. Its rows depend only on its statement and on the tables it
+;; reads, so they are kept as a view's are; and a table of some size is indexed on its columns —
+;; what a query filters it by (`stay_id IN (…) AND itemid IN (…)`) is then a lookup.
+
+;; indexed-from : rows above which a kept table's columns are indexed; indexed-columns : how many
+(define indexed-from 2000)
+(define indexed-columns 12)
+
+(define (kept-select file name key deps statement)
+  (with-cache file
+    (lambda (c)
+      (or (held c file name key)
+          (let ([tbl (string-append "t_" key)])
+            (for ([d (in-list deps)])
+              (query-exec c (format "CREATE TEMP VIEW ~a AS SELECT * FROM main.~a" (q (car d)) (q (cdr d)))))
+            (call-with-transaction
+             c
+             (lambda ()
+               (for ([old (in-list (query-list c "SELECT tbl FROM kept WHERE name = ?" name))])
+                 (query-exec c (format "DROP TABLE IF EXISTS main.~a" (q old))))
+               (query-exec c (format "DROP TABLE IF EXISTS main.~a" (q tbl)))
+               (query-exec c (format "CREATE TABLE main.~a AS ~a" (q tbl) statement))
+               (define cols (map (lambda (v) (vector-ref v 1)) (query-rows c (format "PRAGMA main.table_info(~a)" (q tbl)))))
+               (define rows (query-value c (format "SELECT COUNT(*) FROM main.~a" (q tbl))))
+               (when (>= rows indexed-from)
+                 (for ([col (in-list cols)] [i (in-range indexed-columns)])
+                   (query-exec c (format "CREATE INDEX main.~a ON ~a (~a)" (q (format "i_~a_~a" key i)) (q tbl) (q col)))))
+               (query-exec c "INSERT OR REPLACE INTO kept VALUES (?, ?, ?, ?, ?, datetime('now'))"
+                           name key tbl (jsexpr->string cols) rows)
+               (kept file tbl cols))))))))
+
 (module+ test
   (require rackunit (only-in "sql.rkt" sql-query kept-name kept-columns))
   (define dir (make-temporary-directory "view-cache-~a"))
@@ -108,3 +146,29 @@
   (call-with-output-file blocked void)
   (check-true (table? (kept-rows (build-path blocked "views.db") "meds" k1 meds)))
   (delete-directory/files dir))
+(module+ test
+  ;; a table defined over a kept one: computed once, its columns indexed when it is large
+  (define f2 (make-temporary-file "view-cache-select-~a.db"))
+  (define big (kept-rows f2 "current big.view.json" "k-big"
+                         (lambda () (table '("id" "grp") (for/list ([i (in-range 2500)]) (hasheq 'id i 'grp (modulo i 5)))))))
+  (define per (kept-select f2 "sql per.sql" "k-per" (list (cons "big" (kept-name big)))
+                           "SELECT grp, COUNT(*) AS n FROM big GROUP BY grp"))
+  (check-equal? (kept-columns per) '("grp" "n"))
+  (define doubled (kept-select f2 "sql doubled.sql" "k-doubled" (list (cons "big" (kept-name big)))
+                               "SELECT id, id * 2 AS twice FROM big"))
+  (let ([c (sqlite3-connect #:database f2 #:mode 'read-only)])
+    (check-equal? (query-rows c (format "SELECT grp, n FROM ~a ORDER BY grp" (q (kept-name per))))
+                  (for/list ([g (in-range 5)]) (vector g 500)))
+    (check-equal? (query-value c "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND tbl_name = ?" (kept-name doubled)) 2
+                  "2,500 rows: each column indexed")
+    (check-equal? (query-value c "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND tbl_name = ?" (kept-name per)) 0
+                  "five rows: none")
+    (disconnect c))
+  ;; asked again under the same key: the same table, not made again; a new key replaces it
+  (check-equal? (kept-select f2 "sql per.sql" "k-per" (list (cons "big" (kept-name big))) "SELECT 1 AS never_run") per)
+  (define per2 (kept-select f2 "sql per.sql" "k-per2" (list (cons "big" (kept-name big))) "SELECT COUNT(*) AS n FROM big"))
+  (let ([c (sqlite3-connect #:database f2 #:mode 'read-only)])
+    (check-equal? (query-list c "SELECT tbl FROM kept WHERE name = 'sql per.sql'") (list (kept-name per2)))
+    (check-false (query-maybe-value c "SELECT name FROM sqlite_master WHERE name = ?" (kept-name per)) "the earlier table is dropped")
+    (disconnect c))
+  (delete-file f2))

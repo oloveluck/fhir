@@ -133,10 +133,12 @@
   (if (not stamp)
       (compute)
       (kept-rows (build-path (hub-root h) ".fhir-mcp" "views.db")
-                 (format "~a ~a" kind (path->string f))
+                 ;; named by its place in the workspace, not on the disk: a copy of the workspace
+                 ;; (with a copy of, or a link to, this file) reads the rows already made
+                 (format "~a ~a" kind (rel h f))
                  (key-of (list 'view-cache 1 kind (file->string f)
                                (ws-config-fhir-version (workspace-config (hub-ws h))) (hub-packages h)
-                               stamp (files-stamp (definition-files h)) (engine-stamp)))
+                               stamp (files-stamp (definition-files h) h) (engine-stamp)))
                  compute)))
 
 ;; view-resource : view-file -> type   the resource type a ViewDefinition reads
@@ -169,9 +171,10 @@
 (define (definition-files h)
   (filter (lambda (f) (not (member (workspace-language-of f) '("sql" "sql-on-fhir")))) (workspace-files (hub-ws h))))
 
-(define (files-stamp fs)
+(define (files-stamp fs [h #f])
   (sort (for/list ([f (in-list fs)] #:when (file-exists? f))
-          (list (path->string f) (file-size f) (file-or-directory-modify-seconds f)))
+          ;; a workspace's files by their place in it (a copy of the workspace has the same stamp)
+          (list (if h (rel h f) (path->string f)) (file-size f) (file-or-directory-modify-seconds f)))
         string<? #:key car))
 
 ;; engine-stamp : -> string   the source of what computes a view's rows (sql-on-fhir, fhirpath, the
@@ -233,15 +236,35 @@
               (cons (regexp-replace #rx"^result://" (car u+st) "") (result-table (cdr u+st))))
             (for/list ([u+st (in-list tabular)] #:when (hash-ref (stored-options (cdr u+st)) 'name #f))
               (cons (hash-ref (stored-options (cdr u+st)) 'name) (result-table (cdr u+st))))))
-  ;; a table a `<name>.sql` file defines: its statement over the views, under the file's name
-  (define defined-tables
-    (for/list ([f (in-list (workspace-files (hub-ws h)))] #:when (equal? (workspace-language-of f) "sql"))
-      (define name (file-stem f))
-      (when (assoc name views)
-        (error 'sql (format "~a and a view are both named ~a: a table has one definition" (rel h f) name)))
-      (cons name (lambda () (defined (file->string f))))))
+  ;; Every table is asked for at most once in a statement (a view's thunk reads the data's stamp).
+  (define (once thunk) (let ([p (delay (thunk))]) (lambda () (force p))))
+  (define tables (make-hash))
+  (for ([nt (in-list (append (builtin-tables h) (current-extra-tables) results history-views views))])
+    (hash-set! tables (car nt) (once (cdr nt))))
+  ;; A table a `<name>.sql` file defines: its statement over the views, under the file's name.
+  ;; When every table it reads is kept (views over a store, other such tables), its rows are kept
+  ;; too — computed once and indexed (view-cache.rkt `kept-select`), under a key of its statement
+  ;; and of the tables it read; otherwise (it reads a result, the store's own tables, or it does
+  ;; not run) it is the statement itself, run inside each query, where its errors are said.
+  (define cache (build-path (hub-root h) ".fhir-mcp" "views.db"))
+  (for ([f (in-list (workspace-files (hub-ws h)))] #:when (equal? (workspace-language-of f) "sql"))
+    (define name (file-stem f))
+    (when (assoc name views)
+      (error 'sql (format "~a and a view are both named ~a: a table has one definition" (rel h f) name)))
+    (hash-set! tables name
+               (once (lambda ()
+                       (define body (file->string f))
+                       (with-handlers ([exn:fail? (lambda (_) (defined body))])
+                         (define read (for/list ([d (in-list (tables-named body (remove name (hash-keys tables))))])
+                                        (cons d ((hash-ref tables d)))))
+                         (if (and (reading? body) (pair? read) (andmap (lambda (r) (kept? (cdr r))) read))
+                             (let ([deps (sort (for/list ([r (in-list read)]) (cons (car r) (kept-name (cdr r)))) string<? #:key car)])
+                               (kept-select cache (format "sql ~a" (rel h f))
+                                            (key-of (list 'sql-table 1 (statement body) deps))
+                                            deps (statement body)))
+                             (defined body)))))))
   (define t (with-handlers ([exn:fail:user? (lambda (e) (error 'sql (regexp-replace #rx"^sql: " (exn-message e) "")))])
-              (sql-query text (make-immutable-hash (append (builtin-tables h) (current-extra-tables) results history-views views defined-tables))
+              (sql-query text (for/hash ([(n th) (in-hash tables)]) (values n th))
                          #:database (data-store-path h))))
   (run-result "table" (table-columns t) (table-rows t) (hasheq 'rows (length (table-rows t)))))
 

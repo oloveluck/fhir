@@ -2575,6 +2575,16 @@ the store by an agent, and the benchmark's own queries become the test. What the
   with every workspace file in the key, an edit to a `.sql` table computed every view again —
   three minutes for a view over the 813,540 Observations (668,862 chart events: 2 min 59 s once,
   5 GB; then 1.4 s a query from the shell).
+- **A `.sql` table's rows are kept and indexed** (`view-cache.rkt` `kept-select`, `run.rkt`): when
+  every table it reads is kept (views over a store, other such tables), it is computed once inside
+  `.fhir-mcp/views.db`, under a key of its statement and of the tables it read, and a table of
+  2,000 rows or more is indexed on its columns. As a statement run inside every query, a dictionary
+  of items (a GROUP BY over 668,862 chart events) cost 0.8 s a query and the join as much: an
+  agent's full check of 2,098 queries took over half an hour. Kept rows are named by the file's
+  place in the workspace, so a copy of a workspace with a copy of (or a link to) `views.db` reads
+  them. Learned again while building it: the engine stamp counts fhir-mcp's own `mcp/` sources, so
+  editing them while another process uses a workspace makes two keys for one view, and the two
+  processes drop each other's tables.
 - **`raco fhir guide tables`** (`learn/tables.md`): the steps, what goes where (joins, casts and
   renames in `.sql`, which cost nothing to change), a worked example the test takes its files
   from, what goes wrong (a column on another resource, times as the record wrote them).
