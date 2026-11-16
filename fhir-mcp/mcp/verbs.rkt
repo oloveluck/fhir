@@ -30,6 +30,12 @@
     (define v (thunk))
     (values (if (text-answer? v) (text-answer-text v) (answer-json v)) #f)))
 
+;; row-lines : (listof string) -> string   a table's rows as a JSON array, one row to a line: the
+;; answer is still one JSON text, and `grep`, `head -n` and a reader see a row at a time (one long
+;; line had agents pipe every table through python, or `head -c 3000`, a call each)
+(define (row-lines rows)
+  (string-append "[\n" (string-join rows ",\n") "\n]"))
+
 ;; answer-json : jsexpr -> string   JSON text in which a table's rows list their keys in the table's
 ;; column order (`rows` beside `columns`), as the CSV does: a hash's keys come out in no order, and a
 ;; reader of `{"mean_diastolic": …, "mean_systolic": …, "patient": …}` reads the columns backwards
@@ -51,15 +57,20 @@
                      (andmap (lambda (k) (memq k '(system version code display userSelected))) ks))
                 '(system version code display userSelected)]
                [else #f]))
-       (define keys (cond [order (append (filter (lambda (k) (hash-has-key? v k)) order)
-                                         (sort (filter (lambda (k) (not (memq k order))) ks) symbol<?))]
-                          [datatype-order (filter (lambda (k) (hash-has-key? v k)) datatype-order)]
-                          [else (key-order ks)]))          ; resourceType, id, meta first, as FHIR writes them
+       (define keys
+         (let ([ks (cond [order (append (filter (lambda (k) (hash-has-key? v k)) order)
+                                        (sort (filter (lambda (k) (not (memq k order))) ks) symbol<?))]
+                         [datatype-order (filter (lambda (k) (hash-has-key? v k)) datatype-order)]
+                         [else (key-order ks)])])          ; resourceType, id, meta first, as FHIR writes them
+           ;; a table's rows last, after what is said of them all
+           (if cols (append (remq 'rows ks) (if (memq 'rows ks) '(rows) '())) ks)))
        (string-append
         "{"
         (string-join (for/list ([k (in-list keys)])
                        (string-append (jsexpr->string (symbol->string k)) ":"
-                                      (loop (hash-ref v k) (and (eq? k 'rows) cols))))
+                                      (if (and cols (eq? k 'rows) (list? (hash-ref v k)) (pair? (hash-ref v k)))
+                                          (row-lines (for/list ([r (in-list (hash-ref v k))]) (loop r cols)))
+                                          (loop (hash-ref v k) (and (eq? k 'rows) cols)))))
                      ",")
         "}")]
       [(list? v) (string-append "[" (string-join (for/list ([x (in-list v)]) (loop x order)) ",") "]")]

@@ -6,7 +6,9 @@
 ;;;                                      serve on stdin/stdout (one JSON line per message): the nine
 ;;;                                      workspace tools over <dir> (default: the current directory),
 ;;;                                      configured by its workspace.yaml; --package and --data add to and
-;;;                                      override it
+;;;                                      override it; --verbs query,describe offers only those tools
+;;;                                      (each definition is in every turn's context: a client that only
+;;;                                      reads pays for two of nine)
 ;;;   raco fhir-mcp tools [same flags]   the tools offered, with their schemas (JSON)
 ;;;   raco fhir-mcp call <tool> ['<json arguments>'] [same flags]   run one tool, print its text (exit 1 on error)
 ;;;   raco fhir-mcp batch [<file> | -] [same flags]   many calls in one process, one per line
@@ -17,13 +19,14 @@
 (require (only-in "mcp/init.rkt" init-workspace!)
          racket/list racket/string racket/port racket/file json
          (only-in fhir/subcommands run-subcommands usage-error)
+         (only-in fhir/suggest did-you-mean)
          "mcp/server.rkt" "mcp/tools.rkt" "mcp/workspace.rkt" "mcp/verbs.rkt"
          racket/match (only-in "mcp/resources.rkt" current-result-resources learn-topics learn-text guide-blocks guide-block-text)
          (only-in "mcp/trail.rkt" current-agent))
 
 (provide call-command batch-command)   ; for the warm process (mcp-daemon.rkt)
 
-(define flags "[--workspace <dir>] [--package <tgz|name>]… [--data <dir|file|url>] [--indent]")
+(define flags "[--workspace <dir>] [--package <tgz|name>]… [--data <dir|file|url>] [--verbs v,…] [--indent]")
 (define usages
   `(("serve" ,(format "raco fhir-mcp [serve] ~a   the server over stdin/stdout" flags))
     ("tools" ,(format "raco fhir-mcp tools ~a   the tools and their schemas" flags))
@@ -33,10 +36,10 @@
     ("init"  "raco fhir-mcp init [<dir>] [--fhir-version 4.0.1|5.0.0]   make a directory a workspace an agent can use: workspace.yaml (data: fhir.db, a SQLite FHIR store), .mcp.json, CLAUDE.md")
     ("guide" "raco fhir-mcp guide [<topic> [--blocks | --block N|name]]   a guide (learn://<topic>) as text, its code blocks listed, or one (to save as a file); without a topic, the topics")))
 
-;; An Opts is (opts workspace packages data rest indent?)
-(struct opts (workspace packages data rest indent?))
+;; An Opts is (opts workspace packages data rest indent? verbs), verbs #f (all) or a list of names
+(struct opts (workspace packages data rest indent? verbs))
 (define (read-flags args)
-  (let loop ([as args] [o (opts #f '() #f '() #f)])
+  (let loop ([as args] [o (opts #f '() #f '() #f #f)])
     (match-args as o loop)))
 (define (match-args as o loop)
   (cond [(null? as) (struct-copy opts o [packages (reverse (opts-packages o))] [rest (reverse (opts-rest o))])]
@@ -44,6 +47,8 @@
         [(and (equal? (car as) "--package") (pair? (cdr as))) (loop (cddr as) (struct-copy opts o [packages (cons (cadr as) (opts-packages o))]))]
         [(and (equal? (car as) "--data") (pair? (cdr as))) (loop (cddr as) (struct-copy opts o [data (cadr as)]))]
         [(equal? (car as) "--indent") (loop (cdr as) (struct-copy opts o [indent? #t]))]
+        [(and (equal? (car as) "--verbs") (pair? (cdr as)))
+         (loop (cddr as) (struct-copy opts o [verbs (string-split (cadr as) ",")]))]
         [else (loop (cdr as) (struct-copy opts o [rest (cons (car as) (opts-rest o))]))]))
 
 ;; with-workspace : opts (hub tools -> any) -> any   the hub opened, its context and results in place
@@ -51,9 +56,20 @@
   (define dir (or (opts-workspace o) (current-directory)))
   (unless (directory-exists? dir) (eprintf "fhir-mcp: no such directory: ~a\n" dir) (exit 2))
   (define h (open-hub dir #:data (opts-data o) #:packages (opts-packages o)))
-  (define tools (workspace-tools h))
+  (define tools (offered (workspace-tools h) (opts-verbs o)))
   (parameterize ([current-result-resources (cons (lambda () (hub-result-uris h)) (lambda (u) (hub-read-result h u)))])
     (with-hub h (lambda () (k h tools)))))
+
+;; offered : (listof Tool) (listof string) | #f -> (listof Tool)   the tools --verbs names, in the
+;; workspace's order; a name that is no verb is a usage error naming the verbs
+(define (offered tools names)
+  (cond [(not names) tools]
+        [else
+         (define known (map tool-name tools))
+         (for ([n (in-list names)] #:unless (member n known))
+           (eprintf "fhir-mcp: --verbs: `~a` is not a verb~a (the verbs: ~a)\n" n (did-you-mean n known) (string-join known ", "))
+           (exit 2))
+         (filter (lambda (t) (member (tool-name t) names)) tools)]))
 
 ;; only-flags : command opts -> opts   a word that is not a flag is a usage error
 (define (only-flags cmd o)
@@ -316,6 +332,11 @@
 
 (module+ test
   (require rackunit racket/file)
+  ;; --verbs keeps the named tools, in the workspace's order
+  (let ([ts (for/list ([n '("query" "describe" "stage")]) (tool n "" (hasheq) void))])
+    (check-equal? (map tool-name (offered ts '("describe" "query"))) '("query" "describe"))
+    (check-equal? (length (offered ts #f)) 3)
+    (check-equal? (opts-verbs (read-flags '("--verbs" "query,describe"))) '("query" "describe")))
   ;; key=@file reads the file's text and keeps its name, so a stage's errors name the file
   (define f (make-temporary-file "args-~a.fsh"))
   (with-output-to-file f #:exists 'truncate (lambda () (display "Instance: x\nInstanceOf: Patient\n")))

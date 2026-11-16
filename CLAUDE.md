@@ -2437,6 +2437,20 @@ a patient (task1: 47k against 33k). From the agents' transcripts:
   to `…/-home-user-0fe…/` and could not read them back (8 of 300 workspace tasks, 21 of 300 MCP).
   The MedAgentBench prompt's example searched `patient=S…` where the card writes
   `patient=Patient/<id>`, and agents tried both: it writes the card's form now.
+Where the tokens are now (round 3, `analysis/tokens.rkt` over the transcripts): on MedAgentBench a
+workspace task's tool answers are ~150 tokens; the rest is the ~11k-token context each turn re-reads
+(Claude Code's prompt, the benchmark's function list, the card), so turns are what is left to cut.
+On FHIR-AgentBench a search answer averaged 2.7k characters, a third of the calls were piped through
+`head`/`jq`/`python` (one line of JSON), and the context grows ~4k over a question. So:
+- **A table's rows one to a line** (verbs.rkt `row-lines`; `rows` last, after what is said of them
+  all): still one JSON text, and `grep`, `head -n` read a row at a time.
+- **`raco fhir-mcp --verbs query,describe`** (mcp-cli.rkt `offered`): an MCP client is offered only
+  the named tools; every definition is in every turn's context (nine: 12.8k bytes; those two: 3.6k).
+  The benchmarks' MCP arm uses it (it only reads; posts and answers are files).
+- The card says SQL reads an earlier result (`FROM r2 WHERE …`: count, sum, filter in one call);
+  agents did it with a python pass over the JSON.
+Measured and not done: rows as arrays (−10%), the type said once (−5%), a legend for repeated long
+references (−7%): agents copy `Type/id` from the rows into their answers, so ids stay whole.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
