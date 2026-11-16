@@ -35,6 +35,7 @@
     (lambda ()
       (cond
         [(equal? lang "fhir") (run-json h text opts)]
+        [(equal? lang "sql") (run-sql h text)]
         [(equal? lang "search") (run-search h text opts)]
         [(equal? lang "find") (run-find h text)]
         [else (define sup (support-for lang))
@@ -135,7 +136,7 @@
                  (format "~a ~a" kind (path->string f))
                  (key-of (list 'view-cache 1 kind (file->string f)
                                (ws-config-fhir-version (workspace-config (hub-ws h))) (hub-packages h)
-                               stamp (files-stamp (workspace-files (hub-ws h))) (engine-stamp)))
+                               stamp (files-stamp (definition-files h)) (engine-stamp)))
                  compute)))
 
 ;; view-resource : view-file -> type   the resource type a ViewDefinition reads
@@ -160,6 +161,14 @@
                        (lambda () (disconnect c))))))
 
 ;; files-stamp : (listof path) -> (listof (list string size seconds))
+;; definition-files : hub -> (listof path)   the workspace's files a view's rows could depend on:
+;; those that define something a path may resolve (a profile, a value set, a code system). Not the
+;; other views, nor the tables defined over them: writing one of those changes no row of this view,
+;; and with them in the key every edit of a `.sql` file computed every view again — minutes, over
+;; a store of 800,000 observations.
+(define (definition-files h)
+  (filter (lambda (f) (not (member (workspace-language-of f) '("sql" "sql-on-fhir")))) (workspace-files (hub-ws h))))
+
 (define (files-stamp fs)
   (sort (for/list ([f (in-list fs)] #:when (file-exists? f))
           (list (path->string f) (file-size f) (file-or-directory-modify-seconds f)))
@@ -224,8 +233,15 @@
               (cons (regexp-replace #rx"^result://" (car u+st) "") (result-table (cdr u+st))))
             (for/list ([u+st (in-list tabular)] #:when (hash-ref (stored-options (cdr u+st)) 'name #f))
               (cons (hash-ref (stored-options (cdr u+st)) 'name) (result-table (cdr u+st))))))
+  ;; a table a `<name>.sql` file defines: its statement over the views, under the file's name
+  (define defined-tables
+    (for/list ([f (in-list (workspace-files (hub-ws h)))] #:when (equal? (workspace-language-of f) "sql"))
+      (define name (file-stem f))
+      (when (assoc name views)
+        (error 'sql (format "~a and a view are both named ~a: a table has one definition" (rel h f) name)))
+      (cons name (lambda () (defined (file->string f))))))
   (define t (with-handlers ([exn:fail:user? (lambda (e) (error 'sql (regexp-replace #rx"^sql: " (exn-message e) "")))])
-              (sql-query text (make-immutable-hash (append (builtin-tables h) (current-extra-tables) results history-views views))
+              (sql-query text (make-immutable-hash (append (builtin-tables h) (current-extra-tables) results history-views views defined-tables))
                          #:database (data-store-path h))))
   (run-result "table" (table-columns t) (table-rows t) (hasheq 'rows (length (table-rows t)))))
 

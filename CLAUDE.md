@@ -2557,6 +2557,32 @@ Not built: an `asof` on search itself (every search of a session bounded by one 
 be a tenth property on two tools whose definitions are at their byte ceiling, for what one
 `date=le…` says.
 
+## A relational schema over FHIR data (2026-11-16)
+The owner: "The 3rd party benchmarks are source of truth", and "When given data in a relational
+schema that I want to compute against directly, the agent should define the view definitions."
+FHIR-AgentBench's answers are SQL over MIMIC-IV's tables (EHRSQL's questions; 15 tables, about 45
+columns, 76 templates); its agents get the FHIR export. So the schema's tables are defined over
+the store by an agent, and the benchmark's own queries become the test. What the toolkit lacked:
+- **A table defined by SQL over the views** (fhir-mcp `sql.rkt` `defined`, `run.rkt` `run-sql`;
+  `fhir/lang/workspace` reads `.sql` as the language "sql"). A ViewDefinition reads ONE resource
+  type; a schema's `admissions` has the patient's number, which is on the Patient. A workspace file
+  `<name>.sql` is the table `<name>`: one reading statement over the views and other such tables
+  (a TEMP view made after the tables it names, transitively), so a query written for the schema
+  runs unchanged. `run path=x.sql` runs it; a file that is not one reading statement is a problem
+  when it is written; a column its views lack is said when the table is used; a view and a `.sql`
+  file of one name are refused. `tests/sql-tables-test.rkt`.
+- **A kept view's key no longer counts the other views and the `.sql` files** (`definition-files`):
+  with every workspace file in the key, an edit to a `.sql` table computed every view again —
+  three minutes for a view over the 813,540 Observations (668,862 chart events: 2 min 59 s once,
+  5 GB; then 1.4 s a query from the shell).
+- **`raco fhir guide tables`** (`learn/tables.md`): the steps, what goes where (joins, casts and
+  renames in `.sql`, which cost nothing to change), a worked example the test takes its files
+  from, what goes wrong (a column on another resource, times as the record wrote them).
+In fhir-examples (`agent-bench/fab/`): `schema.md` (the schema, in MIMIC's words),
+`check-tables.rkt` (the benchmark's train-split queries asked of a workspace, unchanged, each
+answer compared; per table, failures grouped by error), `setup-tables.rkt` (the agent that
+writes the tables).
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

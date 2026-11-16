@@ -72,8 +72,8 @@
  (struct-out workspace) (struct-out ws-config) (struct-out ws-support) (struct-out run-result)
  (contract-out
   [workspace-languages (listof string?)]
-  ;; workspace-language-of : path -> id | "fhir" | #f   a ViewDefinition is `*.view.json`; any other
-  ;; `.json` is a FHIR resource
+  ;; workspace-language-of : path -> id | "fhir" | "sql" | #f   a ViewDefinition is `*.view.json`;
+  ;; any other `.json` is a FHIR resource; a `.sql` file is a table defined over the views
   [workspace-language-of (-> path-string? (or/c string? #f))]
   ;; workspace-support : id -> ws-support|#f   loaded from `<id>/workspace`; #f when not installed
   [workspace-support (-> string? (or/c ws-support? #f))]
@@ -140,6 +140,8 @@
         [(regexp-match? #rx"[.]view[.]json$" s) "sql-on-fhir"]
         [(regexp-match? #rx"[.]capability[.]rkt$" s) "capability"]
         [(regexp-match? #rx"[.]json$" s) "fhir"]
+        ;; a table defined by one SQL statement over the workspace's views (fhir-mcp reads it)
+        [(regexp-match? #rx"[.]sql$" s) "sql"]
         [else (language-id-of p)]))
 
 (define loaded (make-hash))

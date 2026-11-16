@@ -60,6 +60,7 @@ follow in "Correcting a stored resource".
 | `*.vcl` | one ValueSet Compose Language expression | the value set's expansion | `learn://vcl` |
 | `*.map`, `*.fml` | FHIR Mapping Language | each source resource transformed, the result validated | `learn://fml` |
 | `*.view.json` | a SQL on FHIR ViewDefinition | its rows | `learn://sql-on-fhir` |
+| `*.sql` | a table defined by one `SELECT` over the views (a join, the columns a schema asks for) | its rows | `learn://tables` |
 | `*.capability.rkt` | a FHIR server (`#lang fhir/capability`): resources, interactions, search parameters, operations | the server, started over the workspace's store; its url | `learn://capability` |
 | `*.json` | any FHIR resource | a Measure is evaluated; anything else validated | — |
 

@@ -15,13 +15,17 @@
 ;;; a boolean as 1/0, null as NULL. Tables are given as thunks, so only the ones a query names are
 ;;; computed. A thunk may answer a Kept table instead — (kept file name columns), rows already
 ;;; written to table `name` of the SQLite file `file` (view-cache.rkt keeps a view's rows between
-;;; calls): it is attached read-only and read in place, nothing loaded.
+;;; calls): it is attached read-only and read in place, nothing loaded. Or a Defined table —
+;;; (defined sql): a reading statement over other tables, which becomes a TEMP view of that name
+;;; after the tables IT names are there (a workspace's `<name>.sql` file: a join of views under the
+;;; column names a schema asks for).
 
 (require racket/contract racket/list racket/string racket/file racket/match json db (only-in fhir/suggest did-you-mean)
          (only-in fhir/serialize/fast-json fast-string->jsexpr fast-bytes->jsexpr fast-read-json))
 
 (provide
- (struct-out table) (struct-out kept)
+ (struct-out table) (struct-out kept) (struct-out defined)
+ (contract-out [reading? (-> string? boolean?)] [statement (-> string? string?)])
  (contract-out
   ;; cell-in : jsexpr -> sql value   how a cell is written (a collection as its JSON text, a boolean 1/0)
   [cell-in (-> any/c any/c)]
@@ -43,6 +47,8 @@
 (struct table (columns rows) #:transparent)
 ;; A Kept is (kept file name columns): a table already written to table `name` of SQLite file `file`
 (struct kept (file name columns) #:transparent)
+;; A Defined is (defined sql): the table a reading statement over other tables answers
+(struct defined (sql) #:transparent)
 
 (define (tables-named sql names)
   (for/list ([n (in-list names)]
@@ -56,10 +62,14 @@
              #:when (regexp-match? (pregexp (string-append "(?i:(?:\\bfrom|\\bjoin|,)\\s+\"?" (regexp-quote n) "\"?(?![A-Za-z0-9_]))")) sql))
     n))
 
+;; statement : sql -> sql   the statement without the `-- …` comment lines that lead it (a guide's
+;; block names itself with one) and without a closing `;`
+(define (statement sql)
+  (string-trim (regexp-replace #px";\\s*$" (string-trim (regexp-replace #px"^(?:\\s*--[^\n]*\n)+" sql "")) "")))
+
 ;; reading? : sql -> boolean   one statement that reads
 (define (reading? sql)
-  ;; leading `-- …` comment lines are not the statement (a guide's block names itself with one)
-  (define s (string-trim (regexp-replace #px";\\s*$" (string-trim (regexp-replace #px"^(?:\\s*--[^\n]*\n)+" sql "")) "")))
+  (define s (statement sql))
   (and (regexp-match? #px"(?i:^(select|with|values)\\b)" s)
        (not (regexp-match? #px";" (regexp-replace* #px"'(?:[^']|'')*'" s "")))))
 
@@ -75,15 +85,27 @@
      (when (and (null? names) (null? (tables-named sql types)))
        (raise-user-error 'sql (format "the statement names none of the tables: ~a" (string-join (sort (append (hash-keys tables) types) string<?) ", "))))
      (define attached (make-hash))                       ; file -> schema name
-     (for ([n (in-list names)])
-       (match ((hash-ref tables n))
-         [(kept file name cols) (view-kept! c n file name cols attached)]
-         [t (load-table! c n t #:temp? (and store #t))]))
+     ;; ensure! : name -> void   the table is there, made once; a Defined one after the tables its
+     ;; statement names (two that name each other are SQLite's to refuse)
+     (define made (make-hash))
+     (define (ensure! n)
+       (unless (hash-ref made n #f)
+         (hash-set! made n #t)
+         (match ((hash-ref tables n))
+           [(kept file name cols) (view-kept! c n file name cols attached)]
+           [(defined body)
+            (unless (reading? body)
+              (raise-user-error 'sql (format "the table ~a is defined by one SELECT (or WITH … SELECT) statement" n)))
+            (for-each ensure! (tables-named body (remove n (hash-keys tables))))
+            (with-handlers ([exn:fail:sql? (lambda (e) (raise-user-error 'sql (format "in the table ~a: ~a" n (sql-message e))))])
+              (query-exec c (format "CREATE TEMP VIEW ~a AS ~a" (q n) (statement body))))]
+           [t (load-table! c n t #:temp? (and store #t))])))
+     (for-each ensure! names)
      ;; the tables the statement reads (after FROM or JOIN): a column named `patient` is not the
      ;; `Patient` table (SQL names ignore case), so a column hint listed a table never named
      (define named (tables-read sql (remove-duplicates (append names (tables-named sql types)))))
      (define r (with-handlers ([exn:fail:sql? (lambda (e) (raise-user-error 'sql (with-columns (sql-message e) c named)))])
-                 (query c (regexp-replace #px";\\s*$" (string-trim sql) ""))))
+                 (query c (statement sql))))
      (define cols (for/list ([h (in-list (rows-result-headers r))]) (cdr (assq 'name h))))
      (table cols
             (for/list ([v (in-list (rows-result-rows r))])

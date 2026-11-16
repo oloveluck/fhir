@@ -18,7 +18,7 @@
   ;; constraints: writing it is a new configuration too
   (define guide? (equal? (path-string full) (path-string (simplify-path (build-path (hub-root h) ig-file-name)))))
   (unless (or config? lang)
-    (error 'write (format "~a is not a file of the workspace's languages (.fsh .cql .fhirpath .vcl .map/.fml .view.json .json sushi-config.yaml) or workspace.yaml" p)))
+    (error 'write (format "~a is not a file of the workspace's languages (.fsh .cql .fhirpath .vcl .map/.fml .view.json .sql .json sushi-config.yaml) or workspace.yaml" p)))
   (cond
     [(string=? (string-trim text) "")
      (when (file-exists? full) (delete-file full))]

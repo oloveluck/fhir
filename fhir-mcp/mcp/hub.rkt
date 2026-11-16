@@ -20,6 +20,7 @@
 ;;; workspace.rkt is their contracted interface.
 
 (require racket/list racket/string racket/file racket/path racket/match json fhir/lang/workspace
+         (only-in "sql.rkt" reading?)
          (only-in fhir/serialize/fast-json fast-string->jsexpr fast-bytes->jsexpr fast-read-json)
          (only-in fhir/serialize/json-position json-path-location)
          (only-in fhir/diagnostic diagnostic loc loc-source loc-line loc-column diagnostic-loc diagnostic-severity
@@ -312,6 +313,14 @@
   (for/fold ([acc (hash)]) ([f (in-list (workspace-files (hub-ws h)))])
     (hash-update acc (workspace-language-of f) (lambda (l) (append l (list (cons f (file->string f))))) '())))
 
+;; sql-problems : files -> diagnostics   a `<name>.sql` file defines the table `<name>`: one reading
+;; statement over the views (and other tables). Whether its tables and columns exist is said when
+;; it is run: finding out means computing the views it names.
+(define (sql-problems files)
+  (for/list ([f (in-list files)] #:unless (reading? (cdr f)))
+    (diagnostic 'sql 'parse 'error "a .sql file defines a table by one SELECT (or WITH … SELECT) statement"
+                (loc (path-string (car f)) 1 1 #f #f))))
+
 ;; json-artifacts : workspace files -> (values resources diagnostics)   the workspace's FHIR JSON
 (define (json-artifacts ws files)
   (for/fold ([rs '()] [ds '()] #:result (values (reverse rs) ds)) ([f (in-list files)])
@@ -357,7 +366,7 @@
         ;; others (the implementation guide lists them) is computed again when that changes
         (define earlier '())
         (append*
-         (for/list ([lang (in-list (cons "fhir" workspace-languages))])
+         (for/list ([lang (in-list (append '("fhir") workspace-languages '("sql")))])
            (define files (hash-ref by-lang lang '()))
            (define was (hash-ref (hub-cache h) lang #f))
            (define basis (if (and (not (equal? lang "fhir")) (workspace-composes? lang)) earlier '()))
@@ -367,6 +376,7 @@
                [(and was (equal? (compiled-files was) files) (same-resources? (compiled-basis was) basis))
                 (values (compiled-resources was) (compiled-diagnostics was))]
                [(equal? lang "fhir") (json-artifacts ws files)]
+               [(equal? lang "sql") (values '() (sql-problems files))]
                [else
                 (define sup (workspace-support lang))
                 (if sup
