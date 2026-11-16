@@ -38,9 +38,12 @@
 
 ;; type-slots : type -> (listof Slot)   what a type's rows say beyond the common slots: an
 ;; Encounter's identifier (a dataset often tells a hospital stay from an ICU stay by its system)
-;; and the stay it is part of
+;; and the stay it is part of; a Patient's identifier
 (define type-slots
-  (hash "Encounter" '((identifier) (partOf))))
+  (hash "Encounter" '((identifier) (partOf))
+        ;; a patient's identifier (an MRN): a search found the patient and every reader asked for
+        ;; the whole resource to read it
+        "Patient" '((identifier))))
 
 ;; leading-slots : type -> (listof Slot)   said before the common slots' date: a prescription's
 ;; validity period — when it is to be given, from and until — ahead of `authoredOn`, when it was
@@ -255,6 +258,10 @@
   (check-equal? (digest (hasheq 'resourceType "Patient" 'gender "female" 'birthDate "1960-01-01"
                                 'name (list (hasheq 'family "Ng" 'given '("Ann" "Marie")) (hasheq 'family "Lee"))))
                 '((name . "Ann Marie Ng (+1)") (birthDate . "1960-01-01") (gender . "female")))
+  ;; its identifier (an MRN), so the row answers "which patient" without the whole resource
+  (check-equal? (digest (hasheq 'resourceType "Patient" 'birthDate "1953-11-19"
+                                'identifier (list (hasheq 'system "http://hospital.example/mrn" 'value "S6200102"))))
+                '((birthDate . "1953-11-19") (identifier . "S6200102 (mrn)")))
   (check-equal? (digest (hasheq 'resourceType "Encounter" 'status "finished" 'class (hasheq 'code "AMB")
                                 'period (hasheq 'start "2125-01-01") 'subject (hasheq 'reference "Patient/p")))
                 '((class . "AMB") (period . "2125-01-01 – …") (status . "finished") (subject . "Patient/p")))

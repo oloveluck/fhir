@@ -2419,6 +2419,25 @@ Each change is generic FHIR or generic workspace behaviour, tested:
   the fast JSON reader: a 1,000-Observation page takes about what HAPI's does.
 Results: fhir-examples `agent-bench/results/`.
 
+## Compared by tokens (2026-11-16)
+The benchmarks are compared by input tokens an item costs (every turn re-reads its context), then
+turns; cost last, since prompt caching made the same tokens cost $12.19 in one run and $4.94 in the
+next (fhir-examples `agent-bench/report.rkt` leads with tokens, MedAgentBench by task kind too).
+By kind, the workspace lost to curl where an answer was "none" (task10: 73k against 38k tokens) or
+a patient (task1: 47k against 33k). From the agents' transcripts:
+- **An empty search explains itself** (mcp/run.rkt `with-alone`): with the store answering and no
+  match, the summary lists what each parameter matches on its own (`patient=Patient/S62…: 4752`,
+  `code=A1C: 244`) and says the answer is none, or names the parameter that matches nothing and
+  points at `find`. Agents searched five ways (`patient=S…`, `code=http://loinc.org|A1C`,
+  `code:text=…`) before believing `rows: []`.
+- **A Patient's row carries its identifier** (digest.rkt `type-slots`): finding a patient took a
+  second call to read the MRN.
+- Harness: each agent works in a short directory of its own (`/tmp/agent-bench/<n>/<id>`, linked
+  from the run while it works): under the scratchpad's `…/-home-user/0fe…/` path agents wrote files
+  to `…/-home-user-0fe…/` and could not read them back (8 of 300 workspace tasks, 21 of 300 MCP).
+  The MedAgentBench prompt's example searched `patient=S…` where the card writes
+  `patient=Patient/<id>`, and agents tried both: it writes the card's form now.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

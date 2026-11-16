@@ -259,18 +259,19 @@
   (define ds (current-data-source))
   (define store-path (data-store-path h))
   ;; found: the matches; store: the store that answered (its _include/_revinclude pull in more), or #f
-  (define-values (found ignored total names store)
+  (define-values (found ignored total names store catalog)
     (cond [(and store-path (search-index-available?))
            (define-values (store catalog) (open-store store-path (hub-packages h)))
            (define-values (rs ig total) ((dynamic-require 'fhir/store/fhir-engine 'fhir-search/page) store type qps #:search-params catalog))
-           (values rs ig total (search-param-names catalog type) store)]
+           (values rs ig total (search-param-names catalog type) store catalog)]
           ;; a FHIR server answers its own page; what it holds in all is its to say
-          [(data-source-search ds) (let ([rs ((data-source-search ds) type asked)]) (values (if count-only? '() rs) '() (length rs) '() #f))]
-          [(null? params) (let ([rs ((data-source-all ds) type)]) (values rs '() (length rs) '() #f))]
+          [(data-source-search ds) (let ([rs ((data-source-search ds) type asked)]) (values (if count-only? '() rs) '() (length rs) '() #f #f))]
+          [(null? params) (let ([rs ((data-source-all ds) type)]) (values rs '() (length rs) '() #f #f))]
           [(file-search-index h)
            => (lambda (index)
+                (define catalog (search-catalog (hub-packages h)))
                 (define-values (rs ig total) ((search-index-search index) type qps))
-                (values rs ig total (search-param-names (search-catalog (hub-packages h)) type) (search-index-store index)))]
+                (values rs ig total (search-param-names catalog type) (search-index-store index) catalog))]
           [else (error 'search "searching files needs the fhir-server package (raco pkg install fhir-server); meanwhile ask with FHIRPath: query(\"fhirpath\", \"Observation.where(…)\")")]))
   ;; what `_include` / `_revinclude` pull in beside the matches (rows of their own, `mode` include;
   ;; the workspace ignored them without a word)
@@ -308,6 +309,7 @@
                   (hash-set s 'next (format "~a~a_offset=~a" (regexp-replace #px"[?&]_offset=[0-9]+" (string-trim text) "")
                                             (if (regexp-match? #rx"[?]" (regexp-replace #px"[?&]_offset=[0-9]+" (string-trim text) "")) "&" "?") next))
                   s)]
+           [s (if (and store (zero? total) (not count-only?)) (with-alone s store catalog type asked) s)]
            [s (if (null? ignored) s
                   (hash-set* s 'ignored (map why ignored)
                              'note "the answer is the search WITHOUT these parameters; strict:=true refuses such a search"))])
@@ -319,6 +321,36 @@
                   (hash-set row c (cond [(eq? c 'mode) (if (< i (length found)) "match" "include")]
                                         [(assq c d) => cdr] [else 'null]))))
               summary))
+
+;; with-alone : Summary store type (listof (cons name value)) -> Summary   an empty answer says what
+;; each of its parameters matches on its own (`patient=Patient/S62…: 466`, `code=A1C: 13495`), so
+;; "this patient has none" reads at once from the first search. Without it an agent asked again with
+;; `patient=S62…`, `code=http://loinc.org|A1C`, `code:text=A1C` … five searches to believe an empty
+;; answer. Only for a store (each count is an index lookup), at most four parameters.
+(define (with-alone summary store catalog type asked)
+  (define named (filter (lambda (p) (not (regexp-match? #rx"^_" (car p)))) asked))
+  (define page (dynamic-require 'fhir/store/fhir-engine 'fhir-search/page))
+  (define (matching qps)
+    (with-handlers ([exn:fail? (lambda (_) #f)])
+      (define-values (rs ig total) (page store type (append qps (list (cons "_count" "0"))) #:search-params catalog))
+      (and (null? ig) total)))
+  (cond
+    [(or (null? named) (> (length named) 4)) summary]
+    [else
+     (define counts (for/list ([p (in-list named)]) (cons p (matching (list p)))))
+     (if (ormap (lambda (c) (not (cdr c))) counts)
+         summary
+         (let ([none (for/list ([c (in-list counts)] #:when (zero? (cdr c))) (car c))])
+           (hash-set* summary
+                      'alone (for/list ([c (in-list counts)]) (format "~a=~a: ~a" (car (car c)) (cdr (car c)) (cdr c)))
+                      'note (cond
+                              [(pair? none)
+                               (format "`~a=~a` matches no ~a at all: `query language=find text=\"<words>\"` says which codes and values the data uses"
+                                       (car (car none)) (cdr (car none)) type)]
+                              [else (format "each parameter is understood and matches on its own (`alone`); no ~a matches them all together — the answer is none~a"
+                                            type
+                                            (if (ormap (lambda (p) (member (car p) '("patient" "subject" "encounter"))) named)
+                                                " (a reference is one search written Patient/x or x)" ""))]))))]))
 
 ;; with-labels : (listof Digest) read -> (listof Digest)   a cell that is a reference to a resource
 ;; the row is not about (its medication; not its subject or encounter, which the rows share) says

@@ -122,6 +122,12 @@
                   '("Observation/hb4" "Observation/hb5"))
     (let ([n (call "query" (hasheq 'language "search" 'text "Observation?patient=Patient/ann&_summary=count"))])
       (check-equal? (list (hash-ref n 'total) (hash-ref n 'rows)) '(4 ())))
+    ;; an empty answer says what each parameter matches alone: this patient has none of a code
+    ;; others have (an agent searched five ways before believing an empty answer)
+    (let ([e (call "query" (hasheq 'language "search" 'text "Observation?patient=Patient/ann&code=http://loinc.org|2339-0"))])
+      (check-equal? (hash-ref e 'total) 0)
+      (check-equal? (hash-ref (hash-ref e 'summary) 'alone)
+                    '("patient=Patient/ann: 4" "code=http://loinc.org|2339-0: 1")))
     ;; the rows as CSV are the digests, not the JSON
     (check-regexp-match #rx"^resource,code,value,unit,effective,status,subject,encounter\nObservation/hb0,"
                         (call "query" (hasheq 'language "search" 'text "Observation?code:text=hemoglobin&_sort=date" 'as "csv")))
