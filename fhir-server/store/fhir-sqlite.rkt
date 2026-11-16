@@ -48,7 +48,9 @@
   (define schema-ready? (not lazy?))
   (define lock (make-semaphore 1))
   (define (connect)
-    (define c (configure! (sqlite3-connect #:database path #:mode 'create #:busy-retry-limit 20)))
+    ;; a writer waits for another's write (a minute at most): two processes opening a store that
+    ;; one of them is bringing up to date both end with the store open
+    (define c (configure! (sqlite3-connect #:database path #:mode 'create #:busy-retry-limit 600 #:busy-retry-delay 0.1)))
     (unless schema-ready?
       (call-with-semaphore lock (lambda () (unless schema-ready? (ensure-schema! c) (set! schema-ready? #t)))))
     c)
@@ -169,24 +171,36 @@
   (cover-written-dates! c)
   (migrate-to-jsonb! c))
 
+;; once : connection (-> boolean) (-> void) -> void   a change to an older store's schema, made
+;; once whoever opens the store first: `needed?` is asked again inside a write transaction, so a
+;; second process that was waiting for the first one's change finds it made
+(define (once c needed? change!)
+  (when (needed?)
+    (call-with-transaction c #:option 'immediate
+      (lambda () (when (needed?) (change!))))))
+
 ;; add-written-dates! : connection -> void   a date index made before values were also kept as
 ;; written gets the two columns, empty: such a row is read by its UTC range, as it was, until the
 ;; store is indexed again (`raco fhir-server reindex <store> --kind date`)
 (define (add-written-dates! c)
-  (define cols (query-list c "SELECT name FROM pragma_table_info('fhir_date_index')"))
-  (when (and (pair? cols) (not (member "local_low" cols)))
-    (query-exec c "ALTER TABLE fhir_date_index ADD COLUMN local_low TEXT")
-    (query-exec c "ALTER TABLE fhir_date_index ADD COLUMN local_high TEXT")))
+  (once c
+        (lambda ()
+          (define cols (query-list c "SELECT name FROM pragma_table_info('fhir_date_index')"))
+          (and (pair? cols) (not (member "local_low" cols))))
+        (lambda ()
+          (query-exec c "ALTER TABLE fhir_date_index ADD COLUMN local_low TEXT")
+          (query-exec c "ALTER TABLE fhir_date_index ADD COLUMN local_high TEXT"))))
 
 ;; cover-written-dates! : connection -> void   the per-resource date index of an older store, made
 ;; again with the written range in it
 (define (cover-written-dates! c)
-  (define sql (query-maybe-value c "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_date_own'"))
-  (when (and (string? sql) (not (regexp-match? #rx"local_low" sql)))
-    (call-with-transaction c
-      (lambda ()
-        (query-exec c "DROP INDEX idx_date_own")
-        (query-exec c date-own-index)))))
+  (once c
+        (lambda ()
+          (define sql (query-maybe-value c "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_date_own'"))
+          (and (string? sql) (not (regexp-match? #rx"local_low" sql))))
+        (lambda ()
+          (query-exec c "DROP INDEX idx_date_own")
+          (query-exec c date-own-index))))
 
 ;; migrate-to-jsonb! : connection -> void   a table that still holds `raw_resource` JSON text gets
 ;; its `resource` JSONB column filled from it, and the text column dropped
@@ -229,7 +243,16 @@
     (query-exec c "CREATE INDEX idx_date_own ON fhir_date_index (resource_type, resource_id, param_name, low, high)")
     (query-exec c "INSERT INTO fhir_date_index VALUES ('Observation', 'o1', 'date', '2024-01-01T05:00:00.000', '2024-01-01T05:00:00.999')")
     (disconnect c))
-  (define redated (open-fhir-store dated))
+  ;; two processes may open such a store at once: the change is made once, and both hold the store
+  ;; (the second used to fail with "database is locked" while the first made the index again)
+  (let ([c (sqlite3-connect #:database dated)] [asked 0] [made 0])
+    (once c (lambda () (set! asked (add1 asked)) (= asked 1)) (lambda () (set! made (add1 made))))
+    (check-equal? (list asked made) '(2 0) "what another process changed while this one waited is not changed again")
+    (once c (lambda () #f) (lambda () (set! made (add1 made))))
+    (check-equal? made 0)
+    (disconnect c))
+  (define redated (let ([opened (for/list ([_ 2]) (let ([ch (make-channel)]) (thread (lambda () (channel-put ch (open-fhir-store dated)))) ch))])
+                    (car (map channel-get opened))))
   (check-equal? (call-with-store-connection redated
                   (lambda (c) (list (query-list c "SELECT name FROM pragma_table_info('fhir_date_index') WHERE name LIKE 'local%' ORDER BY name")
                                     (query-value c "SELECT COALESCE(local_low, low) FROM fhir_date_index")

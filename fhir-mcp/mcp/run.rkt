@@ -138,7 +138,7 @@
                  (format "~a ~a" kind (rel h f))
                  (key-of (list 'view-cache 1 kind (file->string f)
                                (ws-config-fhir-version (workspace-config (hub-ws h))) (hub-packages h)
-                               stamp (files-stamp (definition-files h) h) (engine-stamp)))
+                               stamp (definitions-stamp h) (engine-stamp)))
                  compute)))
 
 ;; view-resource : view-file -> type   the resource type a ViewDefinition reads
@@ -162,19 +162,37 @@
                                (query-value c "SELECT count(*) FROM fhir_resources WHERE resource_type = ?" type)))
                        (lambda () (disconnect c))))))
 
-;; files-stamp : (listof path) -> (listof (list string size seconds))
 ;; definition-files : hub -> (listof path)   the workspace's files a view's rows could depend on:
 ;; those that define something a path may resolve (a profile, a value set, a code system). Not the
 ;; other views, nor the tables defined over them: writing one of those changes no row of this view,
 ;; and with them in the key every edit of a `.sql` file computed every view again — minutes, over
-;; a store of 800,000 observations.
+;; a store of 800,000 observations. Nor a JSON file that states no resource (an answer someone
+;; wrote beside the sources): it defines nothing.
 (define (definition-files h)
-  (filter (lambda (f) (not (member (workspace-language-of f) '("sql" "sql-on-fhir")))) (workspace-files (hub-ws h))))
+  (filter (lambda (f)
+            (match (workspace-language-of f)
+              [(or "sql" "sql-on-fhir") #f]
+              ["fhir" (states-resource? f)]
+              [_ #t]))
+          (workspace-files (hub-ws h))))
 
-(define (files-stamp fs [h #f])
+;; states-resource? : path -> boolean   the file is JSON with a `resourceType`
+(define (states-resource? f)
+  (with-handlers ([exn:fail? (lambda (_) #f)])
+    (let ([j (call-with-input-file f read-json)]) (and (hash? j) (string? (hash-ref j 'resourceType #f))))))
+
+;; definitions-stamp : hub -> (listof (list name sha1))   those files by their place in the
+;; workspace and their content: a copy of the workspace (with a copy of, or a link to, its kept
+;; rows) has the same stamp, whenever its files were written
+(define (definitions-stamp h)
+  (sort (for/list ([f (in-list (definition-files h))] #:when (file-exists? f))
+          (list (rel h f) (call-with-input-file f sha1)))
+        string<? #:key car))
+
+;; files-stamp : (listof path) -> (listof (list string size seconds))
+(define (files-stamp fs)
   (sort (for/list ([f (in-list fs)] #:when (file-exists? f))
-          ;; a workspace's files by their place in it (a copy of the workspace has the same stamp)
-          (list (if h (rel h f) (path->string f)) (file-size f) (file-or-directory-modify-seconds f)))
+          (list (path->string f) (file-size f) (file-or-directory-modify-seconds f)))
         string<? #:key car))
 
 ;; engine-stamp : -> string   the source of what computes a view's rows (sql-on-fhir, fhirpath, the

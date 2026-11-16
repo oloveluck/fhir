@@ -67,6 +67,36 @@
 (let ([before (made dir)] [h2 (open-hub dir)])
   (with-hub h2 (lambda () (check-equal? (length (rows (caller h2) "SELECT id FROM meds")) 2)))
   (check-equal? (made dir) before))
+;; a JSON file that states no resource (an answer written beside the sources) defines nothing: the
+;; rows stay. It was counted as a definition, and every view was computed again after it.
+(let ([before (made dir)])
+  (call-with-output-file (build-path dir "answer.json") (lambda (o) (write-json (hasheq 'answer 2) o)))
+  (let ([h3 (open-hub dir)])
+    (with-hub h3 (lambda () (check-equal? (length (rows (caller h3) "SELECT id FROM meds")) 2))))
+  (check-equal? (made dir) before))
+;; a copy of the workspace over the same store, with a copy of the kept rows, reads them: the key
+;; has a file's place and content, not when it was written
+(let ([copy (make-temporary-directory "view-cache-copy-~a")] [before (made dir)])
+  (sleep 1.1)                                       ; the copies are written in a later second
+  (copy-file (build-path dir "meds.view.json") (build-path copy "meds.view.json"))
+  (call-with-output-file (build-path copy "workspace.yaml")
+    (lambda (o)
+      (void (write-string (regexp-replace #px"(?m:^data:.*$)" (file->string (build-path dir "workspace.yaml"))
+                                          (lambda (_) (string-append "data: " (path->string (build-path dir "fhir.db")))))
+                          o))))
+  (make-directory (build-path copy ".fhir-mcp"))
+  (copy-file (build-path dir ".fhir-mcp" "views.db") (build-path copy ".fhir-mcp" "views.db"))
+  (let ([hc (open-hub copy)])
+    (with-hub hc (lambda () (check-equal? (length (rows (caller hc) "SELECT id FROM meds")) 2))))
+  (check-equal? (made copy) before "the copy read the rows it was given")
+  (delete-directory/files copy))
+;; a file that defines something (a value set a path could resolve) is a new key
+(let ([before (made dir)])
+  (call-with-output-file (build-path dir "colours.json")
+    (lambda (o) (write-json (hasheq 'resourceType "ValueSet" 'url "http://example.org/fhir/ValueSet/colours" 'status "draft") o)))
+  (let ([h4 (open-hub dir)])
+    (with-hub h4 (lambda () (check-equal? (length (rows (caller h4) "SELECT id FROM meds")) 2))))
+  (check-not-equal? (made dir) before))
 (delete-directory/files dir)
 
 ;; ---- over a directory of files: not kept ----------------------------------------------------------
