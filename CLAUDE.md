@@ -2540,11 +2540,19 @@ the agent's, eight of them about time. Each change is generic FHIR or workspace 
   question from the latest one. Its `next` search ends at the time (`date=le<asof>`). With no
   time named the summary has `current`: the encounters recorded with no end, or "NO encounter is
   open: each has ended, the last <end>" (two of the six questions name no current time).
-- **The card** (`learn/data.md`): when the summary says no encounter was open, "this visit" has
+- **The card** (`learn/data.md`) leads with it: when the summary says no encounter was open, "this visit" has
   no answer; nothing dated after the current time has happened (`date=le…`); "today" is that day
   (`date=2116-12-31`, which the first change makes the record's day). learn://search says how a
   date with and without a zone is read, and no longer says chains are refused (one step is
   followed since 2026-11-15).
+- **Measured** (fhir-examples `agent-bench/results/2026-11-16-round4.md`, round 6): the ten
+  questions these are about, run three times: six are right every time (the date; five "this
+  stay" questions), where round 5 had none of the ten; the other four are the agent's reading
+  ("today" taken as an aside, the end of time not applied, "this encounter" with no time named).
+  The whole split: 122 of 150 at 57k tokens (round 5: 120 at 56k) — the same questions the
+  changes were read from, so a check. One thing the first try taught: an example date in the card
+  (`date=le2116-12-31T23:59`) was taken by an agent for the current time; the card writes
+  `<the current time>` and `<YYYY-MM-DD>`.
 Not built: an `asof` on search itself (every search of a session bounded by one time). It would
 be a tenth property on two tools whose definitions are at their byte ceiling, for what one
 `date=le…` says.
