@@ -76,7 +76,7 @@
             'texts (rows "SELECT resource_type, param_name, system, code, text, text_norm FROM fhir_token_text")
             'references (rows "SELECT resource_type, resource_id, param_name, target_type, target_id FROM fhir_reference_index")
             'strings (rows "SELECT resource_type, resource_id, param_name, value_norm, value_exact FROM fhir_string_index")
-            'dates (rows "SELECT resource_type, resource_id, param_name, low, high FROM fhir_date_index")
+            'dates (rows "SELECT resource_type, resource_id, param_name, low, high, local_low, local_high FROM fhir_date_index")
             'numbers (rows "SELECT resource_type, resource_id, param_name, value FROM fhir_number_index")
             'quantities (rows "SELECT resource_type, resource_id, param_name, value, system, code FROM fhir_quantity_index")
             'indexes (rows "SELECT name FROM sqlite_master WHERE type='index' AND sql IS NOT NULL")))))

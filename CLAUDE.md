@@ -2503,6 +2503,52 @@ Built from that list (2026-11-16, later the same day):
   stale Limits went with it: one-step chained search and `_profile`/`_tag` are done; the mapping
   language runs `escape` and `pointer`.
 
+## A question is asked at a time (2026-11-16)
+fhir-examples' sorting of FHIR-AgentBench's 30 round-5 misses by cause
+(`agent-bench/results/2026-11-16-misses-by-cause.md`) left one defect of ours and nine mistakes of
+the agent's, eight of them about time. Each change is generic FHIR or workspace behaviour, tested:
+- **A search date with no zone is the day as each record wrote it** (fhir-server
+  `store/search-index.rkt`, `store/fhir-sqlite.rkt`). The date index held each value as its UTC
+  range alone, and a value without a zone was compared with that: `date=2116-12-17` over readings
+  written at `-05:00` answered the evening of the 16th and lost the 17th after 19:00 (an agent
+  missed the reading of 23:52). A date row now carries the range as written too
+  (`date-row low high local-low local-high`; columns `local_low`, `local_high`, NULL when the
+  written range IS the UTC one: no zone, or `Z`). `date-parts` is the one reading of a date text
+  (range as written, offset or #f); `date-range` (UTC) and `written-range` come from it. A search
+  value WITH a zone is an instant and is compared as before; one without is compared with
+  `COALESCE(local_low, low)`/`COALESCE(local_high, high)`, after the same comparisons on the UTC
+  columns moved by a zone's reach (14 hours: `written-range-sql`), which is what the by-value
+  index is read by. `range-comparisons` is the prefixes as data (it was SQL templates with slot
+  lists). The per-resource index `idx_date_own` carries the written range, so a date asked of a
+  candidate still reads no row. A store made before this opens with the two columns added and
+  that index made again (`add-written-dates!`, `cover-written-dates!`), and answers as it did
+  until `raco fhir-server reindex <store> --kind date` (new: every parameter of a kind; the MIMIC
+  store, 928,935 resources and 920,000 date rows, took 2 min 19 s). Sorting is by instant, as
+  before. No cost in time: on that store the benchmark's dated, sorted search of a patient's
+  48,554 observations takes 341 ms, 361 ms with the old clause (one machine, back to back) —
+  and answers 48,443, not 48,554: the 111 of the evening before, local time, are not "from that
+  day on". The search oracle's date
+  probes say `Z` (they are the index's UTC values). fhir-mcp's SQL table `dates` has `local_low`,
+  `local_high`. `tests/period-search-test.rkt` (five readings in two zones, with and without a
+  zone in the search value).
+- **The patient summary says what was open, in a sentence, first** (fhir-mcp `describe.rkt`
+  `encounters-at`, `encounters-open`): `describe ref=Patient/x as=summary asof=…` answers `asof` —
+  "at <time> NO encounter was open: the last had ended <end>. There is no current stay, visit or
+  admission then" (or which were open and since when; how many began after it "and had not
+  happened then"). It said `open: "none: no encounter was open …"` after the list of the latest
+  encounters, and six agents that had asked for exactly this summary answered a "current stay"
+  question from the latest one. Its `next` search ends at the time (`date=le<asof>`). With no
+  time named the summary has `current`: the encounters recorded with no end, or "NO encounter is
+  open: each has ended, the last <end>" (two of the six questions name no current time).
+- **The card** (`learn/data.md`): when the summary says no encounter was open, "this visit" has
+  no answer; nothing dated after the current time has happened (`date=le…`); "today" is that day
+  (`date=2116-12-31`, which the first change makes the record's day). learn://search says how a
+  date with and without a zone is read, and no longer says chains are refused (one step is
+  followed since 2026-11-15).
+Not built: an `asof` on search itself (every search of a session bounded by one time). It would
+be a tenth property on two tools whose definitions are at their byte ceiling, for what one
+`date=le…` says.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

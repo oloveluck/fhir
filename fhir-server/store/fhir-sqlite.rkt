@@ -73,6 +73,12 @@
     (lambda (c) (call-with-transaction c (lambda () (proc c))))))
 
 ;; ---- schema -----------------------------------------------------------------
+;; a resource's dates WITH their values: what a sort by date and a date condition asked of a
+;; candidate read, per resource, without fetching the rows ("the latest", "from a date on")
+(define date-own-index
+  "CREATE INDEX IF NOT EXISTS idx_date_own
+     ON fhir_date_index (resource_type, resource_id, param_name, low, high, local_low, local_high)")
+
 (define schema-statements
   (list
    "CREATE TABLE IF NOT EXISTS fhir_resources (
@@ -120,14 +126,14 @@
       value_norm TEXT NOT NULL, value_exact TEXT NOT NULL)"
    "CREATE INDEX IF NOT EXISTS idx_string_find ON fhir_string_index (resource_type, param_name, value_norm, resource_id)"
    "CREATE INDEX IF NOT EXISTS idx_string_owner ON fhir_string_index (resource_type, resource_id)"
-   ;; date params: every value is a RANGE [low, high], full-precision ISO text (compares lexically)
+   ;; date params: every value is a RANGE [low, high], full-precision ISO text (compares lexically),
+   ;; in UTC; local_low/local_high are the same range by the clock the value was written on (its
+   ;; own zone), NULL when that is the UTC range — what a search value without a zone is compared with
    "CREATE TABLE IF NOT EXISTS fhir_date_index (
       resource_type TEXT NOT NULL, resource_id TEXT NOT NULL, param_name TEXT NOT NULL,
-      low TEXT NOT NULL, high TEXT NOT NULL)"
+      low TEXT NOT NULL, high TEXT NOT NULL, local_low TEXT, local_high TEXT)"
    "CREATE INDEX IF NOT EXISTS idx_date_find ON fhir_date_index (resource_type, param_name, low, high, resource_id)"
-   ;; a resource's dates WITH their values: what a sort by date and a date condition asked of a
-   ;; candidate read, per resource, without fetching the rows ("the latest", "from a date on")
-   "CREATE INDEX IF NOT EXISTS idx_date_own ON fhir_date_index (resource_type, resource_id, param_name, low, high)"
+   date-own-index
    "CREATE TABLE IF NOT EXISTS fhir_number_index (
       resource_type TEXT NOT NULL, resource_id TEXT NOT NULL, param_name TEXT NOT NULL,
       value REAL NOT NULL)"
@@ -158,8 +164,29 @@
    "DROP INDEX IF EXISTS idx_quantity_lookup"))
 
 (define (ensure-schema! c)
+  (add-written-dates! c)
   (for ([stmt (in-list schema-statements)]) (query-exec c stmt))
+  (cover-written-dates! c)
   (migrate-to-jsonb! c))
+
+;; add-written-dates! : connection -> void   a date index made before values were also kept as
+;; written gets the two columns, empty: such a row is read by its UTC range, as it was, until the
+;; store is indexed again (`raco fhir-server reindex <store> --kind date`)
+(define (add-written-dates! c)
+  (define cols (query-list c "SELECT name FROM pragma_table_info('fhir_date_index')"))
+  (when (and (pair? cols) (not (member "local_low" cols)))
+    (query-exec c "ALTER TABLE fhir_date_index ADD COLUMN local_low TEXT")
+    (query-exec c "ALTER TABLE fhir_date_index ADD COLUMN local_high TEXT")))
+
+;; cover-written-dates! : connection -> void   the per-resource date index of an older store, made
+;; again with the written range in it
+(define (cover-written-dates! c)
+  (define sql (query-maybe-value c "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_date_own'"))
+  (when (and (string? sql) (not (regexp-match? #rx"local_low" sql)))
+    (call-with-transaction c
+      (lambda ()
+        (query-exec c "DROP INDEX idx_date_own")
+        (query-exec c date-own-index)))))
 
 ;; migrate-to-jsonb! : connection -> void   a table that still holds `raw_resource` JSON text gets
 ;; its `resource` JSONB column filled from it, and the text column dropped
@@ -194,6 +221,23 @@
                                     (query-list c "SELECT name FROM pragma_table_info('fhir_resources') WHERE name = 'raw_resource'"))))
                 '("female" "blob" ()))
   (delete-file old)
+  ;; a date index made before values were also kept as written gets the two columns (empty: its
+  ;; rows are read by their UTC range, as they were) and its per-resource index made again with them
+  (define dated (make-temporary-file "fhir-store-dated-~a.db"))
+  (let ([c (sqlite3-connect #:database dated)])
+    (query-exec c "CREATE TABLE fhir_date_index (resource_type TEXT NOT NULL, resource_id TEXT NOT NULL, param_name TEXT NOT NULL, low TEXT NOT NULL, high TEXT NOT NULL)")
+    (query-exec c "CREATE INDEX idx_date_own ON fhir_date_index (resource_type, resource_id, param_name, low, high)")
+    (query-exec c "INSERT INTO fhir_date_index VALUES ('Observation', 'o1', 'date', '2024-01-01T05:00:00.000', '2024-01-01T05:00:00.999')")
+    (disconnect c))
+  (define redated (open-fhir-store dated))
+  (check-equal? (call-with-store-connection redated
+                  (lambda (c) (list (query-list c "SELECT name FROM pragma_table_info('fhir_date_index') WHERE name LIKE 'local%' ORDER BY name")
+                                    (query-value c "SELECT COALESCE(local_low, low) FROM fhir_date_index")
+                                    (regexp-match? #rx"local_low, local_high" (query-value c "SELECT sql FROM sqlite_master WHERE name='idx_date_own'")))))
+                '(("local_high" "local_low") "2024-01-01T05:00:00.000" #t))
+  (check-not-exn (lambda () (call-with-store-connection redated ensure-schema!)))
+  (close-fhir-store redated)
+  (delete-file dated)
   ;; schema exists and is idempotent
   (check-not-exn (lambda () (call-with-store-connection store ensure-schema!)))
   (check-equal? (call-with-store-connection store

@@ -53,7 +53,8 @@
 ;; bulk data: a resource to a line (.ndjson), gzipped or not, loaded under the ids the files give —
 ;; so the references between files hold — and found by search afterwards
 (require (only-in file/gzip gzip-through-ports)
-         (only-in fhir/store/fhir-sqlite open-fhir-store close-fhir-store)
+         (only-in fhir/store/fhir-sqlite open-fhir-store close-fhir-store call-with-store-connection)
+         (only-in db query-rows query-exec)
          (only-in fhir/store/fhir-engine fhir-read))
 (define bulk (build-path dir "bulk"))
 (make-directory bulk)
@@ -62,7 +63,7 @@
                                 "not json\n"
                                 "{\"resourceType\":\"Patient\",\"id\":\"p2\",\"gender\":\"male\"}\n")
                  (build-path bulk "Patient.ndjson"))
-(let ([text (string-append "{\"resourceType\":\"Observation\",\"id\":\"o1\",\"status\":\"final\",\"code\":{\"text\":\"x\"},\"subject\":{\"reference\":\"Patient/p1\"}}\n"
+(let ([text (string-append "{\"resourceType\":\"Observation\",\"id\":\"o1\",\"status\":\"final\",\"code\":{\"text\":\"x\"},\"subject\":{\"reference\":\"Patient/p1\"},\"effectiveDateTime\":\"2116-12-17T23:52:00-05:00\"}\n"
                            "{\"resourceType\":\"Observation\",\"id\":\"o2\",\"status\":\"final\",\"code\":{\"text\":\"x\"},\"subject\":{\"reference\":\"Patient/p2\"}}\n")])
   (call-with-output-file (build-path bulk "Observation.ndjson.gz")
     (lambda (out) (gzip-through-ports (open-input-string text) out #f 0))))
@@ -92,6 +93,24 @@
   (check-regexp-match #rx"indexed 4 resources of .*bulk.db again \\(for FHIR 4.0.1 search\\)" text)
   (define-values (missing-code missing-text) (reindex (path->string (build-path dir "nothere.db"))))
   (check-equal? missing-code 2 missing-text)
-  (check-regexp-match #rx"no such store" missing-text))
+  (check-regexp-match #rx"no such store" missing-text)
+  ;; --kind date: the parameters of one kind only. A store whose dates were indexed before they were
+  ;; also kept as written (here: the written range taken away) has them after it, its other rows kept.
+  (define (rows sql)
+    (define store (open-fhir-store bulk-db))
+    (begin0 (call-with-store-connection store (lambda (c) (query-rows c sql)))
+            (close-fhir-store store)))
+  (define tokens (rows "SELECT * FROM fhir_token_index ORDER BY 1, 2, 3, 4, 5"))
+  (let ([store (open-fhir-store bulk-db)])
+    (call-with-store-connection store (lambda (c) (query-exec c "UPDATE fhir_date_index SET local_low = NULL, local_high = NULL")))
+    (close-fhir-store store))
+  (define-values (kind-code kind-text) (reindex (path->string bulk-db) "--kind" "date"))
+  (check-equal? kind-code 0 kind-text)
+  (check-equal? (rows "SELECT param_name, low, local_low FROM fhir_date_index WHERE resource_id = 'o1' AND param_name = 'date'")
+                (list (vector "date" "2116-12-18T04:52:00.000" "2116-12-17T23:52:00.000")))
+  (check-equal? (rows "SELECT * FROM fhir_token_index ORDER BY 1, 2, 3, 4, 5") tokens)
+  (define-values (bad-code bad-text) (reindex (path->string bulk-db) "--kind" "dat"))
+  (check-equal? bad-code 2 bad-text)
+  (check-regexp-match #rx"--kind dat: a kind is token, reference, string, date" bad-text))
 
 (delete-directory/files dir)

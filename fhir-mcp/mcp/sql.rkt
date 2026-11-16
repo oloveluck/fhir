@@ -137,7 +137,9 @@
 ;; are the resource's, `param` the search parameter's name.
 ;;   refs       (type, id, param, target_type, target_id)   references: who or what it points at
 ;;   tokens     (type, id, param, system, code)             codes, identifiers, statuses
-;;   dates      (type, id, param, low, high)                a date as the range it means (UTC)
+;;   dates      (type, id, param, low, high, local_low, local_high)
+;;                                                           a date as the range it means: in UTC, and
+;;                                                           by the clock it was written on
 ;;   quantities (type, id, param, value, system, code)      a quantity's number and unit
 ;;   numbers    (type, id, param, value)
 ;;   strings    (type, id, param, value, folded)            names and addresses (folded: lower case, no accents)
@@ -145,7 +147,7 @@
 (define index-views
   '(("refs" "fhir_reference_index" "resource_type AS type, resource_id AS id, param_name AS param, target_type, target_id")
     ("tokens" "fhir_token_index" "resource_type AS type, resource_id AS id, param_name AS param, system, code")
-    ("dates" "fhir_date_index" "resource_type AS type, resource_id AS id, param_name AS param, low, high")
+    ("dates" "fhir_date_index" "resource_type AS type, resource_id AS id, param_name AS param, low, high, COALESCE(local_low, low) AS local_low, COALESCE(local_high, high) AS local_high")
     ("quantities" "fhir_quantity_index" "resource_type AS type, resource_id AS id, param_name AS param, value, system, code")
     ("numbers" "fhir_number_index" "resource_type AS type, resource_id AS id, param_name AS param, value")
     ("strings" "fhir_string_index" "resource_type AS type, resource_id AS id, param_name AS param, value_exact AS value, value_norm AS folded")

@@ -16,8 +16,11 @@
 ;;;     (token-row system code)            system : string|#f
 ;;;     (reference-row target-type target-id)
 ;;;     (string-row norm exact)            norm : case- and accent-folded, for the default match
-;;;     (date-row low high)                ISO-8601 instants padded to full precision, UTC where the
-;;;                                        value carries a zone ("0001-…"/"9999-…" for open ends)
+;;;     (date-row low high local-low local-high)
+;;;                                        ISO-8601 instants padded to full precision, UTC where the
+;;;                                        value carries a zone ("0001-…"/"9999-…" for open ends);
+;;;                                        local-low/-high: the same range by the clock the value was
+;;;                                        WRITTEN on (its own zone), #f when that is the UTC range
 ;;;     (number-row value)
 ;;;     (quantity-row value system code)
 ;;;   A Clause is (clause sql args) — a fragment usable as `… AND <sql>` over `fhir_resources r`.
@@ -62,7 +65,9 @@
   [clause-probe (-> clause? string?)]
   [clause-rank (-> clause? exact-nonnegative-integer?)]
   [fold-string     (-> string? string?)]
-  [date-range      (-> string? (or/c (cons/c string? string?) #f))]))
+  [date-range      (-> string? (or/c (cons/c string? string?) #f))]
+  ;; the same range by the clock the value was written on (no shift to UTC)
+  [written-range   (-> string? (or/c (cons/c string? string?) #f))]))
 
 (struct token-row (system code) #:transparent)
 ;; what a code is called where it was read (a Coding's display, its concept's text): a row of the
@@ -70,7 +75,7 @@
 (struct text-row (system code text) #:transparent)
 (struct reference-row (target-type target-id) #:transparent)
 (struct string-row (norm exact) #:transparent)
-(struct date-row (low high) #:transparent)
+(struct date-row (low high local-low local-high) #:transparent)
 (struct number-row (value) #:transparent)
 (struct quantity-row (value system code) #:transparent)
 (struct clause (sql args) #:transparent)
@@ -86,7 +91,7 @@
   '(("fhir_token_index" system code)
     ("fhir_reference_index" target_type target_id)
     ("fhir_string_index" value_norm value_exact)
-    ("fhir_date_index" low high)
+    ("fhir_date_index" low high local_low local_high)
     ("fhir_number_index" value)
     ("fhir_quantity_index" value system code)))
 
@@ -97,7 +102,7 @@
     [(text-row s c t)     (values "fhir_token_text" (list s c t (fold-string t)))]
     [(reference-row t i)  (values "fhir_reference_index" (list t i))]
     [(string-row n e)     (values "fhir_string_index" (list n e))]
-    [(date-row l h)       (values "fhir_date_index" (list l h))]
+    [(date-row l h ll lh) (values "fhir_date_index" (list l h ll lh))]
     [(number-row v)       (values "fhir_number_index" (list v))]
     [(quantity-row v s c) (values "fhir_quantity_index" (list v s c))]))
 
@@ -206,18 +211,33 @@
       [else '()]))
   (for/list ([p (in-list parts)]) (string-row (fold-string p) p)))
 
+;; A value is indexed twice over: as the instants it covers (UTC: what a search value with a zone,
+;; a sort and two records of different zones are compared by) and as the range its own clock shows
+;; (what a search value WITHOUT a zone means: `date=2116-12-17` is the 17th as the record wrote it.
+;; Compared with the UTC range, a reading written 23:52-05:00 on the 17th was the 18th, and one of
+;; 19:00 the evening before was the 17th).
 (define (date-rows it)
+  ;; dated : utc-low utc-high written-low written-high -> Row
+  (define (dated l h wl wh)
+    (if (and (equal? l wl) (equal? h wh)) (date-row l h #f #f) (date-row l h wl wh)))
   (cond
     [(scalar it) => (lambda (s) (let ([r (and (string? s) (date-range s))])
-                                  (if r (list (date-row (car r) (cdr r))) '())))]
+                                  (if r
+                                      (let ([w (written-range s)]) (list (dated (car r) (cdr r) (car w) (cdr w))))
+                                      '())))]
     ;; a Period's bounds are read as FHIR writes them (`scalar`: the JSON text). They were read as
     ;; the parsed value printed (`#(struct:t-datetime …)`), which is no date: no Period was ever
     ;; indexed, so `Encounter?date=…` matched nothing and `_sort=date` sorted nothing
     [(type-is? it 'Period)
-     (define (bound k) (let* ([f (fhir-ref it k #f)] [s (and f (scalar f))]) (and (string? s) (date-range s))))
+     ;; bound : key -> (cons utc-range written-range) | #f
+     (define (bound k) (let* ([f (fhir-ref it k #f)] [s (and f (scalar f))] [r (and (string? s) (date-range s))])
+                         (and r (cons r (written-range s)))))
      (define lo (bound 'start))
      (define hi (bound 'end))
-     (if (or lo hi) (list (date-row (if lo (car lo) min-instant) (if hi (cdr hi) max-instant))) '())]
+     (if (or lo hi)
+         (list (dated (if lo (car (car lo)) min-instant) (if hi (cdr (car hi)) max-instant)
+                      (if lo (car (cdr lo)) min-instant) (if hi (cdr (cdr hi)) max-instant)))
+         '())]
     [(type-is? it 'Timing) (append-map date-rows (listify (fhir-ref it 'event '())))]
     [else '()]))
 
@@ -243,11 +263,12 @@
   (case m [(1 3 5 7 8 10 12) 31] [(4 6 9 11) 30]
     [else (if (and (zero? (modulo y 4)) (or (not (zero? (modulo y 100))) (zero? (modulo y 400)))) 29 28)]))
 
-;; date-range : ISO-8601 date/dateTime/instant (any precision) -> (cons low high), or #f
-;; low/high are "YYYY-MM-DDThh:mm:ss.fff"; a value with a zone is shifted to UTC.
+;; date-parts : ISO-8601 date/dateTime/instant (any precision) -> (list low high offset), or #f
+;; The range the value covers at its own precision, as components (Y M D h m s ms) AS WRITTEN, and
+;; its zone's offset in minutes (#f: it names no zone).
 ;; A space where the zone's sign stands is a `+`: in a query string an unencoded `+` arrives decoded
 ;; as a space (`date=ge2023-11-12T10:15:00+00:00` written by hand), and nothing else puts one there.
-(define (date-range s)
+(define (date-parts s)
   (match (regexp-match #px"^(\\d{4})(?:-(\\d{2})(?:-(\\d{2})(?:T(\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.(\\d+))?)?)?)?)?(Z|[+ -]\\d{2}:\\d{2})?$" s)
     [#f #f]
     [(list _ y mo d h mi se fr tz)
@@ -263,12 +284,25 @@
              [(not se) (list Y (n mo 1) (n d 1) (n h 0) (n mi 0) 59 999)]
              [(not fr) (list Y (n mo 1) (n d 1) (n h 0) (n mi 0) (n se 0) 999)]
              [else lo]))
-     (define off (match tz [(or #f "Z") 0]
+     (define off (match tz [#f #f] ["Z" 0]
                    [_ (let ([m (regexp-match #px"([+ -])(\\d{2}):(\\d{2})" tz)])
                         (* (if (equal? (cadr m) "-") -1 1)
                            (+ (* 60 (string->number (caddr m))) (string->number (cadddr m)))))]))
-     (cons (fmt (shift lo (- off))) (fmt (shift hi (- off))))]
+     (list lo hi off)]
     [_ #f]))
+
+;; date-range : string -> (cons low high), or #f
+;; low/high are "YYYY-MM-DDThh:mm:ss.fff"; a value with a zone is shifted to UTC.
+(define (date-range s)
+  (match (date-parts s)
+    [(list lo hi off) (cons (fmt (shift lo (- (or off 0)))) (fmt (shift hi (- (or off 0)))))]
+    [#f #f]))
+
+;; written-range : string -> (cons low high), or #f   the range as the value's own clock shows it
+(define (written-range s)
+  (match (date-parts s)
+    [(list lo hi _) (cons (fmt lo) (fmt hi))]
+    [#f #f]))
 
 ;; on-calendar? : the matched parts (strings, or #f where absent) -> boolean   a month, a day its
 ;; month has, an hour, a minute and a second that are ones (`2125-13-45` matches the pattern)
@@ -294,8 +328,10 @@
 
 (define (fmt c)
   (match-let ([(list Y M D h mi s ms) c])
+    (if (> Y 9999)                       ; past the last year the text compares by (a bound moved by `shift`)
+        max-instant
     (format "~a-~a-~aT~a:~a:~a.~a" (pad4 Y) (pad2 M) (pad2 D) (pad2 h) (pad2 mi) (pad2 s)
-            (let ([x (number->string ms)]) (string-append (make-string (- 3 (string-length x)) #\0) x)))))
+            (let ([x (number->string ms)]) (string-append (make-string (- 3 (string-length x)) #\0) x))))))
 
 ;; ==== compilation =============================================================================
 
@@ -415,34 +451,62 @@
     [_          (exists-in "fhir_string_index" name "x.value_norm LIKE ? ESCAPE '\\'"
                            (list (string-append (like-escape (fold-string v)) "%")))]))
 
-;; the spec's range semantics, over [lo,hi] (target) vs [plo,phi] (search value)
-(define (range-sql prefix)
+;; the spec's range semantics, over a target's range [lo,hi] and the search value's [plo,phi]
+;; A Comparison is (list target-end operator search-end); a prefix's hold together (ne: not eq's).
+(define (range-comparisons prefix)
   (case prefix
-    [(eq) (values "x.~a >= ? AND x.~a <= ?" '(lo plo hi phi))]
-    [(ne) (values "NOT (x.~a >= ? AND x.~a <= ?)" '(lo plo hi phi))]
-    [(gt) (values "x.~a > ?" '(hi phi))]
-    [(lt) (values "x.~a < ?" '(lo plo))]
-    [(ge) (values "x.~a >= ?" '(hi plo))]
-    [(le) (values "x.~a <= ?" '(lo phi))]
-    [(sa) (values "x.~a > ?" '(lo phi))]
-    [(eb) (values "x.~a < ?" '(hi plo))]
-    [(ap) (values "x.~a <= ? AND x.~a >= ?" '(lo phi hi plo))]))
+    [(eq ne) '((lo ">=" plo) (hi "<=" phi))]
+    [(gt) '((hi ">" phi))]
+    [(lt) '((lo "<" plo))]
+    [(ge) '((hi ">=" plo))]
+    [(le) '((lo "<=" phi))]
+    [(sa) '((lo ">" phi))]
+    [(eb) '((hi "<" plo))]
+    [(ap) '((lo "<=" phi) (hi ">=" plo))]))
 
-;; build : prefix target-column-names (lo . hi) search-range (plo . phi) -> (values sql args)
+;; build-range : prefix lo-expression hi-expression plo phi -> (values sql args)
+;; the prefix's comparisons over the target's two ends (SQL expressions) and the search range
 (define (build-range prefix lo-col hi-col plo phi)
-  (define-values (template slots) (range-sql prefix))
-  (define cols (for/list ([s (in-list slots)] #:when (memq s '(lo hi))) (if (eq? s 'lo) lo-col hi-col)))
-  (define args (for/list ([s (in-list slots)] #:when (memq s '(plo phi))) (if (eq? s 'plo) plo phi)))
-  (values (apply format template cols) args))
+  (define cs (range-comparisons prefix))
+  (define sql (string-join (for/list ([c (in-list cs)]) (format "~a ~a ?" (if (eq? (car c) 'lo) lo-col hi-col) (cadr c))) " AND "))
+  (values (if (eq? prefix 'ne) (string-append "NOT (" sql ")") sql)
+          (for/list ([c (in-list cs)]) (if (eq? (caddr c) 'plo) plo phi))))
+
+;; zone-reach : minutes   how far a clock is from UTC at most (zones run -12:00 to +14:00)
+(define zone-reach (* 14 60))
+
+;; written-range-sql : prefix components components -> (values sql args)
+;; A search value that names no zone, against each value's range AS WRITTEN (`local_low`/
+;; `local_high`; a row without them was written in UTC or with no zone, or before the columns
+;; were: its UTC range). The UTC columns come first, within a zone's reach of the value: they are
+;; what the index is read by, and they only narrow what the written range then decides.
+(define (written-range-sql prefix lo hi)
+  (define-values (sql args)
+    (build-range prefix "COALESCE(x.local_low,x.low)" "COALESCE(x.local_high,x.high)" (fmt lo) (fmt hi)))
+  (cond
+    [(eq? prefix 'ne) (values sql args)]
+    [else
+     (define cs (range-comparisons prefix))
+     (values (string-append
+              (string-join (for/list ([c (in-list cs)]) (format "x.~a ~a ?" (if (eq? (car c) 'lo) "low" "high") (cadr c))) " AND ")
+              " AND " sql)
+             (append (for/list ([c (in-list cs)])
+                       (fmt (shift (if (eq? (caddr c) 'plo) lo hi)
+                                   (if (member (cadr c) '(">=" ">")) (- zone-reach) zone-reach))))
+                     args))]))
 
 ;; a value that is no date is an error, not an ignored parameter (search-value.rkt)
 (define (date-clause name v)
   (define-values (p rest) (split-prefix v))
-  (define r (date-range rest))
-  (unless r
+  (define parts (date-parts rest))
+  (unless parts
     (raise-search-value name v (string-append "a date: YYYY, YYYY-MM, YYYY-MM-DD or YYYY-MM-DDThh:mm[:ss][Z|±hh:mm] after an optional"
                                               " prefix (eq ne gt lt ge le sa eb ap); a + in a query string is written %2B")))
-  (let-values ([(sql args) (build-range p "low" "high" (car r) (cdr r))])
+  (match-define (list lo hi off) parts)
+  ;; a zone: the instants (UTC). No zone: the clock each value was written on
+  (let-values ([(sql args) (if off
+                               (build-range p "x.low" "x.high" (fmt (shift lo (- off))) (fmt (shift hi (- off))))
+                               (written-range-sql p lo hi))])
     (exists-in "fhir_date_index" name sql args)))
 
 ;; number-range : "100" -> (values 99.5 100.5); "1.5e2" etc. via the lexical precision
@@ -470,7 +534,7 @@
   (unless lo (raise-search-value name v "a number after an optional prefix (eq ne gt lt ge le sa eb ap)"))
   (and lo (let-values ([(sql args) (if (eq? p 'eq)
                                          (values "x.value >= ? AND x.value < ?" (list lo hi))
-                                         (build-range p "value" "value" lo hi))])
+                                         (build-range p "x.value" "x.value" lo hi))])
             (exists-in "fhir_number_index" name sql args))))
 
 (define (quantity-clause name v)
@@ -483,7 +547,7 @@
   (and lo
        (let*-values ([(sql args) (if (eq? p 'eq)
                                      (values "x.value >= ? AND x.value < ?" (list lo hi))
-                                     (build-range p "value" "value" lo hi))]
+                                     (build-range p "x.value" "x.value" lo hi))]
                      [(sql args) (if (and sys (not (string=? sys ""))) (values (string-append sql " AND x.system=?") (append args (list sys))) (values sql args))]
                      [(sql args) (if (and code (not (string=? code ""))) (values (string-append sql " AND x.code=?") (append args (list code))) (values sql args))])
          (exists-in "fhir_quantity_index" name sql args))))
@@ -502,6 +566,32 @@
   (check-equal? (date-range "2024-03-01T01:30:00+02:00") (cons "2024-02-29T23:30:00.000" "2024-02-29T23:30:00.999"))
   (check-equal? (date-range "1999-12-31T23:00:00-05:00") (cons "2000-01-01T04:00:00.000" "2000-01-01T04:00:00.999"))
   (check-false (date-range "not a date"))
+  ;; and as written: the same range on the value's own clock
+  (check-equal? (written-range "1999-12-31T23:00:00-05:00") (cons "1999-12-31T23:00:00.000" "1999-12-31T23:00:00.999"))
+  (check-equal? (written-range "2024-02") (date-range "2024-02"))
+  (check-equal? (date-parts "2024-02-29T10:00+09:00") '((2024 2 29 10 0 0 0) (2024 2 29 10 0 59 999) 540))
+  (check-equal? (caddr (date-parts "2024-02-29T10:00Z")) 0)
+  (check-false (caddr (date-parts "2024-02-29")))
+  ;; a search value with a zone is compared as instants; one without, with each value as written —
+  ;; after the UTC range within a zone's reach, which the index is read by
+  (let ([zoned (date-clause "date" "ge2024-03-01T01:30:00+02:00")]
+        [plain (date-clause "date" "2116-12-17")]
+        [other (date-clause "date" "ne2116-12-17")])
+    (check-regexp-match #rx"x[.]high >= [?]\\)$" (clause-sql zoned))
+    (check-equal? (clause-args/type zoned "Observation") '("Observation" "date" "2024-02-29T23:30:00.000"))
+    (check-regexp-match #rx"x[.]low >= [?] AND x[.]high <= [?] AND COALESCE\\(x[.]local_low,x[.]low\\) >= [?] AND COALESCE\\(x[.]local_high,x[.]high\\) <= [?]"
+                        (clause-sql plain))
+    (check-equal? (clause-args/type plain "Observation")
+                  '("Observation" "date" "2116-12-16T10:00:00.000" "2116-12-18T13:59:59.999" "2116-12-17T00:00:00.000" "2116-12-17T23:59:59.999"))
+    (check-regexp-match #rx"NOT \\(COALESCE" (clause-sql other))
+    (check-equal? (length (clause-args/type other "Observation")) 4))
+  ;; a bound moved past the last year stays one the text compares by
+  (check-equal? (fmt (shift '(9999 12 31 23 0 0 0) zone-reach)) max-instant)
+  ;; a value with a zone is two ranges, one without (or in UTC) one
+  (check-equal? (date-rows "2116-12-17T23:52:00-05:00")
+                (list (date-row "2116-12-18T04:52:00.000" "2116-12-18T04:52:00.999" "2116-12-17T23:52:00.000" "2116-12-17T23:52:00.999")))
+  (check-equal? (date-rows "2116-12-17") (list (date-row "2116-12-17T00:00:00.000" "2116-12-17T23:59:59.999" #f #f)))
+  (check-equal? (date-rows "2116-12-17T23:52:00Z") (list (date-row "2116-12-17T23:52:00.000" "2116-12-17T23:52:00.999" #f #f)))
   ;; an unencoded `+` decoded as a space is the zone's sign it was
   (check-equal? (date-range "2024-03-01T01:30:00 02:00") (date-range "2024-03-01T01:30:00+02:00"))
   ;; the calendar's: no month 13, no 30 February, no 24 o'clock

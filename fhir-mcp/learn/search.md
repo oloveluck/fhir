@@ -22,8 +22,10 @@ after. `_summary=count` answers the total alone. `_include=MedicationRequest:med
   display, a concept's text), code and identifier values, names — each with how many resources and
   the search that finds them; when a few resources hold the words, `referencedBy` says what points
   at them (a Medication named "Glucagon": `MedicationRequest ×3: MedicationRequest?medication=Medication/…`).
-- `describe ref=Patient/<id> as=summary`: how many resources of each type name the patient, and
-  the latest encounters.
+- `describe ref=Patient/<id> as=summary`: how many resources of each type name the patient, the
+  latest encounters, and in `current` which of them is still open (or that none is). With
+  `asof="2125-02-01 08:00"` it answers for that time: `asof` says which encounters were open then,
+  or that none was and when the last had ended.
 
 ## Official reference
 - FHIR search: https://hl7.org/fhir/search.html
@@ -38,24 +40,27 @@ Encounter?date=ge2025-01-01&date=lt2026-01-01
 Observation?code:text=hemoglobin&_summary=count
 ```
 A token is `system|code`, a reference is `Type/id`, and dates take the prefixes eq, ne, gt, lt, ge,
-le, sa, eb and ap. A comma means or, and repeating a parameter means and. A token's `:text` matches
+le, sa, eb and ap. A date with no time zone is the day (or the time) as each record wrote it:
+`date=2116-12-17` finds a reading written `2116-12-17T23:52:00-05:00`. With a zone
+(`date=ge2116-12-17T00:00:00Z`) it is that instant, whatever zone a record was written in. A chain
+goes one reference deep (`medication.code=…`, `subject:Patient.name=…`). A comma means or, and
+repeating a parameter means and. A token's `:text` matches
 what a code is called — the words anywhere in a Coding's display or its concept's text, any case.
 
 ## What a search does not apply
 A parameter the search cannot apply — a name the type does not search on, a misspelling, an
-unsupported modifier, chaining (`subject.name=…`) or reverse chaining (`_has:Observation:…`) — is
-left out, and the answer says so at its top: `ignored` lists each one (with the nearest name), and
-`note` says the answer is the search WITHOUT them. With `strict:=true` (`query language=search
-text="…" strict:=true`) such a search is refused instead. Chaining and reverse chaining
-(`Patient?_has:Observation:subject:code=4548-4`) are always refused: answered without them, the
-search would list every patient.
+unsupported modifier — is left out, and the answer says so at its top: `ignored` lists each one
+(with the nearest name), and `note` says the answer is the search WITHOUT them. With `strict:=true`
+(`query language=search text="…" strict:=true`) such a search is refused instead. Reverse chaining
+(`Patient?_has:Observation:subject:code=4548-4`) and a chain the store cannot follow are always
+refused: answered without them, the search would list every patient.
 "Which patients have an HbA1c" (or have none) is a CQL question — `exists [Observation: …]`, or the
 `"No HbA1c"` define of `raco fhir guide cql --block LatestA1c` — or SQL over a view.
 
 ## Counting and joining with SQL
 On a store, `query language=sql` also has the search indexes as tables: `refs` (type, id, param,
 target_type, target_id), `tokens` (type, id, param, system, code), `dates` (type, id, param, low,
-high), `quantities`, `numbers`, `strings`, and `token_text` (what each code is called). A filter on
+high in UTC, local_low, local_high as written), `quantities`, `numbers`, `strings`, and `token_text` (what each code is called). A filter on
 them is a lookup; a filter on the JSON (`resource ->> '$.subject.reference' = …`) reads every
 resource of the type.
 ```sql

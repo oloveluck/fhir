@@ -502,16 +502,28 @@
     [(and (equal? type "Patient") (assoc "Encounter" counts) (not asof))
      (define-values (encounters _ignored total)
        ((dynamic-require 'fhir/store/fhir-engine 'fhir-search/page) store "Encounter"
-        (list (cons "patient" ref) (cons "_sort" "-date") (cons "_count" "10")) #:search-params catalog))
-     (hash-set base 'encounters
-               (hasheq 'total total
-                       'latest (for/list ([e (in-list encounters)])
-                                 (hash-set (row e) 'resource (format "Encounter/~a" (hash-ref e 'id "?"))))))]
+        (list (cons "patient" ref) (cons "_sort" "-date") (cons "_count" "1000")) #:search-params catalog))
+     (hash-set* base
+                'current (encounters-open ref encounters)
+                'encounters
+                (hasheq 'total total
+                        'latest (for/list ([e (in-list (take encounters (min 10 (length encounters))))])
+                                  (hash-set (row e) 'resource (format "Encounter/~a" (hash-ref e 'id "?"))))))]
     [(and (equal? type "Patient") (assoc "Encounter" counts))
      (define-values (encounters _ignored _total)
        ((dynamic-require 'fhir/store/fhir-engine 'fhir-search/page) store "Encounter"
         (list (cons "patient" ref) (cons "_sort" "-date") (cons "_count" "1000")) #:search-params catalog))
-     (hash-set base 'encounters (encounters-at (instant-text asof) encounters row))]
+     (define at (instant-text asof))
+     (define-values (said listed) (encounters-at at encounters row))
+     ;; the time comes first and in words: what was open then, and that nothing later had happened
+     (hash-set* base
+                'asof said
+                'encounters listed
+                'next (format "~a for a page of one type as it stood then, newest first: a date with no zone is the record's own clock, and nothing dated after ~a had happened (date is the type's own date parameter: ~a names it)"
+                              (call-text "query" (list (cons 'language "search")
+                                                       (cons 'text (format "<Type>?patient=~a&date=le~a&_sort=-date&_count=20" ref at))))
+                              at
+                              (call-text "describe" (list (cons 'ref "data/<Type>")))))]
     [else base]))
 
 ;; ---- a patient as of a time ----------------------------------------------------------------------
@@ -524,18 +536,52 @@
 ;; with a FHIR dateTime's leading part (the zone is not compared: a few hours at most)
 (define (instant-text s) (string-replace (string-trim s) " " "T"))
 
-;; encounters-at : asof (listof Encounter) (Encounter -> row) -> jsexpr
+;; period-bound : Encounter key -> string | #f   its period's start or end, as written
+(define (period-bound e k)
+  (let* ([p (hash-ref e 'period (hasheq))] [v (and (hash? p) (hash-ref p k #f))]) (and (string? v) v)))
+
+;; encounters-open : patient-ref (listof Encounter) -> string   with no time named: which
+;; encounters are recorded as still open (no end), or that none is
+(define (encounters-open ref encounters)
+  (define open (filter (lambda (e) (not (period-bound e 'end))) encounters))
+  (define ends (sort (filter values (map (lambda (e) (period-bound e 'end)) encounters)) string>?))
+  (if (pair? open)
+      (format "open (no end recorded): ~a"
+              (string-join (for/list ([e (in-list open)])
+                             (format "Encounter/~a (since ~a)" (hash-ref e 'id "?") (or (period-bound e 'start) "?")))
+                           ", "))
+      (format "NO encounter is open: each has ended, the last ~a. There is no current stay, visit or admission; ~a answers for an earlier time"
+              (if (pair? ends) (car ends) "?") (call-text "describe" (list (cons 'ref ref) (cons 'as "summary") (cons 'asof "<time>"))))))
+
+;; encounters-at : asof (listof Encounter) (Encounter -> row) -> (values statement jsexpr)
+;; The statement is the answer to "which stay is the current one": the encounters open at the
+;; time, or that none was and when the last had ended — said in a sentence, because a list of the
+;; latest encounters beside `open: none` was read as "the current stay is the latest" (six of
+;; FHIR-AgentBench's questions, round 5: each agent had asked for this summary).
 (define (encounters-at asof encounters row)
-  (define (bound e k) (let* ([p (hash-ref e 'period (hasheq))] [v (and (hash? p) (hash-ref p k #f))]) (and (string? v) v)))
+  (define bound period-bound)
   (define (before? a b) (string<=? (substring a 0 (min (string-length a) (string-length b))) b))
   (define begun (filter (lambda (e) (let ([s (bound e 'start)]) (and s (before? s asof)))) encounters))
   (define open (filter (lambda (e) (let ([end (bound e 'end)]) (or (not end) (not (before? end asof))))) begun))
-  (define (listed es) (for/list ([e (in-list es)]) (hash-set (row e) 'resource (format "Encounter/~a" (hash-ref e 'id "?")))))
-  (hasheq 'asof asof
-          'open (if (null? open) (format "none: no encounter was open at ~a (every one had ended)" asof) (listed open))
-          'begun (length begun)
-          'later (- (length encounters) (length begun))
-          'latest (listed (take begun (min 10 (length begun))))))
+  (define later (- (length encounters) (length begun)))
+  (define (ref e) (format "Encounter/~a" (hash-ref e 'id "?")))
+  (define (listed es) (for/list ([e (in-list es)]) (hash-set (row e) 'resource (ref e))))
+  (define ends (sort (filter values (map (lambda (e) (bound e 'end)) begun)) string>?))
+  (define said
+    (string-append
+     (cond
+       [(pair? open)
+        (format "at ~a, open: ~a" asof
+                (string-join (for/list ([e (in-list open)]) (format "~a (since ~a)" (ref e) (bound e 'start))) ", "))]
+       [(null? begun) (format "at ~a no encounter had begun: there is no current or earlier stay, visit or admission then" asof)]
+       [else (format "at ~a NO encounter was open: the last had ended ~a. There is no current stay, visit or admission then; `latest` lists the earlier ones"
+                     asof (if (pair? ends) (car ends) "(no end recorded)"))])
+     (if (zero? later) "" (format "; ~a encounter~a began after it and had not happened then" later (if (= later 1) "" "s")))))
+  (values said
+          (hasheq 'open (if (null? open) "none" (listed open))
+                  'begun (length begun)
+                  'later later
+                  'latest (listed (take begun (min 10 (length begun)))))))
 
 (define (result-csv h uri offset limit #:columns [wanted #f] #:sort [sort-by #f])
   (define st (or (result-of h uri) (error 'describe (format "no result ~a (results: ~a)" uri (result-listing h)))))
@@ -653,3 +699,19 @@
       base
       (hash-set* base 'refused refused
                  'next (call-text "stage" (list (cons 'drop (if (= 1 (length refused)) (hash-ref (car refused) 'stage) "refused")))))))
+
+(module+ test
+  (require rackunit)
+  ;; with no time named, what is open is what has no end; when each has one, that is said outright
+  (define (stay id start end)
+    (hasheq 'resourceType "Encounter" 'id id 'period (if end (hasheq 'start start 'end end) (hasheq 'start start))))
+  (check-equal? (encounters-open "Patient/a" (list (stay "e2" "2125-03-01T10:00:00Z" #f) (stay "e1" "2125-01-01" "2125-01-04")))
+                "open (no end recorded): Encounter/e2 (since 2125-03-01T10:00:00Z)")
+  (check-regexp-match #rx"^NO encounter is open: each has ended, the last 2125-03-04. There is no current stay, visit or admission; describe.*Patient/a.*asof.*<time>.* answers for an earlier time$"
+                      (encounters-open "Patient/a" (list (stay "e2" "2125-03-01" "2125-03-04") (stay "e1" "2125-01-01" "2125-01-04"))))
+  ;; as of a time: the sentence, then the lists
+  (define-values (said listed)
+    (encounters-at "2125-02-01" (list (stay "e2" "2125-03-01" "2125-03-04") (stay "e1" "2125-01-01" "2125-01-04")) (lambda (e) (hasheq))))
+  (check-equal? said (string-append "at 2125-02-01 NO encounter was open: the last had ended 2125-01-04. There is no current stay, visit or "
+                                    "admission then; `latest` lists the earlier ones; 1 encounter began after it and had not happened then"))
+  (check-equal? (list (hash-ref listed 'open) (hash-ref listed 'begun) (hash-ref listed 'later)) '("none" 1 1)))

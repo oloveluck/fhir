@@ -138,15 +138,27 @@
     (check-equal? (hash-ref ann 'holds) (hasheq 'Observation 4 'Encounter 2))
     (check-equal? (hash-ref ann 'trail) (hasheq 'Provenance 1 'AuditEvent 1) "the commit's own records, apart")
     (check-equal? (hash-ref (hash-ref ann 'encounters) 'total) 2)
+    ;; with no time named: the encounter recorded without an end is the open one
+    (check-regexp-match #rx"^open \\(no end recorded\\): Encounter/stay2 \\(since 2125-03-0" (hash-ref ann 'current))
     (check-equal? (map (lambda (e) (list (hash-ref e 'resource) (hash-ref e 'class))) (hash-ref (hash-ref ann 'encounters) 'latest))
                   '(("Encounter/stay2" "EMER") ("Encounter/stay1" "IMP")) "newest first")
 
     ;; ---- as of a time: which stays were open, and which began later -------------------------
-    (define (at t) (hash-ref (call "describe" (hasheq 'ref "Patient/ann" 'as "summary" 'asof t)) 'encounters))
-    (check-regexp-match #rx"^none: no encounter was open at 2125-02-01" (hash-ref (at "2125-02-01") 'open))
+    (define (summary-at t) (call "describe" (hasheq 'ref "Patient/ann" 'as "summary" 'asof t)))
+    (define (at t) (hash-ref (summary-at t) 'encounters))
+    ;; between two stays none was open, and the answer SAYS so before it lists anything: with the
+    ;; latest encounters beside `open: none`, agents took the latest for "the current stay"
+    (check-equal? (hash-ref (summary-at "2125-02-01") 'asof)
+                  (string-append "at 2125-02-01 NO encounter was open: the last had ended 2125-01-04T10:00:00Z. There is no current stay, "
+                                 "visit or admission then; `latest` lists the earlier ones; 1 encounter began after it and had not happened then"))
+    (check-equal? (hash-ref (at "2125-02-01") 'open) "none")
     (check-equal? (list (hash-ref (at "2125-02-01") 'begun) (hash-ref (at "2125-02-01") 'later)) '(1 1))
     (check-equal? (map (lambda (e) (hash-ref e 'resource)) (hash-ref (at "2125-03-05 12:00") 'open)) '("Encounter/stay2")
                   "an encounter with no end is open")
+    (check-regexp-match #rx"^at 2125-03-05T12:00, open: Encounter/stay2 \\(since 2125-03-0" (hash-ref (summary-at "2125-03-05 12:00") 'asof))
+    (check-regexp-match #rx"^at 2124-01-01 no encounter had begun: .*; 2 encounters began after it" (hash-ref (summary-at "2124-01-01") 'asof))
+    ;; and the search it points to stops at that time
+    (check-regexp-match #rx"patient=Patient/ann&date=le2125-02-01&_sort=-date" (hash-ref (summary-at "2125-02-01") 'next))
 
     ;; ---- a chain through a reference; what a referenced resource is called ------------------
     (define chained (call "query" (hasheq 'language "search" 'text "MedicationRequest?medication.identifier=http://example.org/medication-name|Miconazole%202%25%20Cream")))

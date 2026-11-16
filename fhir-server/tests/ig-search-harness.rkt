@@ -59,7 +59,8 @@
                                     (string-append (reference-row-target-type row) "/" (reference-row-target-id row))
                                     (reference-row-target-id row)))]
     [(string-row? row) (list (string-row-exact row))]
-    [(date-row? row) (list (string-append "le" (date-row-low row)) (string-append "ge" (date-row-high row)))]
+    ;; the index's instants are UTC: said so (a value without a zone is asked of the record's own clock)
+    [(date-row? row) (list (string-append "le" (date-row-low row) "Z") (string-append "ge" (date-row-high row) "Z"))]
     [(number-row? row) (list (number->string (number-row-value row)))]
     [(quantity-row? row) (list (format "~a|~a|~a" (quantity-row-value row)
                                        (or (quantity-row-system row) "") (or (quantity-row-code row) "")))]

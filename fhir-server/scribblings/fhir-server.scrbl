@@ -362,6 +362,11 @@ parameter of that name; the second word is its kind, which decides how values ar
       (list @tt{quantity} "a number with a unit" @tt{value-quantity=gt9})
       (list @tt{uri} "an address, exactly" ""))]
 
+A date written without a time zone means the day, or the time, as each record wrote it:
+@tt{date=2116-12-17} finds a reading recorded as @tt{2116-12-17T23:52:00-05:00}, though in UTC that
+moment is on the 18th. A date written with a zone (@tt{date=ge2116-12-17T00:00:00Z}) is that
+instant, whatever zone a record was written in.
+
 A name FHIR does not define for that type, or the wrong kind for it, is an error when you
 @tt{check} the file, with the nearest real name. For a search of your own invention, add the place
 in the resource to look, as a FHIRPath expression: @tt{[family string "name.family"]}.
@@ -594,6 +599,11 @@ indexed 2 resources of clinic.db again (for FHIR 4.0.1 search)
 It happens in one transaction: a reindex that is interrupted leaves the store as it was. A store
 made before periods (an encounter's, a procedure's) were indexed as dates needs it once: until
 then a search by such a date finds nothing in it.
+
+@tt{--param <name>} indexes the named search parameters only and @tt{--kind date} every parameter
+of one kind, which takes less time and disk on a large store. A store made before dates were also
+kept as their records wrote them answers a date without a zone by UTC days until
+@tt{raco fhir-server reindex <store.db> --kind date} has run.
 
 @subsection{Reading it with SQL}
 
@@ -879,7 +889,7 @@ has every suite, names the misses, and has the timings.
       (list @tt{raco fhir-server check <app.rkt>} "a declaration compiled: what it offers, or its mistakes")
       (list @tt{raco fhir-server serve <app.rkt> [port | --port n] [--store fhir.db] [--log]} "a declared server")
       (list @tt{raco fhir-server load <store.db> <file|dir> [--validate]} @elem{resources, Bundles, bulk-data files and @tt{.cql} libraries into a store})
-      (list @tt{raco fhir-server reindex <store.db> [--fhir-version v]} "every stored resource indexed for search again")
+      (list @tt{raco fhir-server reindex <store.db> [--fhir-version v] [--param name] [--kind kind]} "every stored resource indexed for search again; the named parameters, or those of a kind, only")
       (list @tt{raco fhir-server sql <store.db> "SELECT …"} "one reading query over a store, as CSV")
       (list @tt{raco fhir-server evaluate-measure <store.db> <Measure id|url> --period-start D --period-end D [--subject Patient/x] [--tz-offset ±hh:mm]} "a MeasureReport from a store"))]
 

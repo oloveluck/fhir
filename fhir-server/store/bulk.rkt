@@ -368,7 +368,7 @@
     (check-true (eof-object? (read-chunk in))))
   ;; an INSERT of n rows names the table's columns once and carries n row tuples
   (check-equal? (insert-rows-sql "fhir_date_index" 2)
-                "INSERT INTO fhir_date_index (resource_type,resource_id,param_name,low,high) VALUES (?,?,?,?,?),(?,?,?,?,?)")
+                "INSERT INTO fhir_date_index (resource_type,resource_id,param_name,low,high,local_low,local_high) VALUES (?,?,?,?,?,?,?),(?,?,?,?,?,?,?)")
   ;; restamping keeps the instant and moves the version
   (define-values (vid text sha) (restamped (caddr (car out)) 3 "2026-01-01T00:00:00Z"))
   (check-equal? (hash-ref (string->jsexpr text) 'meta) (hasheq 'versionId "3" 'lastUpdated "2026-01-01T00:00:00Z")))
