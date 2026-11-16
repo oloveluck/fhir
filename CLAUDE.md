@@ -2592,6 +2592,32 @@ In fhir-examples (`agent-bench/fab/`): `schema.md` (the schema, in MIMIC's words
 `check-tables.rkt` (the benchmark's train-split queries asked of a workspace, unchanged, each
 answer compared; per table, failures grouped by error), `setup-tables.rkt` (the agent that
 writes the tables).
+**Measured** (fhir-examples `agent-bench/results/2026-11-16-round7.md`): a setup agent defined the
+15 tables in 64 minutes (13 views, 15 `.sql` files, 11 KB; 2,074 of the 2,098 train queries give
+the benchmark's answer, the 24 others are prescriptions the FHIR export cannot reconstruct); a
+second agent added the resource behind each row (`fhir_id`). Question agents answering in SQL over
+them: FHIR-AgentBench 144 and 145 of 150 on the development questions (the workspace arm: 122),
+145 and 144 on 150 unseen ones, citations at 0.98 precision and 0.9 recall; the tables themselves,
+asked the benchmark's own queries, are right for 149 and 150. MedAgentBench: 300 of 300. Two
+defects the runs found, each with a test that fails without its fix:
+- **Kept rows survive a copy and a stray JSON file** (`run.rkt` `definitions-stamp`,
+  `states-resource?`): a kept view's key held each definition file's size and time of writing, so
+  a copy of a workspace computed every view again, and it counted any `.json` as a definition, so
+  an agent writing `answer.json` beside the sources made its next query take two minutes. The key
+  holds the files that define something (a JSON file only when it states a `resourceType`) by
+  place and SHA-1. `tests/view-cache-test.rkt`.
+- **A store being brought up to date can be opened twice** (fhir-server `fhir-sqlite.rkt` `once`):
+  three processes opened a store whose date index was being made again (the zone-less date
+  change); the first held the write lock for seconds and the others failed with "database is
+  locked" after two. A schema change is asked again inside an immediate transaction, so the one
+  that waited finds it made, and a writer waits up to a minute (`#:busy-retry-limit 600`).
+`learn/tables.md` says to keep the resource behind each row as a last `fhir_id` column
+(`tests/sql-tables-test.rkt` reads one back and describes it).
+Not built, named: `check-tables` holding a table's `fhir_id`s to the benchmark's resource ids as it
+holds answers (the recall misses are three table shapes: transfers cites the Encounter where the
+benchmark cites the Location, a microbiology row the test and not the organism, a prescription the
+ingredient's Medication); a setup agent told to find what tells `EU OBSERVATION` from
+`OBSERVATION ADMIT` (the export keeps only class and priority).
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

@@ -32,9 +32,14 @@ Both are tables to `query language=sql`, by the file's name.
 ## What goes where
 
 A view's rows are computed once and kept until the data or the view's text changes: seconds for a
-few thousand resources, minutes for several hundred thousand. A `.sql` table is only a statement:
-changing it costs nothing. So put renames, casts, joins and filters in the `.sql` file, and change
-a large view only when it lacks a column.
+few thousand resources, minutes for several hundred thousand. A `.sql` table over kept views is
+computed once too, from their rows (and indexed on its columns when it is large): changing it
+costs seconds. So put renames, casts, joins and filters in the `.sql` file, and change a large
+view only when it lacks a column.
+
+Keep the resource behind each row: a last column `'Observation/' || o.id AS fhir_id` in the `.sql`
+table lets an answer computed over the schema say which resources it rests on, and
+`describe ref=<that id> as=fsh` shows the resource.
 
 ## A worked example
 

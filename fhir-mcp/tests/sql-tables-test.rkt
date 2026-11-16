@@ -13,11 +13,6 @@
          (only-in fhir/mcp/tools tool-name tool-run)
          (only-in fhir/mcp/resources learn-text guide-block-text))
 
-(define (view name type cols)
-  (jsexpr->string
-   (hasheq 'resourceType "ViewDefinition" 'name name 'status "active" 'resource type
-           'select (list (hasheq 'column (for/list ([c (in-list cols)]) (hasheq 'name (car c) 'path (cdr c))))))))
-
 ;; caller : hub -> (name args -> (values answer error?))
 (define ((caller h) name args)
   (define tools (for/hash ([t (in-list (workspace-tools h))]) (values (tool-name t) t)))
@@ -75,6 +70,14 @@
                                                            "* subject = Reference(Patient/bob)\n* period.start = \"2125-04-01T08:00:00-05:00\"\n* period.end = \"2125-04-02T08:00:00-05:00\"\n"))))
     (call "commit" (hasheq 'stage (hash-ref st2 'stage) 'reason "second stay"))
     (check-equal? (rows "SELECT stays FROM stays_per_patient WHERE subject_id = 1002") (list (hasheq 'stays 2)))
+
+    ;; the resource behind a row (the guide's advice): an answer computed over the schema can say
+    ;; what it rests on, and the resource is one call away
+    (call "write" (hasheq 'path "stays.sql" 'text "SELECT CAST(a.hadm_id AS INTEGER) AS hadm_id, 'Encounter/' || a.id AS fhir_id FROM fhir_admissions a"))
+    (check-equal? (rows "SELECT fhir_id FROM stays WHERE hadm_id = 5001") (list (hasheq 'fhir_id "Encounter/stay1")))
+    (let-values ([(text err?) (call* "describe" (hasheq 'ref "Encounter/stay1" 'as "fsh"))])
+      (check-false err?)
+      (check-regexp-match #rx"InstanceOf: Encounter" (format "~a" text)))
 
     ;; ---- what is wrong is said -----------------------------------------------------------------
     ;; not a reading statement: a problem of the file, when it is written
