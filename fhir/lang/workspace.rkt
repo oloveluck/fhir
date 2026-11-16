@@ -321,9 +321,20 @@
   (sort (for/list ([f (in-directory root (lambda (p) (not (skip-dir? p))))]
                    #:when (file-exists? f)
                    #:when (workspace-language-of f)
-                   #:unless (regexp-match? #rx"^[.]" (path->string (file-name-from-path f))))
+                   #:unless (regexp-match? #rx"^[.]" (path->string (file-name-from-path f)))
+                   #:unless (change-file? f))
           f)
         string<? #:key path->string))
+
+;; change-file? : path -> boolean   an FSH file that states a CHANGE to a stored resource — an
+;; `Instance: Type/id` with rules alone, which `stage` lays over what the data holds — is no source
+;; of the workspace: it defines nothing, and as FSH on its own it is an Instance with no InstanceOf
+;; (a change written beside the sources broke the project, and the stage of that very change)
+(define (change-file? f)
+  (and (regexp-match? #rx"[.]fsh$" (path->string f))
+       (with-handlers ([exn:fail? (lambda (_) #f)])
+         (call-with-input-file f
+           (lambda (in) (for/or ([l (in-lines in)]) (regexp-match? #px"^Instance:\\s*[A-Za-z]+/[A-Za-z0-9.-]+\\s*$" l)))))))
 
 (define (workspace-packages ws)
   (for/fold ([found '()] [missing '()] #:result (values (reverse found) (reverse missing)))

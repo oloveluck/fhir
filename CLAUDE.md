@@ -2472,9 +2472,36 @@ fhir-examples (`results/2026-11-16-dsl-vs-json.md`; `bench.rkt`, `dsl-sizes.rkt`
   38k tokens a task); on FHIR-AgentBench 118 of 150 at 55k against REST's 109 at 69k. 26 of the 32
   misses are every arm's (15 expect "no answer"); a turn is 11k tokens and a question takes its
   data calls plus two.
-Next, in the order the numbers give: the decompiler writing an instance OF its profile (entries by
-slice, fixed values left out); stages and answers taking rules laid over a stored instance; one
-CQL or SQL call where an agent takes two or three.
+Built from that list (2026-11-16, later the same day):
+- **A change is the rules that change** (fhir-mcp `fsh-source.rkt` `laid-over`, stage.rkt):
+  `stage fsh="Instance: Observation/a1\n* status = #amended"` — an Instance named `Type/id` (no
+  FSH name holds a slash) with rules and no `InstanceOf` is laid over the stored resource: its FSH
+  (`as-fsh`) then the rules, compiled as any staged FSH, so an assignment replaces and `[+]`
+  appends; validated, diffed and committed like any stage, the Provenance holding the rules as
+  written. A line of the composed text is mapped back to the text given (errors read `fsh:3:`);
+  a resource not stored, or a change that restates `InstanceOf`, is refused at its line. A file
+  holding such a change is no source of the workspace (`fhir/lang/workspace` `change-file?`): kept
+  beside the sources it was an Instance with no InstanceOf, which broke the project and the stage
+  of that very change. No new tool property (the definitions stay under their 12,300 bytes).
+  `tests/change-rules-test.rkt`.
+- **Data handed back as an author writes it** (describe.rkt `instance-fsh`, fsh's
+  `fhir->fsh/of-profile`): `describe ref=Type/id as=source` of data no commit kept a text for
+  (loaded, staged as JSON) and the text export's examples are an Instance OF the profile claimed,
+  entries by slice, the profile's fixed values not said; it errored ("carries no source text")
+  or wrote every value by index. `as=fsh` stays explicit: a reader is shown every value.
+- **Rows say what was sampled** (digest.rkt, run.rkt `with-labels`): an Observation's or
+  DiagnosticReport's row has `specimen` as the Specimen's type (`PERITONEAL FLUID`, `Blood`), not
+  its reference — said once under `every` when a page shares it. Agents opened each Specimen of a
+  culture to learn that (the longest call sequences of round 4).
+- **Not built, and why**: one call for "the last visit" questions. A recipe joining two named
+  searches in SQL was written into the card and taken out: over MIMIC the latest Encounter is an
+  ICU stay and the labs point at the hospital stay it is part of, so the blind join answers
+  nothing — the second call is orientation the data requires. What removes turns there is still
+  open; the closing turn is the harness's.
+- The READMEs and the docs front page lead with this: a toolkit for agents on FHIR, the three
+  ideas (languages not JSON, say only what changes, checked and traced) and the measurements. Two
+  stale Limits went with it: one-step chained search and `_profile`/`_tag` are done; the mapping
+  language runs `escape` and `pointer`.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

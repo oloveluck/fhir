@@ -47,10 +47,14 @@
      ;; FSH compiles as a file of the workspace's project (its profiles in context): a temporary
      ;; file, removed (and the workspace refreshed) whatever happens
      (define tmp (build-path (hub-root h) (format "_stage-~a.fsh" (current-milliseconds))))
+     ;; `Instance: Type/id` changes a stored resource: its rules after the resource's own (fsh-source.rkt)
+     (define read-stored (data-source-read (current-data-source)))
+     (define-values (text given-line)
+       (laid-over fsh (lambda (type id) (let ([r (read-stored type id)]) (and r (text-answer-text (as-fsh r)))))))
      (dynamic-wind
-      (lambda () (call-with-output-file tmp (lambda (o) (write-string fsh o)) #:exists 'truncate/replace) (refresh! h))
+      (lambda () (call-with-output-file tmp (lambda (o) (write-string text o)) #:exists 'truncate/replace) (refresh! h))
       (lambda ()
-        (define r (execute h "fsh" tmp fsh (hasheq)))
+        (define r (execute h "fsh" tmp text (hasheq)))
         ;; the text's own parse and compile errors refuse the stage, every one by its line in the text
         ;; (an entity that does not compile would otherwise be dropped from the stage without a word;
         ;; validation issues are the stage's own report, per resource)
@@ -58,7 +62,7 @@
                                #:when (and (equal? (hash-ref p 'severity #f) "error")
                                            (not (equal? (hash-ref p 'phase #f) "validate"))
                                            (equal? (hash-ref p 'source #f) (path->string tmp))))
-                      (format "~a:~a:~a error: ~a" (or (argument-file args 'fsh h) "fsh") (hash-ref p 'line "?") (hash-ref p 'column "?") (hash-ref p 'message ""))))
+                      (format "~a:~a:~a error: ~a" (or (argument-file args 'fsh h) "fsh") (given-line (hash-ref p 'line "?")) (hash-ref p 'column "?") (hash-ref p 'message ""))))
         (when (pair? own) (error 'stage (string-join own "\n")))
         (define rs (kept (map (lambda (row) (hash-ref row 'resource)) (run-result-rows r))))
         (when (null? rs) (error 'stage (if definitions? "the FSH defines nothing" "the FSH defines no instance (its definitions are staged with definitions:=true)")))

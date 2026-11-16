@@ -769,12 +769,12 @@ reported anywhere but here.
 (@litchar{--bearer}): no SMART on FHIR, OAuth, scopes or per-patient permissions. A guide's security
 section is copied into @tt{/metadata} unchanged. Run these servers on your own machine or a trusted
 network.}
-@item{@bold{Search that is not done.} Chained searches (@tt{patient.name=…}), reverse chaining
-(@litchar{_has}), composite and special parameters, @litchar{_summary}, @litchar{_elements},
+@item{@bold{Search that is not done.} Reverse chaining (@litchar{_has}), a chain of more than one
+step (one step is done: @tt{patient.name=…}, @tt{medication.code=…}), composite and special
+parameters, @litchar{_summary}, @litchar{_elements},
 @litchar{_total}, @litchar{_filter}, @litchar{_text}, @litchar{_content}, @litchar{:iterate}, the
 modifiers @litchar{:above}, @litchar{:below}, @litchar{:in} and
-@litchar{:identifier}, searching across all types at once, and the
-parameters defined for every resource (@litchar{_tag}, @litchar{_profile}, @litchar{_security}).
+@litchar{:identifier}, and searching across all types at once.
 Of @litchar{_summary} only @tt{count} is done. A lenient server answers as if the unsupported part
 were not there (@secref["search"]). Quantity
 search does not convert units. String search covers names and addresses, not every complex type.}

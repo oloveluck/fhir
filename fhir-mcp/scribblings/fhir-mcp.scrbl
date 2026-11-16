@@ -304,9 +304,9 @@ codes works.}
 @item{An update replaces the whole resource. The staged change lists every path that differs,
 including what the new version leaves out.}
 @item{SQL is one reading statement (@tt{SELECT}, @tt{WITH}, @tt{VALUES}); it cannot change the data.}
-@item{FHIR search over a store or over files does not follow chains between resources
-(@tt{_has}, @tt{subject.name}); such a search is refused rather than answered wrongly. The same
-question is a CQL library.}
+@item{FHIR search follows one step of a chain (@tt{subject.name=…}, @tt{medication.code=…}) but
+not a reverse chain (@tt{_has}) or a longer one; such a search is refused rather than answered
+wrongly. The same question is a CQL library.}
 @item{A server declared in the workspace (@tt{*.capability.rkt}) runs in a process of its own and
 speaks FHIR R6; it stops when the workspace's server stops.}
 @item{Data kept as a folder of JSON files or on a FHIR server can be read, searched and written, but

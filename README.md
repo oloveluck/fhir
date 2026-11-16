@@ -1,45 +1,73 @@
-# fhir
+# fhir — a toolkit for AI agents on FHIR
 
-A [FHIR](https://hl7.org/fhir/) implementation designed to be used by AI agents, and by the people
-who work with them.
+[FHIR](https://hl7.org/fhir/) is the standard for health data. This is an implementation of it
+built for an AI agent to work in — read a patient's record, write data that is valid, say what
+valid means, compute over it — and for you to check what the agent did. Three ideas carry it:
 
-FHIR is the standard for exchanging health data. It comes with a handful of small languages: one
-for saying what valid data looks like, one for clinical logic, one for converting data, one for
-naming sets of codes, one for asking questions of a record, one for turning records into tables.
-This project implements them all, with a validator, a terminology service and FHIR servers around
-them, built so that an agent can do real work with health data and you can check what it did:
+- **Languages, not JSON.** FHIR comes with small languages: one for what valid data looks like,
+  one for clinical logic, one for converting data, one for sets of codes, one for questions of a
+  record, one for tables. An agent reads and writes those; FHIR JSON is what they compile to. In
+  the model's own tokens a CQL library is 13% of the JSON it compiles to, a value set in VCL 28%,
+  a mapping 52% — and a correction to a stored record is the rules that change, 26 tokens where
+  the record as JSON is 535.
+- **One workspace, nine tools.** `fhir-mcp` gives an agent a directory to work in over all six
+  languages, a store, FHIR search and SQL: write, check, run, query, explain, describe, apply,
+  stage, commit. As an MCP server or from a shell; answers are a table's rows, not a page of JSON.
+- **Nothing is written unchecked, and every write can be traced.** A change is staged, validated
+  against your rules, and committed with a FHIR Provenance: who, when, why, and the text that
+  made it. A mistake is one line, at its place, saying what was found and what would fix it.
 
-- **Answers are small and exact.** A problem is one line at its file, line and column, saying what
-  was found and what would fix it. A resource can be read as a few lines of FHIR Shorthand instead
-  of a page of JSON, a result as a table.
-- **Nine tools, whatever the task.** One MCP server, `fhir-mcp`, gives an agent a workspace: write,
-  check, run, query, explain, describe, apply, stage, commit, over all six languages, a store,
-  search and SQL. The same nine work from a shell.
-- **Nothing is written unchecked, and every write can be traced.** A change is staged, held to your
-  rules, and committed with a FHIR Provenance: who, when, why, and the text that produced it.
-- **It teaches itself.** `fhir guide <topic>` prints a guide written for an agent, for each language
-  and for FHIR itself; every example in the guides is run by the tests.
-- **It is measured.** Against HL7's own test suites and published guides, and by handing new agents
-  real tasks with nothing but these documents, then fixing whatever slowed them down.
+## Measured
+
+With Claude Sonnet, on benchmarks other people wrote, against the same data served as plain FHIR
+REST ([how, and every miss](https://github.com/oloveluck/fhir-examples/tree/main/agent-bench)):
+
+| | this toolkit | plain REST calls |
+|---|---|---|
+| [MedAgentBench](https://github.com/stanfordmlgroup/MedAgentBench), 300 clinical tasks | 297 right, 38k tokens a task | 294 right, 38k |
+| [FHIR-AgentBench](https://github.com/glee4810/FHIR-AgentBench), 150 questions of a hospital's records | 118 right, 55k tokens a question | 109 right, 69k |
+| a profile written from stated requirements, 24 published profiles | 1427 of 1431 constraints, 0.9k tokens (as FSH) | 1431, 1.8k tokens (as JSON) |
+
+And against HL7's own test suites and published guides: [TESTING.md](TESTING.md).
+
+## What working in it looks like
+
+A reading is stored; a repeat sample corrects it. The agent writes the rules that change, not the
+resource, and the store keeps who changed what, from which line of which text:
+
+```
+$ cat fix.fsh
+Instance: Observation/a1c-1
+* status = #amended
+* valueQuantity = 9.1 '%'
+* note.text = "repeat sample"
+$ fhir-mcp call stage fsh=@fix.fsh
+{"changes":[{"action":"update","changed":["note: added [{\"text\":\"repeat sample\"}]","status: \"final\" → \"amended\"","valueQuantity.value: 9.4 → 9.1"],"resource":"Observation/a1c-1"}],"errors":0,"next":"commit stage=stage-2 writes the 1 change(s) to the store fhir.db","stage":"stage-2"}
+$ fhir-mcp call commit stage=latest reason="repeat sample" agent=Practitioner/dr-ng
+$ fhir-mcp call describe ref=Observation/a1c-1/_history as=csv columns=versionId,agent,reason,value,at
+versionId,agent,reason,value,at
+2,Practitioner/dr-ng,repeat sample,9.1 %,fix.fsh:4
+1,Practitioner/dr-ng,clinic intake,9.4 %,readings.fsh:15
+```
+
+A status FHIR does not have is refused before anything is written:
+``bad2.fsh:2: Observation.status: code `finished` not in required value set … it holds amended, appended, cancelled, …``.
+
+## The pieces
 
 | You want to | Language | Tool |
 |---|---|---|
-| say what valid data looks like, and write examples of it | FHIR Shorthand | [`fsh`](https://github.com/oloveluck/fsh) |
+| say what valid data looks like, and write data | FHIR Shorthand | [`fsh`](https://github.com/oloveluck/fsh) |
 | compute over a patient's record: rules, cohorts, quality measures | Clinical Quality Language | [`cql`](https://github.com/oloveluck/cql) |
 | convert data from one shape to another | FHIR Mapping Language | [`fml`](https://github.com/oloveluck/fml) |
 | name a set of codes | ValueSet Compose Language | [`vcl`](https://github.com/oloveluck/vcl) |
 | ask a question of one resource | FHIRPath | [`fhirpath`](https://github.com/oloveluck/fhirpath) |
 | turn resources into tables | SQL on FHIR | [`sql-on-fhir`](https://github.com/oloveluck/sql-on-fhir) |
 
-Around them, in this repository: `fhir-validate` (check a resource), `fhir-tx` (terminology),
-`fhir-server` (a FHIR server from an Implementation Guide), `fhir-lsp` (your editor) and `fhir-mcp`
-(a workspace for an AI agent such as Claude).
-
-```
-$ fhir-validate bad-patient.json --format text
-bad-patient.json: error code-invalid at Patient.gender: code `femme` not in required value set http://hl7.org/fhir/ValueSet/administrative-gender
-bad-patient.json: error invalid at Patient.birthDate: '1974-13-40' is not a valid date
-```
+Around them, in this repository: `fhir-mcp` (the agent's workspace), `fhir-server` (a FHIR server
+from an Implementation Guide, or over a store), `fhir-validate`, `fhir-tx` (terminology) and
+`fhir-lsp` (your editor). Each language has a guide written for an agent — `fhir guide <topic>` —
+whose every example the tests run.
 
 ## Install
 
@@ -54,17 +82,19 @@ fhir/build-tools.sh dist
 export PATH="$PWD/dist/bin:$PATH"
 ```
 
-For an agent, `fhir-mcp init my-workspace` then makes a directory it can work in: a store, the
-MCP server's configuration (`.mcp.json`), and a note telling the agent where to start.
+Then `fhir-mcp init my-workspace` makes a directory an agent can work in: a store, the MCP
+server's configuration (`.mcp.json`, which Claude Code reads), and a note telling the agent where
+to start. To load data you already have: `fhir-server load my-workspace/fhir.db <dir of FHIR JSON or .ndjson>`.
 
 ## Documentation
 
-**[oloveluck.github.io/fhir](https://oloveluck.github.io/fhir/)** is where to start: what each
-piece is for, a first example of each, and the reference.
+**[oloveluck.github.io/fhir](https://oloveluck.github.io/fhir/)**: what each piece is for, a first
+example of each, and the reference.
 
 - For agents: the `fhir` skill, [.claude/skills/fhir/SKILL.md](.claude/skills/fhir/SKILL.md), and
-  `fhir guide`.
-- How well it works, measured against HL7's own test suites: [TESTING.md](TESTING.md).
+  `fhir guide` (`fhir guide data` is one page on reading a store).
+- The measurements: [fhir-examples](https://github.com/oloveluck/fhir-examples) (`results/`,
+  `agent-bench/results/`).
 - How it is built: [CLAUDE.md](CLAUDE.md).
 
 License: MIT. The HL7 packages in `fhir-spec/` are CC0-1.0.

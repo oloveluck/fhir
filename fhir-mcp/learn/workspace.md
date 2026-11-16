@@ -435,14 +435,27 @@ Check an expression on stored data before making it a rule: `query("fhirpath", "
 "Observation")` answers it per resource.
 
 ### Correcting a stored resource
+The short way: state only what changes. An Instance named `Type/id`, with rules and no `InstanceOf`,
+is a change to the resource the data holds — its rules are laid over the stored resource (a rule
+assigning an element replaces its value, `[+]` adds an entry after those it has), and the result is
+validated, diffed and committed like any stage. The Provenance keeps the rules as written.
+```
+printf 'Instance: Observation/bp-a1\n* status = #amended\n* note[+].text = "cuff changed"\n' > fix.fsh
+raco fhir-mcp call stage fsh=@fix.fsh
+raco fhir-mcp call commit stage=latest reason="cuff changed"
+```
+(A file that holds such a change is no source of the workspace: it may sit beside the others.)
+
+The long way, when the value was written through a RuleSet or you want the text it came from:
 `describe("Observation/bp-a1", as: "source")` answers the Instance as it was written, with the
 RuleSets it inserts; change the line that is wrong (for a reading written through a RuleSet, one
 argument of its `insert` line: `* insert Reading(a, 2025-01-10, 150, 95)`) and stage the whole text
 again — the stage shows the change (`… 150 → 140`), the commit writes version 2 with its reason, and
 the history's `at` names the line changed. The file goes beside the workspace, as data files do (a
 `.fsh` file in the workspace is part of its project, checked with the rules). For data that came in
-without a source (a JSON file, a server), `as: "fsh"` writes an Instance from the stored JSON instead:
-its rules in element-name order with explicit indexes (`category[0]`), so find the line by its path.
+without a source (a JSON file, a server), `as: "source"` writes it as an author would — an Instance
+OF the profile it claims, its entries by the profile's slice names, without what the profile fixes —
+and `as: "fsh"` writes every value it holds, rule by rule with explicit indexes (`category[0]`).
 ```
 raco fhir-mcp call describe ref=Observation/bp-a1 as=source > ../bp-a1.fsh  # edit it
 raco fhir-mcp call stage fsh=@../bp-a1.fsh

@@ -5,18 +5,70 @@
 @(require (only-in scribble/core element))
 @(define (tt . text) (element 'tt text))
 
-@title{fhir: FHIR's languages and tools}
+@title{fhir: a toolkit for AI agents on FHIR}
 
 @hyperlink["https://hl7.org/fhir/"]{FHIR} is the standard most health systems use to exchange data:
 a patient, a lab result, a prescription are each a small document called a @italic{resource}. The
-standard also defines several small languages for working with those resources, and that is what
-this project implements: you write a file in one of the languages, a tool checks it and tells you
-exactly where any mistake is, and then you run it over real data.
+standard also defines several small languages for working with those resources. This project
+implements them all, with a validator, a terminology service, a store and servers around them,
+built so that an AI agent can do real work with health data and you can check what it did: the
+agent writes a file in one of the languages, a tool checks it and says exactly where any mistake
+is, and then it runs over real data.
 
 You do not need to know Racket (the language this is written in) to use it. Each language has a
-command-line tool, and there is a server an AI agent can work through.
+command-line tool, and there is one server, @tt{fhir-mcp}, that an agent works through. Everything
+here works for a person at a terminal too.
 
 @table-of-contents[]
+
+@section{Why it suits an agent}
+
+An agent pays for every word it reads and writes, makes fewer mistakes the less it has to write,
+and needs to be told plainly when it is wrong. Three choices follow from that.
+
+@itemlist[
+@item{@bold{Languages, not JSON.} A FHIR resource is JSON, and the definitions FHIR works with
+(a profile, a value set, a map, a library of logic) are long JSON documents. Each of FHIR's
+languages is a shorter way to say one of them, and the tools compile the language to the JSON. So
+the agent reads and writes the language. Counted in a model's own tokens over published material:
+a CQL library is 13% of the JSON it compiles to, a value set written in VCL 28%, a map 52%.}
+@item{@bold{Say only what changes.} A stored resource is changed by the rules that change it, not
+by sending the whole resource back: 26 tokens in a test of sixty changes where the resource as
+JSON was 535, with the same result every time.}
+@item{@bold{Checked before it is written, traced after.} Nothing reaches the data without being
+validated against FHIR and against your own rules, and every write records who made it, when, why
+and from which line of which text. A mistake comes back as one line, at its place, saying what was
+found and what would fix it.}]
+
+Measured with Claude Sonnet on two benchmarks other people published, against the same data
+served as plain FHIR REST calls: on MedAgentBench (300 clinical tasks) 297 right through the
+workspace and 294 through REST, at the same 38 thousand tokens a task; on FHIR-AgentBench (150
+questions about a hospital's records) 118 right at 55 thousand tokens a question against 109 at
+69 thousand. And asked to write 24 published profiles from their stated requirements, a model got
+1427 of 1431 constraints right in FHIR Shorthand at half the tokens of the JSON. The harnesses, the
+runs and every miss are in @hyperlink["https://github.com/oloveluck/fhir-examples"]{fhir-examples}.
+
+A correction, as an agent makes it (the first file was written when the reading was stored):
+
+@verbatim|{
+$ cat fix.fsh
+Instance: Observation/a1c-1
+* status = #amended
+* valueQuantity = 9.1 '%'
+* note.text = "repeat sample"
+$ raco fhir-mcp call stage fsh=@fix.fsh
+{"changes":[{"action":"update","changed":["note: added [{\"text\":\"repeat sample\"}]","status: \"final\" → \"amended\"","valueQuantity.value: 9.4 → 9.1"],"resource":"Observation/a1c-1"}],"errors":0,"next":"commit stage=stage-2 writes the 1 change(s) to the store fhir.db","stage":"stage-2"}
+$ raco fhir-mcp call commit stage=latest reason="repeat sample" agent=Practitioner/dr-ng
+$ raco fhir-mcp call describe ref=Observation/a1c-1/_history as=csv columns=versionId,agent,reason,value,at
+versionId,agent,reason,value,at
+2,Practitioner/dr-ng,repeat sample,9.1 %,fix.fsh:4
+1,Practitioner/dr-ng,clinic intake,9.4 %,readings.fsh:15
+}|
+
+The first line of the file names the stored resource; the lines under it are what changes. The
+answer to @tt{stage} says what would change and that nothing is wrong; @tt{commit} writes it; the
+last command reads the resource's history back as a table. The @hyperlink["fhir-mcp/index.html"]{fhir-mcp}
+page starts from an empty folder.
 
 @section{What you can do}
 
@@ -157,13 +209,14 @@ Each page ends with a list of what its package does not do. The largest across t
 
 @itemlist[
 @item{FHIR is read and written as JSON only, never XML.}
-@item{The server does not do chained searches, conditional requests or SMART authorization.}
+@item{The server does not do conditional create, update or delete by a search, or SMART
+authorization.}
 @item{The validator does not follow references to check what they point at.}
 @item{The terminology service only knows the code systems in the packages it is given. SNOMED CT and
 LOINC are not shipped, so a value set defined by a rule over them cannot be listed out, though a
 value set that lists its codes works.}
 @item{CQL computes proportion measures for FHIR Measure resources; the other kinds of scoring are
 available for measures in the cqm-models format.}
-@item{The mapping language runs every transform but @tt{dateOp}, @tt{escape} and @tt{pointer}.}
+@item{The mapping language runs every transform but @tt{dateOp}.}
 @item{FHIR Shorthand reproduces most, not all, of what the reference compiler (SUSHI) writes for the
 published guides it is tested on; @tt{TESTING.md} in each repository has the numbers.}]

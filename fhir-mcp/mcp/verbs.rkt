@@ -229,13 +229,13 @@
                                                       (let ([r (hash-ref args 'resource #f)]) (and (hash? r) r))
                                                       (let ([u (hash-ref args 'url #f)]) (and (string? u) u)))))))
    (tool "stage"
-         "Prepare a write to the data: resources given as JSON or as FSH Instances (`fsh`), the resources of a run (result://rN, an FML transform), an FSH file's example instances, or a JSON file — or the workspace's implementation guide (`path: sushi-config.yaml`): the guide, every definition its files make and their examples, as one. Each is validated and compared with the data's copy (create, update with what changed as `path: old → new`, unchanged); a resource with an id the data holds is an update. A definition takes its guide's version and status, is held to CRMI's Shareable profile, and once active does not change without a new version. Nothing is written until commit. `drop` discards a stage."
+         "Prepare a write to the data: resources given as JSON or as FSH Instances (`fsh`), the resources of a run (result://rN, an FML transform), an FSH file's example instances, or a JSON file — or the workspace's implementation guide (`path: sushi-config.yaml`): the guide, every definition its files make and their examples, as one. Each is validated and compared with the data's copy (create, update with what changed as `path: old → new`, unchanged); a resource with an id the data holds is an update. A definition takes its guide's version and status, is held to CRMI's Shareable profile, and once active does not change without a new version. Nothing is written until commit."
          (schema (hasheq 'resources (hasheq 'type "array" 'items (hasheq 'type "object") 'description "FHIR resources (or Bundles)")
-                         'fsh (s "FSH Instances, as text: the compact way to write resources")
+                         'fsh (s "FSH Instances, as text; `Instance: Type/id` with rules alone changes that stored resource")
                          'result (s "a result whose rows hold resources")
                          'path (s "an FSH file (its instances), a JSON file, or sushi-config.yaml (the whole guide)")
                          'definitions (hasheq 'type "boolean" 'description "true: stage what an FSH text or file defines too (profiles, value sets), not its instances alone")
-                         'drop (s "a stage id to discard instead, \"latest\", \"refused\" (every stage with errors) or \"all\"")
+                         'drop (s "discard a stage instead: its id, \"latest\", \"refused\" (those with errors) or \"all\"")
                          'keep (hasheq 'type "boolean" 'description "false: check only — the same answer, nothing kept"))
                  '())
          (lambda (args) (answer (lambda () (hub-stage! h args)))))

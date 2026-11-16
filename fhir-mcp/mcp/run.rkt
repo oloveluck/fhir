@@ -367,10 +367,25 @@
                     (define r (with-handlers ([exn:fail? (lambda (_) #f)]) (read type id)))
                     (and (hash? r) (label-of r))]
                    [_ #f]))))
+  ;; a specimen's cell is what was sampled (a culture's `PERITONEAL FLUID`, a lab's `Blood`) and
+  ;; not its reference: every row's own Specimen id cost a page of labs more than their values, and
+  ;; a page of one kind says `Blood` once (`every`). A specimen that names no type has no cell.
+  (define (sampled ref)
+    (match (regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)$" ref)
+      [(list _ type id)
+       (define r (with-handlers ([exn:fail? (lambda (_) #f)]) (read type id)))
+       (and (hash? r) (label-of (hash-remove r 'identifier)))]
+      [_ #f]))
+  (define samples (make-hash))
   (for/list ([d (in-list digests)])
-    (for/list ([cell (in-list d)])
-      (define l (and (not (memq (car cell) shared-references)) (label (cdr cell))))
-      (if l (cons (car cell) (format "~a (~a)" (cdr cell) l)) cell))))
+    (for*/list ([cell (in-list d)]
+                [l (in-value (cond [(eq? (car cell) 'specimen) (hash-ref! samples (cdr cell) (lambda () (sampled (cdr cell))))]
+                                   [(memq (car cell) shared-references) #f]
+                                   [else (label (cdr cell))]))]
+                #:when (or l (not (eq? (car cell) 'specimen))))
+      (cond [(eq? (car cell) 'specimen) (cons 'specimen l)]
+            [l (cons (car cell) (format "~a (~a)" (cdr cell) l))]
+            [else cell]))))
 
 ;; search-store : hub symbol -> (values store catalog)   the store that indexes the data — the
 ;; workspace's own, or the one its files were indexed into — with its search parameters; an error

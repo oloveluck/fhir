@@ -23,6 +23,8 @@
   [insert-line       (-> string? exact-positive-integer? (or/c exact-positive-integer? #f))]
   [rule-line         (-> string? exact-positive-integer? (or/c string? #f) (or/c exact-positive-integer? #f))]
   [last-rule-line    (-> string? exact-positive-integer? string? (or/c exact-positive-integer? #f))]
+  ;; laid-over : fsh-text (type id -> fsh-text | #f) -> (values fsh-text (line -> line))
+  [laid-over         (-> string? (-> string? string? (or/c string? #f)) (values string? (-> any/c any/c)))]
   [error-element     (-> string? (or/c string? #f))]
   [with-missing-hint (->* (string?) (any/c) string?)]))
 
@@ -125,13 +127,46 @@
 (define (instance-line text id)
   (define lines (regexp-split #rx"\n" text))
   (or (for/first ([l (in-list lines)] [i (in-naturals 1)]
-                  #:when (regexp-match? (pregexp (string-append "^Instance:\\s*" (regexp-quote id) "\\s*$")) l))
+                  ;; `Instance: Observation/a1` (a change to the stored resource, `laid-over`) is that id's too
+                  #:when (regexp-match? (pregexp (string-append "^Instance:\\s*(?:[A-Za-z]+/)?" (regexp-quote id) "\\s*$")) l))
         i)
       (let loop ([ls lines] [i 1] [start #f])
         (cond [(null? ls) #f]
               [(regexp-match? #px"^Instance:" (car ls)) (loop (cdr ls) (add1 i) i)]
               [(and start (regexp-match? (pregexp (string-append "^\\*\\s*id\\s*=\\s*\"" (regexp-quote id) "\"")) (car ls))) start]
               [else (loop (cdr ls) (add1 i) start)]))))
+
+;; ---- a change to a stored resource --------------------------------------------------------------
+;; An Instance named `Type/id` (no FSH name holds a slash) states a CHANGE: the rules under it are
+;; laid over the resource the data holds — they are compiled after the resource's own rules, so a
+;; rule assigning an element replaces its value and `[+]` adds an entry after those it has. It
+;; takes rules only: what the resource is an instance of is the stored resource's to say.
+(define change-header #px"^Instance:\\s*([A-Za-z]+)/([A-Za-z0-9.-]+)\\s*$")
+
+;; laid-over : fsh-text (type id -> fsh-text | #f) -> (values fsh-text (line -> line))
+;; the text with each change's header replaced by the stored resource as FSH (`stored`: its
+;; Instance, header and rules), and where a line of that text stands in the text given: a stored
+;; resource's lines at its change's header. A text with no change is itself.
+(define (laid-over text stored)
+  (define-values (out _change)
+    (for/fold ([out '()] [change #f]) ([l (in-list (regexp-split #rx"\n" text))] [i (in-naturals 1)])
+      (cond
+        [(regexp-match change-header l)
+         => (lambda (m)
+              (define own (or (stored (cadr m) (caddr m))
+                              (error 'stage (format "fsh:~a: ~a/~a is not stored: `Instance: Type/id` changes a resource the data holds (a new one is `Instance: <id>` with its `InstanceOf:`)"
+                                                    i (cadr m) (caddr m)))))
+              (values (append (reverse (for/list ([o (in-list (regexp-split #rx"\n" (string-trim own #:left? #f)))]) (cons o i))) out)
+                      (format "~a/~a" (cadr m) (caddr m))))]
+        [(regexp-match? entity-header l) (values (cons (cons l i) out) #f)]
+        [(and change (regexp-match? #px"^(InstanceOf|Usage|Title|Description)\\s*:" l))
+         (error 'stage (format "fsh:~a: `Instance: ~a` changes the stored resource and takes rules only (lines starting with `*`), not `~a`"
+                               i change (car (regexp-match #px"^[A-Za-z]+" l))))]
+        [else (values (cons (cons l i) out) change)])))
+  (define lines (reverse out))
+  (define origin (list->vector (map cdr lines)))
+  (values (string-join (map car lines) "\n")
+          (lambda (n) (if (and (exact-positive-integer? n) (<= n (vector-length origin))) (vector-ref origin (sub1 n)) n))))
 
 ;; error-element : error-text -> path|#f   the element an error is about: what an invariant found
 ;; (`… (found component[0].valueQuantity = 20 'kPa')` -> component[0].valueQuantity; "found no …" is
@@ -287,4 +322,21 @@
   (check-equal? (with-missing-hint "rule (found no component matching '8462-4')" #t)
                 "rule (found no component matching '8462-4': add a component with '8462-4' after this line)")
   (check-equal? (with-missing-hint "rule (found no subject)") "rule (found no subject: add a rule for it, * subject = …)")
-  (check-equal? (with-missing-hint "another message") "another message"))
+  (check-equal? (with-missing-hint "another message") "another message")
+  ;; a change to a stored resource: its rules laid over the resource's own, lines mapped back
+  (let ()
+    (define stored-fsh "Instance: a1\nInstanceOf: Observation\n* status = #final\n* code = http://loinc.org#1")
+    (define given "Alias: $x = http://x.org\n\nInstance: Observation/a1\n* status = #amended\n* note[+].text = \"seen\"\n\nInstance: b2\nInstanceOf: Patient\n* active = true")
+    (define-values (text at) (laid-over given (lambda (type id) (and (equal? (list type id) '("Observation" "a1")) stored-fsh))))
+    (check-equal? text (string-append "Alias: $x = http://x.org\n\n" stored-fsh "\n* status = #amended\n* note[+].text = \"seen\"\n\nInstance: b2\nInstanceOf: Patient\n* active = true"))
+    (check-equal? (map at '(1 3 6 7 8 10)) '(1 3 3 4 5 7))          ; the stored lines at the change's header
+    (check-equal? (instance-line given "a1") 3)
+    (check-equal? (rule-line given 3 "status") 4)
+    ;; a text with no change is itself
+    (define-values (same at2) (laid-over "Instance: b2\nInstanceOf: Patient" (lambda (t i) #f)))
+    (check-equal? same "Instance: b2\nInstanceOf: Patient")
+    (check-equal? (at2 2) 2)
+    ;; what is not stored, and what a change does not take, are said at their lines
+    (check-exn #rx"fsh:1: Observation/zz is not stored" (lambda () (laid-over "Instance: Observation/zz\n* status = #final" (lambda (t i) #f))))
+    (check-exn #rx"fsh:2: .*takes rules only.*not `InstanceOf`"
+               (lambda () (laid-over "Instance: Observation/a1\nInstanceOf: Observation" (lambda (t i) stored-fsh))))))

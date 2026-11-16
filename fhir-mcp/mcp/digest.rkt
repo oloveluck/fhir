@@ -43,7 +43,11 @@
   (hash "Encounter" '((identifier) (partOf))
         ;; a patient's identifier (an MRN): a search found the patient and every reader asked for
         ;; the whole resource to read it
-        "Patient" '((identifier))))
+        "Patient" '((identifier))
+        ;; what was tested: a culture's row said the organism and not the specimen, and every reader
+        ;; opened each Specimen to learn whether it was urine or blood (the row names it: `with-labels`)
+        "Observation" '((specimen))
+        "DiagnosticReport" '((specimen))))
 
 ;; leading-slots : type -> (listof Slot)   said before the common slots' date: a prescription's
 ;; validity period — when it is to be given, from and until — ahead of `authoredOn`, when it was
@@ -212,6 +216,11 @@
 (module+ test
   (require rackunit)
   (define (concept system code display) (hasheq 'coding (list (hasheq 'system system 'code code 'display display))))
+  ;; a culture's row says its specimen, and a Specimen is called by its type
+  (check-equal? (assq 'specimen (digest (hasheq 'resourceType "Observation" 'id "m1" 'status "final"
+                                                'specimen (hasheq 'reference "Specimen/s1"))))
+                '(specimen . "Specimen/s1"))
+  (check-equal? (label-of (hasheq 'resourceType "Specimen" 'id "s1" 'type (concept "x" "70053" "PERITONEAL FLUID"))) "PERITONEAL FLUID")
   ;; an Observation: what, value, when, status, whose, where
   (check-equal? (digest (hasheq 'resourceType "Observation" 'id "a1" 'status "final"
                                 'code (concept "http://loinc.org" "4548-4" "Hemoglobin A1c")

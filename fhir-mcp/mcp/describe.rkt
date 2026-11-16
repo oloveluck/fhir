@@ -18,7 +18,7 @@
 
 ;; Contracted in workspace.rkt; stage reads a history and the definition kinds.
 (provide conformance-kinds (struct-out text-answer) hub-describe describe-history hub-edit!
-         artifact-text as-source)                       ; export.rkt writes definitions as their text
+         artifact-text as-source as-fsh)                       ; export.rkt writes definitions as their text
 
 (define conformance-kinds '("StructureDefinition" "ValueSet" "CodeSystem" "ConceptMap" "StructureMap"))
 
@@ -156,12 +156,22 @@
          => (lambda (m)
               (define pv (let ([vs (hash-ref (describe-history h (cadr m) (caddr m)) 'versions '())])
                            (for/first ([v (in-list vs)] #:when (hash-ref v 'provenance #f)) (hash-ref v 'provenance))))
-              (unless pv (error 'describe (format "~a was not written by a commit: no Provenance holds its source" ref)))
-              (define whole (as-source ((data-source-read (current-data-source)) "Provenance" (cadr (regexp-match #rx"^Provenance/(.+)$" pv)))))
+              (define read (data-source-read (current-data-source)))
+              ;; data no commit kept a text for (loaded, or staged as JSON): the resource itself, as
+              ;; the FSH an author writes — an instance of its profile — to edit and stage again
+              (define stored (and (not (regexp-match? #rx"/_history$" ref)) (read (cadr m) (caddr m))))
+              (define (provenance-text) (as-source (read "Provenance" (cadr (regexp-match #rx"^Provenance/(.+)$" pv)))))
+              (define whole
+                (cond [(and stored (not pv)) #f]
+                      [stored (with-handlers ([exn:fail? (lambda (_) #f)]) (provenance-text))]
+                      [pv (provenance-text)]
+                      [else (error 'describe (format "~a was not written by a commit: no Provenance holds its source" ref))]))
               ;; this resource's own Instance, not the whole file it came in (six instances answered
               ;; for one); `describe ref=<the Provenance> as=source` gives the whole text
-              (define block (instance-block (text-answer-text whole) (caddr m)))
-              (if block (text-answer block) whole))]
+              (define block (and whole (instance-block (text-answer-text whole) (caddr m))))
+              (cond [block (text-answer block)]
+                    [whole whole]
+                    [else (text-answer (instance-fsh h stored))]))]
         [(regexp-match #px"^([A-Z][A-Za-z]+)/([A-Za-z0-9.-]+)/_history$" ref)
          => (lambda (m) (history-from-here h (describe-history h (cadr m) (caddr m))))]
         ;; what is recorded about one patient (or any resource others name as their subject)
@@ -211,7 +221,8 @@
         ["Library" (cond [(library-cql r) => (lambda (cql) (cons "cql" cql))]
                          [else (cons "fsh" (definition-fsh r))])]
         ["StructureMap" (cons "fml" (map-text r))]
-        [_ (cons "fsh" (definition-fsh r))])))
+        ;; a definition by what defines it; data as an instance of its profile
+        [_ (cons "fsh" (if (string? (hash-ref r 'url #f)) (definition-fsh r) (instance-fsh h r)))])))
 
 ;; kept-text : hub stored -> (cons language string) | #f   the text the commit of this version kept
 ;; for it — its own file (a guide's commit names each definition's; a file or FSH staged alone is
@@ -259,6 +270,20 @@
 ;; follow the guide
 (define (definition-fsh r)
   (text-answer-text (as-fsh (for/fold ([r r]) ([k (in-list '(version status experimental publisher))]) (hash-remove r k)))))
+
+;; instance-fsh : hub resource -> string   a resource that is data, as the FSH an author writes: an
+;; Instance OF the profile it claims, its entries by the profile's slices, nothing the profile fixes
+;; (fsh/instance-of: each shortening kept only when the text compiles, in this workspace's context,
+;; to exactly the resource); as `as-fsh` writes it when it claims no profile the workspace knows
+(define (instance-fsh h r)
+  (define plain (text-answer-text (as-fsh r)))
+  (with-handlers ([exn:fail? (lambda (_) plain)])
+    (define of-profile (dynamic-require 'fsh/instance-of 'fhir->fsh/of-profile))
+    (define version (dynamic-require 'fsh/compile 'fsh-fhir-version))
+    (define meta (let ([m (hash-ref r 'meta #f)]) (and (hash? m) (hash-remove (hash-remove m 'versionId) 'lastUpdated))))
+    (define r* (cond [(not meta) r] [(zero? (hash-count meta)) (hash-remove r 'meta)] [else (hash-set r 'meta meta)]))
+    (parameterize ([version (ws-config-fhir-version (workspace-config (hub-ws h)))])
+      (regexp-replace #rx"\nUsage: #example(?=\n|$)" (of-profile r*) ""))))
 
 ;; map-text : StructureMap -> string   as the mapping language (fml's printer: the specified language)
 (define (map-text sm)
