@@ -2452,6 +2452,30 @@ On FHIR-AgentBench a search answer averaged 2.7k characters, a third of the call
 Measured and not done: rows as arrays (−10%), the type said once (−5%), a legend for repeated long
 references (−7%): agents copy `Type/id` from the rows into their answers, so ids stay whole.
 
+## A language against the FHIR it compiles to (2026-11-16)
+The owner's thesis: FHIR is the intermediate representation of a family of languages, and a model
+should spend fewer tokens and make fewer mistakes in the languages than in the JSON. Measured in
+fhir-examples (`results/2026-11-16-dsl-vs-json.md`; `bench.rkt`, `dsl-sizes.rkt`, `edit-bench.rkt`):
+- **Sizes, in the model's tokens**: CQL 13% of its ELM, VCL 28% of a compose, FML 52% of a
+  StructureMap, an FSH value set 78%, an FSH profile 89%, an FSH instance 96% of compact JSON (as
+  the decompiler writes it; 75% as an instance of its profile with aliases). Indented JSON is 31%
+  more than compact. The saving is by LEVEL (an expression against its tree), by CONTEXT (what the
+  profile fixes, an alias table) and by saying only what CHANGES (an edit as FSH rules: 26 tokens
+  against 535 for the whole resource, 50 for a JSON Patch) — not by syntax.
+- **Writing a profile from stated requirements**: FSH 1427/1431 facets at 0.9k answer tokens, JSON
+  1431/1431 at 1.8k. Before fsh was fixed FSH scored 1202: every loss but a handful was the
+  compiler misreading, silently, what a published artifact writes (a canonical with its
+  `|version` as Parent, in `only`, `contains`, a binding; a type nothing defines). Correctness
+  lives in the compiler and checker, so their defects are the model's errors (fsh/CLAUDE.md, "What
+  a model writes").
+- **Reading a store** (round 4): workspace and REST level on MedAgentBench (297 and 294 of 300,
+  38k tokens a task); on FHIR-AgentBench 118 of 150 at 55k against REST's 109 at 69k. 26 of the 32
+  misses are every arm's (15 expect "no answer"); a turn is 11k tokens and a question takes its
+  data calls plus two.
+Next, in the order the numbers give: the decompiler writing an instance OF its profile (entries by
+slice, fixed values left out); stages and answers taking rules laid over a stored instance; one
+CQL or SQL call where an agent takes two or three.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.
