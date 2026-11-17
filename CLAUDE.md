@@ -2622,6 +2622,25 @@ benchmark cites the Location, a microbiology row the test and not the organism, 
 ingredient's Medication); a setup agent told to find what tells `EU OBSERVATION` from
 `OBSERVATION ADMIT` (the export keeps only class and priority).
 
+## Every suite run; a false positive only fetched packages showed (2026-11-17)
+The owner asked for everything passing before the next performance work. Every package's suite was
+run (thirteen packages; all pass, fhir-examples after two fixes of its own) and fhir-examples'
+six IGs were fetched (`ig-servers/`, whose test skips an IG that is not there, which is every
+machine that did not run its `main.rkt`). One defect showed only with the packages present:
+- **An invariant that is false because a reference could not be followed is not decided**
+  (fhir-validation `validate.rkt` `rests-on-unresolved?`; fhirpath's
+  `current-unresolved-references`). CARIN Blue Button's `provider.all(resolve() is Practitioner)`
+  refused the guide's own six ExplanationOfBenefit examples: `resolve()` finds nothing for
+  `Practitioner/Practitioner2` (another resource of the server, not contained), `{} is
+  Practitioner` is empty, and `all(…)` of an empty criterion is false — a singleton false, which
+  the validator reports. It has done so since invariants went on by default (2026-11-05); the
+  recorded result was a day older. Now a false of an expression that calls `resolve()` is
+  evaluated once more with the misses recorded, and when a reference was looked for and not found
+  nothing is reported (fail-open: the cardinal rule). A reference that resolves to something else
+  (a contained Organization) is still broken. `validate-test.rkt` has the three cases. Gates
+  unchanged: IG validation 330 clean, validator fp 0 / recall 18, corpus 0 over-reported; the six
+  IGs of fhir-examples verify with no regression (CARIN: 104 of 104 examples accepted again).
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

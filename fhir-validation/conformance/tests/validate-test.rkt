@@ -75,6 +75,31 @@
 (check-equal? (errs (hasheq 'resourceType "Patient" 'name (list (hasheq 'family "X")))
                     #:profiles (list name-required-profile) #:invariants? #t)
               '() "satisfied invariant does not fire")
+;; an invariant that is false only because resolve() could not follow a reference is not decided:
+;; the Practitioner is another resource (of a server, a package), not part of what is validated.
+;; CARIN Blue Button's `provider.all(resolve() is Practitioner)` refused its own six examples.
+(define gp-practitioner-profile
+  (hasheq 'resourceType "StructureDefinition" 'id "gp" 'url "http://ex/gp" 'name "GP"
+          'type "Patient" 'baseDefinition "http://hl7.org/fhir/StructureDefinition/Patient"
+          'derivation "constraint"
+          'differential (hasheq 'element (list (hasheq 'id "Patient" 'path "Patient"
+                                                       'constraint (list (hasheq 'key "gp-1" 'severity "error"
+                                                                                 'human "the general practitioner is a Practitioner"
+                                                                                 'expression "generalPractitioner.all(resolve() is Practitioner)")))))))
+(check-equal? (errs (hasheq 'resourceType "Patient" 'generalPractitioner (list (hasheq 'reference "Practitioner/p1")))
+                    #:profiles (list gp-practitioner-profile) #:invariants? #t)
+              '() "a reference that cannot be followed here: undecided, not reported")
+(check-equal? (errs (hasheq 'resourceType "Patient"
+                            'contained (list (hasheq 'resourceType "Organization" 'id "o1" 'name "Clinic"))
+                            'generalPractitioner (list (hasheq 'reference "#o1")))
+                    #:profiles (list gp-practitioner-profile) #:invariants? #t)
+              '(("invariant" . "Patient")) "a reference that resolves to something else: broken")
+(check-equal? (errs (hasheq 'resourceType "Patient"
+                            'contained (list (hasheq 'resourceType "Practitioner" 'id "p1"))
+                            'generalPractitioner (list (hasheq 'reference "#p1")))
+                    #:profiles (list gp-practitioner-profile) #:invariants? #t)
+              '() "a reference that resolves to a Practitioner: holds")
+
 ;; invariants are OFF by default (fail-open) — same failing resource, no #:invariants?
 (check-equal? (errs (hasheq 'resourceType "Patient" 'gender "male") #:profiles (list name-required-profile))
               '() "invariants off by default")

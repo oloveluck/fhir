@@ -28,7 +28,7 @@
          (only-in fhir/serialize/read-json jnum? jnum-lexeme jnum-value)
          (only-in fhir/result/result ok? ok-value ok-or-raise err)
          (only-in fhir/model/registry constructor-of all-types type-registered?)
-         (only-in fhirpath/eval eval-fhirpath)
+         (only-in fhirpath/eval eval-fhirpath current-unresolved-references)
          (only-in fhirpath/parser/parse parse-fhirpath)
          (only-in fhirpath/parser/ast fp-invoke fp-invoke? fp-invoke-target fp-invoke-name fp-call fp-call? fp-call-target fp-lit? fp-lit-value
                   fp-call-name fp-call-args fp-binop? fp-binop-op fp-binop-lhs fp-binop-rhs fp-unop? fp-unop-operand
@@ -675,17 +675,31 @@
   (cond
     [(not expr) '()]
     [else
-     (define result (with-handlers ([exn:fail? (lambda (_) 'skip)])
-                      (map item->system (eval-fhirpath (parse-fhirpath expr) (list focus)
-                                                       #:externals (hash "resource" (list root) "rootResource" (list root)
-                                                                         "context" (list focus))))))
-     ;; violated ONLY on a singleton #f; empty/true/unevaluable -> holds (fail-open)
-     (if (equal? result (list #f))
+     (define (evaluated)
+       (with-handlers ([exn:fail? (lambda (_) 'skip)])
+         (map item->system (eval-fhirpath (parse-fhirpath expr) (list focus)
+                                          #:externals (hash "resource" (list root) "rootResource" (list root)
+                                                            "context" (list focus))))))
+     (define result (evaluated))
+     ;; violated ONLY on a singleton #f; empty/true/unevaluable -> holds (fail-open). And a false
+     ;; that rests on a reference resolve() could not follow is not decided either: the resource it
+     ;; names is not in what is being validated (another resource of a server, of a package), so
+     ;; `provider.all(resolve() is Practitioner)` is false of a reference to a Practitioner. Asked
+     ;; again only for a false of an expression that resolves, with the misses recorded.
+     (if (and (equal? result (list #f)) (not (rests-on-unresolved? expr evaluated)))
          (list (issue (if (equal? (hash-ref c 'severity #f) "warning") "warning" "error")
                       "invariant" path
                       (format "~a: ~a~a" (hash-ref c 'key "?") (hash-ref c 'human "")
                               (found-text expr focus root))))
          '())]))
+
+;; rests-on-unresolved? : string (-> any) -> boolean   does the expression call resolve(), and did
+;; evaluating it (again, `evaluate`) look for a reference it could not find?
+(define (rests-on-unresolved? expr evaluate)
+  (and (regexp-match? #rx"resolve[(]" expr)
+       (let ([misses (box '())])
+         (parameterize ([current-unresolved-references misses]) (evaluate))
+         (pair? (unbox misses)))))
 
 ;; ---- what a broken invariant found ---------------------------------------------------------
 ;; A refusal that quotes only the rule ("A heart rate is between 20 and 250 /min") leaves the reader
