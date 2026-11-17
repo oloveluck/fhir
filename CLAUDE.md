@@ -2601,7 +2601,14 @@ them: FHIR-AgentBench 144 and 145 of 150 on the development questions (the works
 asked the benchmark's own queries, are right for 149 and 150. MedAgentBench: 300 of 300. With
 the question prompt's last changes (2026-11-17) the whole test split, 409 questions, scores 400
 and 399; the tables are right for 408; the eight missed every time cannot be learnt from the
-train split, and that write-up has the plan for them ("Plan for what remains"). Two
+train split, and that write-up has the plan for them ("Plan for what remains"). That plan
+carried out (the tables held to the benchmark's rows and resource ids; an `./answer` command
+that runs the query, cites the rows' resources and says what the train split's queries of the
+kind would not do, withholding the answer under two of its notes): the whole test split three
+times 402, 401 and 402 of 409 as scored, and every question whose recorded answer can be held to
+right (fhir-examples' `fab/gate`: PASS; 1202 of 1203, the one an identical answer the
+benchmark's judge marked right twice and wrong once), at 45k input tokens and 3.2 turns a
+question — the baseline that performance work is compared with. Two
 defects the runs found, each with a test that fails without its fix:
 - **Kept rows survive a copy and a stray JSON file** (`run.rkt` `definitions-stamp`,
   `states-resource?`): a kept view's key held each definition file's size and time of writing, so
