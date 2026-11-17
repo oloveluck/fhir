@@ -2598,7 +2598,10 @@ the benchmark's answer, the 24 others are prescriptions the FHIR export cannot r
 second agent added the resource behind each row (`fhir_id`). Question agents answering in SQL over
 them: FHIR-AgentBench 144 and 145 of 150 on the development questions (the workspace arm: 122),
 145 and 144 on 150 unseen ones, citations at 0.98 precision and 0.9 recall; the tables themselves,
-asked the benchmark's own queries, are right for 149 and 150. MedAgentBench: 300 of 300. Two
+asked the benchmark's own queries, are right for 149 and 150. MedAgentBench: 300 of 300. With
+the question prompt's last changes (2026-11-17) the whole test split, 409 questions, scores 400
+and 399; the tables are right for 408; the eight missed every time cannot be learnt from the
+train split, and that write-up has the plan for them ("Plan for what remains"). Two
 defects the runs found, each with a test that fails without its fix:
 - **Kept rows survive a copy and a stray JSON file** (`run.rkt` `definitions-stamp`,
   `states-resource?`): a kept view's key held each definition file's size and time of writing, so
