@@ -2608,7 +2608,16 @@ kind would not do, withholding the answer under two of its notes): the whole tes
 times 402, 401 and 402 of 409 as scored, and every question whose recorded answer can be held to
 right (fhir-examples' `fab/gate`: PASS; 1202 of 1203, the one an identical answer the
 benchmark's judge marked right twice and wrong once), at 45k input tokens and 3.2 turns a
-question — the baseline that performance work is compared with. Two
+question — the baseline that performance work is compared with. Then (2026-11-18,
+fhir-examples `agent-bench/results/2026-11-17-held-out-and-efficiency.md`): on the 274
+validation questions nobody had read, 267 of 270 — the misses questions of kinds the train
+split lacks, since caught by checks read from the train split (a time selected only where the
+question asks when; a first or last row picked from several that differ); and two iterations on
+tokens and time, the gate still passing: 29k input tokens and 7.7 s a question (the agent has
+the shell tool alone, the time phrases come with the example and not in every turn, and the
+session ends when the answer is written with nothing to look at again). What is left there for
+the toolkit is the cold start of a shell call: 0.31 s loading modules and 0.45 s opening a
+workspace, half of that the search catalogue a SQL call does not use. Two
 defects the runs found, each with a test that fails without its fix:
 - **Kept rows survive a copy and a stray JSON file** (`run.rkt` `definitions-stamp`,
   `states-resource?`): a kept view's key held each definition file's size and time of writing, so
