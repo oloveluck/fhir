@@ -134,14 +134,23 @@
         [else (string->symbol (string-append id "/workspace"))]))
 (define ig-file-name "sushi-config.yaml")
 
+;; workspace-language-of : path|string -> id | #f   decided by the file's name (what follows the
+;; last `/` or `\`), in any case. Asked of every file for every statement a workspace runs: a
+;; pattern run over the whole path, five times, was a quarter of a statement's time.
 (define (workspace-language-of p)
-  (define s (string-downcase (if (path? p) (path->string p) p)))
-  (cond [(regexp-match? #rx"(^|[/\\\\])sushi-config[.]yaml$" s) "ig"]
-        [(regexp-match? #rx"[.]view[.]json$" s) "sql-on-fhir"]
-        [(regexp-match? #rx"[.]capability[.]rkt$" s) "capability"]
-        [(regexp-match? #rx"[.]json$" s) "fhir"]
+  (define s (if (path? p) (path->string p) p))
+  (define name
+    (string-downcase
+     (let loop ([i (sub1 (string-length s))])
+       (cond [(< i 0) s]
+             [(memv (string-ref s i) '(#\/ #\\)) (substring s (add1 i))]
+             [else (loop (sub1 i))]))))
+  (cond [(string=? name "sushi-config.yaml") "ig"]
+        [(string-suffix? name ".view.json") "sql-on-fhir"]
+        [(string-suffix? name ".capability.rkt") "capability"]
+        [(string-suffix? name ".json") "fhir"]
         ;; a table defined by one SQL statement over the workspace's views (fhir-mcp reads it)
-        [(regexp-match? #rx"[.]sql$" s) "sql"]
+        [(string-suffix? name ".sql") "sql"]
         [else (language-id-of p)]))
 
 (define loaded (make-hash))
@@ -363,6 +372,21 @@
 
 (module+ test
   (require rackunit)
+  ;; a file's language, held to the patterns it was decided by (over whole paths, in any case)
+  (let ([by-pattern (lambda (p)
+                      (define s (string-downcase p))
+                      (cond [(regexp-match? #rx"(^|[/\\\\])sushi-config[.]yaml$" s) "ig"]
+                            [(regexp-match? #rx"[.]view[.]json$" s) "sql-on-fhir"]
+                            [(regexp-match? #rx"[.]capability[.]rkt$" s) "capability"]
+                            [(regexp-match? #rx"[.]json$" s) "fhir"]
+                            [(regexp-match? #rx"[.]sql$" s) "sql"]
+                            [else (language-id-of p)]))])
+    (for ([p (in-list '("sushi-config.yaml" "/w/sushi-config.yaml" "C:\\w\\Sushi-Config.YAML" "/w/my-sushi-config.yaml"
+                        "/w/bp.view.json" "/w/BP.VIEW.JSON" "/w/a.json" "/w/.json" "/w/a.json/" "/w.json/a.txt"
+                        "/w/clinic.capability.rkt" "/w/t.sql" "/w/x.fsh" "/w/x.cql" "/w/x.map" "/w/x.vcl" "/w/x.fhirpath"
+                        "/w/readme.md" "/w/view.json" "a.sql.bak"))])
+      (check-equal? (workspace-language-of p) (by-pattern p) p))
+    (check-equal? (workspace-language-of (string->path "/w/bp.view.json")) "sql-on-fhir"))
   (check-equal? (workspace-language-of "a/b.view.json") "sql-on-fhir")
   (check-equal? (workspace-language-of "a/Patient-1.json") "fhir")
   (check-equal? (workspace-language-of "a/x.cql") "cql")

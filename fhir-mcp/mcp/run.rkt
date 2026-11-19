@@ -115,12 +115,24 @@
           (and (> (string-length n) (string-length s)) (string-prefix? n s) (char-upper-case? (string-ref n (string-length s))))))))
 
 ;; ---- SQL ---------------------------------------------------------------------------------------
+;; view-facts : view-file -> (cons name|#f type)   what a statement needs to know of a view before
+;; it reads its rows: its `name` and the resource type it reads. Remembered by the file's text (a
+;; statement asks every view of a workspace, and every statement asked again: thirteen files
+;; parsed twice each was an eighth of a statement's time).
+(define facts (make-weak-hash))
+(define (view-facts f)
+  (define text (with-handlers ([exn:fail? (lambda (_) "")]) (file->string f)))
+  (hash-ref! facts text
+             (lambda ()
+               (define j (with-handlers ([exn:fail? (lambda (_) #f)]) (string->jsexpr text)))
+               (define (text-at key) (let ([v (and (hash? j) (hash-ref j key #f))]) (and (string? v) v)))
+               (cons (text-at 'name) (or (text-at 'resource) "?")))))
+
 ;; view-names : view-file -> (listof string)   the names SQL knows a view by: its file stem and `name`
 (define (view-names f)
   (remove-duplicates
    (filter values (list (regexp-replace #rx"[.]view[.]json$|[.]json$" (path->string (file-name-from-path f)) "")
-                        (with-handlers ([exn:fail? (lambda (_) #f)])
-                          (let ([n (hash-ref (call-with-input-file f read-json) 'name #f)]) (and (string? n) n)))))))
+                        (car (view-facts f))))))
 
 ;; ---- a view's rows kept between calls (view-cache.rkt) -------------------------------------------
 ;; kept-view : hub view-file kind (-> table) -> (or/c kept table)   the view's rows over the data
@@ -128,8 +140,8 @@
 ;; key of everything they depend on: the view's text, the workspace's FHIR version and packages,
 ;; the data (data-stamp), the workspace's files (a definition a file states is read before the
 ;; store's) and the engine (engine-stamp). Only a store's views are kept (data-stamp).
-(define (kept-view h f kind compute)
-  (define stamp (data-stamp h (view-resource f)))
+(define (kept-view h f kind compute [definitions (lambda () (definitions-stamp h))] [stamp-of (lambda (type) (data-stamp h type))])
+  (define stamp (stamp-of (view-resource f)))
   (if (not stamp)
       (compute)
       (kept-rows (build-path (hub-root h) ".fhir-mcp" "views.db")
@@ -138,13 +150,11 @@
                  (format "~a ~a" kind (rel h f))
                  (key-of (list 'view-cache 1 kind (file->string f)
                                (ws-config-fhir-version (workspace-config (hub-ws h))) (hub-packages h)
-                               stamp (definitions-stamp h) (engine-stamp)))
+                               stamp (definitions) (engine-stamp)))
                  compute)))
 
 ;; view-resource : view-file -> type   the resource type a ViewDefinition reads
-(define (view-resource f)
-  (with-handlers ([exn:fail? (lambda (_) "?")])
-    (let ([t (hash-ref (call-with-input-file f read-json) 'resource "?")]) (if (string? t) t "?"))))
+(define (view-resource f) (cdr (view-facts f)))
 
 ;; data-stamp : hub type -> datum | #f   what changes whenever the data a view of the type reads
 ;; changes, for a store (read live, so a stamp read now describes what a view reads now): the last
@@ -216,13 +226,21 @@
 ;; earlier result whose rows are a table (`r1`, `r2`, …: a CQL run's defines per patient, a view's
 ;; rows), so a cohort can be joined with a view's columns
 (define (run-sql h text)
+  ;; read once a statement: the workspace's files (listed and told apart by language), and what
+  ;; every view's key holds of them (definitions-stamp: each defining file read and hashed). A
+  ;; statement over fifteen views did both fifteen times, which was two fifths of its time.
+  (define files (workspace-files (hub-ws h)))
+  (define definitions (let ([stamp (delay (definitions-stamp h))]) (lambda () (force stamp))))
+  ;; and the data's stamp for a type (two questions of the store over a connection of their own)
+  (define stamp-of (let ([seen (make-hash)]) (lambda (type) (hash-ref! seen type (lambda () (data-stamp h type))))))
+  (define view-files (filter (lambda (f) (equal? (workspace-language-of f) "sql-on-fhir")) files))
   (define views
-    (for*/list ([f (in-list (workspace-files (hub-ws h)))]
-                #:when (equal? (workspace-language-of f) "sql-on-fhir")
+    (for*/list ([f (in-list view-files)]
                 [name (in-list (view-names f))])
       (cons name (lambda () (kept-view h f 'current
                                        (lambda () (let ([r (execute h "sql-on-fhir" f (file->string f) (hasheq))])
-                                                    (table (run-result-columns r) (run-result-rows r)))))))))
+                                                    (table (run-result-columns r) (run-result-rows r))))
+                                       definitions stamp-of)))))
   ;; each view over EVERY version too (`bp_history`): the store's history as the view's input, so the
   ;; values of a corrected reading are a column, not json_each over JSONB (a `meta.versionId` column
   ;; says which version a row is)
@@ -231,16 +249,14 @@
         (for/list ([v (in-list views)])
           (cons (string-append (car v) "_history")
                 (lambda ()
-                  (define f (for/first ([f (in-list (workspace-files (hub-ws h)))]
-                                        #:when (equal? (workspace-language-of f) "sql-on-fhir")
-                                        #:when (member (car v) (view-names f)))
-                              f))
+                  (define f (for/first ([f (in-list view-files)] #:when (member (car v) (view-names f))) f))
                   (kept-view h f 'history
                              (lambda ()
                                (define r (parameterize ([current-sd-packages (hub-packages h)]
                                                         [current-data-source (resources->data-source (history-resources (data-store-path h) (view-resource f)))])
                                            ((ws-support-run (support-for "sql-on-fhir")) (hub-ws h) f (file->string f) (hasheq))))
-                               (table (run-result-columns r) (run-result-rows r)))))))))
+                               (table (run-result-columns r) (run-result-rows r)))
+                             definitions stamp-of))))))
   (define (result-table st)
     (lambda () (table (map (lambda (c) (format "~a" c)) (run-result-columns (stored-result st)))
                       (run-result-rows (stored-result st)))))
@@ -265,7 +281,7 @@
   ;; and of the tables it read; otherwise (it reads a result, the store's own tables, or it does
   ;; not run) it is the statement itself, run inside each query, where its errors are said.
   (define cache (build-path (hub-root h) ".fhir-mcp" "views.db"))
-  (for ([f (in-list (workspace-files (hub-ws h)))] #:when (equal? (workspace-language-of f) "sql"))
+  (for ([f (in-list files)] #:when (equal? (workspace-language-of f) "sql"))
     (define name (file-stem f))
     (when (assoc name views)
       (error 'sql (format "~a and a view are both named ~a: a table has one definition" (rel h f) name)))

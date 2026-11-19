@@ -20,7 +20,7 @@
 ;;; after the tables IT names are there (a workspace's `<name>.sql` file: a join of views under the
 ;;; column names a schema asks for).
 
-(require racket/contract racket/list racket/string racket/file racket/match json db (only-in fhir/suggest did-you-mean)
+(require racket/contract racket/list racket/string racket/file racket/match racket/promise json db (only-in fhir/suggest did-you-mean)
          (only-in fhir/serialize/fast-json fast-string->jsexpr fast-bytes->jsexpr fast-read-json))
 
 (provide
@@ -50,9 +50,17 @@
 ;; A Defined is (defined sql): the table a reading statement over other tables answers
 (struct defined (sql) #:transparent)
 
+;; tables-named : sql (listof name) -> (listof name)   the names that occur in the statement as a
+;; word of their own, in any case. A name of letters, digits and underscores is looked up among
+;; the statement's words, read once (a workspace of fifteen tables and the store's views is asked
+;; about sixty names for every statement and every table defined by one: a regular expression
+;; compiled and run for each was a sixth of a statement's time); any other name by its pattern.
 (define (tables-named sql names)
+  (define words (delay (for/hash ([w (in-list (regexp-match* #px"[A-Za-z0-9_]+" sql))]) (values (string-downcase w) #t))))
   (for/list ([n (in-list names)]
-             #:when (regexp-match? (pregexp (string-append "(?i:(?<![A-Za-z0-9_])\"?" (regexp-quote n) "\"?(?![A-Za-z0-9_]))")) sql))
+             #:when (if (regexp-match? #px"^[A-Za-z0-9_]+$" n)
+                        (hash-ref (force words) (string-downcase n) #f)
+                        (regexp-match? (pregexp (string-append "(?i:(?<![A-Za-z0-9_])\"?" (regexp-quote n) "\"?(?![A-Za-z0-9_]))")) sql)))
     n))
 
 ;; tables-read : sql (listof name) -> (listof name)   those named as a table: after FROM, JOIN or a
@@ -80,10 +88,19 @@
   (dynamic-wind
    void
    (lambda ()
-     (define types (if store (store-views! c (hash-keys tables)) '()))
+     ;; the store's own views (a resource type, `resources`, `history`, the search indexes): each
+     ;; made when a statement names it, as a table is
+     (define stored (if store (store-views c (hash-keys tables)) (hash)))
+     (define types (hash-keys stored))
      (define names (tables-named sql (hash-keys tables)))
      (when (and (null? names) (null? (tables-named sql types)))
        (raise-user-error 'sql (format "the statement names none of the tables: ~a" (string-join (sort (append (hash-keys tables) types) string<?) ", "))))
+     (define made-views (make-hash))
+     (define (ensure-stored! body)
+       (for ([n (in-list (tables-named body types))] #:unless (hash-ref made-views n #f))
+         (hash-set! made-views n #t)
+         (query-exec c (hash-ref stored n))))
+     (ensure-stored! sql)
      (define attached (make-hash))                       ; file -> schema name
      ;; ensure! : name -> void   the table is there, made once; a Defined one after the tables its
      ;; statement names (two that name each other are SQLite's to refuse)
@@ -97,6 +114,7 @@
             (unless (reading? body)
               (raise-user-error 'sql (format "the table ~a is defined by one SELECT (or WITH … SELECT) statement" n)))
             (for-each ensure! (tables-named body (remove n (hash-keys tables))))
+            (ensure-stored! body)
             (with-handlers ([exn:fail:sql? (lambda (e) (raise-user-error 'sql (format "in the table ~a: ~a" n (sql-message e))))])
               (query-exec c (format "CREATE TEMP VIEW ~a AS ~a" (q n) (statement body))))]
            [t (load-table! c n t #:temp? (and store #t))])))
@@ -133,24 +151,37 @@
   (define info (exn:fail:sql-info e))
   (or (let ([m (assq 'message info)]) (and m (cdr m))) (exn-message e)))
 
-;; store-views! : connection (listof taken-name) -> (listof name)   a TEMP view per resource type in
-;; the store (unless a table of the same name, any case, is given) and `resources`
-(define (store-views! c taken)
-  (define (free? n) (not (member (string-downcase n) (map string-downcase taken))))
-  (define types (filter free? (query-list c "SELECT DISTINCT resource_type FROM main.fhir_resources ORDER BY 1")))
-  (for ([t (in-list types)])
-    (query-exec c (format "CREATE TEMP VIEW ~a AS SELECT id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_resources WHERE resource_type = '~a'"
-                          (q t) (string-replace t "'" "''"))))
-  (define (view! name sql) (and (free? name) (begin (query-exec c sql) name)))
+;; store-views : connection (listof taken-name) -> (hash name -> sql)   the views a store offers,
+;; each with the statement that makes it (a TEMP view): one per resource type in the store, and
+;; `resources`, `history` and the search indexes — unless a table of the same name, any case, is
+;; given. None is made here: a statement names a few of some twenty, and making them all was a
+;; fifth of a statement's time.
+(define (store-views c taken)
+  (define taken-names (for/hash ([n (in-list taken)]) (values (string-downcase n) #t)))
+  (define (free? n) (not (hash-ref taken-names (string-downcase n) #f)))
   (define stored (query-list c "SELECT name FROM main.sqlite_master WHERE type='table'"))
-  (append (filter values
-                  (list* (view! "resources" "CREATE TEMP VIEW resources AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_resources")
-                         ;; every version of every resource, the current one included: what changed, when
-                         (view! "history" "CREATE TEMP VIEW history AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_history")
-                         ;; the search indexes (index-views): a row per resource and value of a search parameter
-                         (for/list ([v (in-list index-views)] #:when (member (cadr v) stored))
-                           (view! (car v) (format "CREATE TEMP VIEW ~a AS SELECT ~a FROM main.~a" (car v) (caddr v) (cadr v))))))
-          types))
+  (for/hash ([view (in-list
+                    (append
+                     (for/list ([t (in-list (resource-types c))])
+                       (cons t (format "CREATE TEMP VIEW ~a AS SELECT id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_resources WHERE resource_type = '~a'"
+                                       (q t) (string-replace t "'" "''"))))
+                     (list (cons "resources" "CREATE TEMP VIEW resources AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_resources")
+                           ;; every version of every resource, the current one included: what changed, when
+                           (cons "history" "CREATE TEMP VIEW history AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_history"))
+                     ;; the search indexes (index-views): a row per resource and value of a search parameter
+                     (for/list ([v (in-list index-views)] #:when (member (cadr v) stored))
+                       (cons (car v) (format "CREATE TEMP VIEW ~a AS SELECT ~a FROM main.~a" (car v) (caddr v) (cadr v))))))]
+             #:when (free? (car view)))
+    (values (car view) (cdr view))))
+
+;; resource-types : connection -> (listof string)   the types a store holds, in order. Asked of the
+;; primary key one type at a time (the least type above the last): `SELECT DISTINCT resource_type`
+;; reads every row's entry, 930,000 of them for a hospital's data.
+(define (resource-types c)
+  (query-list c (string-append
+                 "WITH RECURSIVE t(x) AS (SELECT min(resource_type) FROM main.fhir_resources"
+                 " UNION ALL SELECT (SELECT min(resource_type) FROM main.fhir_resources WHERE resource_type > x) FROM t WHERE x IS NOT NULL)"
+                 " SELECT x FROM t WHERE x IS NOT NULL")))
 
 ;; index-views : (listof (list view table columns))   the store's search indexes as tables. The
 ;; store keeps, for every resource and search parameter, the values the parameter reads: finding
@@ -270,4 +301,26 @@
   (check-equal? (table-rows (sql-query "SELECT resource FROM Patient WHERE id = 'b'" (hash) #:database db))
                 (list (hasheq 'resource (hasheq 'resourceType "Patient" 'id "b" 'gender "male"))))
   (check-exn #rx"names none of the tables: Patient, history, resources" (lambda () (sql-query "SELECT 1" (hash) #:database db)))
-  (delete-file db))
+  ;; the store's views are made when a statement names them: by the statement, or by the statement
+  ;; of a table it reads; a table of a store view's name (any case) stands in its place
+  (check-equal? (table-rows (sql-query "SELECT n FROM women" (hash "women" (lambda () (defined "SELECT count(*) AS n FROM patient WHERE resource ->> '$.gender' = 'female'")))
+                                       #:database db))
+                (list (hasheq 'n 1)))
+  (check-equal? (table-rows (sql-query "SELECT count(*) AS n FROM Patient" (hash "patient" (lambda () patients)) #:database db))
+                (list (hasheq 'n 3)) "the table given, not the store's type")
+  (let ([c (sqlite3-connect #:database db #:mode 'read-only)])
+    (check-equal? (resource-types c) '("Patient"))
+    (check-equal? (sort (hash-keys (store-views c '())) string<?) '("Patient" "history" "resources"))
+    (check-equal? (sort (hash-keys (store-views c '("PATIENT" "x"))) string<?) '("history" "resources"))
+    (disconnect c))
+  (delete-file db)
+  ;; a name is found as a word of its own, in any case, quoted or not: the pattern each name was
+  ;; looked for by, held to here over names and statements of every shape
+  (define (by-pattern sql names)
+    (for/list ([n (in-list names)]
+               #:when (regexp-match? (pregexp (string-append "(?i:(?<![A-Za-z0-9_])\"?" (regexp-quote n) "\"?(?![A-Za-z0-9_]))")) sql))
+      n))
+  (for* ([sql (in-list '("SELECT * FROM Patient p JOIN \"a1c\" ON x" "select patients.id from PATIENTS, r1" "SELECT 'a1c' FROM x_a1c"
+                         "SELECT a1c_value FROM bp WHERE note = 'see patient'" "SELECT * FROM a.b JOIN \"my-view\"" ""))])
+    (define names '("Patient" "patients" "a1c" "bp" "r1" "x" "my-view" "a.b" "b" "value"))
+    (check-equal? (tables-named sql names) (by-pattern sql names) sql)))

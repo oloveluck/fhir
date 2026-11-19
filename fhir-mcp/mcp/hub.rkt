@@ -152,8 +152,11 @@
 ;; packages' own
 (define stores (make-hash))
 (define (open-store p packages)
-  (values (hash-ref! stores p (lambda () ((dynamic-require 'fhir/store/fhir-sqlite 'open-fhir-store) p)))
-          (search-catalog packages)))
+  (values (store-of p) (search-catalog packages)))
+
+;; store-of : path -> store   the file's store, opened once for the process
+(define (store-of p)
+  (hash-ref! stores p (lambda () ((dynamic-require 'fhir/store/fhir-sqlite 'open-fhir-store) p))))
 
 ;; open-data : workspace packages -> (values data-source label warnings)
 (define (open-data ws packages)
@@ -164,8 +167,11 @@
      (define p (simplify-path (path->complete-path d (workspace-root ws))))
      (cond
        [(search-index-available?)
-        (define-values (store catalog) (open-store p packages))
-        (values ((dynamic-require 'fhir/store/data-source 'store->data-source) store #:search-params catalog)
+        ;; the catalogue is asked for when the data is first read or searched through the data
+        ;; source: its 1,700 search parameters (read from the cache) were half of opening a
+        ;; workspace, and a call that runs SQL over views never uses it
+        (values ((dynamic-require 'fhir/store/data-source 'store->data-source) (store-of p)
+                 #:search-params (lambda () (search-catalog packages)))
                 (format "the SQLite store ~a (resources as JSONB; FHIR search; SQL)" (path->string p)) '())]
        [else (values empty-data-source "none"
                      (list (format "workspace.yaml: data ~a is a SQLite FHIR store, which needs the fhir-server package (raco pkg install fhir-server)" d)))])]
