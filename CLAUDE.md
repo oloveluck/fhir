@@ -2615,9 +2615,13 @@ split lacks, since caught by checks read from the train split (a time selected o
 question asks when; a first or last row picked from several that differ); and two iterations on
 tokens and time, the gate still passing: 29k input tokens and 7.7 s a question (the agent has
 the shell tool alone, the time phrases come with the example and not in every turn, and the
-session ends when the answer is written with nothing to look at again). What is left there for
+session ends when the answer is written with nothing to look at again); then 22k tokens and
+6.5 s with the arm's three commands as the three tools of one process and no shell (2026-11-19:
+1203 of 1203 in scope over three passes; a call of the model carried 3.3k tokens of shell-tool
+definition and runtime system prompt). What is left there for
 the toolkit is the cold start of a shell call: 0.31 s loading modules and 0.45 s opening a
-workspace, half of that the search catalogue a SQL call does not use. Two
+workspace, half of that the search catalogue a SQL call does not use; and a statement in an
+open workspace (200 ms, most of it re-reading the workspace's files for each view). Two
 defects the runs found, each with a test that fails without its fix:
 - **Kept rows survive a copy and a stray JSON file** (`run.rkt` `definitions-stamp`,
   `states-resource?`): a kept view's key held each definition file's size and time of writing, so
