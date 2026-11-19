@@ -2661,6 +2661,36 @@ machine that did not run its `main.rkt`). One defect showed only with the packag
   unchanged: IG validation 330 clean, validator fp 0 / recall 18, corpus 0 over-reported; the six
   IGs of fhir-examples verify with no regression (CARIN: 104 of 104 examples accepted again).
 
+## A statement in an open workspace (2026-11-19)
+Found timing the agent benchmark's tool server (fhir-examples `agent-bench/fab/tables-server.rkt`:
+one process that opens a workspace once and answers many SQL statements — what the MCP server and
+the warm process do too). A statement over fifteen tables took 200 ms where its query takes a
+few; a profile put two fifths of it in the kept views' keys, a fifth in making the store's views
+and a sixth in looking names up. Each change keeps the answers (`fhir-mcp/mcp/sql.rkt`'s and
+`fhir/lang/workspace.rkt`'s tests hold the new ways to the old; the benchmark's 2,098 train
+queries over its tables give what they gave):
+- **Once a statement** (`mcp/run.rkt` `run-sql`): the workspace's files, the definitions' stamp
+  (`definitions-stamp`: it listed the directory and hashed the defining files for EVERY view) and
+  each type's data stamp (`stamp-of`); a view's `name` and resource type are remembered by the
+  file's text (`view-facts`: each view file was parsed twice a statement).
+- **The store's views when named** (`mcp/sql.rkt` `store-views`, `ensure-stored!`): a TEMP view
+  per resource type, `resources`, `history` and the search indexes were all made for every
+  statement; each is made when the statement, or a table it reads, names it. `resource-types`
+  reads the types off the primary key, one at a time (`SELECT DISTINCT resource_type` read all
+  930,000 entries).
+- **Names by words** (`tables-named`): a name of letters, digits and underscores is looked up
+  among the statement's words, read once; it was a pattern compiled and run for each of sixty
+  names, for the statement and for every table defined by one.
+- **A file's language from its name** (`fhir/lang/workspace` `workspace-language-of`): five
+  patterns over the whole path, for every file, several times a statement.
+- **The search catalogue when first used** (`mcp/hub.rkt` `open-data`; fhir-server
+  `store->data-source #:search-params` takes a procedure): a call that runs SQL never builds it.
+Measured, one machine: a statement in an open workspace 200 ms -> 30 to 90 ms (the more tables
+defined by statements it reads, the more); the benchmark's `answer` call (four to six statements)
+700 -> 360 ms; its whole check of 2,098 queries in one process 609 -> 530 s. A cold shell call is
+as it was (1.5 s: loading the modules and the types is what it costs). The engine's sources
+changed, so kept views were computed again once (ten minutes for that workspace).
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.
