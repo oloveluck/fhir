@@ -2619,7 +2619,11 @@ session ends when the answer is written with nothing to look at again); then 22k
 6.5 s with the arm's three commands as the three tools of one process and no shell (2026-11-19:
 1203 of 1203 in scope over three passes; a call of the model carried 3.3k tokens of shell-tool
 definition and runtime system prompt); then 17k tokens and 6.3 s with the prompt holding only
-what the first call uses and the tools saying the rest when it is needed (1203 of 1203 again).
+what the first call uses and the tools saying the rest when it is needed (1203 of 1203 again);
+then 12k tokens and 4.6 s (2026-11-21, a faster machine: iteration 4's code takes 5.4 s there)
+with the names a question gives looked up by the tool that shows the example, the schema given
+with it, a note that never changed an answer no longer costing a call, and the agents started
+without the hosted session's own reminders (1202 of 1203, the one the judge's).
 What is left there for
 the toolkit is the cold start of a shell call: 0.31 s loading modules and 0.45 s opening a
 workspace, half of that the search catalogue a SQL call does not use; and a statement in an
