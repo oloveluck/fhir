@@ -340,6 +340,15 @@ census, `find`, a patient's summary), "Tables over the data" (two views and a `.
 `raco fhir guide tables` and `raco fhir guide data`. fhir-examples' manual has a section on the
 agent benchmarks (its `fab/gate` verdict as printed) and its TESTING.md the latest runs.
 
+### What a controlled comparison said (2026-11-22)
+fhir-examples' `value-experiment/` (protocol written before the run): under one harness, with
+the data alone, on 150 FHIR-AgentBench questions neither had been run on, fhir-mcp's reading
+tools (query, describe, the card) and a plain REST server with Python are LEVEL — 125 and 126
+right, 25.5k and 29.9k input tokens, the difference −0.7 points (−4.0 to +2.7). The README and
+the docs front page say so under their measurements. What is measured for the languages is
+tokens when writing (half for a profile, a twentieth for an edit), not correctness; the tables
+arm's 148 of those 150 is not separated from the training examples it is given.
+
 ## Conventions
 - Contracts on module boundaries (`contract-out`); `match` over multi-branch `cond`.
 - Every module has a `module+ test` with living examples; `raco test` runs them.

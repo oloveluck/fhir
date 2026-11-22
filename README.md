@@ -44,6 +44,13 @@ run in an earlier round, had the data alone). Over that benchmark's whole test s
 questions asked three times, 402 are marked right each time, and every question whose recorded
 answer can be held to is right every time, at 4.8 seconds a question.
 
+What that does not show is that the tools alone beat REST. Tested on its own — one harness, the
+data alone, 150 questions neither side had been run on, the protocol written first — the
+workspace's reading tools and a plain REST server with Python are level: 125 and 126 right, at
+25k and 30k tokens ([the experiment](https://github.com/oloveluck/fhir-examples/tree/main/value-experiment)).
+The difference above comes from the tables an agent defines over the store, given with examples
+from the benchmark's training questions; which of the two carries it has not been separated.
+
 And against HL7's own test suites and published guides: [TESTING.md](TESTING.md).
 
 ## What working in it looks like

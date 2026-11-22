@@ -63,6 +63,14 @@ relational schema was defined over the FHIR store by an agent, as views, and its
 answered in SQL beside an example query of the same kind from the benchmark's training questions
 (the REST agents, run in an earlier round, had the data alone).
 
+What those numbers do not show is that the tools alone beat REST. Tested on its own (one
+harness, the data alone, 150 questions neither side had been run on, the protocol written
+before the run) the workspace's reading tools and a plain REST server with Python are level:
+125 and 126 right, at 25 and 30 thousand tokens a question. The difference above comes from the
+tables defined over the store, given with examples from the benchmark's training questions;
+which of the two carries it has not been separated. The protocol and the result are in
+@hyperlink["https://github.com/oloveluck/fhir-examples/tree/main/value-experiment"]{fhir-examples}.
+
 And asked to write 24 published profiles from their stated requirements, a model got
 1427 of 1431 constraints right in FHIR Shorthand at half the tokens of the JSON. The harnesses, the
 runs and every miss are in @hyperlink["https://github.com/oloveluck/fhir-examples"]{fhir-examples}.
