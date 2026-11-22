@@ -20,6 +20,7 @@
   [slices-of          (-> element-index? string? (listof hash?))]   ; the named slices at a path
   [index-by-id        (-> element-index? string? (or/c hash? #f))]
   [type-index         (-> string? (or/c element-index? #f))]        ; a type code -> its snapshot index
+  [extension-index    (-> (or/c element-index? #f))]
   [opaque-type?       (-> string? boolean?)]))
 
 ;; An ElementIndex is (element-index elements by-id children slices) over one snapshot:
@@ -79,17 +80,23 @@
 (define type-index-cache (make-hash))
 ;; type-index : type-code -> ElementIndex | #f   per package context
 (define (type-index code)
-  (cond
-    [(opaque-type? code) #f]
-    [else
-     (hash-ref! type-index-cache (cons (sd-context) code)   ; R4 and R5 snapshots never mix
-                (lambda ()
-                  (define sd (resolve-sd-raw code))
-                  (cond
-                    [(not sd) #f]
-                    [else
-                     (define snap (or (shipped-snapshot sd) (generate-snapshot sd)))
-                     (and (list? snap) (pair? snap) (make-element-index snap))])))]))
+  (and (not (opaque-type? code)) (index-of-type code)))
+
+;; extension-index : -> ElementIndex | #f   the Extension datatype's own elements (its url, its one
+;; value of a FHIR type, its own extensions). `type-index` answers #f for it as for every framework
+;; type; a caller that means to look inside an extension asks for this.
+(define (extension-index) (index-of-type "Extension"))
+
+;; index-of-type : type-code -> ElementIndex | #f   the type's snapshot as an index, once a context
+(define (index-of-type code)
+  (hash-ref! type-index-cache (cons (sd-context) code)   ; R4 and R5 snapshots never mix
+             (lambda ()
+               (define sd (resolve-sd-raw code))
+               (cond
+                 [(not sd) #f]
+                 [else
+                  (define snap (or (shipped-snapshot sd) (generate-snapshot sd)))
+                  (and (list? snap) (pair? snap) (make-element-index snap))]))))
 
 (module+ test
   (require rackunit (only-in "sd-index.rkt" resolve-sd-raw))
@@ -101,4 +108,6 @@
   (define hn (type-index "HumanName"))
   (check-true (and hn #t))
   (check-true (and (member "HumanName.family" (map (lambda (e) (hash-ref e 'path)) (child-elements hn "HumanName"))) #t))
-  (check-false (type-index "BackboneElement")))       ; opaque -> not descended
+  (check-false (type-index "BackboneElement"))
+  (check-false (type-index "Extension"))
+  (check-true (and (extension-index) (pair? (child-elements (extension-index) "Extension")))))       ; opaque -> not descended

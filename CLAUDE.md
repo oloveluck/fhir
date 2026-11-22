@@ -638,7 +638,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | FSH | SUSHI golden corpus (hand-authored pairs) | `fsh/tests/golden-test.rkt` | 22/22 fwd + round-trip |
 | **FSH real IG** | **IPS 2.0.1's own FSH vs its published package** | `fsh/tests/ig-ips-test.rkt` (fsh repo) | **0 compile errors; 108/114 exact, 111/114 complete; 438/438 differential elements** |
 | **FSH -> package -> server** | **mCODE 4.0.0's FSH compiled and packed here, served by a generated server: its examples vs its profiles** | `tests/fsh-ig-server-r4-test.rkt` | **283/283 validate** (as the published package); 0 unmet requirements |
-| **FSH real IG 2** | **mCODE 4.0.0's own FSH (dependencies US Core 6.1.0 + Genomics Reporting 2.0.0 from sushi-config.yaml) vs its published package** | `fsh/tests/ig-mcode-test.rkt` (fsh repo) | **0 compile errors; 338/349 exact, 347/349 complete; 472/473 differential elements** |
+| **FSH real IG 2** | **mCODE 4.0.0's own FSH (dependencies US Core 6.1.0 + Genomics Reporting 2.0.0 from sushi-config.yaml) vs its published package** | `fsh/tests/ig-mcode-test.rkt` (fsh repo) | **0 compile errors; 339/349 exact, 348/349 complete; 472/473 differential elements** |
 | **FSH real IG 3** | **Da Vinci PDex Plan-Net 1.2.0's own FSH vs its published package, both fetched from packages.fhir.org (US Core 3.1.1 through its version-alias stub)** | `fsh/tests/ig-plannet-test.rkt` (fsh repo) | **0 compile errors; 104/109 exact, 105/109 complete; 321/321 differential elements** |
 | **FSH real IG 4** | **Da Vinci HRex 1.1.0's own FSH vs its published package (three US Core versions in context, version-pinned Parents)** | `fsh/tests/ig-hrex-test.rkt` (fsh repo) | **0 compile errors; 46/46 exact, 46/46 complete; 138/138 differential elements** |
 | **GoFSH (FHIR -> FSH -> FHIR)** | **the published IPS 2.0.1 package decompiled to FSH, compiled back, compared the same way** | `fsh/tests/gofsh-ips-test.rkt` (fsh repo) | **117/117 paired, 117 exact; 438/438 differential elements** |
@@ -653,6 +653,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | **CQL over QDM** | **cqm-execution's fixtures: 42 QDM libraries vs their ELM; 19 measures over 33 cqm-models patients vs cqm-execution's own assertions and the stored expected values** | `cql/tests/qdm-elm-corpus-test.rkt`, `qdm-measure-test.rkt` (cql repo) | **41/42 compile, 559/723 defs ELM-equal; 31/31 assertions, 16/26 stored** (10 named) |
 | **SQL on FHIR** | **the shared suite from FHIR/sql-on-fhir.js, over the model generated from the 3.0.0-ballot package** | `raco sql-on-fhir tck` (sql-on-fhir repo) | **144/144** |
 | **terminology** | **hl7.fhir.uv.tx-ecosystem 1.9.3** | **`raco fhir-tx tck`** (fhir-tx) | **473/553** |
+| **validator vs HL7's, on changed examples** | **six US Core 9.0.0 profiles: their 28 published examples and 713 single changes to them (an element removed, a code or its system changed, a list entry doubled, a value that is no value, an element the type lacks), each judged by HL7's Java validator** | fhir-examples `value-experiment/verify/profile-cases.rkt` (`ceiling`; its test) | **736/741 verdicts agree (578/583 held out); 0 refused that HL7's passes** |
 
 A later pass closed every remaining gap that needs no external terminology — the corpora drove
 these fixes, each one a real defect:
@@ -2753,6 +2754,60 @@ defined by statements it reads, the more); the benchmark's `answer` call (four t
 700 -> 360 ms; its whole check of 2,098 queries in one process 609 -> 530 s. A cold shell call is
 as it was (1.5 s: loading the modules and the types is what it costs). The engine's sources
 changed, so kept views were computed again once (ten minutes for that workspace).
+
+## The validator held to HL7's, case by case (2026-11-22)
+fhir-examples' experiment V needed a third party's verdict on whether a resource conforms to a
+profile, so HL7's Java validator (validator_cli, offline: `-tx n/a`) judged 741 resources: the 28
+published examples of six US Core profiles and 713 copies with ONE change each (an element
+removed, a code or its system replaced, a list entry doubled, a value replaced by text, an element
+the type lacks). As committed, this validator agreed on 659 (522 of the 583 cases kept apart): it
+never refused what HL7's passes, and passed 82 that HL7's refuses. The misses were read on the
+sample cases alone (each profile's first example and its changes) and fixed as classes; the
+agreement is now 736 of 741 (578 of 583 held out, none of which was read), still refusing nothing
+HL7's passes, with every gate where it was (IG validation 330 clean, validator fp 0 / recall 18,
+corpus 0 over-reported, the R5 core's invariants 2957/2968). Each has a case in
+`fhir-validation/conformance/tests/validate-test.rkt`:
+- **Inside an extension.** `Extension` was an opaque type, so nothing in an extension was checked:
+  an element the type lacks, a date that is no date, a value of a type that does not exist. An
+  extension is walked against the Extension datatype (`fhir/sd/element-index` `extension-index`;
+  `type-index` still answers #f for the abstract types) or, when the packages hold the
+  StructureDefinition its url names, against that definition (`extension-definition-index`: the
+  types its value may take, its slices of nested extensions and their maxima, its bindings). ext-1
+  (a value or extensions: one, not both, not neither) is decided on the JSON
+  (`extension-content-issues`); it stays out of the FHIRPath invariants.
+- **`{}`** is an error (`empty-object-issues`): an element that is there holds something.
+- **A code its code system does not have** (`unknown-code-issues`): a Coding whose system the
+  packages in context hold WHOLE (content `complete`) with a code that is not one of its concepts
+  is an error whatever the binding (case folded when the system is not case sensitive; a system
+  nothing defines, a fragment, or a version that is not here decides nothing).
+- **A coding's system counts in a required binding** (`member?`): the tower's generated expansion
+  holds codes alone, so `active` of any system was Condition's clinical status. A coding is asked
+  of the packages in context first; and a system an expansion does not reach is "cannot say" only
+  when the expansion is marked unclosed (`unclosed?`), not always.
+- **A slice told by its value set** (`slice-pins`: a value discriminator on an element with a
+  required binding and no pattern — US Core's `Condition.category:us-core`), with membership
+  three-valued (`slice-membership`: 'unknown when a value set cannot say, and then nothing is
+  reported); and **a slice's maximum** (`slice 'race' allows 1, found 2`).
+- **A datatype's own invariants** (`datatype-invariant-issues`): cpt-2, drt-1, per-1 … are on the
+  datatype's definition, and an element typed by it does not repeat them. The typed node is
+  walked (`node-children`) and each value of a complex datatype is held to its type's constraints
+  at its own place (`Organization.telecom[0]`). Over the R5 core package this reports three more
+  keys, all warnings and all the package's own (eld-24, eld-25, cod-1).
+What the stricter checks found in the family: fsh compiled `extension[race]…` and
+`extension[USCoreRace]…` of one instance as two extensions (mCODE's eve-anyperson had two races;
+fsh/CLAUDE.md). And what the family's own gates caught in the stricter checks, before anything
+was committed: the servers generated from US Core and from mCODE load every conformance resource
+of their packages through validation, and 129 of them were refused — each carries the
+`structuredefinition-wg` extension with a work group (`cgp`, `cic`) that FHIR 4.0.1's own copy of
+that extension's value set does not list. So an extension definition that is a CORE package's
+copy (`core-copy?`: its version is the FHIR version's) is held for its shape and its bindings
+are left undecided (`bindings-decided?`): those extensions have been maintained in the
+extensions package since, and their value sets have grown.
+Not done: an extension definition's own invariants; resource invariants of contained and bundled
+resources; the five held-out cases still missed (not read, by the experiment's rule). A risk
+that stays, named: the code systems a core package copies from terminology.hl7.org are that
+release's snapshot, and a code added since is "not a code of" the copy when no newer terminology
+package is in context (no corpus here holds one; the fix for a user is to add the package).
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

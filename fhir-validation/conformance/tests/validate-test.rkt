@@ -8,6 +8,8 @@
          racket/list
          (only-in fhir/r5/schemas)
          (only-in fhir/terminology/service make-r5-terminology)
+         (only-in fhir/sd/sd-index current-sd-packages)
+         (only-in fhir/spec-package spec-package-path)
          (only-in fhir/conformance/validate
                   validate-issues issue-severity issue-code issue-path issue-msg))
 
@@ -227,3 +229,97 @@
   (check-equal? (errs (patient ward) #:profiles (list profile)) '())
   (check-equal? (errs (patient "http://ex/StructureDefinition/bed") #:profiles (list profile))
                 '(("required" . "Patient.extension"))))
+
+;; ---- inside an extension: it was skipped whole (an abstract type), so nothing in one was checked.
+;; An extension is held to the Extension datatype — or to its own definition, when the packages
+;; hold the one its url names — and to ext-1 (a value or extensions: one of the two) ---------------
+(let ([patient (lambda (ext) (hasheq 'resourceType "Patient" 'extension (list ext)))]
+      [url "http://example.org/StructureDefinition/shoe-size"])
+  (check-equal? (errs (patient (hasheq 'url url 'valueInteger 42))) '())
+  (check-equal? (errs (patient (hasheq 'url url 'valueInteger 42 'notAnElement "x")))
+                '(("structure" . "Extension.notAnElement")))
+  (check-equal? (errs (patient (hasheq 'url url 'valueDate "2024-02-30")))
+                '(("invalid" . "Extension.value[x]")))
+  (check-equal? (errs (patient (hasheq 'url url 'valueColour "red")))
+                '(("structure" . "Extension.valueColour")) "no such type of value")
+  ;; ext-1, decided on the JSON
+  (check-equal? (errs (patient (hasheq 'url url))) '(("invariant" . "Patient.extension")))
+  (check-equal? (errs (patient (hasheq 'url url 'valueInteger 1 'extension (list (hasheq 'url "part" 'valueInteger 2)))))
+                '(("invariant" . "Patient.extension")))
+  (check-equal? (errs (patient (hasheq 'url url 'extension (list (hasheq 'url "part" 'valueInteger 2))))) '())
+  (check-equal? (errs (patient (hasheq 'url url '_valueString (hasheq 'extension (list (hasheq 'url "http://hl7.org/fhir/StructureDefinition/data-absent-reason" 'valueCode "unknown"))))))
+                '() "a value given by its _value sibling is a value")
+  ;; an extension the packages define is held to its definition: patient-birthPlace (in the R4
+  ;; core package; R5's holds no extension) takes an Address
+  (parameterize ([current-sd-packages (list (path->string (spec-package-path "hl7.fhir.r4.core.tgz")))])
+    (define birth-place "http://hl7.org/fhir/StructureDefinition/patient-birthPlace")
+    (check-equal? (errs (patient (hasheq 'url birth-place 'valueAddress (hasheq 'city "Leiden")))) '())
+    (check-equal? (errs (patient (hasheq 'url birth-place 'valueString "Leiden")))
+                  '(("required" . "Extension.value[x]") ("structure" . "Extension.valueString"))
+                  "not the type its definition gives, so the value it requires is not there")
+    ;; a core package's copy of an extension is held for its shape, not for its bindings: the
+    ;; value sets have grown since (US Core's and mCODE's own value sets carry work group `cgp`,
+    ;; which FHIR 4.0.1's hl7-work-group lacks)
+    (define work-group "http://hl7.org/fhir/StructureDefinition/structuredefinition-wg")
+    (check-equal? (errs (patient (hasheq 'url work-group 'valueCode "cgp"))) '())
+    (check-equal? (errs (patient (hasheq 'url work-group 'valueInteger 3)))
+                  '(("required" . "Extension.value[x]") ("structure" . "Extension.valueInteger")))
+    ;; one nobody defines is held to the Extension datatype alone
+    (check-equal? (errs (patient (hasheq 'url url 'valueString "Leiden"))) '())))
+
+;; ---- `{}` holds nothing --------------------------------------------------------------------------
+(check-equal? (errs (hasheq 'resourceType "Patient" 'managingOrganization (hasheq)))
+              '(("structure" . "Patient.managingOrganization")))
+
+;; ---- a code its code system does not have: the packages hold administrative-gender whole, so a
+;; Coding of it with another code names nothing — whatever the binding (maritalStatus's is
+;; extensible). A system nothing here defines decides nothing. -------------------------------------
+(let ([married (lambda (system code) (hasheq 'resourceType "Patient" 'maritalStatus (hasheq 'coding (list (hasheq 'system system 'code code)))))])
+  (check-equal? (errs (married "http://hl7.org/fhir/administrative-gender" "female")) '())
+  (check-equal? (errs (married "http://hl7.org/fhir/administrative-gender" "florp")) '(("code-invalid" . "CodeableConcept.coding.code")))
+  (check-regexp-match #rx"`florp` is not a code of http://hl7.org/fhir/administrative-gender"
+                      (issue-msg (car (validate-issues (married "http://hl7.org/fhir/administrative-gender" "florp")))))
+  (check-equal? (errs (married "http://example.org/nobody-knows" "florp")) '()))
+
+;; ---- a required binding on a coded value counts the coding's SYSTEM: `female` of some other
+;; system is not a code of the value set (membership was asked by the code alone) -----------------
+(let* ([profile (hasheq 'resourceType "StructureDefinition" 'id "ms" 'url "http://ex/ms" 'name "MS"
+                        'type "Patient" 'baseDefinition "http://hl7.org/fhir/StructureDefinition/Patient"
+                        'derivation "constraint"
+                        'differential
+                        (hasheq 'element
+                                (list (hasheq 'id "Patient.maritalStatus" 'path "Patient.maritalStatus"
+                                              'binding (hasheq 'strength "required" 'valueSet "http://hl7.org/fhir/ValueSet/administrative-gender")))))]
+       [patient (lambda (system) (hasheq 'resourceType "Patient" 'maritalStatus (hasheq 'coding (list (hasheq 'system system 'code "female")))))])
+  (check-equal? (errs (patient "http://hl7.org/fhir/administrative-gender") #:profiles (list profile)) '())
+  (check-equal? (errs (patient "http://example.org/not-a-code-system") #:profiles (list profile))
+                '(("code-invalid" . "Patient.maritalStatus"))))
+
+;; ---- a slice told by the value set its codes come from (a value discriminator, a required binding
+;; and no pattern: US Core's Condition.category:us-core), and a slice's maximum ---------------------
+(let* ([profile (hasheq 'resourceType "StructureDefinition" 'id "sx" 'url "http://ex/sx" 'name "SX"
+                        'type "Observation" 'baseDefinition "http://hl7.org/fhir/StructureDefinition/Observation"
+                        'derivation "constraint"
+                        'differential
+                        (hasheq 'element
+                                (list (hasheq 'id "Observation.category" 'path "Observation.category" 'min 1
+                                              'slicing (hasheq 'discriminator (list (hasheq 'type "value" 'path "$this")) 'rules "open"))
+                                      (hasheq 'id "Observation.category:sex" 'path "Observation.category" 'sliceName "sex"
+                                              'min 1 'max "1"
+                                              'binding (hasheq 'strength "required" 'valueSet "http://hl7.org/fhir/ValueSet/administrative-gender")))))]
+       [gender (lambda (code) (hasheq 'coding (list (hasheq 'system "http://hl7.org/fhir/administrative-gender" 'code code))))]
+       [observation (lambda categories (hasheq 'resourceType "Observation" 'status "final" 'code (hasheq 'text "x") 'category categories))])
+  (check-equal? (errs (observation (gender "female")) #:profiles (list profile)) '())
+  (check-equal? (errs (observation (gender "female") (hasheq 'text "another kind")) #:profiles (list profile)) '())
+  (check-equal? (errs (observation (hasheq 'coding (list (hasheq 'system "http://example.org/other" 'code "x")))) #:profiles (list profile))
+                '(("required" . "Observation.category")) "no category of the slice's value set")
+  (check-equal? (errs (observation (gender "female") (gender "male")) #:profiles (list profile))
+                '(("structure" . "Observation.category")) "more of the slice than it allows"))
+
+;; ---- a datatype's own invariants, at each value of the type (a ContactPoint's cpt-2 is on
+;; ContactPoint's definition, not on the elements typed by it) --------------------------------------
+(check-equal? (errs (hasheq 'resourceType "Patient" 'telecom (list (hasheq 'system "phone" 'value "555"))) #:invariants? #t) '())
+(check-equal? (errs (hasheq 'resourceType "Patient" 'telecom (list (hasheq 'system "phone" 'value "555") (hasheq 'value "556"))) #:invariants? #t)
+              '(("invariant" . "Patient.telecom[1]")))
+(check-regexp-match #rx"cpt-2"
+                    (issue-msg (car (validate-issues (hasheq 'resourceType "Patient" 'telecom (list (hasheq 'value "556")))))))

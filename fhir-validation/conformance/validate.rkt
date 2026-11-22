@@ -19,7 +19,7 @@
          (only-in fhir/sd/sd-index resolve-sd-raw current-sd-packages sd-context)
          (only-in fhir/sd/element-index
                   make-element-index index-elements index-root child-elements slices-of
-                  index-by-id type-index opaque-type?)
+                  index-by-id type-index extension-index opaque-type?)
          (only-in fhir/model/leaf listify)
          (only-in fhir/model/binding binding-expansion binding-expansion-codes)
          (only-in fhir/sd/snapshot generate-snapshot shipped-snapshot)
@@ -34,14 +34,15 @@
                   fp-call-name fp-call-args fp-binop? fp-binop-op fp-binop-lhs fp-binop-rhs fp-unop? fp-unop-operand
                   fp-typeop? fp-typeop-operand fp-index? fp-index-target fp-var?)
          (only-in fhirpath/print fhirpath->string)
-         (only-in fhir/model/node fhir?)
+         (only-in fhir/model/node fhir? fhir-type fhir-fields)
          (only-in fhirpath/value item->system)
          (only-in fhirpath/ucum ucum-valid? ucum-suggestion ucum-convert)
          (only-in racket/format ~r)
          (only-in fhir/serialize/jsexpr-util drop-false)
          (only-in fhir/primitives/temporal calendar-problem)
          (only-in fhirpath/terminology tx-service-validate tx-service-expand)
-         (only-in fhir/terminology/service expand/json validate-code/json packages->resolver))
+         (only-in fhir/terminology/service expand/json validate-code/json packages->resolver)
+         (only-in fhir/terminology/index find-concept cs-index csix-by-code))
 
 (provide
  (struct-out issue)
@@ -107,7 +108,9 @@
        [else
         (define node (let ([r (from-json json #:lenient? #t)]) (and (ok? r) (ok-value r))))
         (define seen (make-hash))
-        (for/fold ([acc (reverse (append dup-issues (unchecked-profile-issues rt json profiles)))] #:result (reverse acc))
+        ;; the invariants of the datatypes the resource's values are of: the same for every index
+        (define of-datatypes (if inv? (datatype-invariant-issues rt node) '()))
+        (for/fold ([acc (reverse (append dup-issues (unchecked-profile-issues rt json profiles) of-datatypes))] #:result (reverse acc))
                   ([i (in-list indexes)] #:when i)
           (define issues (append (walk i rt json tx) (if inv? (invariant-issues i rt node) '())))
           (for/fold ([acc acc]) ([is (in-list issues)])
@@ -254,11 +257,47 @@
 ;; per-instance value checks, against the element's concrete (narrowed) type `tc`
 ;; value-issues : Index ElementDef type-code loc value tx -> (listof Issue)
 (define (value-issues idx ce tc loc v tx)
-  (append (fixed-pattern-issues ce loc v)
+  (append (empty-object-issues loc v)
+          (fixed-pattern-issues ce loc v)
           (primitive-issues tc loc v)
           (ucum-issues tc loc v)
+          (unknown-code-issues tc loc v)
           (binding-issues ce loc v tx)
           (recurse-issues idx ce tc loc v tx)))
+
+;; empty-object-issues : loc value -> (listof Issue)   `{}` says nothing: an element that is there
+;; has a value, children or extensions (a fact about the JSON, whatever the definition says)
+(define (empty-object-issues loc v)
+  (if (and (hash? v) (zero? (hash-count v)))
+      (list (issue "error" "structure" loc "an object must have some content: `{}` holds nothing (leave the element out)"))
+      '()))
+
+;; unknown-code-issues : type-code loc value -> (listof Issue)
+;; A Coding names a code of its system. When the packages in context hold that CodeSystem WHOLE
+;; (content `complete`, its concepts listed) and the code is not one of them, the code does not
+;; exist — whatever the element's binding (an extensible or example binding lets other SYSTEMS in,
+;; not codes a system does not define). A system nothing here defines, one held in part, or a
+;; version asked for that is not here decides nothing.
+(define (unknown-code-issues tc loc v)
+  (define system (and (hash? v) (hash-ref v 'system #f)))
+  (define code (and (hash? v) (hash-ref v 'code #f)))
+  (define r (and (equal? tc "Coding") (string? system) (string? code) (context-terminology)))
+  (define cs
+    (and r (with-handlers ([exn:fail? (lambda (_) #f)])
+             (let ([version (hash-ref v 'version #f)]) (if (string? version) (r system version) (r system))))))
+  (cond
+    [(not (and (hash? cs) (equal? (hash-ref cs 'resourceType #f) "CodeSystem")
+               (equal? (hash-ref cs 'content #f) "complete") (pair? (hash-ref cs 'concept '()))))
+     '()]
+    [(find-concept cs code) '()]
+    ;; a code system that is not case sensitive holds the code in any case
+    [(and (not (eq? (hash-ref cs 'caseSensitive #f) #t))
+          (for/or ([k (in-hash-keys (csix-by-code (cs-index cs)))]) (and (string? k) (string-ci=? k code))))
+     '()]
+    [else
+     (list (issue "error" "code-invalid" (string-append loc ".code")
+                  (format "`~a` is not a code of ~a~a" code system
+                          (did-you-mean code (filter string? (hash-keys (csix-by-code (cs-index cs))))))))]))
 
 ;; ucum-issues : type-code loc value -> (listof Issue)   a Quantity coded in UCUM must carry a UCUM
 ;; code: `mmHg` is not one (`mm[Hg]` is), and a unit nobody can convert breaks every comparison made
@@ -288,9 +327,62 @@
     [(pair? (child-elements idx (hash-ref ce 'path)))  ; a backbone element (inline children)
      (walk idx (hash-ref ce 'path) v tx)]
     [else                                               ; a complex datatype -> jump to its own SD
-     (cond [(or (not tc) (opaque-type? tc)) '()]
+     ;; An Extension is walked against the Extension datatype (its url, its one value of a FHIR
+     ;; type, its own extensions): it was skipped as opaque, so nothing inside an extension was
+     ;; ever checked — an element the type lacks, a date that is no date, a second value. (HL7's
+     ;; validator, over changed copies of a guide's examples, found it: fhir-examples'
+     ;; value-experiment/verify.) The other abstract types stay unwalked: they say nothing of
+     ;; what a value holds.
+     (cond [(not tc) '()]
+           [(equal? tc "Extension") (extension-issues loc v tx)]
+           [(opaque-type? tc) '()]
            [(type-index tc) => (lambda (ti) (walk ti tc v tx))]
            [else '()])]))
+
+;; extension-issues : loc jsexpr tx -> (listof Issue)   one extension: what every extension must be
+;; (ext-1), then its elements against its own definition — the StructureDefinition its url names,
+;; when the packages in context hold it (its slices of nested extensions, the types its value may
+;; take, its bindings) — else against the Extension datatype.
+(define (extension-issues loc v tx)
+  (define sd (extension-definition v))
+  (define idx (or (and sd (idx-of sd)) (extension-index)))
+  (append (extension-content-issues loc v)
+          (cond [(not idx) '()]
+                [(and sd (core-copy? sd)) (parameterize ([bindings-decided? #f]) (walk idx "Extension" v tx))]
+                [else (walk idx "Extension" v tx)])))
+
+;; extension-definition : jsexpr -> StructureDefinition | #f   the definition an extension's url names
+(define (extension-definition v)
+  (define url (hash-ref v 'url #f))
+  (define sd (and (string? url) (regexp-match? #rx":" url) (resolve-sd-raw url)))
+  (and (hash? sd) (equal? (hash-ref sd 'type #f) "Extension") sd))
+
+;; core-copy? : StructureDefinition -> boolean   an extension as a core package published it (its
+;; version is the FHIR version's). Those extensions have been maintained since in the extensions
+;; package, and their value sets have grown: FHIR 4.0.1's copy of `structuredefinition-wg` binds a
+;; work group to a value set without `cgp` or `cic`, which every US Core and mCODE value set
+;; published since carries. So what such a copy says of the SHAPE of the extension is held (the
+;; types its value takes, its nested extensions), and its bindings are left undecided: the
+;; validator cannot know the codes added since.
+(define (core-copy? sd)
+  (and (string? (hash-ref sd 'version #f)) (equal? (hash-ref sd 'version) (hash-ref sd 'fhirVersion #f))
+       (regexp-match? #rx"^http://hl7.org/fhir/StructureDefinition/" (hash-ref sd 'url ""))))
+
+;; bindings-decided? : are required bindings decided in the walk under way? (not inside an
+;; extension whose definition is a core package's copy)
+(define bindings-decided? (make-parameter #t))
+
+;; extension-content-issues : loc jsexpr -> (listof Issue)   ext-1, decided on the JSON: an
+;; extension has a value or nested extensions — one of the two, not both, not neither. (The
+;; invariant itself is among the universal ones not evaluated as FHIRPath.) A value given only by
+;; its `_value…` sibling is a value.
+(define (extension-content-issues loc v)
+  (define value? (for/or ([k (in-hash-keys v)]) (regexp-match? #px"^_?value[A-Z]" (symbol->string k))))
+  (define nested? (pair? (let ([e (hash-ref v 'extension #f)]) (if (list? e) e '()))))
+  (cond [(and value? nested?)
+         (list (issue "error" "invariant" loc "an extension has a value or extensions, not both (ext-1)"))]
+        [(or value? nested? (zero? (hash-count v))) '()]
+        [else (list (issue "error" "invariant" loc "an extension has a value or extensions: this one has neither (ext-1)"))]))
 
 ;; ---- rule functions --------------------------------------------------------------------------
 ;; cardinality-issues : ElementDef path leaf count -> (listof Issue)
@@ -405,7 +497,7 @@
 (define (binding-issues ce loc v tx)
   (define b (hash-ref ce 'binding #f))
   (cond
-    [(or (not (hash? b)) (not (equal? (hash-ref b 'strength #f) "required"))) '()]
+    [(or (not (bindings-decided?)) (not (hash? b)) (not (equal? (hash-ref b 'strength #f) "required"))) '()]
     [else
      ;; the binding valueSet often carries a |version suffix; resolve against the canonical
      (define vs (let ([u (hash-ref b 'valueSet #f)]) (and (string? u) (canonical-url u))))
@@ -438,10 +530,18 @@
 ;; member? : tx|#f value-set-url code system|#f -> Membership
 (define (member? tx vs code system)
   (define via-tx (if tx (tx-member? tx vs code system) 'unknown))
+  ;; a coding names its system, and the tower's expansion holds codes alone (`active` of some
+  ;; other system read as Condition's): the packages in context, which know the systems, are asked
+  ;; first for a coding
+  (define via-context
+    (if (and system (eq? via-tx 'unknown))
+        (let ([r (context-terminology)]) (if r (tx-member? r vs code system) 'unknown))
+        'unknown))
   (cond
     [(not (eq? via-tx 'unknown)) via-tx]
+    [(not (eq? via-context 'unknown)) via-context]
     [(binding-expansion vs) => (lambda (exp) (if (hash-ref exp code #f) 'yes 'no))]
-    [(context-terminology) => (lambda (r) (tx-member? r vs code system))]
+    [(and (not system) (context-terminology)) => (lambda (r) (tx-member? r vs code system))]
     [else 'unknown]))
 
 ;; context-terminology : -> resolver | #f   the terminology of the packages in context, one resolver
@@ -479,15 +579,25 @@
       (append-map
        (lambda (sp)
          (define sl (car sp))
-         (define minv (hash-ref sl 'min 0))
+         (define minv (let ([m (hash-ref sl 'min 0)]) (if (integer? m) m 0)))
+         (define maxv (let ([m (hash-ref sl 'max #f)]) (and (string? m) (string->number m))))
          (define pins (cdr sp))                          ; (listof (list disc-path kind value)) | #f
          (cond
-           [(or (not pins) (not (integer? minv)) (= minv 0)) '()]   ; undecidable / optional -> skip
+           [(not pins) '()]                              ; undecidable -> skip
            [else
-            (define n (for/sum ([inst (in-list instances)] #:when (slice-match? pins inst)) 1))
-            (if (< n minv)
-                (list (issue "error" "required" (child-loc path leaf)
-                             (format "slice '~a' requires ~a, found ~a" (hash-ref sl 'sliceName) minv n))) '())]))
+            (define memberships (for/list ([inst (in-list instances)]) (slice-membership pins inst tx)))
+            (define n (count (lambda (m) (eq? m 'yes)) memberships))
+            (define open (count (lambda (m) (eq? m 'unknown)) memberships))
+            (append
+             ;; too few even if every undecided entry were one
+             (if (< (+ n open) minv)
+                 (list (issue "error" "required" (child-loc path leaf)
+                              (format "slice '~a' requires ~a, found ~a" (hash-ref sl 'sliceName) minv n)))
+                 '())
+             (if (and (integer? maxv) (> n maxv))
+                 (list (issue "error" "structure" (child-loc path leaf)
+                              (format "slice '~a' allows ~a, found ~a" (hash-ref sl 'sliceName) maxv n)))
+                 '()))]))
        pinned)
       ;; an entry that matches exactly ONE slice is held to that slice's own children too. Every
       ;; slice must be decidable, except one that constrains nothing at its discriminator paths (no
@@ -496,8 +606,13 @@
       (if (for/and ([sp (in-list pinned)]) (or (cdr sp) (slice-unconstrained? idx (car sp) discs)))
           (append-map
            (lambda (inst)
-             (define hits (for/list ([sp (in-list pinned)] #:when (cdr sp) #:when (and (hash? inst) (slice-match? (cdr sp) inst))) (car sp)))
-             (if (= (length hits) 1) (slice-member-issues idx (car hits) (child-loc path leaf) inst tx) '()))
+             (define memberships
+               (for/list ([sp (in-list pinned)] #:when (cdr sp) #:when (hash? inst))
+                 (cons (car sp) (slice-membership (cdr sp) inst tx))))
+             (define hits (for/list ([m (in-list memberships)] #:when (eq? (cdr m) 'yes)) (car m)))
+             (if (and (= (length hits) 1) (not (for/or ([m (in-list memberships)]) (eq? (cdr m) 'unknown))))
+                 (slice-member-issues idx (car hits) (child-loc path leaf) inst tx)
+                 '()))
            instances)
           '()))]))
 
@@ -579,6 +694,9 @@
       (define pin (or (and (hash? elem)
                            (cond [(choice-value elem "fixed") => (lambda (v) (list 'fixed v))]
                                  [(choice-value elem "pattern") => (lambda (v) (list 'pattern v))]
+                                 ;; a slice told by the value set its codes come from (US Core's
+                                 ;; `category:us-core`: a value discriminator, a required binding)
+                                 [(required-value-set elem) => (lambda (vs) (list 'binding vs))]
                                  [else #f]))
                       (and (equal? dp "url") (extension-slice-url sl))))
       (and pin (cons dp pin))))
@@ -597,19 +715,43 @@
       (canonical-url p)))
   (and (= (length types) 1) (= (length profiles) 1) (list 'fixed (car profiles))))
 
-;; does the instance match EVERY pinned discriminator? fixed -> equality, pattern -> subset,
-;; both on pruned values; a dotted path navigates the raw jsexpr (a list step matches any element)
-;; slice-match? : (listof Pin) jsexpr -> boolean
-(define (slice-match? pins inst)
-  (for/and ([pin (in-list pins)])
-    (define dp (car pin))
-    (define kind (cadr pin))
-    (define pinned (prune (caddr pin)))
-    (define targets (if (equal? dp "$this") (list inst) (json-at inst (string-split dp "."))))
-    (for/or ([t (in-list targets)])
+;; required-value-set : ElementDef -> url | #f   the value set an element's codes are REQUIRED from
+(define (required-value-set ce)
+  (define b (hash-ref ce 'binding #f))
+  (and (hash? b) (equal? (hash-ref b 'strength #f) "required")
+       (let ([u (hash-ref b 'valueSet #f)]) (and (string? u) (canonical-url u)))))
+
+;; does the instance match EVERY pinned discriminator? fixed -> equality, pattern -> subset (both
+;; on pruned values), binding -> one of its codes is in the value set; a dotted path navigates the
+;; raw jsexpr (a list step matches any element). 'unknown when a value set cannot say.
+;; slice-membership : (listof Pin) jsexpr tx -> Membership
+(define (slice-membership pins inst tx)
+  (define each
+    (for/list ([pin (in-list pins)])
+      (define dp (car pin))
+      (define kind (cadr pin))
+      (define targets (if (equal? dp "$this") (list inst) (json-at inst (string-split dp "."))))
       (case kind
-        [(fixed) (equal? pinned (prune t))]
-        [else (json-contains? pinned (prune t))]))))
+        [(binding) (any-membership (append-map (lambda (t) (map (lambda (c) (member? tx (caddr pin) (cdr c) (car c))) (codes-of t))) targets))]
+        [else
+         (define pinned (prune (caddr pin)))
+         (if (for/or ([t (in-list targets)])
+               (if (eq? kind 'fixed) (equal? pinned (prune t)) (json-contains? pinned (prune t))))
+             'yes 'no)])))
+  (cond [(memq 'no each) 'no] [(memq 'unknown each) 'unknown] [else 'yes]))
+
+;; any-membership : (listof Membership) -> Membership   is one of them a member?
+(define (any-membership ms)
+  (cond [(memq 'yes ms) 'yes] [(memq 'unknown ms) 'unknown] [else 'no]))
+
+;; codes-of : jsexpr -> (listof (cons system|#f code))   a code, a Coding's, a CodeableConcept's
+(define (codes-of v)
+  (cond [(string? v) (list (cons #f v))]
+        [(and (hash? v) (list? (hash-ref v 'coding #f)))
+         (for/list ([c (in-list (hash-ref v 'coding))] #:when (and (hash? c) (string? (hash-ref c 'code #f))))
+           (cons (hash-ref c 'system #f) (hash-ref c 'code)))]
+        [(and (hash? v) (string? (hash-ref v 'code #f))) (list (cons (hash-ref v 'system #f) (hash-ref v 'code)))]
+        [else '()]))
 
 ;; all values at a dotted path within a raw jsexpr (lists fan out — also at the END of the path: a
 ;; discriminator on a repeating element, `category.coding`, matches when ANY coding does; returning the
@@ -660,6 +802,51 @@
         (append-map (lambda (c) (append-map (lambda (f) (check-constraint c f (site-path st) node)) foci))
                     (site-constraints st)))
       (invariant-sites idx))]))
+
+;; ---- the invariants of datatypes --------------------------------------------------------------
+;; A resource's definition carries its own constraints; those of a DATATYPE (a ContactPoint's
+;; cpt-2 "a system is required if a value is provided", a Duration's drt-1) are on the datatype's
+;; definition, and an element typed by it does not repeat them. So each value of a complex
+;; datatype anywhere in the resource — found by walking the typed node, whose nodes know their
+;; types — is held to its type's constraints, at its own place.
+;; datatype-invariant-issues : type-code node|#f -> (listof Issue)
+(define (datatype-invariant-issues rt node)
+  (if node (append-map (lambda (c) (below (cdr c) (string-append rt "." (car c)) node)) (node-children node)) '()))
+
+;; below : node loc root -> (listof Issue)   the node's own type's constraints, then its children's
+(define (below n loc root)
+  (append
+   (append-map
+    (lambda (st)
+      (define rel (site-rel st))
+      (define here (if (equal? rel "") loc (string-append loc "." rel)))
+      (append-map (lambda (c) (append-map (lambda (f) (check-constraint c f here root)) (focus-items rel n)))
+                  (site-constraints st)))
+    (datatype-sites (symbol->string (fhir-type n))))
+   (append-map (lambda (c) (below (cdr c) (string-append loc "." (car c)) root)) (node-children n))))
+
+;; node-children : node -> (listof (cons step node))   the nodes directly below a node, each with
+;; its step from it (`telecom[0]`, `period`), in the order of the names
+(define (node-children n)
+  (define fields (fhir-fields n))
+  (for*/list ([k (in-list (sort (hash-keys fields) symbol<?))]
+              [v (in-value (hash-ref fields k))]
+              [c (in-list (cond [(fhir? v) (list (cons (symbol->string k) v))]
+                                [(list? v) (for/list ([x (in-list v)] [i (in-naturals)] #:when (fhir? x))
+                                             (cons (format "~a[~a]" k i) x))]
+                                [else '()]))])
+    c))
+
+;; datatype-sites : type-name -> (listof InvariantSite)   the constraint sites of a complex
+;; datatype's own definition; none for a resource, a backbone element, an abstract type or a
+;; name nothing defines. Once per package context and type.
+(define sites-of-datatypes (make-hash))
+(define (datatype-sites type)
+  (hash-ref! sites-of-datatypes (cons (sd-context) type)
+             (lambda ()
+               (define sd (and (not (opaque-type? type)) (resolve-sd-raw type)))
+               (define idx (and (hash? sd) (equal? (hash-ref sd 'kind #f) "complex-type") (type-index type)))
+               (if idx (invariant-sites idx) '()))))
 
 ;; the universal base invariants (Element/DomainResource/Extension) — structural, ubiquitous, and
 ;; sensitive to exact children()/hasValue() semantics. Our structural checks approximate them; skip
@@ -932,7 +1119,9 @@
       [(or (not members) (= members 0)) 'unknown]     ; VS unresolvable/empty -> undecidable
       ;; a code whose system the expansion does not reach (a value set only partly expandable here)
       ;; is undecidable, not absent
-      [(and system (not (for/or ([c (in-list contains)]) (equal? (hash-ref c 'system #f) system)))) 'unknown]
+      [(and system (unclosed? expansion)
+            (not (for/or ([c (in-list contains)]) (equal? (hash-ref c 'system #f) system))))
+       'unknown]
       [else
        (define out (verdict))
        (define params (let ([p (if (hash? out) (hash-ref out 'parameter '()) '())]) (if (list? p) p '())))
@@ -944,6 +1133,15 @@
              [(param "x-caused-by-unknown-system") 'unknown]
              [(eq? result #f) 'no]
              [else 'unknown])])))
+
+;; unclosed? : ValueSet -> boolean   is the expansion marked as short of some of its codes
+;; (valueset-unclosed: a system selected from by rule whose content is not here)?
+(define (unclosed? vs)
+  (define e (hash-ref vs 'expansion #f))
+  (and (hash? e)
+       (for/or ([x (in-list (let ([xs (hash-ref e 'extension '())]) (if (list? xs) xs '())))])
+         (and (hash? x) (equal? (hash-ref x 'url #f) "http://hl7.org/fhir/StructureDefinition/valueset-unclosed")))
+       #t))
 
 ;; ---- small helpers ---------------------------------------------------------------------------
 ;; elem-leaf : ElementDef parent-path -> leaf   the element's own step ("value[x]")
