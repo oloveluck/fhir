@@ -1119,9 +1119,13 @@
       [(or (not members) (= members 0)) 'unknown]     ; VS unresolvable/empty -> undecidable
       ;; a code whose system the expansion does not reach (a value set only partly expandable here)
       ;; is undecidable, not absent
-      [(and system (unclosed? expansion)
-            (not (for/or ([c (in-list contains)]) (equal? (hash-ref c 'system #f) system))))
-       'unknown]
+      ;; … unless the value set's own definition never names that system: then no code of it is in
+      ;; the value set, whatever the expansion could reach (`active` of some other system is not
+      ;; Condition's clinical status). A value set that names the system and whose expansion holds
+      ;; none of its codes (CARIN's payee types: the guide's own code, and a terminology.hl7.org
+      ;; system that is not in context) cannot say.
+      [(and system (not (for/or ([c (in-list contains)]) (equal? (hash-ref c 'system #f) system))))
+       (if (and (procedure? tx) (eq? (names-system? tx vs system) #f)) 'no 'unknown)]
       [else
        (define out (verdict))
        (define params (let ([p (if (hash? out) (hash-ref out 'parameter '()) '())]) (if (list? p) p '())))
@@ -1134,14 +1138,26 @@
              [(eq? result #f) 'no]
              [else 'unknown])])))
 
-;; unclosed? : ValueSet -> boolean   is the expansion marked as short of some of its codes
-;; (valueset-unclosed: a system selected from by rule whose content is not here)?
-(define (unclosed? vs)
-  (define e (hash-ref vs 'expansion #f))
-  (and (hash? e)
-       (for/or ([x (in-list (let ([xs (hash-ref e 'extension '())]) (if (list? xs) xs '())))])
-         (and (hash? x) (equal? (hash-ref x 'url #f) "http://hl7.org/fhir/StructureDefinition/valueset-unclosed")))
-       #t))
+;; names-system? : resolver value-set-url system -> #t | #f | 'unknown
+;; Does the value set's definition name the code system — in an include or exclude of its compose,
+;; or of a value set it includes? 'unknown when the definition, or one it includes, is not at hand,
+;; or when it has no compose to read (an expansion alone).
+(define (names-system? r vs system [seen '()])
+  (define d (with-handlers ([exn:fail? (lambda (_) #f)]) (r vs)))
+  (define compose (and (hash? d) (hash-ref d 'compose #f)))
+  (cond
+    [(not (hash? compose)) 'unknown]
+    [else
+     (define parts (append (let ([i (hash-ref compose 'include '())]) (if (list? i) i '()))
+                           (let ([e (hash-ref compose 'exclude '())]) (if (list? e) e '()))))
+     (define inner
+       (for*/list ([p (in-list parts)] #:when (hash? p)
+                   [u (in-list (let ([vs (hash-ref p 'valueSet '())]) (if (list? vs) vs '())))] #:when (string? u))
+         (if (member (canonical-url u) seen) #f (names-system? r (canonical-url u) system (cons vs seen)))))
+     (cond [(for/or ([p (in-list parts)]) (and (hash? p) (equal? (hash-ref p 'system #f) system))) #t]
+           [(memq #t inner) #t]
+           [(memq 'unknown inner) 'unknown]
+           [else #f])]))
 
 ;; ---- small helpers ---------------------------------------------------------------------------
 ;; elem-leaf : ElementDef parent-path -> leaf   the element's own step ("value[x]")

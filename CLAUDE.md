@@ -2782,8 +2782,9 @@ corpus 0 over-reported, the R5 core's invariants 2957/2968). Each has a case in
   nothing defines, a fragment, or a version that is not here decides nothing).
 - **A coding's system counts in a required binding** (`member?`): the tower's generated expansion
   holds codes alone, so `active` of any system was Condition's clinical status. A coding is asked
-  of the packages in context first; and a system an expansion does not reach is "cannot say" only
-  when the expansion is marked unclosed (`unclosed?`), not always.
+  of the packages in context first; and a code whose system the expansion does not reach is "not
+  in the value set" when the value set's definition never names that system (`names-system?`:
+  its compose and those of the value sets it includes), and "cannot say" otherwise.
 - **A slice told by its value set** (`slice-pins`: a value discriminator on an element with a
   required binding and no pattern — US Core's `Condition.category:us-core`), with membership
   three-valued (`slice-membership`: 'unknown when a value set cannot say, and then nothing is
@@ -2802,7 +2803,13 @@ of their packages through validation, and 129 of them were refused — each carr
 that extension's value set does not list. So an extension definition that is a CORE package's
 copy (`core-copy?`: its version is the FHIR version's) is held for its shape and its bindings
 are left undecided (`bindings-decided?`): those extensions have been maintained in the
-extensions package since, and their value sets have grown.
+extensions package since, and their value sets have grown. And fhir-examples' six fetched guides
+(a gate run only AFTER the first commit of this, which was a mistake of order: run
+`raco test -p fhir-examples` with the validator's own gates) refused sixteen published examples
+of CARIN Blue Button and SDC: the first cut of the rule above read every expansion not marked
+unclosed as complete, and a value set that takes a terminology.hl7.org system WHOLE, with that
+system's content not in context, expands to the guide's own codes alone and is not marked.
+`names-system?` is the rule that holds on both: the 741 cases and those guides.
 Not done: an extension definition's own invariants; resource invariants of contained and bundled
 resources; the five held-out cases still missed (not read, by the experiment's rule). A risk
 that stays, named: the code systems a core package copies from terminology.hl7.org are that

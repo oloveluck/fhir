@@ -7,7 +7,7 @@
 (require rackunit
          racket/list
          (only-in fhir/r5/schemas)
-         (only-in fhir/terminology/service make-r5-terminology)
+         (only-in fhir/terminology/service make-r5-terminology resources->resolver)
          (only-in fhir/sd/sd-index current-sd-packages)
          (only-in fhir/spec-package spec-package-path)
          (only-in fhir/conformance/validate
@@ -294,6 +294,27 @@
   (check-equal? (errs (patient "http://hl7.org/fhir/administrative-gender") #:profiles (list profile)) '())
   (check-equal? (errs (patient "http://example.org/not-a-code-system") #:profiles (list profile))
                 '(("code-invalid" . "Patient.maritalStatus"))))
+
+;; a value set that NAMES the coding's system but whose expansion holds none of its codes (the
+;; system's content is not in context) cannot say: CARIN Blue Button's payee types are the guide's
+;; own code and codes of a terminology.hl7.org system; its own examples were refused
+(let* ([mixed (hasheq 'resourceType "ValueSet" 'id "mixed" 'url "http://ex/ValueSet/mixed" 'status "active"
+                      'compose (hasheq 'include (list (hasheq 'system "http://hl7.org/fhir/administrative-gender" 'concept (list (hasheq 'code "female")))
+                                                      (hasheq 'system "http://example.org/a-system-not-here"))))]
+       [profile (hasheq 'resourceType "StructureDefinition" 'id "mx" 'url "http://ex/mx" 'name "MX"
+                        'type "Patient" 'baseDefinition "http://hl7.org/fhir/StructureDefinition/Patient"
+                        'derivation "constraint"
+                        'differential
+                        (hasheq 'element
+                                (list (hasheq 'id "Patient.maritalStatus" 'path "Patient.maritalStatus"
+                                              'binding (hasheq 'strength "required" 'valueSet "http://ex/ValueSet/mixed")))))]
+       [tx (resources->resolver (list mixed))]
+       [patient (lambda (system code) (hasheq 'resourceType "Patient" 'maritalStatus (hasheq 'coding (list (hasheq 'system system 'code code)))))])
+  (check-equal? (errs (patient "http://hl7.org/fhir/administrative-gender" "female") #:profiles (list profile) #:terminology tx) '())
+  (check-equal? (errs (patient "http://example.org/a-system-not-here" "y") #:profiles (list profile) #:terminology tx) '()
+                "a system the value set takes whole and nothing here holds: cannot say")
+  (check-equal? (errs (patient "http://example.org/another-system" "x") #:profiles (list profile) #:terminology tx)
+                '(("code-invalid" . "Patient.maritalStatus")) "a system the value set never names"))
 
 ;; ---- a slice told by the value set its codes come from (a value discriminator, a required binding
 ;; and no pattern: US Core's Condition.category:us-core), and a slice's maximum ---------------------
