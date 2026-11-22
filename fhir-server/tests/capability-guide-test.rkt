@@ -27,6 +27,33 @@
               '(("in" "Serum creatinine, mg/dL") ("out" "The same value in µmol/L")))
 (delete-directory/files dir)
 
+;; the guide's Quantity input: read with `field`, the three answers the text states
+(let ()
+  (define block (cadr (regexp-match #px"## An input with a unit.*?```racket\n(.*?)```" guide)))
+  (define dir (make-temporary-directory "cap-lactate-~a"))
+  (define src (build-path dir "lactate.rkt"))
+  (void (call-with-output-file src (lambda (o) (write-string (string-append "#lang fhir/capability\n(server)\n" block) o))))
+  (define app (dynamic-require src 'app))
+  (define (posted entry)
+    (handle app "POST" "/$lactate" '() (string-append "{\"resourceType\":\"Parameters\",\"parameter\":[" entry "]}")))
+  (define (quantity code) (format "{\"name\": \"lactate\", \"valueQuantity\": {\"value\": 18.0, \"system\": \"http://unitsofmeasure.org\", \"code\": \"~a\"}}" code))
+  ;; the request the text quotes is the one sent
+  (check-true (regexp-match? (regexp-quote (regexp-replace* #rx"\n" "{\"name\": \"lactate\", \"valueQuantity\": {\"value\": 18.0, \"system\": \"http://unitsofmeasure.org\",\n\"code\": \"mg/dL\"}}" " "))
+                             (regexp-replace* #rx"\n" guide " ")))
+  (let-values ([(st js) (posted (quantity "mg/dL"))])
+    (check-equal? st 200)
+    (check-equal? (hash-ref js 'parameter) (list (hasheq 'name "lactate" 'valueDecimal 2.0) (hasheq 'name "raised" 'valueBoolean #f))))
+  (let-values ([(st js) (posted (quantity "g/L"))])
+    (check-equal? st 400)
+    (check-equal? (hash-ref (car (hash-ref js 'issue)) 'diagnostics) "lactate is a number in UCUM mmol/L or mg/dL"))
+  (let-values ([(st js) (posted "{\"name\": \"lactate\", \"valueDecimal\": 2.1}")])
+    (check-equal? st 400)
+    (define said (hash-ref (car (hash-ref js 'issue)) 'diagnostics))
+    (check-equal? said "parameter 'lactate' is declared Quantity but given as valueDecimal: send it as valueQuantity")
+    (check-true (regexp-match? (regexp-quote said) (regexp-replace* #rx"\n" guide " ")) "the guide quotes the refusal")
+    (void))
+  (delete-directory/files dir))
+
 ;; the smoke test as the guide writes it: the worked example served on a free port, the url read from
 ;; the banner, every request answered (a rerun's agent had to write its own wait loop)
 (require racket/system racket/port)

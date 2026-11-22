@@ -27,6 +27,7 @@
          (only-in fhir/result/result ok? ok-value)
          (only-in fhirpath/value item->system)
          (only-in fhir/capability/runtime
+                  inputs-as-text?
                   app? app-capability-statement app-transaction app-metadata app-repositories app-operation-definitions dispatch
                   operation-result? make-searchset operation-outcome
                   read-request vread-request create-request update-request delete-request
@@ -214,8 +215,11 @@
           (not (regexp-match? #px"^\\s*[{]\\s*[}]\\s*$" body)))
      (with-body body (lambda (n) (values 'invoke (dispatch app (invoke-request #:code code #:level level #:type type #:id id #:body n)))))]
     [else
-     (values 'invoke (dispatch app (invoke-request #:code code #:level level #:type type #:id id
-                                                   #:body (query->parameters query))))]))
+     ;; a query's values are text: they are converted to the declared types (a POSTed value is
+     ;; held to the type its key names)
+     (values 'invoke (parameterize ([inputs-as-text? #t])
+                       (dispatch app (invoke-request #:code code #:level level #:type type #:id id
+                                                     #:body (query->parameters query)))))]))
 
 ;; ---- helpers -------------------------------------------------------------------------------
 (define (path-segments path)

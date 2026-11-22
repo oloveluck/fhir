@@ -79,6 +79,15 @@ each other on 88% of cases from the narrative and 96% from the CQL. The English 
 the specification states: which encounters count as "a visit", whether a diagnosis "during" a
 period must start in it. Four measures and one model, so a result to repeat, in the same place.
 
+Where a declaration did not show: three operations were built as servers by independent agents,
+five declared in the capability language and five by hand in Python each, kept up through three
+changes to the operation's definition, and held to requests written by an agent that had not
+seen the toolkit. The hand-built servers answered every request as the definition says; the
+declared ones 94%, at two and a half times the tokens. Every miss was one leniency of the
+framework (a value sent under another type's key was converted), since fixed; with it fixed the
+same servers are level. An agent writes those checks by hand correctly, so there the declaration
+is no advantage to it.
+
 And asked to write 24 published profiles from their stated requirements, a model got
 1427 of 1431 constraints right in FHIR Shorthand at half the tokens of the JSON. The harnesses, the
 runs and every miss are in @hyperlink["https://github.com/oloveluck/fhir-examples"]{fhir-examples}.

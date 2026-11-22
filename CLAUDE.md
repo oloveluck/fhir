@@ -353,6 +353,31 @@ source of truth): four published quality measures implemented by independent age
 steward's English narrative or from its CQL, held to the authors' test cases — right 93.0% and
 98.4% (+5.4 points, interval +2.1 to +9.3), implementers agreeing on 88% and 96% of cases, the
 CQL executed 99.3%. The protocol's bar is met, narrowly; four measures, one model.
+Experiment D tests "the operation's definition makes the implementation": three calculator
+operations built as servers by independent agents, declared in `#lang fhir/capability` or by
+hand in Python, through a build and three changes to the OperationDefinition, held to 752
+requests an agent that had not seen the toolkit wrote. By hand: every request right in all 15
+lineages. Declared: 94.0% (−6.0 points, −8.1 to −4.1) at 2.46 times the input tokens. No
+advantage for the declared route; the run found two defects in it, fixed here afterwards:
+- **A POSTed operation input is held to the type its key names** (fhir-server
+  `capability/runtime.rkt` `key-problems`, `accepted-keys`, `inputs-as-text?`; `http/router.rkt`
+  sets it for a GET). The runtime read a POSTed Parameters as it reads a query's text, so
+  `"valueString": "1.2"` for a declared decimal (or a code, a date) was converted and answered
+  200 — every declared server's only misses. Now a 400 naming the key to send (`parameter 'w' is
+  declared decimal but given as valueString: send it as valueDecimal`), also for a `valueDecimal`
+  where a Quantity is declared; number kinds stay interchangeable; a query's text is converted
+  as before; for operations an app declares inline (a registered operation's inputs are the
+  package's, as its outputs are). fhir-mcp's `apply` sends each input under the key of the type
+  the server's `GET /OperationDefinition/<code>` declares (`mcp/apply.rkt` `declared-types`,
+  `parameter-of`: a shell's `weight=80` as `valueDecimal`, `sex=female` as `valueCode`).
+- **A handler reads the parts of an input with `field` and `fields`** (runtime.rkt; in scope in
+  a capability module): `(field q 'value)` a Quantity's number, `(field q 'code)` its unit,
+  `(fields concept 'coding)` every coding. The guide said how to answer a Quantity and not how
+  to read one; implementers printed the node and parsed it with regular expressions (one
+  session: 548k tokens against 46k by hand). The guide has "An input with a unit", run by
+  `tests/capability-guide-test.rkt`.
+With both fixed the same 120 servers are right on every request, level with the hand-built ones
+(reported apart in fhir-examples' RESULTS.md, as after the fact).
 
 ## Conventions
 - Contracts on module boundaries (`contract-out`); `match` over multi-branch `cond`.

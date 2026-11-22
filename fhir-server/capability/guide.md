@@ -162,10 +162,14 @@ so `GET /OperationDefinition/<code>` always says what the operation returns. The
 this is checked when the operation RUNS, not when the file loads: after serving, call each operation
 once (an output spelt `prolong` for `prolonged` is a 500 naming both on the first call).
 
-Values arrive converted to their declared type, from a GET query or a POSTed Parameters alike: a
-whole decimal (`60.0`) is taken as an `integer`, and any number — `75` as well as `75.0`, in a query or
-as a POSTed `valueInteger` — as a `decimal`; text that does not read
-as the type (`60.5` for an integer, `abc` for a decimal) is refused with a 400. Declare a measurement
+Values arrive as their declared type. A GET query's values are text and are converted; a POSTed
+Parameters says each value's type by its key, and is held to it: `"valueString": "80.5"` for a
+`decimal` input is a 400 (`parameter 'weight' is declared decimal but given as valueString: send it
+as valueDecimal`), as is a `valueDecimal` where a `Quantity` is declared, before the handler runs.
+Between number kinds a server may be lenient, and this one is: a whole decimal (`60.0`) is taken as
+an `integer`, and any number — `75` as well as `75.0`, in a query or as a POSTed `valueInteger` — as a
+`decimal`; text in a query that does not read as the type (`60.5` for an integer, `abc` for a decimal)
+is refused with a 400. Declare a measurement
 (a QT interval, a heart rate, a weight) `decimal`, and keep `integer` for counts. A given input the
 operation does not take beside a required one missing is said as one mistake: parameter 'heartRate' is required (`hr` was given instead: is it this
 input?).
@@ -192,7 +196,11 @@ input?).
 - A handler receives `in`, a hash from each input's name to its list of values, typed by the
   declaration and the same over GET (`?weight=80.5`) and POST (a Parameters body): `integer` an exact
   integer, `decimal` a Racket real, `boolean` `#t`/`#f`, `string`/`code`/`uri`/`date`/`dateTime` the
-  text as sent, a resource a typed node. An output is built the same way round: `(valueDecimal 24.7)`
+  text as sent, a resource or a datatype (a Quantity, a Coding) a typed node, read with `field`:
+  `(field q 'value)` is a Quantity's number, `(field q 'code)` its unit's code, `(field q 'system)`
+  the unit's system, #f when the element is not there; `(fields concept 'coding)` is every coding
+  of a CodeableConcept and `(field coding 'code)` each one's code; `(field patient 'birthDate)` a
+  resource's element. An output is built the same way round: `(valueDecimal 24.7)`
   takes the Racket real (round it yourself: `(/ (round (* bmi 10)) 10.0)`), `(valueInteger 3)`,
   `(valueString "…")`; a decimal STRING works too when it is FHIR's (`"24.7"`), but
   `(real->decimal-string v 0)` gives `"58."`, which FHIR does not read. A value that is not of its type, or an input the declaration
@@ -347,6 +355,36 @@ A code that is not UCUM is a validation warning naming the nearest one; the `uni
 `GET /$creatinine-si?creatinine=1.1` answers `{"name": "creatinine", "valueQuantity": {"value": 97.2,
 "unit": "µmol/L", "system": "http://unitsofmeasure.org", "code": "umol/L"}}` (the value is the
 rounded Racket real; the unit is the display, the code is UCUM's; elements in FHIR's order).
+
+## An input with a unit
+A measurement a client may send in more than one unit is a `Quantity` input. The handler reads its
+parts with `field`: the number, the unit's system and its code. Here, a lactate in mmol/L or in
+mg/dL (÷ 9.008), answered in mmol/L:
+```racket
+;; lactate
+(define (lactate-handler in req)
+  (define q (car (hash-ref in "lactate")))             ; a Quantity arrives as a node: read it with `field`
+  (define value (field q 'value))                      ; 18.0, a Racket number (#f when there is none)
+  (define unit (field q 'code))                        ; "mg/dL", the UCUM code
+  (cond
+    [(not (and value (equal? (field q 'system) "http://unitsofmeasure.org") (member unit '("mmol/L" "mg/dL"))))
+     (OperationOutcome (issue (OperationOutcomeIssue (severity "error") (code "invalid")
+                                                     (diagnostics "lactate is a number in UCUM mmol/L or mg/dL"))))]
+    [else
+     (define mmol (if (equal? unit "mg/dL") (/ value 9.008) value))
+     (Parameters (parameter (ParametersParameter (name "lactate") (valueDecimal (/ (round (* mmol 10)) 10.0)))
+                            (ParametersParameter (name "raised") (valueBoolean (> mmol 2)))))]))
+(operation $lactate #:system
+  #:in ([lactate Quantity 1 1 #:documentation "Blood lactate, mmol/L or mg/dL (UCUM)"])
+  #:out ([lactate decimal 1 1 #:documentation "The same in mmol/L"]
+         [raised boolean 1 1 #:documentation "true above 2 mmol/L"])
+  #:handler lactate-handler)
+```
+POSTed `{"name": "lactate", "valueQuantity": {"value": 18.0, "system": "http://unitsofmeasure.org",
+"code": "mg/dL"}}` it answers `lactate` 2.0 and `raised` false; `"code": "g/L"` is the handler's 400;
+`{"name": "lactate", "valueDecimal": 2.1}` is refused before the handler runs (`parameter 'lactate' is
+declared Quantity but given as valueDecimal: send it as valueQuantity`). `(fields c 'coding)` reads a
+repeating element the same way: every coding of a CodeableConcept, each a node for `field`.
 
 ## The languages inside a server
 A handler is Racket, and every language of the workspace is a library in it:

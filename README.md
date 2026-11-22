@@ -58,6 +58,15 @@ with the CQL executed; the implementers agree with each other on 88% of cases fr
 narrative and 96% from the CQL. English left open what the specification states (which
 encounters are "a visit"; whether a diagnosis "during" a period starts in it).
 
+Where a declaration did not show: three operations were built as servers by independent agents,
+five declared in the capability language and five by hand in Python each, kept up through three
+changes to the operation's definition, and held to requests an agent that had not seen the
+toolkit wrote. The hand-built servers answered every request as the definition says; the
+declared ones 94%, at two and a half times the tokens. Every miss was one leniency of the
+framework (a value sent under another type's key was converted), since fixed; with it fixed the
+same servers are level. An agent writes those checks by hand correctly, so the declaration is
+no advantage to it there.
+
 And against HL7's own test suites and published guides: [TESTING.md](TESTING.md).
 
 ## What working in it looks like

@@ -51,6 +51,13 @@
  ;; and has dropped whatever it did not know (a misspelt element, a value it could not parse)
  current-request-json
  current-search-strict?
+ ;; inputs-as-text? : (parameter boolean)   set while a request whose inputs came as text (a GET
+ ;; query) is dispatched: such values are converted to their declared types; values POSTed in a
+ ;; Parameters resource are held to the type their key names
+ inputs-as-text?
+ ;; field, fields : node symbol -> value   what a handler reads of an input that is not one value
+ ;; (a Quantity, a Coding, a resource)
+ field fields
  (contract-out
   [make-repository (->* () (#:read (or/c procedure? #f) #:vread (or/c procedure? #f)
                             #:create (or/c procedure? #f) #:update (or/c procedure? #f)
@@ -478,8 +485,13 @@
      (define od (operation-handler-op-def h))
      ;; every problem with the inputs at once — unknown, missing, mistyped, outside a binding or a
      ;; range — one line each (a request with two mistyped inputs was told of one)
-     (define-values (in type-problems) (if od (typed-inputs/problems od in0) (values in0 '())))
-     (define problems (if od (in-declared-order od (append (input-problems od in0) type-problems (range-problems od in))) '()))
+     (define-values (in type-problems0) (if od (typed-inputs/problems od in0) (values in0 '())))
+     ;; a POSTed value is held to the type its key names (`valueString` for a declared decimal was
+     ;; converted and answered 200: an independent request suite found it); text from a GET query
+     ;; is converted. Said once for an input: its conversion's problem is left out.
+     (define kind-problems (if (and od (declared-here? od) (not (inputs-as-text?))) (key-problems od (request-body req)) '()))
+     (define type-problems (filter (lambda (p) (not (member (problem-name p) (map problem-name kind-problems)))) type-problems0))
+     (define problems (if od (in-declared-order od (append (input-problems od in0) kind-problems type-problems (range-problems od in))) '()))
      (cond
        [(pair? problems) (inputs-outcome problems)]
        [else
@@ -590,6 +602,63 @@
                        (raw-text v)]
                       [else c])))))
   (values typed (sort problems string<?)))
+
+;; inputs-as-text? : see the provide
+(define inputs-as-text? (make-parameter #f))
+
+;; problem-name : problem-string -> string | #f   the input a problem is about
+(define (problem-name p) (let ([m (regexp-match #rx"^parameter '([^']+)'" p)]) (and m (cadr m))))
+
+;; integer-kinds : the types an integer may be declared or given as
+(define integer-kinds '("integer" "positiveInt" "unsignedInt" "integer64"))
+
+;; accepted-keys : type -> (listof string)   the value[x] keys a POSTed input of a declared type may
+;; be under: the type's own, and for a number the other number kinds (FHIR leaves a server to take
+;; a `valueInteger` for a decimal; a decimal given for an integer must be whole, which its
+;; conversion checks)
+(define (accepted-keys type)
+  (define (key t) (string-append "value" (string-upcase (substring t 0 1)) (substring t 1)))
+  (if (or (equal? type "decimal") (member type integer-kinds))
+      (map key (cons type (remove type (cons "decimal" integer-kinds))))   ; its own first: it is what a message says to send
+      (list (key type))))
+
+;; key-problems : OperationDefinition (Parameters node | #f) -> (listof problem-string)   each
+;; POSTed input whose value is under the key of another type than its parameter declares
+(define (key-problems od body)
+  (define types
+    (for/hash ([p (in-list (hash-ref (node->jsexpr od) 'parameter '()))]
+               #:when (and (equal? (hash-ref p 'use #f) "in") (string? (hash-ref p 'type #f))
+                           (not (member (hash-ref p 'type) '("Any" "Element" "DataType" "Type")))))
+      (values (hash-ref p 'name "") (hash-ref p 'type))))
+  (define given (if (fhir? body) (hash-ref (node->jsexpr body) 'parameter '()) '()))
+  (remove-duplicates
+   (for*/list ([pp (in-list (if (list? given) given '()))]
+               #:when (hash? pp)
+               [type (in-value (hash-ref types (hash-ref pp 'name "") #f))]
+               #:when type
+               [key (in-value (for/first ([k (in-hash-keys pp)] #:when (regexp-match? #rx"^value[A-Z]" (symbol->string k)))
+                                (symbol->string k)))]
+               #:when (and key (not (member key (accepted-keys type)))))
+     (format "parameter '~a' is declared ~a but given as ~a: send it as ~a" (hash-ref pp 'name) type key (car (accepted-keys type))))))
+
+;; plain : item -> value   a value as a handler reads it: a node stays a node, a number is a Racket
+;; number, a boolean a boolean, anything else its text
+(define (plain item)
+  (cond [(fhir? item) item]
+        [else (define v (item->system item))
+              (cond [(fp-decimal? v) (exact->inexact (decimal->exact v))]
+                    [(or (boolean? v) (real? v) (string? v)) v]
+                    [else (raw-text v)])]))
+
+;; fields : node symbol -> (listof value)   every value of an element of a node (a Quantity, a
+;; Coding, a resource): `(fields concept 'coding)`; a choice element by its base name (`'value`)
+(define (fields node key)
+  (if (fhir? node) (map plain (navigate (list node) key)) '()))
+;; field : node symbol -> value | #f   its one value, or the first: `(field quantity 'value)` is
+;; the number, `(field quantity 'code)` the unit's code, #f when the element is not there
+(define (field node key)
+  (define vs (fields node key))
+  (and (pair? vs) (car vs)))
 
 ;; in-declared-order : OperationDefinition (listof problem-string) -> (listof problem-string)   the
 ;; problems in the order the inputs are declared (`creatinine`, `age`, `sex`), unknown inputs last

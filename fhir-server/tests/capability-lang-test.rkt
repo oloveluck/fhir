@@ -4,7 +4,7 @@
 ;;; Exercises the real example app, the derived /metadata, dispatch, and compile-time validation.
 
 (require rackunit
-         racket/list racket/file
+         racket/list racket/file (only-in racket/string string-join)
          (only-in fhir/r6/types)
          (only-in fhir/serialize/from-json from-json)
          (only-in fhir/serialize/to-json node->jsexpr)
@@ -248,6 +248,35 @@
                                  "{\"resourceType\":\"Parameters\",\"parameter\":[{\"name\":\"w\",\"valueDecimal\":80.5},{\"name\":\"n\",\"valueInteger\":41},{\"name\":\"flag\",\"valueBoolean\":true},{\"name\":\"when\",\"valueDate\":\"2024-03-01\"}]}"))
   (check-equal? s2 200)
   (check-equal? (out-of o2) "161.0 42 #t 2024-03-01")
+  ;; a POSTed value is held to the type its key names: text under `valueString` is what a GET query
+  ;; sends, and a Parameters resource says its types (an independent request suite found that
+  ;; `"valueString": "80.5"` for a decimal was converted and answered 200). Every such input is
+  ;; said, with the key to send; a number kind for a number is taken, as before.
+  (define (posted . entries)
+    (handle app "POST" "/$t" '()
+            (string-append "{\"resourceType\":\"Parameters\",\"parameter\":[" (string-join entries ",") "]}")))
+  (define w "{\"name\":\"w\",\"valueDecimal\":80.5}") (define n "{\"name\":\"n\",\"valueInteger\":41}")
+  (define flag "{\"name\":\"flag\",\"valueBoolean\":true}") (define on "{\"name\":\"when\",\"valueDate\":\"2024-03-01\"}")
+  (define (said o) (map (lambda (i) (hash-ref i 'diagnostics)) (hash-ref o 'issue)))
+  (let-values ([(st o) (posted "{\"name\":\"w\",\"valueString\":\"80.5\"}" n flag on)])
+    (check-equal? st 400)
+    (check-equal? (said o) '("parameter 'w' is declared decimal but given as valueString: send it as valueDecimal")))
+  (let-values ([(st o) (posted w "{\"name\":\"n\",\"valueString\":\"41\"}" "{\"name\":\"flag\",\"valueString\":\"true\"}"
+                               "{\"name\":\"when\",\"valueString\":\"2024-03-01\"}")])
+    (check-equal? st 400)
+    (check-equal? (said o) '("parameter 'n' is declared integer but given as valueString: send it as valueInteger"
+                             "parameter 'flag' is declared boolean but given as valueString: send it as valueBoolean"
+                             "parameter 'when' is declared date but given as valueString: send it as valueDate")))
+  ;; said once: text that would not even read as the type is the same mistake
+  (let-values ([(st o) (posted "{\"name\":\"w\",\"valueString\":\"heavy\"}" n flag on)])
+    (check-equal? (length (said o)) 1))
+  ;; an integer for a decimal and a whole decimal for an integer are numbers, and taken
+  (let-values ([(st o) (posted "{\"name\":\"w\",\"valueInteger\":80}" "{\"name\":\"n\",\"valueDecimal\":41.0}" flag on)])
+    (check-equal? st 200)
+    (check-equal? (out-of o) "160 42 #t 2024-03-01"))
+  (let-values ([(st o) (handle app "POST" "/$g" '() "{\"resourceType\":\"Parameters\",\"parameter\":[{\"name\":\"sex\",\"valueString\":\"female\"}]}")])
+    (check-equal? st 400)
+    (check-regexp-match #rx"declared code but given as valueString: send it as valueCode" (car (said o))))
   (define-values (s3 o3) (handle app "GET" "/$t" '((w . "heavy") (n . "41") (flag . "true") (when . "2024-03-01")) ""))
   (check-equal? s3 400)
   (check-regexp-match #rx"parameter 'w' must be a decimal, got \"heavy\"" (hash-ref (car (hash-ref o3 'issue)) 'diagnostics))
@@ -511,4 +540,40 @@
     (check-regexp-match #rx"`qtc` is declared decimal but given as valueString" m))
   (let-values ([(s m) (call "none")])
     (check-regexp-match #rx"`qtcc` is not a declared output [(]did you mean `qtc`[?][)]; the required output `qtc` is missing" m))
+  (delete-directory/files dir))
+
+;; ---- a handler reads an input that is not one value with `field` and `fields`: a Quantity's
+;; number, unit and code, a concept's codings (implementers given only the guide printed the
+;; value and took it apart with regular expressions: the guide said how to answer a Quantity and
+;; not how to read one)
+(let ()
+  (define dir (make-temporary-directory "cap-field-~a"))
+  (define src (build-path dir "o.rkt"))
+  (call-with-output-file src
+    (lambda (o)
+      (write-string (string-append
+                     "#lang fhir/capability\n(server)\n"
+                     "(define (h in req)\n"
+                     "  (define q (car (hash-ref in \"lactate\")))\n"
+                     "  (define c (car (hash-ref in \"reason\")))\n"
+                     "  (Parameters (parameter (ParametersParameter (name \"out\")\n"
+                     "    (valueString (format \"~a|~a|~a|~a|~a|~a\" (field q 'value) (field q 'code) (field q 'system) (field q 'comparator)\n"
+                     "                         (map (lambda (x) (field x 'code)) (fields c 'coding)) (field c 'text)))))))\n"
+                     "(operation $q #:system #:in ([lactate Quantity 1 1] [reason CodeableConcept 1 1]) #:out ([out string 1 1]) #:handler h)\n")
+                    o)))
+  (define app (dynamic-require src 'app))
+  (define handle (dynamic-require 'fhir/http/router 'handle))
+  (define quantity "{\"name\":\"lactate\",\"valueQuantity\":{\"value\":18.5,\"unit\":\"mg/dL\",\"system\":\"http://unitsofmeasure.org\",\"code\":\"mg/dL\"}}")
+  (define concept "{\"name\":\"reason\",\"valueCodeableConcept\":{\"coding\":[{\"system\":\"http://snomed.info/sct\",\"code\":\"91302008\"},{\"system\":\"http://loinc.org\",\"code\":\"2524-7\"}]}}")
+  (define (posted . entries)
+    (handle app "POST" "/$q" '() (string-append "{\"resourceType\":\"Parameters\",\"parameter\":[" (string-join entries ",") "]}")))
+  (let-values ([(st o) (posted quantity concept)])
+    (check-equal? st 200)
+    (check-equal? (hash-ref (car (hash-ref o 'parameter)) 'valueString)
+                  "18.5|mg/dL|http://unitsofmeasure.org|#f|(91302008 2524-7)|#f"))
+  ;; a number where the Quantity is declared is another type, said before the handler runs
+  (let-values ([(st o) (posted "{\"name\":\"lactate\",\"valueDecimal\":2.1}" concept)])
+    (check-equal? st 400)
+    (check-equal? (map (lambda (i) (hash-ref i 'diagnostics)) (hash-ref o 'issue))
+                  '("parameter 'lactate' is declared Quantity but given as valueDecimal: send it as valueQuantity")))
   (delete-directory/files dir))

@@ -400,14 +400,19 @@ at a type (@tt{/Patient/$bmi}).}
 list. An input may add @tt{#:min}/@tt{#:max} (a number's allowed range), @tt{#:binding} (the value
 set a code must come from) and @tt{#:documentation} (what it means, with its unit).}
 @item{@bold{The handler} is a function of the inputs and the request. @tt{in} maps each input's
-name to the list of its values, already converted to the declared type: a @tt{decimal} arrives as a
-number. It answers a resource, usually a @tt{Parameters} holding the outputs.}
+name to the list of its values, already of the declared type: a @tt{decimal} arrives as a
+number. A @tt{Quantity} or another value with parts arrives whole, and @tt{(field q 'value)},
+@tt{(field q 'code)} read its parts. It answers a resource, usually a @tt{Parameters} holding the
+outputs.}
 @item{@bold{Checking is done for you.} A request with a missing, misspelt, mistyped or out-of-range
 input is refused with status 400 and one issue per problem, before your handler runs. What the
 handler answers is held to @tt{#:out} in the same way, so the OperationDefinition always tells the
 truth about the operation.}
 @item{@bold{How it is called.} With the inputs in the address (@tt{GET /$bmi?weight=80&height=180})
-or as a Parameters resource in a POST.}]
+or as a Parameters resource in a POST. An address holds text, which is read as the declared type. A
+Parameters resource names each value's type (@tt{valueDecimal}, @tt{valueCode}), and a value under
+another type's name is refused: @tt{"valueString": "80"} for a decimal is a 400 that says to send
+@tt{valueDecimal}.}]
 
 An operation that already exists in the family is offered by naming it, with no handler:
 @tt{(operation $validate)} after requiring it, or by reference, @tt{(operation "ValueSet/$expand")}.
