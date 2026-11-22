@@ -30,8 +30,11 @@ Things you can ask an agent that has a workspace, and what happens:
 @itemlist[
 @item{@bold{Record data.} The agent writes the resources (a patient, a result), each is validated,
 and nothing invalid is stored.}
+@item{@bold{Find its way around data it has not seen}: what kinds of record there are, which codes
+they use and what those are called, what is recorded about one patient.}
 @item{@bold{Ask questions of the data}: find records by FHIR search, compute per patient with CQL
-("the latest HbA1c for each patient"), turn records into a table and summarise it with SQL.}
+("the latest HbA1c for each patient"), turn records into tables and ask those in SQL.}
+@item{@bold{Correct data} by writing only what changes, with the reason kept.}
 @item{@bold{Make rules the data must keep.} A rule is a FHIR profile; once it is in force, a change
 that breaks it is refused, with the value that broke it.}
 @item{@bold{See why.} Why one patient got the answer they did; who changed a value, when, why, and
@@ -137,9 +140,9 @@ the shell too (@secref["shell"]).
       (list @tt{write} "saves a file and answers its problems in the same call, each at its line; can also bring a stored definition back as a file")
       (list @tt{check} "lists every problem in the workspace; with the data too, every stored resource that breaks a rule")
       (list @tt{run} @elem{runs a file against the data and keeps the result under a name (@tt{result://…})})
-      (list @tt{query} "asks once without a file: a FHIRPath or CQL expression, a FHIR search, a value set, or SQL over the views and earlier results")
+      (list @tt{query} "asks once without a file: a FHIRPath or CQL expression, a FHIR search, where a word occurs in the data, a value set, or SQL over the views, the tables and earlier results")
       (list @tt{explain} "says why one patient or one resource got the answer it did, step by step")
-      (list @tt{describe} "reads anything back: a result, a resource (as JSON or as FHIR Shorthand), its history, a definition, what an element or an operation is")
+      (list @tt{describe} "reads anything back: what the data holds, one patient's record in brief, a result, a resource (as JSON or as FHIR Shorthand), its history, a definition, what an element or an operation is")
       (list @tt{apply} @elem{applies a FHIR operation (@tt{$validate}, @tt{$expand}, @tt{$transform}, @tt{$evaluate-measure} …)})
       (list @tt{stage} "prepares a change to the data: each resource checked and compared with what is stored")
       (list @tt{commit} "writes a stage, all of it or none, and records who, when, why and from what"))]
@@ -159,6 +162,7 @@ The file's ending says which language it is in.
       (list @tt{*.vcl} "one VCL expression: a value set" "the codes it holds" "which part of it holds a given code")
       (list @elem{@tt{*.map}, @tt{*.fml}} "FHIR Mapping Language: a conversion" "each source converted, the result checked" "one conversion, its problems at the map's rules")
       (list @tt{*.view.json} "a SQL on FHIR view: a table over resources" "its rows" "the rows one resource gives, and why")
+      (list @tt{*.sql} "a table defined by one SQL statement over the views" "its rows" "")
       (list @tt{*.json} "any FHIR resource" "its validation" "its problems")
       (list @tt{sushi-config.yaml} "the implementation guide" "what the workspace defines, as a list" "")
       (list @tt{*.capability.rkt} "a FHIR server, declared" "the server, started over the workspace's store" "what it supports"))]
@@ -166,6 +170,103 @@ The file's ending says which language it is in.
 What one file defines, the others can use by its address: a CQL library reads a value set written
 in VCL; examples are checked against the profiles beside them; what a map produces is checked as it
 is produced.
+
+@section[#:tag "reading"]{Data the agent has not seen}
+
+Most of the time the data is already there: a store loaded from a hospital's export, with codes
+and shapes nobody has described to the agent. Three questions find its way around, and each
+answer names the next call.
+
+@italic{What is here?}
+
+@verbatim|{$ raco fhir-mcp call describe ref=data
+{"data":"the SQLite store …/clinic/fhir.db (resources as JSONB; FHIR search; SQL)",
+ "next":"describe ref=\"data/<Type>\": what a type's resources hold (its codes with their names,
+         references, dates, elements); query language=find text=\"<words>\": where a word occurs
+         and the search that finds it",
+ "resources":7,"types":{"AuditEvent":1,"Observation":3,"Patient":2,"Provenance":1}}}|
+
+@tt{describe ref=data/Observation} then says what the Observations hold: the codes they use with
+their names and how often (@tt{4548-4 "Hemoglobin A1c" ×3}), what they refer to, the span of their
+dates, the units of their values, and which elements every one of them carries.
+
+@italic{Where is the thing I was asked about?}
+
+@verbatim|{$ raco fhir-mcp call query language=find text=hemoglobin
+{"columns":["where","value","text","resources","search","referencedBy"],"kind":"table",
+ "result":"result://r1","summary":{"found":1},"total":1,"rows":[
+{"where":"Observation.code, combo-code","value":"http://loinc.org|4548-4","text":"Hemoglobin A1c",
+ "resources":3,"search":"Observation?code=http://loinc.org|4548-4","referencedBy":null}
+]}}|
+
+The words were found as the name of a code; the row gives the code and the search that finds its
+resources.
+
+@italic{What is recorded about this patient?}
+
+@verbatim|{$ raco fhir-mcp call describe ref=Patient/ann as=summary
+{"holds":{"Observation":2},"is":{"birthDate":"1974-12-25","gender":"female","name":"Ann Lee"},
+ "next":"query language=search text=\"<Type>?patient=Patient/ann&_sort=-date&_count=20\" for a
+         page of one type, newest first …",
+ "resource":"Patient/ann","trail":{"AuditEvent":1,"Provenance":1}}}|
+
+With @tt{asof=<a time>} the summary also says which hospital stays were open at that time, which
+is what "the current visit" means in a question asked at a time. A search answers a page of rows,
+one resource to a row, with what each holds (its code, value, date, subject) rather than its JSON,
+and @tt{total}, every match. @tt{raco fhir guide data} is the one page an agent reads for this.
+
+@section[#:tag "tables"]{Tables over the data}
+
+Some questions are easier asked of a table. A @italic{view} (a SQL on FHIR ViewDefinition) turns
+one kind of resource into rows; a @tt{.sql} file is a table defined by one statement over the
+views, for what a single view cannot say, such as a join. Here two views, each a few lines of
+JSON, give the HbA1c results and the patients, and a statement joins them:
+
+@verbatim|{$ cat a1c.view.json
+{"resourceType": "ViewDefinition", "name": "a1c", "status": "active", "resource": "Observation",
+ "where": [{"path": "code.coding.where(system = 'http://loinc.org' and code = '4548-4').exists()"}],
+ "select": [{"column": [
+   {"name": "patient", "path": "subject.getReferenceKey(Patient)"},
+   {"name": "date", "path": "effective.ofType(dateTime)"},
+   {"name": "value", "path": "value.ofType(Quantity).value"}]}]}
+$ cat patients.view.json
+{"resourceType": "ViewDefinition", "name": "patients", "status": "active", "resource": "Patient",
+ "select": [{"column": [
+   {"name": "id", "path": "getResourceKey()"},
+   {"name": "name", "path": "name.first().given.first() + ' ' + name.first().family"}]}]}
+$ cat latest_a1c.sql
+SELECT p.name, a.date, a.value
+FROM a1c a JOIN patients p ON p.id = a.patient
+WHERE a.date = (SELECT max(date) FROM a1c WHERE patient = a.patient)
+$ raco fhir-mcp call query language=sql text="SELECT * FROM latest_a1c ORDER BY name" as=csv
+name,date,value
+Ann Lee,2025-11-03,8.9
+Bo Ruiz,2025-10-10,6.1}|
+
+@tt{latest_a1c} is now a table like any other: @tt{SELECT name FROM latest_a1c WHERE value > 8}
+answers @tt{Ann Lee}. Over a store, a view's rows are computed once and kept until the data or the
+view changes, so a view over a million resources is slow the first time only. This is also how an
+agent works with data whose users think in a relational schema: it defines the schema's tables
+over the FHIR store once, and queries written for that schema then run as they stand.
+@tt{raco fhir guide tables} is the agent's page for it.
+
+@section[#:tag "changes"]{Saying only what changes}
+
+To change a stored resource the agent does not send the resource back. It names it and writes the
+rules that change:
+
+@verbatim|{$ cat ../fix.fsh
+Instance: Observation/a1c-2
+* valueQuantity = 8.7 '%'
+* note.text = "typing error: the report says 8.7"
+$ raco fhir-mcp call stage fsh=@../fix.fsh
+{"changes":[{"action":"update","changed":["note: added [{\"text\":\"typing error: the report says 8.7\"}]",
+ "valueQuantity.value: 8.9 → 8.7"],"resource":"Observation/a1c-2"}],"errors":0,
+ "next":"commit stage=stage-2 writes the 1 change(s) to the store fhir.db","stage":"stage-2"}}|
+
+The rules are laid over the stored resource, the result is checked like any other change, and the
+record of the commit keeps the three lines as they were written. After the commit the table above
+reads @tt{Ann Lee,2025-11-03,8.7}.
 
 @section{Rules the data must keep}
 
@@ -222,6 +323,8 @@ them as @tt{learn://<topic>}; you can print the same text with @tt{raco fhir gui
 @tabular[#:style 'boxed #:sep @hspace[2]
 (list (list @tt{fhir} "FHIR itself: which resource holds which fact, the shapes that recur, the usual code systems")
       (list @tt{workspace} "the workspace: the tools, which language for which question, rules, the record of changes")
+      (list @tt{data} "reading a store in one page: what a type holds, a patient as of a time, words to codes, search, rows")
+      (list @tt{tables} "a relational schema defined over the data, as views and SQL")
       (list @elem{@tt{fsh}, @tt{cql}, @tt{fhirpath}, @tt{vcl}, @tt{fml}, @tt{sql-on-fhir}} "each language: a cheat sheet, a worked example, common problems")
       (list @tt{ig} "the implementation guide: definitions, versions, the store in git")
       (list @tt{capability} "FHIR servers you declare")
@@ -290,7 +393,9 @@ call, when the workspace folder is removed, or when the installed code changes. 
 why, and that something happened.}
 @item{@bold{Implementation guide}: the named, versioned collection of a workspace's definitions.}
 @item{@bold{Canonical}: the web address that names a definition.}
-@item{@bold{View}: a SQL on FHIR ViewDefinition, which turns resources into the rows of a table.}]
+@item{@bold{View}: a SQL on FHIR ViewDefinition, which turns resources into the rows of a table.}
+@item{@bold{Census}: what @tt{describe ref=data} answers: the kinds of resource in the data, and
+for one kind its codes, references, dates and elements.}]
 
 @section{Limits}
 
@@ -301,8 +406,9 @@ its @tt{using} line.}
 @item{Listing a value set's codes uses the code systems in the packages. SNOMED CT and LOINC are not
 shipped, so a value set defined by a rule over them cannot be listed, though one that lists its
 codes works.}
-@item{An update replaces the whole resource. The staged change lists every path that differs,
-including what the new version leaves out.}
+@item{Each stored version is a whole resource. A change can be given as only the rules that differ
+(@secref["changes"]); given as a whole resource, it replaces the stored one, and the staged change
+lists every path that differs, including what the new version leaves out.}
 @item{SQL is one reading statement (@tt{SELECT}, @tt{WITH}, @tt{VALUES}); it cannot change the data.}
 @item{FHIR search follows one step of a chain (@tt{subject.name=…}, @tt{medication.code=…}) but
 not a reverse chain (@tt{_has}) or a longer one; such a search is refused rather than answered

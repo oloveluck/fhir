@@ -42,6 +42,8 @@ one line, `file:line:col severity: message`, with "did you mean …" for a missp
 | the store's definitions in git, as text | `export: export/` in workspace.yaml (init writes it): a commit of definitions rewrites the directory; `raco fhir-mcp export --check` in CI (`raco fhir guide ig`, "The store in git") |
 | what depends on a profile, value set or library; what an artifact needs | `query language=sql text="SELECT type, id, path FROM dependencies WHERE target = '<url>'"`; `apply operation=$data-requirements inputs:='{"url": "<canonical>"}'` (`raco fhir guide ig`, "What depends on what") |
 | a table of values to join or chart | a ViewDefinition (`raco fhir guide sql-on-fhir`), then `query language=sql` |
+| data whose users think in tables (a relational schema, a join of several resource types) | define the tables once over the store: a ViewDefinition per resource type, a `<name>.sql` file for a join — then every question is `query language=sql` (`raco fhir guide tables`: the steps, a worked example, a `fhir_id` column to keep the resource behind each row) |
+| data you have not seen, on one page | `raco fhir guide data` |
 | a FHIR server with an operation of your own | start a file from `raco fhir guide capability --block smallest > study.capability.rkt`, then `raco fhir-server check study.capability.rkt` and `raco fhir-server serve study.capability.rkt --port 0`; a whole operation (the eGFR equation, every input option): the same guide's "One operation using every option" |
 | a Racket program: map, validate, decide | `raco fhir guide racket`; "A Racket program" at the end |
 

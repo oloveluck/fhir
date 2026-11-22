@@ -24,7 +24,7 @@ here works for a person at a terminal too.
 @section{Why it suits an agent}
 
 An agent pays for every word it reads and writes, makes fewer mistakes the less it has to write,
-and needs to be told plainly when it is wrong. Three choices follow from that.
+and needs to be told plainly when it is wrong. Four choices follow from that.
 
 @itemlist[
 @item{@bold{Languages, not JSON.} A FHIR resource is JSON, and the definitions FHIR works with
@@ -35,16 +35,35 @@ a CQL library is 13% of the JSON it compiles to, a value set written in VCL 28%,
 @item{@bold{Say only what changes.} A stored resource is changed by the rules that change it, not
 by sending the whole resource back: 26 tokens in a test of sixty changes where the resource as
 JSON was 535, with the same result every time.}
+@item{@bold{The data as tables.} A patient's facts are spread over many resources, and most
+questions are about a table: the latest result per patient, the stays of a year. The agent defines
+the tables once over the stored data (a SQL on FHIR view for each kind of resource, a @tt{.sql}
+file for a join) and a question is then one SQL statement. A table can keep, in a column, the
+resource each row came from, so an answer can still be traced to the record. The
+@hyperlink["fhir-mcp/index.html"]{fhir-mcp} page shows one.}
 @item{@bold{Checked before it is written, traced after.} Nothing reaches the data without being
 validated against FHIR and against your own rules, and every write records who made it, when, why
 and from which line of which text. A mistake comes back as one line, at its place, saying what was
 found and what would fix it.}]
 
-Measured with Claude Sonnet on two benchmarks other people published, against the same data
-served as plain FHIR REST calls: on MedAgentBench (300 clinical tasks) 297 right through the
-workspace and 294 through REST, at the same 38 thousand tokens a task; on FHIR-AgentBench (150
-questions about a hospital's records) 118 right at 55 thousand tokens a question against 109 at
-69 thousand. And asked to write 24 published profiles from their stated requirements, a model got
+Measured with Claude Sonnet on two benchmarks other people published, graded by their own
+graders, against the same data served as plain FHIR REST calls. On MedAgentBench (300 clinical
+tasks): 300 right at 6 thousand tokens a task, where an agent making REST calls got 294 right at
+38 thousand. On FHIR-AgentBench (questions about a hospital's records): 147 of 150 right at 10
+thousand tokens a question, against 109 at 69 thousand; over its whole test split of 409
+questions, asked three times, 402 are marked right each time, and every question whose recorded
+answer can be held to is right every time.
+
+How those numbers were reached says what matters. Through the workspace's nine tools from a
+shell, the same agent got 300 of MedAgentBench's tasks right at 41 thousand tokens and 122 of the
+150 questions at 57 thousand: more right answers than REST, for tokens of the same order. The
+tokens went when the agent was given the few actions a task needs as the tools of one process, and
+a prompt holding only what its first step uses. The answers came when the benchmark's own
+relational schema was defined over the FHIR store by an agent, as views, and its questions were
+answered in SQL beside an example query of the same kind from the benchmark's training questions
+(the REST agents, run in an earlier round, had the data alone).
+
+And asked to write 24 published profiles from their stated requirements, a model got
 1427 of 1431 constraints right in FHIR Shorthand at half the tokens of the JSON. The harnesses, the
 runs and every miss are in @hyperlink["https://github.com/oloveluck/fhir-examples"]{fhir-examples}.
 

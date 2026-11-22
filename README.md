@@ -2,7 +2,7 @@
 
 [FHIR](https://hl7.org/fhir/) is the standard for health data. This is an implementation of it
 built for an AI agent to work in — read a patient's record, write data that is valid, say what
-valid means, compute over it — and for you to check what the agent did. Three ideas carry it:
+valid means, compute over it — and for you to check what the agent did. Four ideas carry it:
 
 - **Languages, not JSON.** FHIR comes with small languages: one for what valid data looks like,
   one for clinical logic, one for converting data, one for sets of codes, one for questions of a
@@ -13,20 +13,36 @@ valid means, compute over it — and for you to check what the agent did. Three 
 - **One workspace, nine tools.** `fhir-mcp` gives an agent a directory to work in over all six
   languages, a store, FHIR search and SQL: write, check, run, query, explain, describe, apply,
   stage, commit. As an MCP server or from a shell; answers are a table's rows, not a page of JSON.
+- **The data as the tables you think in.** A record's facts are spread over many resources; a
+  question is usually about a table. The agent defines the tables once over the FHIR store — a
+  SQL on FHIR view for each kind of resource, a `.sql` file for a join — and from then on a
+  question is one SQL statement. A table can keep, in a column, the resource each row came
+  from, so an answer is still traced to the record (`fhir guide tables`).
 - **Nothing is written unchecked, and every write can be traced.** A change is staged, validated
   against your rules, and committed with a FHIR Provenance: who, when, why, and the text that
   made it. A mistake is one line, at its place, saying what was found and what would fix it.
 
 ## Measured
 
-With Claude Sonnet, on benchmarks other people wrote, against the same data served as plain FHIR
-REST ([how, and every miss](https://github.com/oloveluck/fhir-examples/tree/main/agent-bench)):
+With Claude Sonnet, on benchmarks other people wrote, graded by their own graders, against the
+same data served as plain FHIR REST ([how, and every miss](https://github.com/oloveluck/fhir-examples/tree/main/agent-bench)):
 
 | | this toolkit | plain REST calls |
 |---|---|---|
-| [MedAgentBench](https://github.com/stanfordmlgroup/MedAgentBench), 300 clinical tasks | 297 right, 38k tokens a task | 294 right, 38k |
-| [FHIR-AgentBench](https://github.com/glee4810/FHIR-AgentBench), 150 questions of a hospital's records | 118 right, 55k tokens a question | 109 right, 69k |
+| [MedAgentBench](https://github.com/stanfordmlgroup/MedAgentBench), 300 clinical tasks | 300 right, 6k tokens a task | 294 right, 38k |
+| [FHIR-AgentBench](https://github.com/glee4810/FHIR-AgentBench), 150 questions of a hospital's records | 147 right, 10k tokens a question | 109 right, 69k |
 | a profile written from stated requirements, 24 published profiles | 1427 of 1431 constraints, 0.9k tokens (as FSH) | 1431, 1.8k tokens (as JSON) |
+
+How the first two rows are reached matters more than the rows. Through the nine workspace tools
+from a shell, an agent got 300 of MedAgentBench's tasks right at 41k tokens and 122 of those
+FHIR-AgentBench questions at 57k: more right answers than REST, for tokens of the same order. The
+tokens went when the agent was given the few actions a task needs as the tools of one process, no
+shell, and a prompt holding only what its first step uses. The answers came when FHIR-AgentBench's own relational
+schema was defined over the store by an agent, as views, and the questions were answered in SQL
+with an example query of the same kind from the benchmark's training questions (the REST agents,
+run in an earlier round, had the data alone). Over that benchmark's whole test split, 409
+questions asked three times, 402 are marked right each time, and every question whose recorded
+answer can be held to is right every time, at 4.8 seconds a question.
 
 And against HL7's own test suites and published guides: [TESTING.md](TESTING.md).
 

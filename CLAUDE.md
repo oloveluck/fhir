@@ -328,6 +328,18 @@ Accuracy is not negotiable in any of them: every command shown was run, every ou
 nothing is promised that the code does not do; `tests/docs-test.rkt` renders each manual and
 `fhir-mcp/tests/docs-commands-test.rkt` runs every command the documents name.
 
+### Docs brought up to the benchmarks (2026-11-22)
+The README and the docs front page name FOUR ideas (languages not JSON; one workspace; the data as
+tables an agent defines over the store; checked and traced) and give the current measurements with
+how each was reached and which rounds they are from (MedAgentBench 300 of 300 at 6k tokens;
+FHIR-AgentBench 147 of the 150 development questions at 10k, 402 of 409 over the whole test split
+three times; REST and workspace-from-a-shell beside them). fhir-mcp's manual gained three
+sections, each from commands run in a scratch workspace: "Data the agent has not seen" (the
+census, `find`, a patient's summary), "Tables over the data" (two views and a `.sql` join) and
+"Saying only what changes" (rules laid over a stored resource). The `fhir` skill's table names
+`raco fhir guide tables` and `raco fhir guide data`. fhir-examples' manual has a section on the
+agent benchmarks (its `fab/gate` verdict as printed) and its TESTING.md the latest runs.
+
 ## Conventions
 - Contracts on module boundaries (`contract-out`); `match` over multi-branch `cond`.
 - Every module has a `module+ test` with living examples; `raco test` runs them.
