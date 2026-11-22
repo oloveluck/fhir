@@ -443,20 +443,29 @@ in these ways gets "All OK".
 @item{@bold{References.} A reference to another resource (@tt{"reference": "Patient/ann"}) is not
 followed: not whether the target exists, not whether it is of an allowed type or profile, not a
 @tt{#id} pointing into @tt{contained}.}
-@item{@bold{Extensions.} An extension's address, where it may be used and the rules of its own
-definition are not checked; the content of an @tt{extension} is not looked into. A profile that
-requires one particular extension is enforced: a resource without that extension is refused.}
+@item{@bold{Extensions.} An extension is checked for its shape: its elements, the type of its value,
+and that it holds a value or nested extensions and not both. When the packages in context hold
+the definition its @tt{url} names, it is held to that definition's types, nested extensions and
+required codes. Where an extension may be used (its context), and the invariants of its own
+definition, are not checked. For an extension whose definition is the copy inside a FHIR core
+package, required codes are not checked: those value sets have grown since the release.}
 @item{@bold{Codes where the binding is not required.} Only @italic{required} bindings are checked.
-Extensible and preferred bindings, a maximum value set and additional bindings are not.}
-@item{@bold{Some slicing.} Slices told apart by a value or a pattern are checked. Slices told apart
-by whether an element exists, by type, by profile or by position are not, and neither is a rule that
-a list may hold nothing but its slices (closed slicing) or a slice's maximum.}
+Extensible and preferred bindings, a maximum value set and additional bindings are not. One thing
+is checked whatever the binding: a code of a code system that the packages in context hold whole
+must be one of that system's codes. A code of a system that is not there (SNOMED CT, LOINC) is not
+checked at all.}
+@item{@bold{Some slicing.} Slices told apart by a value, a pattern or the value set their codes
+must come from are checked, for the fewest and the most entries a slice may have. Slices told
+apart by whether an element exists, by type, by profile or by position are not, and neither is a
+rule that a list may hold nothing but its slices (closed slicing).}
 @item{@bold{Profiles inside a resource.} A contained resource, or an entry of a Bundle, is held to
 FHIR's rules for its type but not to the profiles its own @tt{meta.profile} claims.}
 @item{@bold{The narrative.} A resource's human-readable text (@tt{text.div}) must not be empty; that
 it is well-formed XHTML is not checked.}
-@item{@bold{Some invariants.} The rules every element and every resource carries (@tt{ele-1},
-@tt{ext-1}, the @tt{dom-} rules) are skipped, as is an invariant defined on a slice. An invariant
+@item{@bold{Some invariants.} The rules every element and every resource carries (@tt{ele-1}, the
+@tt{dom-} rules) are skipped, as is an invariant defined on a slice. (@tt{ext-1}, an extension has
+a value or extensions, is checked on the JSON; the invariants of datatypes, such as "a contact
+point with a value has a system", are evaluated at every value of the type.) An invariant
 that depends on following a reference (@tt{resolve()}) finds nothing to follow, and one whose formula
 cannot be evaluated counts as held.}
 @item{@bold{Must-support.} A profile's "must support" flags are obligations on systems, not on a
@@ -517,7 +526,12 @@ without a @tt{derivation}, and one code system against a profile it claims).}
 @item{@bold{Against HL7's validator test cases.} On 67 cases with the reference validator's
 recorded verdicts, it never calls a valid case invalid, and catches 18 of the 26 invalid ones. The
 eight it misses need what @secref["limits"] lists: following references, and details of choice
-types and decimal formats.}]
+types and decimal formats.}
+@item{@bold{Against HL7's validator, resource by resource.} HL7's validator judged 741 resources:
+the 28 published examples of six US Core profiles, and 713 copies of them with one change each
+(an element removed, a code replaced, a list entry doubled, a value that is no value, an element
+the type does not have). This validator gives the same verdict on 736. It refuses none that
+HL7's passes; it passes five that HL7's refuses.}]
 
 The repository's @hyperlink["https://github.com/oloveluck/fhir/blob/main/TESTING.md"]{@tt{TESTING.md}}
 has every suite and names the misses.
