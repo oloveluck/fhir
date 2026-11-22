@@ -2623,7 +2623,9 @@ what the first call uses and the tools saying the rest when it is needed (1203 o
 then 12k tokens and 4.6 s (2026-11-21, a faster machine: iteration 4's code takes 5.4 s there)
 with the names a question gives looked up by the tool that shows the example, the schema given
 with it, a note that never changed an answer no longer costing a call, and the agents started
-without the hosted session's own reminders (1202 of 1203, the one the judge's). MedAgentBench
+without the hosted session's own reminders (1202 of 1203, the one the judge's); then 10k
+tokens (2026-11-22: the list of question kinds and the schema written shorter, 1203 of 1203).
+MedAgentBench
 by the same moves (its actions as three tools of one process, a prompt of what the first call
 uses, what a POST takes said by the tool when one is about to be made): 300 of 300 at 6.2k
 tokens and 3.7 s a task, where the workspace verbs from a shell take 40.6k and 6.4 s on the
