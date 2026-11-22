@@ -51,6 +51,13 @@ workspace's reading tools and a plain REST server with Python are level: 125 and
 The difference above comes from the tables an agent defines over the store, given with examples
 from the benchmark's training questions; which of the two carries it has not been separated.
 
+Where a language does show is in what is built from it. Four published quality measures were
+implemented by independent agents, five from each measure's English narrative and five from its
+CQL, and held to the authors' test cases: 93% right from the narrative, 98% from the CQL, 99%
+with the CQL executed; the implementers agree with each other on 88% of cases from the
+narrative and 96% from the CQL. English left open what the specification states (which
+encounters are "a visit"; whether a diagnosis "during" a period starts in it).
+
 And against HL7's own test suites and published guides: [TESTING.md](TESTING.md).
 
 ## What working in it looks like

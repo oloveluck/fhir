@@ -348,6 +348,11 @@ right, 25.5k and 29.9k input tokens, the difference −0.7 points (−4.0 to +2.
 the docs front page say so under their measurements. What is measured for the languages is
 tokens when writing (half for a profile, a twentieth for an edit), not correctness; the tables
 arm's 148 of those 150 is not separated from the training examples it is given.
+The same directory's experiment S tests the owner's thesis (the spec, not the narrative, as the
+source of truth): four published quality measures implemented by independent agents from the
+steward's English narrative or from its CQL, held to the authors' test cases — right 93.0% and
+98.4% (+5.4 points, interval +2.1 to +9.3), implementers agreeing on 88% and 96% of cases, the
+CQL executed 99.3%. The protocol's bar is met, narrowly; four measures, one model.
 
 ## Conventions
 - Contracts on module boundaries (`contract-out`); `match` over multi-branch `cond`.

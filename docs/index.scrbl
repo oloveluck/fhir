@@ -71,6 +71,14 @@ tables defined over the store, given with examples from the benchmark's training
 which of the two carries it has not been separated. The protocol and the result are in
 @hyperlink["https://github.com/oloveluck/fhir-examples/tree/main/value-experiment"]{fhir-examples}.
 
+Where a language does show is in what is built from it. Four published quality measures were
+implemented by independent agents, five from each measure's English narrative and five from its
+CQL (its formal specification), and held to the authors' test cases: 93% right from the
+narrative, 98% from the CQL, 99% with the CQL run by the engine; the implementers agree with
+each other on 88% of cases from the narrative and 96% from the CQL. The English left open what
+the specification states: which encounters count as "a visit", whether a diagnosis "during" a
+period must start in it. Four measures and one model, so a result to repeat, in the same place.
+
 And asked to write 24 published profiles from their stated requirements, a model got
 1427 of 1431 constraints right in FHIR Shorthand at half the tokens of the JSON. The harnesses, the
 runs and every miss are in @hyperlink["https://github.com/oloveluck/fhir-examples"]{fhir-examples}.
