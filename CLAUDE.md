@@ -654,6 +654,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | **SQL on FHIR** | **the shared suite from FHIR/sql-on-fhir.js, over the model generated from the 3.0.0-ballot package** | `raco sql-on-fhir tck` (sql-on-fhir repo) | **144/144** |
 | **terminology** | **hl7.fhir.uv.tx-ecosystem 1.9.3** | **`raco fhir-tx tck`** (fhir-tx) | **473/553** |
 | **FHIRPath vs HL7's Java engine** | **172,527 pairs: R4 core and US Core search parameters and invariants over US Core's examples, each search expression continued in 116 ways, changed copies; a fifth of the expressions read, the rest held out** | fhir-examples `value-experiment/reference/fhirpath-reference.rkt` (its test, over the kept reference answers) | **129,564/145,371 held-out pairs the same answer (89.1%); 144,123 (99.1%) apart from the reference's departures from the specification. A fresh set (IPS, mCODE: 142,488 pairs, none read): 127,795 (89.7%); 141,834 (99.5%); 66 under no class** |
+| **FML vs the validator's StructureMap engine** | **the mapping tutorial's 25 maps over its 18 sources, and both changed in one way: 887 pairs; a third of the maps read** | fhir-examples `value-experiment/reference/map-reference.rkt` (its test); fml `tests/reference-test.rkt` | **544/606 held-out pairs the same result (89.8%); 271/281 read (96.4%)** |
 | **validator vs HL7's, on changed examples** | **six US Core 9.0.0 profiles: their 28 published examples and 713 single changes to them (an element removed, a code or its system changed, a list entry doubled, a value that is no value, an element the type lacks), each judged by HL7's Java validator** | fhir-examples `value-experiment/verify/profile-cases.rkt` (`ceiling`; its test) | **736/741 verdicts agree (578/583 held out); 0 refused that HL7's passes** |
 
 A later pass closed every remaining gap that needs no external terminology — the corpora drove
@@ -2834,8 +2835,12 @@ case by case, because there is a text and a suite to appeal to. A second pass op
 held-out pairs (one more defect of this engine: `hasValue()` of several items; three more of the
 reference's) and ran a fresh set nobody read, the same rules over IPS's and mCODE's examples:
 142,488 pairs, the same answer on 89.7%, 99.5% with the reference's departures aside, 66 under
-no class and none under a class that is this engine's. Next in H, each stated before it is run:
-the mapping language, SQL on FHIR, FSH.
+no class and none under a class that is this engine's. Part 2, the mapping language, the same
+way over the tutorial's maps and sources changed in one small way (887 pairs): held-out agreement
+88.0% -> 89.8%, three defects of fml fixed (fml/CLAUDE.md: a text that is no number written into
+a number's element; an implicit copy where the target names a variable; `check` tested after
+the list mode), 52 held-out pairs unread. Next in H, each stated before it is run: the mapping
+part's second pass, SQL on FHIR, FSH.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
