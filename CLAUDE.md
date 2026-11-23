@@ -654,7 +654,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | **SQL on FHIR** | **the shared suite from FHIR/sql-on-fhir.js, over the model generated from the 3.0.0-ballot package** | `raco sql-on-fhir tck` (sql-on-fhir repo) | **144/144** |
 | **terminology** | **hl7.fhir.uv.tx-ecosystem 1.9.3** | **`raco fhir-tx tck`** (fhir-tx) | **473/553** |
 | **FHIRPath vs HL7's Java engine** | **172,527 pairs: R4 core and US Core search parameters and invariants over US Core's examples, each search expression continued in 116 ways, changed copies; a fifth of the expressions read, the rest held out** | fhir-examples `value-experiment/reference/fhirpath-reference.rkt` (its test, over the kept reference answers) | **129,564/145,371 held-out pairs the same answer (89.1%); 144,123 (99.1%) apart from the reference's departures from the specification. A fresh set (IPS, mCODE: 142,488 pairs, none read): 127,795 (89.7%); 141,834 (99.5%); 66 under no class** |
-| **FML vs the validator's StructureMap engine** | **the mapping tutorial's 25 maps over its 18 sources, and both changed in one way: 887 pairs; a third of the maps read** | fhir-examples `value-experiment/reference/map-reference.rkt` (its test); fml `tests/reference-test.rkt` | **544/606 held-out pairs the same result (89.8%); 271/281 read (96.4%). A fresh set (matchbox's maps over FHIR resources, none read): 494/667 (74.1%)** |
+| **FML vs the validator's StructureMap engine** | **the mapping tutorial's 25 maps over its 18 sources, and both changed in one way: 887 pairs; a third of the maps read** | fhir-examples `value-experiment/reference/map-reference.rkt` (its test); fml `tests/reference-test.rkt` | **544/606 held-out pairs the same result (89.8%); 271/281 read (96.4%). Matchbox's own maps over FHIR resources, both engines as R4 (667 pairs, all read by the fourth pass): 561 the same, every difference classed, none this engine's. HL7's structure-mapping tests under the same changes (199 pairs, none read): 183** |
 | **validator vs HL7's, on changed examples** | **six US Core 9.0.0 profiles: their 28 published examples and 713 single changes to them (an element removed, a code or its system changed, a list entry doubled, a value that is no value, an element the type lacks), each judged by HL7's Java validator** | fhir-examples `value-experiment/verify/profile-cases.rkt` (`ceiling`; its test) | **736/741 verdicts agree (578/583 held out); 0 refused that HL7's passes** |
 
 A later pass closed every remaining gap that needs no external terminology — the corpora drove
@@ -2843,8 +2843,17 @@ the list mode). Its second pass read the rest (two more fixes: `append`/`truncat
 value, a check warning for a FHIRPath function that does not exist; one gap named: a `types`
 group for a primitive type is never run) and ran matchbox's top-level maps over FHIR resources
 as a fresh set: 494 of 667 pairs the same (74.1%), 168 differences under no class — the mapping
-engine is not yet covered as FHIRPath is. Next in H, each stated before it is run: that fresh
-set opened, SQL on FHIR, FSH.
+engine is not yet covered as FHIRPath is. A third and a fourth pass opened that set, both
+engines run as R4 (the version those maps were written for): the six sample maps held two
+causes, neither a wrong result here, and did not stand for the other eleven, whose 108
+differences were four causes — three this engine's, fixed (fml/CLAUDE.md: `translate` into a
+choice element wrote the bare name; a literal given to `copy`/`cast`/`truncate` gave nothing;
+FHIR's `memberOf()` was not implemented — it is a FHIRPath function now, answered by the
+terminology service given as `%terminologies`, fhirpath/CLAUDE.md). After them: 561 of 667
+the same as R4, every difference classed, none this engine's; and HL7's own structure-mapping
+tests, the next unread set, 183 of 199. For the mapping language a third of the MAPS is the
+wrong sample (a map is one feature); reading by cause covered the set in one sitting. Next in
+H, each stated before it is run: SQL on FHIR, FSH.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
