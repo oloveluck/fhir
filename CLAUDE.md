@@ -655,6 +655,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | **terminology** | **hl7.fhir.uv.tx-ecosystem 1.9.3** | **`raco fhir-tx tck`** (fhir-tx) | **473/553** |
 | **FHIRPath vs HL7's Java engine** | **172,527 pairs: R4 core and US Core search parameters and invariants over US Core's examples, each search expression continued in 116 ways, changed copies; a fifth of the expressions read, the rest held out** | fhir-examples `value-experiment/reference/fhirpath-reference.rkt` (its test, over the kept reference answers) | **129,564/145,371 held-out pairs the same answer (89.1%); 144,123 (99.1%) apart from the reference's departures from the specification. A fresh set (IPS, mCODE: 142,488 pairs, none read): 127,795 (89.7%); 141,834 (99.5%); 66 under no class** |
 | **FML vs the validator's StructureMap engine** | **the mapping tutorial's 25 maps over its 18 sources, and both changed in one way: 887 pairs; a third of the maps read** | fhir-examples `value-experiment/reference/map-reference.rkt` (its test); fml `tests/reference-test.rkt` | **544/606 held-out pairs the same result (89.8%); 271/281 read (96.4%). Matchbox's own maps over FHIR resources, both engines as R4 (667 pairs, all read by the fourth pass): 561 the same, every difference classed, none this engine's. HL7's structure-mapping tests under the same changes (199 pairs, none read): 183** |
+| **FSH vs SUSHI, text by text** | **SUSHI 3.21.1 as a library and this compiler over 2,802 whole FSH texts: SUSHI's 515 importer test inputs, the golden texts and the guide's blocks, each also changed in one rule line; a third of the published texts read** | fhir-examples `value-experiment/reference/fsh-reference.rkt` (its test, over SUSHI's kept answers); fsh `tests/sushi-reference-test.rkt` | **the same answer on 2,355 texts (84.0%; 57.6% as first measured), the same verdict on 2,453 (87.5%; 75.5%); this compiler alone reports an error on none; 183 of the 1,985 unread texts differ under no class** |
 | **validator vs HL7's, on changed examples** | **six US Core 9.0.0 profiles: their 28 published examples and 713 single changes to them (an element removed, a code or its system changed, a list entry doubled, a value that is no value, an element the type lacks), each judged by HL7's Java validator** | fhir-examples `value-experiment/verify/profile-cases.rkt` (`ceiling`; its test) | **736/741 verdicts agree (578/583 held out); 0 refused that HL7's passes** |
 
 A later pass closed every remaining gap that needs no external terminology — the corpora drove
@@ -2852,8 +2853,21 @@ FHIR's `memberOf()` was not implemented — it is a FHIRPath function now, answe
 terminology service given as `%terminologies`, fhirpath/CLAUDE.md). After them: 561 of 667
 the same as R4, every difference classed, none this engine's; and HL7's own structure-mapping
 tests, the next unread set, 183 of 199. For the mapping language a third of the MAPS is the
-wrong sample (a map is one feature); reading by cause covered the set in one sitting. Next in
-H, each stated before it is run: SQL on FHIR, FSH.
+wrong sample (a map is one feature); reading by cause covered the set in one sitting.
+Part 3, the FSH compiler beside SUSHI 3.21.1 (run as a library, held to SUSHI's own client on
+fifty texts) over 2,802 whole texts — SUSHI's importer test inputs, the golden texts, the
+guide's blocks, each also changed in one rule line: the same answer on 57.6% as first measured
+and the same verdict (error or not) on 75.5% — SUSHI reported an error on 664 texts where this
+compiler wrote resources. Read by cause, the sample held ten causes that were this compiler's
+and are fixed (fsh/CLAUDE.md: what is written for an entity that states little or for a TU/N/D
+flag; a Ratio; and eight kinds of error SUSHI reports — a name that is no value set or code
+system, an id that is no FHIR id, a cardinality outside the base's, `contains` without
+slicing, an inline extension in a profile, an undefined invariant or Parent), three named and
+not fixed, two left open (a quantity's `unit`; required elements, which `raco fsh check`
+reports). After: 84.0% and 87.5%, no text on which this compiler alone errs, every IG floor
+where it was; 183 of the 1,985 unread texts differ under no class. No difference read was
+SUSHI departing from the FSH specification. Next in H, each stated before it is run: the
+unread FSH texts opened, SQL on FHIR.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
