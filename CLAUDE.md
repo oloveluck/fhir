@@ -653,7 +653,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | **CQL over QDM** | **cqm-execution's fixtures: 42 QDM libraries vs their ELM; 19 measures over 33 cqm-models patients vs cqm-execution's own assertions and the stored expected values** | `cql/tests/qdm-elm-corpus-test.rkt`, `qdm-measure-test.rkt` (cql repo) | **41/42 compile, 559/723 defs ELM-equal; 31/31 assertions, 16/26 stored** (10 named) |
 | **SQL on FHIR** | **the shared suite from FHIR/sql-on-fhir.js, over the model generated from the 3.0.0-ballot package** | `raco sql-on-fhir tck` (sql-on-fhir repo) | **144/144** |
 | **terminology** | **hl7.fhir.uv.tx-ecosystem 1.9.3** | **`raco fhir-tx tck`** (fhir-tx) | **473/553** |
-| **FHIRPath vs HL7's Java engine** | **172,527 pairs: R4 core and US Core search parameters and invariants over US Core's examples, each search expression continued in 116 ways, changed copies; a fifth of the expressions read, the rest held out** | fhir-examples `value-experiment/reference/fhirpath-reference.rkt` (its test, over the kept reference answers) | **129,564/145,371 held-out pairs the same answer (89.1%); 144,123 (99.1%) apart from the reference's departures from the specification** |
+| **FHIRPath vs HL7's Java engine** | **172,527 pairs: R4 core and US Core search parameters and invariants over US Core's examples, each search expression continued in 116 ways, changed copies; a fifth of the expressions read, the rest held out** | fhir-examples `value-experiment/reference/fhirpath-reference.rkt` (its test, over the kept reference answers) | **129,564/145,371 held-out pairs the same answer (89.1%); 144,123 (99.1%) apart from the reference's departures from the specification. A fresh set (IPS, mCODE: 142,488 pairs, none read): 127,795 (89.7%); 141,834 (99.5%); 66 under no class** |
 | **validator vs HL7's, on changed examples** | **six US Core 9.0.0 profiles: their 28 published examples and 713 single changes to them (an element removed, a code or its system changed, a list entry doubled, a value that is no value, an element the type lacks), each judged by HL7's Java validator** | fhir-examples `value-experiment/verify/profile-cases.rkt` (`ceiling`; its test) | **736/741 verdicts agree (578/583 held out); 0 refused that HL7's passes** |
 
 A later pass closed every remaining gap that needs no external terminology — the corpora drove
@@ -2830,8 +2830,12 @@ held-out differences left, 14,559 are HL7's engine departing from HL7's specific
 (no `toDate()`, `single()` and `convertsTo…()` of nothing, a division's digits, `type().name`
 capitalised, `resolve()` raising as its command line runs it): set aside, 99.1%. An executable
 reference is worth its own agreement with the specification, and here that could be decided
-case by case, because there is a text and a suite to appeal to. Next in H, each stated before it
-is run: the held-out pairs opened, the mapping language, SQL on FHIR, FSH.
+case by case, because there is a text and a suite to appeal to. A second pass opened the
+held-out pairs (one more defect of this engine: `hasValue()` of several items; three more of the
+reference's) and ran a fresh set nobody read, the same rules over IPS's and mCODE's examples:
+142,488 pairs, the same answer on 89.7%, 99.5% with the reference's departures aside, 66 under
+no class and none under a class that is this engine's. Next in H, each stated before it is run:
+the mapping language, SQL on FHIR, FSH.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
