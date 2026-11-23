@@ -653,6 +653,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | **CQL over QDM** | **cqm-execution's fixtures: 42 QDM libraries vs their ELM; 19 measures over 33 cqm-models patients vs cqm-execution's own assertions and the stored expected values** | `cql/tests/qdm-elm-corpus-test.rkt`, `qdm-measure-test.rkt` (cql repo) | **41/42 compile, 559/723 defs ELM-equal; 31/31 assertions, 16/26 stored** (10 named) |
 | **SQL on FHIR** | **the shared suite from FHIR/sql-on-fhir.js, over the model generated from the 3.0.0-ballot package** | `raco sql-on-fhir tck` (sql-on-fhir repo) | **144/144** |
 | **terminology** | **hl7.fhir.uv.tx-ecosystem 1.9.3** | **`raco fhir-tx tck`** (fhir-tx) | **473/553** |
+| **FHIRPath vs HL7's Java engine** | **172,527 pairs: R4 core and US Core search parameters and invariants over US Core's examples, each search expression continued in 116 ways, changed copies; a fifth of the expressions read, the rest held out** | fhir-examples `value-experiment/reference/fhirpath-reference.rkt` (its test, over the kept reference answers) | **129,564/145,371 held-out pairs the same answer (89.1%); 144,123 (99.1%) apart from the reference's departures from the specification** |
 | **validator vs HL7's, on changed examples** | **six US Core 9.0.0 profiles: their 28 published examples and 713 single changes to them (an element removed, a code or its system changed, a list entry doubled, a value that is no value, an element the type lacks), each judged by HL7's Java validator** | fhir-examples `value-experiment/verify/profile-cases.rkt` (`ceiling`; its test) | **736/741 verdicts agree (578/583 held out); 0 refused that HL7's passes** |
 
 A later pass closed every remaining gap that needs no external terminology — the corpora drove
@@ -2815,6 +2816,22 @@ resources; the five held-out cases still missed (not read, by the experiment's r
 that stays, named: the code systems a core package copies from terminology.hl7.org are that
 release's snapshot, and a code added since is "not a code of" the copy when no newer terminology
 package is in context (no corpus here holds one; the fix for a user is to add the package).
+
+## FHIRPath held to HL7's Java engine (2026-11-23)
+The method that found the validator's misses, applied to an engine: fhir-examples' value
+experiment H (its `value-experiment/PROTOCOL.md`, `RESULTS.md`, `reference/`). The validator
+jar's own FHIRPath engine, driven as a library, and this one were given the same 172,527 pairs
+of a published expression (or one continued by a function or an operator) and a published
+resource; a fifth of the expressions were read, the rest only counted. Held out, the two agreed
+on 85.5% as first measured and 89.1% after three defects of this engine, found in the sample,
+were fixed (fhirpath/CLAUDE.md: `toString()` of a complex value raised; `children()` came in a
+hash walk's order; `type().name` of a nested element was an internal name). Of the 15,807
+held-out differences left, 14,559 are HL7's engine departing from HL7's specification or suite
+(no `toDate()`, `single()` and `convertsTo…()` of nothing, a division's digits, `type().name`
+capitalised, `resolve()` raising as its command line runs it): set aside, 99.1%. An executable
+reference is worth its own agreement with the specification, and here that could be decided
+case by case, because there is a text and a suite to appeal to. Next in H, each stated before it
+is run: the held-out pairs opened, the mapping language, SQL on FHIR, FSH.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
