@@ -2887,6 +2887,18 @@ ViewDefinition is handed back by edit and the text export as JSON, not yet as `.
 (sql-on-fhir's `view->sof` is there for it); a commit's Provenance records a `.sof` source as
 `application/json`.
 
+## The docs workflow, read (2026-11-24)
+`.github/workflows/docs.yml` is the one place the family is installed from nothing, and its `main`
+build failed from 2026-11-08 to 11-24 unread: the published site (oloveluck.github.io/fhir) stood
+at the commit before fhir-mcp began to depend on `sql-on-fhir`, which the install step did not
+name (`raco pkg install: cannot find package on catalogs`), and behind that a later step ran
+`fhir-mcp/tests/tools-test.rkt`, deleted when the nine verbs replaced the per-operation tools.
+Both fixed (sql-on-fhir's repository installed; that step runs verbs.rkt, the tool budget, the
+workspace test and the `.sof` test). `fhir/tests/workflow-test.rkt` holds the two facts before a
+push: every family package an info.rkt here depends on is one the workflow installs, and every
+file the workflow names exists. After a push to `main`, LOOK at the run: a green local suite says
+nothing about a fresh install.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

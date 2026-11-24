@@ -39,9 +39,11 @@ jobs:
             "https://github.com/oloveluck/vcl.git" \
             "https://github.com/oloveluck/cql.git" \
             "https://github.com/oloveluck/fml.git" \
-            "https://github.com/oloveluck/fsh.git"
+            "https://github.com/oloveluck/fsh.git" \
+            "https://github.com/oloveluck/sql-on-fhir.git"
       - name: Test the terminology package and the server seams it uses
         run: |
+          raco test fhir/tests/workflow-test.rkt
           raco test fhir-tx/terminology/index.rkt fhir-tx/terminology/service.rkt fhir-tx/terminology/operations.rkt fhir-tx/tx-cli.rkt
           raco test fhir/lang/support.rkt fhir/lang/declared.rkt fhir/parallel.rkt fhir/registry.rkt fhir/sd/operations.rkt fhir/sd/logical.rkt fhir/serialize/jsexpr-util.rkt fhir/codegen/gen.rkt fhir-server/http/router.rkt fhir-server/capability/operations.rkt fhir-server/tests/operations-http-test.rkt
           raco fhir roundtrip-tck r5
@@ -50,9 +52,9 @@ jobs:
         run: |
           raco test fhir-lsp/lsp/jsonrpc.rkt fhir-lsp/lsp/diagnostics.rkt fhir-lsp/lsp/languages.rkt fhir-lsp/lsp/server.rkt fhir-lsp/tests/languages-test.rkt
           raco fhir-lsp languages
-      - name: The MCP server (the tools over the operations and languages, the dispatch)
+      - name: The MCP server (the nine tools, their budget, a workspace of every language, the dispatch)
         run: |
-          raco test fhir-mcp/mcp/tools.rkt fhir-mcp/mcp/resources.rkt fhir-mcp/mcp/server.rkt fhir-mcp/tests/tools-test.rkt
+          raco test fhir-mcp/mcp/tools.rkt fhir-mcp/mcp/resources.rkt fhir-mcp/mcp/server.rkt fhir-mcp/mcp/verbs.rkt fhir-mcp/tests/tool-budget-test.rkt fhir-mcp/tests/workspace-test.rkt fhir-mcp/tests/sof-test.rkt
           raco fhir-mcp tools | head -c 400
       - name: The terminology conformance suite (floor-ratcheted)
         run: raco fhir-tx tck
