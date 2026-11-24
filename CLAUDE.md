@@ -2898,6 +2898,15 @@ workspace test and the `.sof` test). `fhir/tests/workflow-test.rkt` holds the tw
 push: every family package an info.rkt here depends on is one the workflow installs, and every
 file the workflow names exists. After a push to `main`, LOOK at the run: a green local suite says
 nothing about a fresh install.
+The first run that got past the install failed further on, on something no run here could show:
+the runner is not root. fhir-mcp's workspace test stages FSH in a workspace under `/var/tmp`, and
+fsh's hint for a name a folder BESIDE the project defines listed every sibling folder — one of them
+a systemd service's private folder, closed to the runner (`could not open directory … Permission
+denied` where the not-found message belongs). Fixed in fsh (its CLAUDE.md, "A folder beside the
+project that cannot be read"). This container runs as root, which reads anything, so the workflow's
+test steps were then run as an unprivileged user with a closed folder in the temporary directory
+(`setpriv --reuid=65534 --regid=65534 --clear-groups`, `HOME` and `TMPDIR` of its own, a readable
+copy of the add-on directory as `PLTADDONDIR`): that is the nearest thing here to the runner.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
