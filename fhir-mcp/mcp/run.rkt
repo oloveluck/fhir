@@ -124,14 +124,18 @@
   (define text (with-handlers ([exn:fail? (lambda (_) "")]) (file->string f)))
   (hash-ref! facts text
              (lambda ()
-               (define j (with-handlers ([exn:fail? (lambda (_) #f)]) (string->jsexpr text)))
+               ;; a ViewDefinition as JSON, or the first view a file of source text states (.sof)
+               (define j (with-handlers ([exn:fail? (lambda (_) #f)])
+                           (if (regexp-match? #px"^\\s*[{]" text)
+                               (string->jsexpr text)
+                               (car ((dynamic-require 'sql-on-fhir/compile 'sof->views) text)))))
                (define (text-at key) (let ([v (and (hash? j) (hash-ref j key #f))]) (and (string? v) v)))
                (cons (text-at 'name) (or (text-at 'resource) "?")))))
 
 ;; view-names : view-file -> (listof string)   the names SQL knows a view by: its file stem and `name`
 (define (view-names f)
   (remove-duplicates
-   (filter values (list (regexp-replace #rx"[.]view[.]json$|[.]json$" (path->string (file-name-from-path f)) "")
+   (filter values (list (regexp-replace #rx"[.]view[.]json$|[.]json$|[.]sof$" (path->string (file-name-from-path f)) "")
                         (car (view-facts f))))))
 
 ;; ---- a view's rows kept between calls (view-cache.rkt) -------------------------------------------

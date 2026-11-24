@@ -31,7 +31,7 @@
    (string-append
     "A FHIR workspace: write programs in the FHIR languages and FHIR JSON, and run them against FHIR data. "
     "The files: .fsh (FHIR Shorthand: profiles, value sets, examples), .cql (patient logic), .fhirpath, .vcl (value sets), "
-    ".map/.fml (mappings), .view.json (SQL on FHIR views), .json (resources); what one file defines, the others see by canonical. "
+    ".map/.fml (mappings), .sof (SQL on FHIR views), .json (resources); what one file defines, the others see by canonical. "
     "The loop: write (answers the file's problems at their lines) -> fix -> run (a summary and result://rN) -> explain one subject when an answer surprises you. "
     "query asks once without a file; describe reads any reference (results paged, types and elements, operations, Type/id, canonicals); "
     "apply runs a FHIR operation; stage then commit writes validated, diffed changes to the data (SQLite, every resource as JSONB), leaving a Provenance and an AuditEvent: give commit a reason. "

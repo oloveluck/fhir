@@ -167,7 +167,7 @@
 (define (workspace-tools* h)
   (list
    (tool "write"
-         "Save a file in the workspace and get its problems back, each at its line and column: .fsh (FHIR Shorthand), .cql, .fhirpath, .vcl, .map/.fml, .view.json (a ViewDefinition), .json (any FHIR resource), sushi-config.yaml (the implementation guide), or workspace.yaml. Empty text deletes the file. With `ref` in place of `text`, the file is a stored definition as the text that states it, to edit: a profile or value set as FSH, a library as its CQL, the guide as sushi-config.yaml. Read learn://workspace first."
+         "Save a file in the workspace and get its problems back, each at its line and column: .fsh (FHIR Shorthand), .cql, .fhirpath, .vcl, .map/.fml, .sof or .view.json (a view), .json (any FHIR resource), sushi-config.yaml (the implementation guide), or workspace.yaml. Empty text deletes the file. With `ref` in place of `text`, the file is a stored definition as the text that states it, to edit: a profile or value set as FSH, a library as its CQL, the guide as sushi-config.yaml. Read learn://workspace first."
          (schema (hasheq 'path (s "the file's path, relative to the workspace") 'text (s "the whole file")
                          'ref (s "in place of text: a stored definition — its canonical (url, or url|version) or Type/id — written as the file that states it")
                          'enforce (hasheq 'type "boolean" 'description "FSH: list the file's profiles in workspace.yaml's `profiles`, so stage and check(data) hold data to them"))

@@ -72,7 +72,8 @@
  (struct-out workspace) (struct-out ws-config) (struct-out ws-support) (struct-out run-result)
  (contract-out
   [workspace-languages (listof string?)]
-  ;; workspace-language-of : path -> id | "fhir" | "sql" | #f   a ViewDefinition is `*.view.json`;
+  ;; workspace-language-of : path -> id | "fhir" | "sql" | #f   a view is `*.sof` (source text) or
+  ;; `*.view.json` (a ViewDefinition);
   ;; any other `.json` is a FHIR resource; a `.sql` file is a table defined over the views
   [workspace-language-of (-> path-string? (or/c string? #f))]
   ;; workspace-support : id -> ws-support|#f   loaded from `<id>/workspace`; #f when not installed
@@ -147,6 +148,8 @@
              [else (loop (sub1 i))]))))
   (cond [(string=? name "sushi-config.yaml") "ig"]
         [(string-suffix? name ".view.json") "sql-on-fhir"]
+        ;; a view as source text (sql-on-fhir's LANGUAGE.md), which compiles to a ViewDefinition
+        [(string-suffix? name ".sof") "sql-on-fhir"]
         [(string-suffix? name ".capability.rkt") "capability"]
         [(string-suffix? name ".json") "fhir"]
         ;; a table defined by one SQL statement over the workspace's views (fhir-mcp reads it)
@@ -376,18 +379,20 @@
   (let ([by-pattern (lambda (p)
                       (define s (string-downcase p))
                       (cond [(regexp-match? #rx"(^|[/\\\\])sushi-config[.]yaml$" s) "ig"]
-                            [(regexp-match? #rx"[.]view[.]json$" s) "sql-on-fhir"]
+                            [(regexp-match? #rx"[.]view[.]json$|[.]sof$" s) "sql-on-fhir"]
                             [(regexp-match? #rx"[.]capability[.]rkt$" s) "capability"]
                             [(regexp-match? #rx"[.]json$" s) "fhir"]
                             [(regexp-match? #rx"[.]sql$" s) "sql"]
                             [else (language-id-of p)]))])
     (for ([p (in-list '("sushi-config.yaml" "/w/sushi-config.yaml" "C:\\w\\Sushi-Config.YAML" "/w/my-sushi-config.yaml"
-                        "/w/bp.view.json" "/w/BP.VIEW.JSON" "/w/a.json" "/w/.json" "/w/a.json/" "/w.json/a.txt"
+                        "/w/bp.view.json" "/w/BP.VIEW.JSON" "/w/bp.sof" "/w/BP.SOF" "/w/sof" "/w/a.json" "/w/.json" "/w/a.json/" "/w.json/a.txt"
                         "/w/clinic.capability.rkt" "/w/t.sql" "/w/x.fsh" "/w/x.cql" "/w/x.map" "/w/x.vcl" "/w/x.fhirpath"
                         "/w/readme.md" "/w/view.json" "a.sql.bak"))])
       (check-equal? (workspace-language-of p) (by-pattern p) p))
     (check-equal? (workspace-language-of (string->path "/w/bp.view.json")) "sql-on-fhir"))
   (check-equal? (workspace-language-of "a/b.view.json") "sql-on-fhir")
+  (check-equal? (workspace-language-of "a/b.sof") "sql-on-fhir")
+  (check-equal? (file-stem "a/b.sof") "b")
   (check-equal? (workspace-language-of "a/Patient-1.json") "fhir")
   (check-equal? (workspace-language-of "a/x.cql") "cql")
   (check-false (workspace-language-of "a/notes.md"))
