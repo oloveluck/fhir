@@ -15,8 +15,7 @@ step (PyPI) is yours.
 - the Python client (`clients/python`).
 
 One wheel per platform: Linux (built on Ubuntu 22.04, so it installs there and on anything
-newer), macOS on Apple silicon, macOS on Intel. Windows is built as a trial that does not fail
-the run.
+newer), macOS on Apple silicon, macOS on Intel. There is no wheel for Windows.
 
 ## Steps
 
@@ -50,5 +49,8 @@ python3 clients/python/test_wheel.py wheels --with pandas
 
 ## Not done
 
-- A wheel for Windows: see the latest `wheels` run for how far the trial job gets.
+- A wheel for Windows. It is not built or tested (the owner's decision, 2026-11-25). A trial
+  got as far as building the executable, where Racket's builder refuses a command line over
+  1,024 characters; one test of the function server also fails there (a temporary folder it
+  cannot delete while a file in it is open).
 - An sdist. A wheel is the product: building from source needs Racket and seven repositories.

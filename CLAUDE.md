@@ -2995,7 +2995,10 @@ showed on the way is the larger part.
     would have been an Intel build under an arm64 name. The workflow asks for arm64 there;
     `build-sqlite.sh` compiles for the processor RACKET runs on (`system-library-subpath`);
     `build_wheel.py` tags a macOS wheel by the executable's own architecture (`lipo -archs`).
-  - **Windows** (a trial job that does not fail the run): `release/family.lock` was checked out
+  - **Windows** (a trial job, since removed — the owner, 2026-11-25: "I don't care about
+    testing windows"; do not add it back unasked. It reached the executable's build, where
+    `raco exe` refuses a command line over 1,024 characters, and one fhir-api test could not
+    delete its temporary folder while a file in it was open): `release/family.lock` was checked out
     with carriage returns and a commit followed by one names nothing — `.gitattributes` is
     `* -text` (every file as stored, on every system) and `install-family.sh` strips them; and the
     cql repository could not be checked out there at all: two vendored QDM patients had `<` and

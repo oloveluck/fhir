@@ -45,18 +45,14 @@ jobs:
       matrix:
         # the oldest Linux image offered (a wheel is tagged for the C library it was built
         # against, and installs on that or anything newer); macOS on Apple silicon and on Intel
+        # (Windows is not built or tested)
         os: [ubuntu-22.04, macos-15, macos-15-intel]
-        experimental: [false]
         include:
           # Racket for the runner's own processor: left to its default the setup installs the Intel
           # build on Apple silicon too, and the wheel would be an Intel one under an arm64 name
           - os: macos-15
             racket: arm64
-          # Windows has never been built: this job says how far it gets, and does not fail the run
-          - os: windows-2022
-            experimental: true
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.experimental }}
     steps:
       - uses: actions/checkout@v4
       - uses: Bogdanp/setup-racket@v1.11
@@ -76,7 +72,6 @@ jobs:
       - name: Install the packages at the locked commits
         run: release/install-family.sh
       - name: The function server's own tests
-        continue-on-error: ${{ matrix.experimental }}
         run: raco test fhir-api
       - name: Build the standalone executable
         run: ./build-tools.sh dist fhir-api
