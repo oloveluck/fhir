@@ -23,7 +23,7 @@ the run.
 1. **Pin the family.** `release/lock-family.sh` writes `release/family.lock` from each language
    repository's `main`. Read the diff and commit it.
 2. **Set the version** in `clients/python/pyproject.toml` and
-   `clients/python/src/fhir_toolkit/__init__.py` (and `clients/typescript/package.json`).
+   `clients/python/src/fhir_toolkit/__init__.py`.
 3. **Build and test.** Push to `main`: the `wheels` workflow runs whenever the release
    machinery changes (this folder, `build-tools.sh`, the wheel's builder), and can be started
    by hand (Actions, `wheels`, "Run workflow"). Each wheel is installed into a clean environment
@@ -50,7 +50,5 @@ python3 clients/python/test_wheel.py wheels --with pandas
 
 ## Not done
 
-- The TypeScript client is not published to npm, and carries no executable: it finds
-  `fhir-api` on the machine.
 - A wheel for Windows: see the latest `wheels` run for how far the trial job gets.
 - An sdist. A wheel is the product: building from source needs Racket and seven repositories.

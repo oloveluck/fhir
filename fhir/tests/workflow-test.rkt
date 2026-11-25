@@ -71,12 +71,10 @@
     (for ([f (in-list '("release/install-family.sh" "build-tools.sh" "clients/python/build_wheel.py" "clients/python/test_wheel.py"))])
       (check-true (and (regexp-match? (regexp-quote f) wheels) #t) f)
       (check-true (or (file-exists? (build-path repository f)) (directory-exists? (build-path repository f))) f)))
-  (test-case "the clients are tested where the server is"
-    ;; each client's tests are run by the docs workflow, in the client's own directory
+  (test-case "the client is tested where the server is"
+    ;; the Python client's tests are run by the docs workflow
     (check-regexp-match #rx"unittest discover -s clients/python/tests" text)
-    (check-regexp-match #rx"cd clients/typescript\n +npm ci[^\n]*\n +npm test" text)
-    (for ([f (in-list '("clients/functions.json" "clients/python/generate.py" "clients/typescript/generate.mjs"
-                        "clients/typescript/package.json" "clients/typescript/package-lock.json"))])
+    (for ([f (in-list '("clients/functions.json" "clients/python/generate.py"))])
       (check-true (file-exists? (build-path repository f)) f))
     ;; what a release is made of is named, and is there
     (define releasing (file->string (build-path repository "release" "RELEASING.md")))

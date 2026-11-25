@@ -25,7 +25,7 @@ never `../model/node.rkt`. Dependency order (base first):
 | `fhir-server` | `oloveluck/fhir` → `fhir-server/` | `capability/ http/ store/` (SQLite), IG-generated servers, `$evaluate-measure`, `server-cli.rkt` (`raco fhir-server`), server tests | fhir, fhir-spec, fhirpath, fhir-tx, fhir-validation, cql, db-lib |
 | `fhir-lsp` | `oloveluck/fhir` → `fhir-lsp/` | the Language Server Protocol server for the five languages: `lsp/jsonrpc.rkt` (framing), `lsp/diagnostics.rkt` (fhir/diagnostic -> LSP), `lsp/languages.rkt` (the catalogue over `fhir/lang/support`), `lsp/server.rkt` (state, dispatch, loop; hover/definition/completion/symbols handed to the document's language support with its project), `lsp-cli.rkt` (`raco fhir-lsp`, `check`) | fhir (+ the languages' `support` modules at run time) |
 | `fhir-mcp` | `oloveluck/fhir` → `fhir-mcp/` | the Model Context Protocol server over a WORKSPACE (below): `mcp/workspace.rkt` (the hub's contracted interface over `hub.rkt` — config, packages, data source, artifacts registered, results, stages — and a module per verb: `check.rkt`, `run.rkt`, `describe.rkt`, `apply.rkt`, `stage.rkt`), `mcp/verbs.rkt` (the nine tools), `learn/*.md` (`learn://` guides with the official references for the workspace, search and the languages that do not ship their own yet; a language's own guide comes from its repo, below; their examples compile in the test), `mcp/tools.rkt` (the Tool struct; operations loaded and applied to JSON; elements and definitions in the packages), `mcp/resources.rkt` (guides, packages, definitions, learn, results; prompts), `mcp/server.rkt` (dispatch, one JSON line per message), `mcp/init.rkt` (`raco fhir-mcp init`: workspace.yaml, data/, .mcp.json, CLAUDE.md), `mcp/search-index.rkt` (FHIR search over data that is files, through fhir-server's store, loaded on demand), `mcp/sql.rkt` (SQL over views and results, and over the workspace's store read-only), `mcp-cli.rkt` (`raco fhir-mcp [--workspace d]`, `init`, `guide`, `tools`, `call`), `mcp-main.rkt` + `mcp-daemon.rkt` (shell calls answered by a warm process) | fhir, fhir-lsp (+ the operations and languages at run time) |
-| `fhir-api` | `oloveluck/fhir` → `fhir-api/` | the toolkit's functions for programs in other languages: `api/functions.rkt` (THE TABLE: each function's name, parameters and answer, as data), `api/session.rkt` (a process's projects and data), `api/server.rkt` (JSON-RPC 2.0, a message to a line), `api-cli.rkt` (`raco fhir-api [serve]`, `functions [--json]`, `call`); the clients generated from the table are `clients/python` and `clients/typescript` (below) | fhir, fhir-mcp (+ the languages at run time) |
+| `fhir-api` | `oloveluck/fhir` → `fhir-api/` | the toolkit's functions for programs in other languages: `api/functions.rkt` (THE TABLE: each function's name, parameters and answer, as data), `api/session.rkt` (a process's projects and data), `api/server.rkt` (JSON-RPC 2.0, a message to a line), `api-cli.rkt` (`raco fhir-api [serve]`, `functions [--json]`, `call`); the Python client is `clients/python` (below) | fhir, fhir-mcp (+ the languages at run time) |
 | `sql-on-fhir` | `oloveluck/sql-on-fhir` | `#lang sql-on-fhir`: a source language for views (`.sof`: a SQL dialect with FHIRPath, defined in its LANGUAGE.md, compiled to ViewDefinitions and back), the ViewDefinition model and operation definitions GENERATED from the IG package (`target.rkt`, `model/`), the view engine, `$sql-run`/`$sql-export` as operations; `raco sql-on-fhir` | fhir, fhirpath (fhir-spec to regenerate) |
 | `fhir-examples` | `oloveluck/fhir-examples` | `examples/` (operations applied as procedures), `bench.rkt` (prose → FSH tasks from a published IG, scored), recorded runs; `raco spec-bench` | fhir, fhir-spec, fhir-validation, fsh, fml |
 
@@ -2963,9 +2963,9 @@ same thing later for typescript". So the split is a shared part and thin clients
   `fhir/tests/workflow-test.rkt` also holds: every package directory here is installed by the docs
   workflow, and the lock names exactly the repositories that workflow installs.
 - Not done, named: publishing to PyPI (the owner's account); decimals keep no trailing zeros
-  through JSON. (Windows, typed resources, stage/commit and a TypeScript client: next section.)
+  through JSON. (Windows, typed resources and stage/commit: next section.)
 
-## The wheel built on CI; writing, models, notebooks; a second client (2026-11-25)
+## The wheel built on CI; writing, models, notebooks (2026-11-25)
 The owner: "Continue with the next steps". Each was the list above; what CI and the examples
 showed on the way is the larger part.
 - **The wheels workflow had never run** (it starts on a tag or by hand, and this session cannot
@@ -3036,19 +3036,16 @@ showed on the way is the larger part.
   an error defines nothing). `tests/test_jupyter.py` runs them in an IPython shell; the README's
   ```ipython blocks are cells its test runs (`test_readme.py`: an example whose library is
   missing is left out and the test reported as skipped, the others still held).
-- **`clients/typescript`** (`fhir-toolkit` for Node, ESM, no runtime dependency): `generate.mjs`
-  writes `src/functions.ts` from the table (an interface of arguments and a method a function,
-  the table's words as comments; `--check`); `server.ts` (the process: calls sent at once are
-  answered by id; while no call waits it does not keep Node running; a pending call belongs to
-  the process it was sent to — closed and used again at once, the old process's exit had
-  refused the new one's call); `toolkit.ts` (the same methods as Python's, promises);
-  `results.ts`. `npm test`: the generator's check, the compiler, 17 tests against the server and
-  the README's examples held to their output. It carries no executable and is not published.
+- **A TypeScript client was written and taken out again** (the owner, the same day: "I don't
+  really want typescript yet. Just python"). It was `clients/typescript` in commit b3a5e05: methods
+  and argument types generated from `clients/functions.json`, 18 tests, a README held to its
+  output. What it showed stays true: the table is enough to generate a typed client from. Do not
+  add it back unasked.
 - `release/RELEASING.md`: what a wheel is made of and the steps; a `publish` job in `wheels.yml`
   (PyPI's trusted publishing) that runs only on a `v*` tag with the repository variable
   `PUBLISH_TO_PYPI` set — it has NOT run.
-- Not done, named: publishing (PyPI, npm: the owner's accounts); an npm package that carries the
-  executable; `write` to a FHIR server; a Docker image and a `uvx` entry for the MCP server.
+- Not done, named: publishing to PyPI (the owner's account); `write` to a FHIR server; a Docker
+  image and a `uvx` entry for the MCP server.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

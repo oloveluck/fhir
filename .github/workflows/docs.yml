@@ -64,11 +64,6 @@ jobs:
           python3 clients/python/generate.py --check
           python3 -m pip install --quiet pandas ipython fhir.resources || echo "an optional library could not be installed: the examples that need it are skipped"
           python3 -m unittest discover -s clients/python/tests
-      - name: The TypeScript client over the same server (clients/typescript)
-        run: |
-          cd clients/typescript
-          npm ci --no-audit --no-fund
-          npm test
       - name: The terminology conformance suite (floor-ratcheted)
         run: raco fhir-tx tck
       - name: The server and validation suites (the stores, generated servers, IG oracles, the validator differential)

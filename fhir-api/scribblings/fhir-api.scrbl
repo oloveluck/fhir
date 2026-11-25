@@ -177,11 +177,6 @@ them with a JSON Schema for each one's arguments. That text is kept in this repo
 (@tt{clients/python/generate.py}): a client for another language starts from the same file.
 @tt{raco fhir-api call fhirpath '<json arguments>'} makes one call from a shell.
 
-The second client is for TypeScript and JavaScript (@tt{clients/typescript}): its methods and
-their argument types are generated from the same file, and its own page's examples are run by a
-test as this page's are. It starts the same process, which has to be on the machine: it is not
-published, and carries no executable as the Python wheel does.
-
 A call that cannot be answered is an error with a code: @tt{-32601} for a function that does not
 exist, @tt{-32602} for arguments that are not the function's, @tt{-32000} when the function
 failed, with @tt{data.diagnostics} when the failure has a place in a source and @tt{data.outcome}

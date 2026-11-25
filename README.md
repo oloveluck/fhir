@@ -114,8 +114,7 @@ notebook (`%load_ext fhir_toolkit.jupyter`). It is not on the Python Package Ind
 
 Under it is `fhir-api`, one process that answers function calls as JSON lines, with its
 functions described in one table ([clients/functions.json](clients/functions.json)) that a
-client in any language is generated from. The second such client is for TypeScript and
-JavaScript: [clients/typescript](clients/typescript/README.md).
+client in any language can be generated from.
 
 ## The pieces
 

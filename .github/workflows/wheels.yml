@@ -29,6 +29,11 @@ on:
 permissions:
   contents: read
 
+# a newer push replaces a run that is still going: one verdict for the latest tree
+concurrency:
+  group: wheels-${{ github.ref }}
+  cancel-in-progress: true
+
 defaults:
   run:
     shell: bash
