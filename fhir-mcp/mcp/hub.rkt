@@ -40,7 +40,8 @@
          configure! store-file? data-store-path open-store with-hub guide-file? current-manifest current-repository hub-manifest path-string rel from-here at-root?
          inside argument-source shown-path path-from-here files-by-language refresh! problems-of problem-json count-severity
          state-dir saved-names next-number save-state! staged->jsexpr store! result-of result-of* stage-of
-         result-uri result-listing hub-result-uris hub-read-result pending-stage-ids)
+         result-uri result-listing hub-result-uris hub-read-result pending-stage-ids
+         use-data! hub-defined)
 
 (struct hub ([ws #:mutable] [warnings #:mutable] [packages #:mutable] [data #:mutable] [data-label #:mutable]
              data-override extra-packages
@@ -190,6 +191,19 @@
                 (values empty-data-source "none" (list (format "workspace.yaml: data ~a is not a FHIR resource or Bundle" d))))]
            [else (values empty-data-source "none" (list (format "workspace.yaml: data ~a does not exist" d)))])]))
 (define (file->jsexpr* p) (call-with-input-file p read-json))
+
+;; use-data! : hub (or/c string? #f) -> void   the same workspace over other data: `d` is read as
+;; workspace.yaml's `data` is (a directory, a JSON file, a SQLite store, a FHIR server's base url;
+;; relative to the workspace). What the files define stays as it is. Raises when the data cannot
+;; be read. For a caller that asks one workspace's programs of several sets of data (fhir-api).
+(define (use-data! h d)
+  (define ws (hub-ws h))
+  (define ws* (workspace (workspace-root ws) (struct-copy ws-config (workspace-config ws) [data d])))
+  (define-values (ds label warnings) (open-data ws* (hub-packages h)))
+  (when (pair? warnings) (error 'data (string-join warnings "; ")))
+  (set-hub-ws! h ws*)
+  (set-hub-data! h ds)
+  (set-hub-data-label! h label))
 
 ;; The stored definitions as the workspace's programs see them (CRMI artifacts, artifacts.rkt): an
 ;; artifact a workspace file defines again is left to that file — the working copy, which every
@@ -399,6 +413,13 @@
                '()))
            (append ds conflict))))))
   (set-hub-diagnostics! h (remove-duplicates diags)))
+
+;; hub-defined : hub -> (listof resource)   what the workspace's files define, as of the last
+;; refresh: FHIR JSON first, then each language's in the order they are computed
+(define (hub-defined h)
+  (append* (for/list ([lang (in-list (append '("fhir") workspace-languages))])
+             (define c (hash-ref (hub-cache h) lang #f))
+             (if c (compiled-resources c) '()))))
 
 ;; problems-of : hub path -> diagnostics   the problems positioned in one file
 (define (problems-of h p)

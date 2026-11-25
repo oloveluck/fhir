@@ -35,6 +35,7 @@ jobs:
             "./fhir-server" \
             "./fhir-lsp" \
             "./fhir-mcp" \
+            "./fhir-api" \
             "https://github.com/oloveluck/fhirpath.git" \
             "https://github.com/oloveluck/vcl.git" \
             "https://github.com/oloveluck/cql.git" \
@@ -56,6 +57,13 @@ jobs:
         run: |
           raco test fhir-mcp/mcp/tools.rkt fhir-mcp/mcp/resources.rkt fhir-mcp/mcp/server.rkt fhir-mcp/mcp/verbs.rkt fhir-mcp/tests/tool-budget-test.rkt fhir-mcp/tests/workspace-test.rkt fhir-mcp/tests/sof-test.rkt
           raco fhir-mcp tools | head -c 400
+      - name: The function server, and the Python client over it (clients/python)
+        run: |
+          raco test fhir-api
+          raco fhir-api functions | head -3
+          python3 clients/python/generate.py --check
+          python3 -m pip install --quiet pandas || echo "pandas could not be installed: the DataFrame test is skipped"
+          python3 -m unittest discover -s clients/python/tests
       - name: The terminology conformance suite (floor-ratcheted)
         run: raco fhir-tx tck
       - name: The server and validation suites (the stores, generated servers, IG oracles, the validator differential)
@@ -71,6 +79,7 @@ jobs:
           raco scribble +m --html --dest site/fhir-server --dest-name index.html --redirect-main https://docs.racket-lang.org/ ++style docs/manual.css fhir-server/scribblings/fhir-server.scrbl
           raco scribble +m --html --dest site/fhir-lsp --dest-name index.html --redirect-main https://docs.racket-lang.org/ ++style docs/manual.css fhir-lsp/scribblings/fhir-lsp.scrbl
           raco scribble +m --html --dest site/fhir-mcp --dest-name index.html --redirect-main https://docs.racket-lang.org/ ++style docs/manual.css fhir-mcp/scribblings/fhir-mcp.scrbl
+          raco scribble +m --html --dest site/fhir-api --dest-name index.html --redirect-main https://docs.racket-lang.org/ ++style docs/manual.css fhir-api/scribblings/fhir-api.scrbl
       # Publish: the built site goes to the gh-pages branch, which GitHub serves as the Pages site
       # (enabled automatically for a public repository; otherwise choose "Deploy from a branch:
       # gh-pages" once under Settings > Pages).

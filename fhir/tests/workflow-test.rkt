@@ -10,6 +10,11 @@
 ;;;   - every family package an info.rkt of this repository depends on is one the workflow
 ;;;     installs (a directory of the repository, or the family's repository of that name);
 ;;;   - every file the workflow names is there.
+;;;   - every package of this repository (a directory with an info.rkt) is one the workflow installs,
+;;;     so a new package is built and tested from nothing too;
+;;;   - release/family.lock (the commits a release is built from) names exactly the family's other
+;;;     repositories the workflow installs, each by a whole commit id;
+;;;   - the wheels workflow names files that are there.
 ;;; Outside a checkout (an installed package has no .github) there is nothing to check.
 
 (require rackunit racket/file racket/list racket/string racket/runtime-path (only-in setup/getinfo get-info/full))
@@ -19,7 +24,7 @@
 
 ;; the family's packages: none is on the package catalogue, so each must be installed by name
 (define family '("fhir" "fhir-spec" "fhir-tx" "fhir-validation" "fhir-server" "fhir-lsp" "fhir-mcp"
-                 "fhirpath" "vcl" "cql" "fml" "fsh" "sql-on-fhir" "fhir-examples"))
+                 "fhir-api" "fhirpath" "vcl" "cql" "fml" "fsh" "sql-on-fhir" "fhir-examples"))
 
 ;; dependencies : package directory -> (listof string)   the package names of its deps and build-deps
 (define (dependencies dir)
@@ -40,6 +45,32 @@
       (for ([d (in-list (dependencies (build-path repository package)))] #:when (member d family))
         (check-true (and (member d (append local remote)) #t)
                     (format "~a depends on ~a, which the docs workflow does not install: add its repository to the install step" package d)))))
+  (test-case "the workflow installs every package of this repository"
+    (define here
+      (for/list ([d (in-list (directory-list repository))]
+                 #:when (file-exists? (build-path repository d "info.rkt")))
+        (path->string d)))
+    (check-true (> (length here) 5))
+    (check-equal? (sort local string<?) (sort here string<?)))
+  (test-case "the release's lock file names the family's other repositories, each at a commit"
+    (define lock (build-path repository "release" "family.lock"))
+    (check-true (file-exists? lock))
+    (define locked
+      (for/list ([line (in-list (file->lines lock))] #:unless (regexp-match? #px"^\\s*(#|$)" line))
+        (string-split line)))
+    (check-equal? (sort (map car locked) string<?) (sort remote string<?))
+    (for ([l (in-list locked)])
+      (check-true (and (= (length l) 2) (regexp-match? #px"^[0-9a-f]{40}$" (cadr l))) (format "~a" l)))
+    ;; and the script that installs a release installs this repository's packages, all of them
+    (define install (file->string (build-path repository "release" "install-family.sh")))
+    (for ([package (in-list local)])
+      (check-true (regexp-match? (pregexp (string-append "\\b" (regexp-quote package) "\\b")) install)
+                  (format "release/install-family.sh does not install ~a" package))))
+  (test-case "the wheels workflow names files that are there"
+    (define wheels (file->string (build-path repository ".github" "workflows" "wheels.yml")))
+    (for ([f (in-list '("release/install-family.sh" "build-tools.sh" "clients/python/build_wheel.py" "clients/python/tests"))])
+      (check-true (and (regexp-match? (regexp-quote f) wheels) #t) f)
+      (check-true (or (file-exists? (build-path repository f)) (directory-exists? (build-path repository f))) f)))
   (test-case "every file the workflow names is there"
     (define named (remove-duplicates (regexp-match* #px"[a-z-]+/[A-Za-z0-9/_.-]*[.](?:rkt|scrbl|css)" text)))
     (check-true (> (length named) 30))

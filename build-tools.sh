@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # build-tools.sh — the family's command-line tools as standalone executables that run without Racket.
 #
-#   ./build-tools.sh [out-dir]          (default: dist)
+#   ./build-tools.sh [out-dir] [tool…]  (default: dist, every tool; with names, those tools only)
 #
 # Run it once on a machine with Racket and the family's packages installed (README: "Install from
 # source"); copy out-dir anywhere — it needs no Racket. Each tool whose package is installed is
@@ -22,6 +22,13 @@
 set -euo pipefail
 
 out=${1:-dist}
+shift || true
+only=("$@")                       # the tools to build; none named: all of them
+wanted() {
+  [ ${#only[@]} -eq 0 ] && return 0
+  local t; for t in "${only[@]}"; do [ "$t" = "$1" ] && return 0; done
+  return 1
+}
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
@@ -33,6 +40,9 @@ workspaces="fsh/workspace fsh/ig-workspace cql/workspace fml/workspace vcl/works
 cqlmodels="cql/model/modelinfo-xml"
 operations="fhir/sd/operations fhir/conformance/operations fhir/terminology/operations fml/operations cql/measure sql-on-fhir/operations fhir/mcp/crmi"
 store="fhir/store/fhir-sqlite fhir/store/ig-server fhir/store/load fhir/store/fhir-engine fhir/store/measure fhir/http/server"
+
+# what the hub (fhir-mcp's, which the function server is built on) loads by name beside the languages
+hub="fml/project fml/print fsh/compile fsh/decompile fsh/ig fsh/instance-of fsh/project sql-on-fhir/compile fhir/store/bundle fhir/store/census fhir/store/data-source fhir/store/ig-params fhir/package fhir/sd/sd-index fhir/conformance/validate"
 
 # tool | the module its raco command runs | the modules it loads by name
 tools=(
@@ -48,6 +58,9 @@ tools=(
   "fhir-server|fhir/server-cli|$towers fhir/r6/schemas fhir/r6/types fhir/store/ig-params fhir/spec-package fhir/package-set fhir/conformance/validate fhir/sd/sd-index $store"
   "fhir-lsp|fhir/lsp-cli|$towers $languages fml/project"
   "fhir-mcp|fhir/mcp-cli|$towers $workspaces $cqlmodels fml/project fml/print $operations"
+  # the function server (clients/python's wheel carries this one): the hub's languages and
+  # operations, and the store behind a `data` that names one
+  "fhir-api|fhir/api-cli|$towers $workspaces $cqlmodels $hub $operations $store"
 )
 
 # installed? : module-path -> status   the module's source file exists in an installed collection
@@ -58,6 +71,7 @@ installed() {
 built=()
 for entry in "${tools[@]}"; do
   IFS='|' read -r name module libs <<< "$entry"
+  wanted "$name" || continue
   if ! installed "$module"; then echo "skip $name ($module is not installed)"; continue; fi
   embed=()
   for lib in $libs; do installed "$lib" && embed+=(++lib "$lib"); done

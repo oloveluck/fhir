@@ -3,7 +3,7 @@
 #
 #   ./tools-smoke-test.sh [dist-dir]     (default: dist, as ./build-tools.sh writes it)
 #
-# Each of the twelve executables is asked for one real piece of work, with a PATH that holds only
+# Each of the thirteen executables is asked for one real piece of work, with a PATH that holds only
 # the tools themselves (so no racket and no raco), from a scratch folder outside the source checkout. A line per check: ok, or
 # FAIL with what the tool said. Exit 1 when any failed.
 set -uo pipefail
@@ -86,6 +86,9 @@ run "fhir-lsp: check a map"                  '^$|no problems|ok'          fhir-l
 run "fhir-mcp: a workspace"                  'workspace.yaml'             fhir-mcp init ws
 run "fhir-mcp: the tools"                    'stage'                      fhir-mcp tools
 run "fhir-mcp: a call"                       'fhirVersion|problems|files' fhir-mcp call check --workspace ws
+run "fhir-api: the functions"                '^compile — '                fhir-api functions
+run "fhir-api: one call"                     '"values":\["Lee"\]'          fhir-api call fhirpath '{"expression":"name.family","resource":{"resourceType":"Patient","name":[{"family":"Lee"}]}}'
+run "fhir-api: a profile checked"            'is not an element of Patient' fhir-api call compile '{"files":{"p.fsh":"Profile: P\nParent: Patient\n* nmae 1..1\n"}}'
 
 if [ "$failed" -eq 0 ]; then echo "all ok: the tools in $bin run without Racket"
 else echo "$failed check(s) failed"; exit 1; fi

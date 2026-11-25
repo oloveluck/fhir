@@ -92,6 +92,26 @@ versionId,agent,reason,value,at
 A status FHIR does not have is refused before anything is written:
 ``bad2.fsh:2: Observation.status: code `finished` not in required value set … it holds amended, appended, cancelled, …``.
 
+## From Python
+
+The same languages and checks as a Python package, [`fhir-toolkit`](clients/python/README.md),
+for people who do not want to touch Racket or a shell. A wheel carries the toolkit, so
+installing it is the whole setup:
+
+```python
+from fhir_toolkit import Toolkit
+
+fhir = Toolkit()
+print(fhir.fhirpath("name.family", {"resourceType": "Patient", "name": [{"family": "Lee"}]}))
+print(fhir.validate({"resourceType": "Patient", "gender": "florp"}).messages())
+print(fhir.view("SELECT id, birthDate FROM Patient", data).to_pandas())   # a DataFrame
+```
+
+It is not on the Python Package Index yet: the `wheels` workflow builds the files. Under it is
+`fhir-api`, one process that answers function calls as JSON lines, with its functions described
+in one table ([clients/functions.json](clients/functions.json)) that a client in any language
+can be generated from.
+
 ## The pieces
 
 | You want to | Language | Tool |
@@ -104,8 +124,8 @@ A status FHIR does not have is refused before anything is written:
 | turn resources into tables | SQL on FHIR | [`sql-on-fhir`](https://github.com/oloveluck/sql-on-fhir) |
 
 Around them, in this repository: `fhir-mcp` (the agent's workspace), `fhir-server` (a FHIR server
-from an Implementation Guide, or over a store), `fhir-validate`, `fhir-tx` (terminology) and
-`fhir-lsp` (your editor). Each language has a guide written for an agent — `fhir guide <topic>` —
+from an Implementation Guide, or over a store), `fhir-validate`, `fhir-tx` (terminology),
+`fhir-lsp` (your editor) and `fhir-api` (the functions for Python and other languages). Each language has a guide written for an agent — `fhir guide <topic>` —
 whose every example the tests run.
 
 ## Install

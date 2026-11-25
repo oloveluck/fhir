@@ -21,6 +21,7 @@ one line, `file:line:col severity: message`, with "did you mean …" for a missp
 | writing a Racket program (an FML map, an FSH profile and a CQL library required side by side) | `raco fhir guide racket` (the route on one page: template, checks, API, errors), then "A Racket program" at the end and the `fhir-authoring` skill — the workspace sections are not needed |
 | building a FHIR server with your own operations | "Build a FHIR server" below, and `raco fhir guide capability` |
 | using one language from the command line | its own skill: `cql`, `fsh`, `fml`, `fhirpath`, `vcl`, `sql-on-fhir` |
+| writing Python | the `fhir_toolkit` package, `clients/python/README.md` (every example there is run by a test): `Toolkit().fhirpath(…)`, `.validate(…)`, `.fsh(…)`, `.cql(…)`, `.view(…).to_pandas()`; `raco fhir-api functions` lists what it can call |
 
 **Which call answers which question** (each one a tested recipe):
 | question | where |

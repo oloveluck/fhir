@@ -13,7 +13,7 @@
 (define pkg-desc "A Model Context Protocol server: a FHIR workspace for an agent. Programs in FSH, CQL, FHIRPath, VCL, FML and SQL on FHIR views written, checked, run against FHIR data and explained by nine tools; guides with links to each language's official reference; raco fhir-mcp")
 (define pkg-authors '(oloveluck))
 (define license 'MIT)
-(define deps '("base" "db-lib" "fhir" "fhir-lsp"))
+(define deps '("base" "db-lib" "unix-socket-lib" "fhir" "fhir-lsp"))
 ;; the operations and languages are loaded when installed (dynamic-require)
 (define build-deps '("rackunit-lib" "scribble-lib" "racket-doc" "fhir-spec" "fhirpath" "vcl" "fhir-tx" "fhir-validation" "cql" "fml" "fsh" "sql-on-fhir" "fhir-server"))
 (define scribblings '(("scribblings/fhir-mcp.scrbl" ())))

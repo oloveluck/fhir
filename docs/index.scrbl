@@ -128,7 +128,8 @@ page starts from an empty folder.
       (list "look up codes and expand value sets" "" @hyperlink["fhir-tx/index.html"]{fhir-tx})
       (list "run a FHIR server" "" @hyperlink["fhir-server/index.html"]{fhir-server})
       (list "see mistakes in your editor as you type" "" @hyperlink["fhir-lsp/index.html"]{fhir-lsp})
-      (list "let an AI agent do the work, with a record of what it did" "" @hyperlink["fhir-mcp/index.html"]{fhir-mcp}))]
+      (list "let an AI agent do the work, with a record of what it did" "" @hyperlink["fhir-mcp/index.html"]{fhir-mcp})
+      (list "use all of it from Python" "" @hyperlink["fhir-api/index.html"]{fhir-toolkit}))]
 
 Worked examples that use several of these together are in
 @hyperlink["https://oloveluck.github.io/fhir-examples/"]{fhir-examples}.
@@ -227,7 +228,9 @@ Implementation Guide or declared in a short file, over a SQLite store. @tt{raco 
 @item{@hyperlink["fhir-lsp/index.html"]{fhir-lsp}: a language server, so an editor underlines
 mistakes in the five text languages as you type. @tt{raco fhir-lsp}.}
 @item{@hyperlink["fhir-mcp/index.html"]{fhir-mcp}: the workspace an AI agent works in.
-@tt{raco fhir-mcp}.}]
+@tt{raco fhir-mcp}.}
+@item{@hyperlink["fhir-api/index.html"]{fhir-api}: the toolkit from Python (the @tt{fhir-toolkit}
+package) and from any other language: its functions over one small protocol. @tt{raco fhir-api}.}]
 
 @section{Words used here}
 

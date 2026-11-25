@@ -1,0 +1,60 @@
+# Builds the Python client's wheels: one per platform, each carrying the toolkit's executable,
+# so that `pip install` is the whole setup and no Racket is needed to use it.
+#
+# Runs when a version is tagged (v0.1.0) or when started by hand; never on an ordinary push.
+# The family's other repositories are installed at the commits release/family.lock names
+# (release/lock-family.sh writes it before a release is tagged). Each wheel is installed into a
+# clean environment and the client's tests are run against it with nothing else on the PATH.
+# The wheels are kept as the run's artifacts; nothing is published from here.
+name: wheels
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wheel:
+    strategy:
+      fail-fast: false
+      matrix:
+        # the oldest Linux image offered (a wheel is tagged for the C library it was built
+        # against, and installs on that or anything newer); macOS on Apple silicon and on Intel
+        os: [ubuntu-22.04, macos-14, macos-13]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Bogdanp/setup-racket@v1.11
+        with:
+          version: stable
+          variant: CS
+          distribution: full
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the packages at the locked commits
+        run: release/install-family.sh
+      - name: The function server's own tests
+        run: raco test fhir-api
+      - name: Build the standalone executable
+        run: ./build-tools.sh dist fhir-api
+      - name: Build the wheel
+        run: |
+          python -m pip install --upgrade pip wheel
+          python clients/python/build_wheel.py dist --out wheels
+      - name: Test the wheel where nothing else is installed
+        run: |
+          python -m venv clean
+          clean/bin/python -m pip install wheels/*.whl pandas
+          mkdir -p scratch
+          cd scratch
+          env -i PATH="$PWD/../clean/bin" HOME="$PWD" FHIR_TOOLKIT_TEST_INSTALLED=1 \
+            "$PWD/../clean/bin/python" -m unittest discover -s ../clients/python/tests
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.os }}
+          path: wheels/*.whl
+          if-no-files-found: error

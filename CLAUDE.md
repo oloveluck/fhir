@@ -25,6 +25,7 @@ never `../model/node.rkt`. Dependency order (base first):
 | `fhir-server` | `oloveluck/fhir` → `fhir-server/` | `capability/ http/ store/` (SQLite), IG-generated servers, `$evaluate-measure`, `server-cli.rkt` (`raco fhir-server`), server tests | fhir, fhir-spec, fhirpath, fhir-tx, fhir-validation, cql, db-lib |
 | `fhir-lsp` | `oloveluck/fhir` → `fhir-lsp/` | the Language Server Protocol server for the five languages: `lsp/jsonrpc.rkt` (framing), `lsp/diagnostics.rkt` (fhir/diagnostic -> LSP), `lsp/languages.rkt` (the catalogue over `fhir/lang/support`), `lsp/server.rkt` (state, dispatch, loop; hover/definition/completion/symbols handed to the document's language support with its project), `lsp-cli.rkt` (`raco fhir-lsp`, `check`) | fhir (+ the languages' `support` modules at run time) |
 | `fhir-mcp` | `oloveluck/fhir` → `fhir-mcp/` | the Model Context Protocol server over a WORKSPACE (below): `mcp/workspace.rkt` (the hub's contracted interface over `hub.rkt` — config, packages, data source, artifacts registered, results, stages — and a module per verb: `check.rkt`, `run.rkt`, `describe.rkt`, `apply.rkt`, `stage.rkt`), `mcp/verbs.rkt` (the nine tools), `learn/*.md` (`learn://` guides with the official references for the workspace, search and the languages that do not ship their own yet; a language's own guide comes from its repo, below; their examples compile in the test), `mcp/tools.rkt` (the Tool struct; operations loaded and applied to JSON; elements and definitions in the packages), `mcp/resources.rkt` (guides, packages, definitions, learn, results; prompts), `mcp/server.rkt` (dispatch, one JSON line per message), `mcp/init.rkt` (`raco fhir-mcp init`: workspace.yaml, data/, .mcp.json, CLAUDE.md), `mcp/search-index.rkt` (FHIR search over data that is files, through fhir-server's store, loaded on demand), `mcp/sql.rkt` (SQL over views and results, and over the workspace's store read-only), `mcp-cli.rkt` (`raco fhir-mcp [--workspace d]`, `init`, `guide`, `tools`, `call`), `mcp-main.rkt` + `mcp-daemon.rkt` (shell calls answered by a warm process) | fhir, fhir-lsp (+ the operations and languages at run time) |
+| `fhir-api` | `oloveluck/fhir` → `fhir-api/` | the toolkit's functions for programs in other languages: `api/functions.rkt` (THE TABLE: each function's name, parameters and answer, as data), `api/session.rkt` (a process's projects and data), `api/server.rkt` (JSON-RPC 2.0, a message to a line), `api-cli.rkt` (`raco fhir-api [serve]`, `functions [--json]`, `call`); the Python client is `clients/python` (below) | fhir, fhir-mcp (+ the languages at run time) |
 | `sql-on-fhir` | `oloveluck/sql-on-fhir` | `#lang sql-on-fhir`: a source language for views (`.sof`: a SQL dialect with FHIRPath, defined in its LANGUAGE.md, compiled to ViewDefinitions and back), the ViewDefinition model and operation definitions GENERATED from the IG package (`target.rkt`, `model/`), the view engine, `$sql-run`/`$sql-export` as operations; `raco sql-on-fhir` | fhir, fhirpath (fhir-spec to regenerate) |
 | `fhir-examples` | `oloveluck/fhir-examples` | `examples/` (operations applied as procedures), `bench.rkt` (prose → FSH tasks from a published IG, scored), recorded runs; `raco spec-bench` | fhir, fhir-spec, fhir-validation, fsh, fml |
 
@@ -2907,6 +2908,63 @@ project that cannot be read"). This container runs as root, which reads anything
 test steps were then run as an unprivileged user with a closed folder in the temporary directory
 (`setpriv --reuid=65534 --regid=65534 --clear-groups`, `HOME` and `TMPDIR` of its own, a readable
 copy of the add-on directory as `PLTADDONDIR`): that is the nearest thing here to the runner.
+
+## From Python, and from any other language (2026-11-25)
+The owner: people who use Python will want to use this easily, without Racket; and "I could do the
+same thing later for typescript". So the split is a shared part and thin clients.
+- **`fhir-api`** (a package here): one process answering function calls as JSON lines.
+  `api/functions.rkt` is the table — twelve functions (compile, run, query, explain, fhirpath,
+  translate, decompile, validate, transform, operation, guide, version), each a row of name,
+  summary, Params (name, type, required?, doc), what it answers, and its procedure. The server
+  dispatches from it and holds a call's arguments to it (`argument-problems`);
+  `functions-json-text` writes it as JSON Schema with keys in name order, kept as
+  **`clients/functions.json`** (cli-test fails when the file is not the table).
+  It is a second hub: built on fhir-mcp's (`hub.rkt` gained `use-data!` — the same workspace over
+  other data — and `hub-defined`), so each language is reached through its `<id>/workspace` and
+  search, SQL over views and operations come with it. A PROJECT is `files` (name -> text, written
+  under the session's temporary directory once per content: its key is the SHA-1 of names and
+  texts; eight are kept open) or a `directory`; DATA is resources in the call, or a string (a
+  directory, a JSON file, a store, a server's url). A process reads ONE FHIR version
+  (`--fhir-version`); a project that states another is refused before its tower could be loaded.
+  Problems IN a source given to compile or translate are answers (diagnostics, the source by its
+  name in the project); an error is a call that could not be answered (-32601, -32602, -32000 with
+  `data.diagnostics` or `data.outcome`). What a library prints goes to stderr, never the protocol.
+  Found building it: `$transform` does not check a map (`tgt.gendr = g` wrote a `gendr`): the
+  function checks first and refuses at the rule; FHIRPath's renderer gives a date as the literal
+  `@1980-02-28`, the function as FHIR JSON writes it; a `.map` beside FSH is defined by fsh's
+  project and by fml's support (listed once).
+- **`clients/python`** (`fhir-toolkit`, import `fhir_toolkit`; the name was free on PyPI on
+  2026-11-25; nothing is published). `generate.py` writes `_functions.py` from the table (a method
+  a function, docstrings from the table's words; `--check` in CI); `_server.py` finds and starts
+  the process (the command given, `FHIR_API_COMMAND`, the executable a wheel carries, `fhir-api`
+  on the PATH, `raco fhir-api`), one call at a time under a lock, a dead process started again;
+  `toolkit.py` is the convenient layer (`Toolkit`: fhirpath, validate, fsh, cql, view, sql, search,
+  expand, transform, decompile, translate, compile/check/run/query/explain, operation; `Project`;
+  `raw` = the generated functions), `results.py` (`Table.to_pandas()`, `Compiled`, `Outcome`),
+  `errors.py` (`FhirError` with `Diagnostic`s). Tests are unittest (no dependency):
+  `tests/test_toolkit.py` (the generated methods held to the table; every method against the
+  server; R5 as a second process; a process killed; another protocol refused) and
+  `tests/test_readme.py`, which RUNS the README's examples and compares what they print — the
+  manual (`fhir-api/scribblings/fhir-api.scrbl`) reads its examples from that README, and its
+  function list from the table, so neither can drift.
+- **A wheel that needs no Racket**: `./build-tools.sh dist fhir-api` (the script takes tool names
+  now; `fhir-api` is its thirteenth, with what the hub loads by name), then
+  `clients/python/build_wheel.py dist` copies the build into the package as `_bin`, builds, tags
+  the wheel for the platform and removes the copy. Measured here: the build is 153 MB (59 MB of
+  it every FHIR package), the wheel with the R4 and R5 core packages 62 MB — under PyPI's 100 MB.
+  Installed into a clean environment with a PATH holding nothing else, the client's tests pass
+  (first call 1.5 s, the next 11 ms). The system's own setuptools here cannot build a wheel
+  (Debian's, under another Python): build in a fresh venv.
+- **A release says what it is made of**: `release/family.lock` (the six language repositories'
+  commits; `release/lock-family.sh` writes it from their main branches, `install-family.sh`
+  installs at them — `raco pkg install <url>.git#<commit>` works). `.github/workflows/wheels.yml`
+  runs on a `v*` tag or by hand, never on a push: Linux (the oldest image) and macOS on both
+  processors; each wheel is installed clean and tested. It uploads artifacts and publishes nothing.
+  `fhir/tests/workflow-test.rkt` also holds: every package directory here is installed by the docs
+  workflow, and the lock names exactly the repositories that workflow installs.
+- Not done, named: Windows (never built); publishing to PyPI (the owner's account); typed
+  resources (values are JSON); the workspace's stage/commit from Python; decimals keep no
+  trailing zeros through JSON; a TypeScript client (start from `clients/functions.json`).
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

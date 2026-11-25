@@ -1,0 +1,572 @@
+{
+  "functions": [
+    {
+      "name": "compile",
+      "order": [
+        "files",
+        "directory",
+        "canonical"
+      ],
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical": {
+            "description": "the base of the canonicals the project's files define when they state none (http://example.org otherwise); with `files`",
+            "type": "string"
+          },
+          "directory": {
+            "description": "the project as a directory on disk, in place of `files` (its workspace.yaml and sushi-config.yaml are read)",
+            "type": "string"
+          },
+          "files": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "the project: sources in any of the languages and FHIR JSON definitions, by file name (`profiles.fsh`, `Screening.cql`, `intake.map`, `labs.vcl`, `bp.sof`, `ValueSet-x.json`); what they define is in context for the call",
+            "type": "object"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "returns": "{resources: [resource…], diagnostics: [Diagnostic…]}",
+      "summary": "What a project's files define, as FHIR resources, with every problem in them (examples are validated against the profiles they claim)."
+    },
+    {
+      "name": "run",
+      "order": [
+        "path",
+        "entry",
+        "over",
+        "parameters",
+        "files",
+        "directory",
+        "canonical",
+        "data"
+      ],
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical": {
+            "description": "the base of the canonicals the project's files define when they state none (http://example.org otherwise); with `files`",
+            "type": "string"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object"
+              },
+              {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            ],
+            "description": "the FHIR data to read: resources given here (a list, one resource, a Bundle), or a string naming a directory of FHIR JSON, a JSON file, a SQLite FHIR store or a FHIR server's base url"
+          },
+          "directory": {
+            "description": "the project as a directory on disk, in place of `files` (its workspace.yaml and sushi-config.yaml are read)",
+            "type": "string"
+          },
+          "entry": {
+            "description": "the one part to run: a CQL define, a mapping group",
+            "type": "string"
+          },
+          "files": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "the project: sources in any of the languages and FHIR JSON definitions, by file name (`profiles.fsh`, `Screening.cql`, `intake.map`, `labs.vcl`, `bp.sof`, `ValueSet-x.json`); what they define is in context for the call",
+            "type": "object"
+          },
+          "over": {
+            "description": "what to run over: a resource type, or one resource as Type/id",
+            "type": "string"
+          },
+          "parameters": {
+            "description": "CQL parameter values by name, each a CQL expression as text",
+            "type": "object"
+          },
+          "path": {
+            "description": "the file to run, by its name in the project",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "returns": "a Table {kind, columns, rows, summary}",
+      "summary": "One file of the project run over the data: a CQL library's defines for each patient, a view's rows, a map's results, a FHIRPath expression's values, a value set's codes, the resources an FSH file compiles to."
+    },
+    {
+      "name": "query",
+      "order": [
+        "language",
+        "text",
+        "entry",
+        "over",
+        "parameters",
+        "strict",
+        "files",
+        "directory",
+        "canonical",
+        "data"
+      ],
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical": {
+            "description": "the base of the canonicals the project's files define when they state none (http://example.org otherwise); with `files`",
+            "type": "string"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object"
+              },
+              {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            ],
+            "description": "the FHIR data to read: resources given here (a list, one resource, a Bundle), or a string naming a directory of FHIR JSON, a JSON file, a SQLite FHIR store or a FHIR server's base url"
+          },
+          "directory": {
+            "description": "the project as a directory on disk, in place of `files` (its workspace.yaml and sushi-config.yaml are read)",
+            "type": "string"
+          },
+          "entry": {
+            "description": "the one part to run: a CQL define, a mapping group",
+            "type": "string"
+          },
+          "files": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "the project: sources in any of the languages and FHIR JSON definitions, by file name (`profiles.fsh`, `Screening.cql`, `intake.map`, `labs.vcl`, `bp.sof`, `ValueSet-x.json`); what they define is in context for the call",
+            "type": "object"
+          },
+          "language": {
+            "description": "fhirpath | cql | vcl | search | find | view | sql",
+            "type": "string"
+          },
+          "over": {
+            "description": "what to run over: a resource type, or one resource as Type/id",
+            "type": "string"
+          },
+          "parameters": {
+            "description": "CQL parameter values by name, each a CQL expression as text",
+            "type": "object"
+          },
+          "strict": {
+            "description": "a search: refuse a parameter the data cannot apply, where it is otherwise left out and said",
+            "type": "boolean"
+          },
+          "text": {
+            "description": "the expression, search, view or statement",
+            "type": "string"
+          }
+        },
+        "required": [
+          "language",
+          "text"
+        ],
+        "type": "object"
+      },
+      "returns": "a Table {kind, columns, rows, summary}",
+      "summary": "A text asked of the data without a file: FHIRPath, CQL, VCL, a FHIR search (`Observation?code=…`), words to find, a view, or SQL over the project's views."
+    },
+    {
+      "name": "explain",
+      "order": [
+        "path",
+        "subject",
+        "entry",
+        "over",
+        "parameters",
+        "files",
+        "directory",
+        "canonical",
+        "data"
+      ],
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical": {
+            "description": "the base of the canonicals the project's files define when they state none (http://example.org otherwise); with `files`",
+            "type": "string"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object"
+              },
+              {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            ],
+            "description": "the FHIR data to read: resources given here (a list, one resource, a Bundle), or a string naming a directory of FHIR JSON, a JSON file, a SQLite FHIR store or a FHIR server's base url"
+          },
+          "directory": {
+            "description": "the project as a directory on disk, in place of `files` (its workspace.yaml and sushi-config.yaml are read)",
+            "type": "string"
+          },
+          "entry": {
+            "description": "the one part to run: a CQL define, a mapping group",
+            "type": "string"
+          },
+          "files": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "the project: sources in any of the languages and FHIR JSON definitions, by file name (`profiles.fsh`, `Screening.cql`, `intake.map`, `labs.vcl`, `bp.sof`, `ValueSet-x.json`); what they define is in context for the call",
+            "type": "object"
+          },
+          "over": {
+            "description": "what to run over: a resource type, or one resource as Type/id",
+            "type": "string"
+          },
+          "parameters": {
+            "description": "CQL parameter values by name, each a CQL expression as text",
+            "type": "object"
+          },
+          "path": {
+            "description": "the file, by its name in the project",
+            "type": "string"
+          },
+          "subject": {
+            "description": "a patient or resource id, Type/id, or the name of an entity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "subject"
+        ],
+        "type": "object"
+      },
+      "returns": "an object, by language",
+      "summary": "Why a file answered what it did for one subject (a patient, a resource, an entity), each step with its place in the source."
+    },
+    {
+      "name": "fhirpath",
+      "order": [
+        "expression",
+        "resource"
+      ],
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "expression": {
+            "description": "the FHIRPath expression",
+            "type": "string"
+          },
+          "resource": {
+            "description": "the resource it is evaluated over",
+            "type": "object"
+          }
+        },
+        "required": [
+          "expression",
+          "resource"
+        ],
+        "type": "object"
+      },
+      "returns": "{values: [json…]}: FHIR JSON for an element, a JSON number, boolean or string for a System value",
+      "summary": "A FHIRPath expression evaluated over one resource."
+    },
+    {
+      "name": "translate",
+      "order": [
+        "text",
+        "name",
+        "files",
+        "directory",
+        "canonical"
+      ],
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical": {
+            "description": "the base of the canonicals the project's files define when they state none (http://example.org otherwise); with `files`",
+            "type": "string"
+          },
+          "directory": {
+            "description": "the project as a directory on disk, in place of `files` (its workspace.yaml and sushi-config.yaml are read)",
+            "type": "string"
+          },
+          "files": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "the project: sources in any of the languages and FHIR JSON definitions, by file name (`profiles.fsh`, `Screening.cql`, `intake.map`, `labs.vcl`, `bp.sof`, `ValueSet-x.json`); what they define is in context for the call",
+            "type": "object"
+          },
+          "name": {
+            "description": "a file name for its problems (library.cql otherwise)",
+            "type": "string"
+          },
+          "text": {
+            "description": "the library's CQL",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      },
+      "returns": "{elm: the library's ELM as JSON (null when it has errors), diagnostics: [Diagnostic…]}",
+      "summary": "A CQL library translated to ELM, with every translation error and warning; includes are found in the project, then among the libraries the toolkit carries."
+    },
+    {
+      "name": "decompile",
+      "order": [
+        "resource",
+        "as",
+        "files",
+        "directory",
+        "canonical"
+      ],
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "as": {
+            "description": "fsh | fml | sof | vcl | cql; by the resource's type otherwise",
+            "type": "string"
+          },
+          "canonical": {
+            "description": "the base of the canonicals the project's files define when they state none (http://example.org otherwise); with `files`",
+            "type": "string"
+          },
+          "directory": {
+            "description": "the project as a directory on disk, in place of `files` (its workspace.yaml and sushi-config.yaml are read)",
+            "type": "string"
+          },
+          "files": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "the project: sources in any of the languages and FHIR JSON definitions, by file name (`profiles.fsh`, `Screening.cql`, `intake.map`, `labs.vcl`, `bp.sof`, `ValueSet-x.json`); what they define is in context for the call",
+            "type": "object"
+          },
+          "resource": {
+            "description": "the resource",
+            "type": "object"
+          }
+        },
+        "required": [
+          "resource"
+        ],
+        "type": "object"
+      },
+      "returns": "{language, text}",
+      "summary": "A FHIR resource written as source text: FSH (a profile, value set, code system, instance), the mapping language (a StructureMap), a view's text (a ViewDefinition), VCL (a ValueSet's compose), CQL (a Library that carries it)."
+    },
+    {
+      "name": "validate",
+      "order": [
+        "resource",
+        "profile",
+        "files",
+        "directory",
+        "canonical"
+      ],
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical": {
+            "description": "the base of the canonicals the project's files define when they state none (http://example.org otherwise); with `files`",
+            "type": "string"
+          },
+          "directory": {
+            "description": "the project as a directory on disk, in place of `files` (its workspace.yaml and sushi-config.yaml are read)",
+            "type": "string"
+          },
+          "files": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "the project: sources in any of the languages and FHIR JSON definitions, by file name (`profiles.fsh`, `Screening.cql`, `intake.map`, `labs.vcl`, `bp.sof`, `ValueSet-x.json`); what they define is in context for the call",
+            "type": "object"
+          },
+          "profile": {
+            "description": "a profile to hold it to as well: its canonical, or the id or name of one the project defines",
+            "type": "string"
+          },
+          "resource": {
+            "description": "the resource to validate",
+            "type": "object"
+          }
+        },
+        "required": [
+          "resource"
+        ],
+        "type": "object"
+      },
+      "returns": "an OperationOutcome",
+      "summary": "A resource held to its type, the profiles it claims and one more when named; profiles the project defines are in context."
+    },
+    {
+      "name": "transform",
+      "order": [
+        "map",
+        "source",
+        "files",
+        "directory",
+        "canonical"
+      ],
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical": {
+            "description": "the base of the canonicals the project's files define when they state none (http://example.org otherwise); with `files`",
+            "type": "string"
+          },
+          "directory": {
+            "description": "the project as a directory on disk, in place of `files` (its workspace.yaml and sushi-config.yaml are read)",
+            "type": "string"
+          },
+          "files": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "the project: sources in any of the languages and FHIR JSON definitions, by file name (`profiles.fsh`, `Screening.cql`, `intake.map`, `labs.vcl`, `bp.sof`, `ValueSet-x.json`); what they define is in context for the call",
+            "type": "object"
+          },
+          "map": {
+            "description": "the map's text",
+            "type": "string"
+          },
+          "source": {
+            "description": "the resource to convert",
+            "type": "object"
+          }
+        },
+        "required": [
+          "map",
+          "source"
+        ],
+        "type": "object"
+      },
+      "returns": "the resulting resource",
+      "summary": "A resource converted by a map written in the mapping language; structures the project defines (logical models, profiles) are in context."
+    },
+    {
+      "name": "operation",
+      "order": [
+        "operation",
+        "resource",
+        "inputs",
+        "files",
+        "directory",
+        "canonical",
+        "data"
+      ],
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical": {
+            "description": "the base of the canonicals the project's files define when they state none (http://example.org otherwise); with `files`",
+            "type": "string"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object"
+              },
+              {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            ],
+            "description": "the FHIR data to read: resources given here (a list, one resource, a Bundle), or a string naming a directory of FHIR JSON, a JSON file, a SQLite FHIR store or a FHIR server's base url"
+          },
+          "directory": {
+            "description": "the project as a directory on disk, in place of `files` (its workspace.yaml and sushi-config.yaml are read)",
+            "type": "string"
+          },
+          "files": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "the project: sources in any of the languages and FHIR JSON definitions, by file name (`profiles.fsh`, `Screening.cql`, `intake.map`, `labs.vcl`, `bp.sof`, `ValueSet-x.json`); what they define is in context for the call",
+            "type": "object"
+          },
+          "inputs": {
+            "description": "the operation's input parameters by name (a list for several values)",
+            "type": "object"
+          },
+          "operation": {
+            "description": "$code, Type/$code, or the OperationDefinition's canonical",
+            "type": "string"
+          },
+          "resource": {
+            "description": "the resource the operation applies to",
+            "type": "object"
+          }
+        },
+        "required": [
+          "operation"
+        ],
+        "type": "object"
+      },
+      "returns": "the resource the operation returns (its `return`, or a Parameters of its outputs)",
+      "summary": "Any FHIR operation the toolkit implements, by reference: $expand, $validate-code, $lookup, $translate, $snapshot, $evaluate-measure, $sql-run and the others."
+    },
+    {
+      "name": "guide",
+      "order": [
+        "topic"
+      ],
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "topic": {
+            "description": "fhir, fsh, cql, fhirpath, fml, vcl, sql-on-fhir, …",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "returns": "{topics: [string…]} or {topic, text}",
+      "summary": "A guide to one of the languages or to FHIR itself, written for an agent; without a topic, the topics."
+    },
+    {
+      "name": "version",
+      "order": [],
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "returns": "{protocol, fhirVersion, packages, functions}",
+      "summary": "What this process is: the protocol's version, the FHIR version it reads, the packages in context, its functions."
+    }
+  ],
+  "protocol": 1
+}

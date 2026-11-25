@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fhir-toolkit"
+version = "0.1.0"
+description = "FHIR and its languages from Python: FSH, CQL, FHIRPath, the mapping language, VCL and SQL on FHIR views compiled, checked, run and validated"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "oloveluck" }]
+keywords = ["fhir", "fsh", "cql", "fhirpath", "sql-on-fhir", "healthcare"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
+
+[project.optional-dependencies]
+pandas = ["pandas"]
+
+[project.urls]
+Homepage = "https://github.com/oloveluck/fhir"
+Documentation = "https://oloveluck.github.io/fhir/"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+# the executable a platform wheel carries (clients/python/build_wheel.py puts it there)
+fhir_toolkit = ["_bin/**/*"]
