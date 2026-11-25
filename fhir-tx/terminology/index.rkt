@@ -16,6 +16,7 @@
 
 (require racket/contract racket/list racket/string racket/promise
          json file/gunzip file/untar
+         (only-in fhir/serialize/fast-json fast-bytes->jsexpr)
          (only-in fhir/serialize/jsexpr-util jref jlist))
 
 (provide resolver/c
@@ -61,7 +62,10 @@
            (when (eq? kind 'file)
              (define bytes (if (= size 0) #"" (read-bytes size content)))  ; always consume `size`
              (when (regexp-match? tx-file-rx (path->string name))
-               (define js (bytes->jsexpr bytes))
+               ;; (the scanner the store reads resources with: the same values as racket/json's,
+               ;; four times as fast — reading a core package's terminology is most of a process's
+               ;; first validation)
+               (define js (fast-bytes->jsexpr bytes))
                (define url (and (hash? js) (hash-ref js 'url #f)))
                (when (string? url) (hash-update! table url (lambda (l) (cons js l)) '()))))
            '()))

@@ -40,6 +40,18 @@
 ;; node-drops : node -> (listof Drop)   structural recursion over the node: its own drops and its
 ;; nested nodes' (a field's, a list's items'), key by key in the order lenient-drops names them
 (define (node-drops n #:read-only? [read-only? #f])
+  ;; any-drops? : node -> boolean   does the node, or one below it, record a drop (among what has
+  ;; been read, with read-only?). Nearly every node records none, and saying so needs no key
+  ;; sorted and no path written: asked first, of thousands of resources after a view has run.
+  (define (any-drops? n)
+    (and (or (not read-only?) (fhir-read? n))
+         (or (pair? (fhir-drops n))
+             (for/or ([v (in-hash-values (fhir-fields n))])
+               (cond [(fhir? v) (any-drops? v)]
+                     [(list? v) (for/or ([x (in-list v)]) (and (fhir? x) (any-drops? x)))]
+                     [else #f])))))
+  (if (any-drops? n) (node-drops* n read-only?) '()))
+(define (node-drops* n read-only?)
   (let walk ([n n] [path ""])
     (define (at k) (if (string=? path "") (format "~a" k) (format "~a.~a" path k)))
     (cond

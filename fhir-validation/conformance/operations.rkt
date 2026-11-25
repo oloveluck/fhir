@@ -83,6 +83,9 @@
 ;; package of current-sd-packages, else R5 (sd-index's default)
 (define (validated-in)
   (define pkgs (or (current-sd-packages) '()))
+  (hash-ref! versions-read pkgs (lambda () (version-read pkgs))))
+(define versions-read (make-weak-hash))           ; package list -> what validated-in answers for it
+(define (version-read pkgs)
   (define core (for/last ([p (in-list pkgs)]
                           #:when (regexp-match? #rx"hl7[.]fhir[.]r[456][.]core" (if (path? p) (path->string p) p)))
                  (if (path? p) (path->string p) p)))

@@ -269,7 +269,8 @@
       "name": "fhirpath",
       "order": [
         "expression",
-        "resource"
+        "resource",
+        "resources"
       ],
       "parameters": {
         "additionalProperties": false,
@@ -281,16 +282,29 @@
           "resource": {
             "description": "the resource it is evaluated over",
             "type": "object"
+          },
+          "resources": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            ],
+            "description": "in place of `resource`: several resources (a list, or a Bundle), each evaluated on its own"
           }
         },
         "required": [
-          "expression",
-          "resource"
+          "expression"
         ],
         "type": "object"
       },
-      "returns": "{values: [json…]}: FHIR JSON for an element, a JSON number, boolean or string for a System value",
-      "summary": "A FHIRPath expression evaluated over one resource."
+      "returns": "{values: [json…]} for `resource`: FHIR JSON for an element, a JSON number, boolean or string for a System value; {results: [[json…]…]} for `resources`: the values for each, in the order given",
+      "summary": "A FHIRPath expression evaluated over one resource, or over each of several in one call."
     },
     {
       "name": "translate",
@@ -384,6 +398,7 @@
       "name": "validate",
       "order": [
         "resource",
+        "resources",
         "profile",
         "files",
         "directory",
@@ -414,15 +429,100 @@
           "resource": {
             "description": "the resource to validate",
             "type": "object"
+          },
+          "resources": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            ],
+            "description": "in place of `resource`: several resources (a list, or a Bundle), each validated on its own"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "returns": "an OperationOutcome for `resource`; {outcomes: [OperationOutcome…]} for `resources`, in the order given",
+      "summary": "A resource held to its type, the profiles it claims and one more when named; profiles the project defines are in context."
+    },
+    {
+      "name": "load",
+      "order": [
+        "data",
+        "files",
+        "directory",
+        "canonical"
+      ],
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical": {
+            "description": "the base of the canonicals the project's files define when they state none (http://example.org otherwise); with `files`",
+            "type": "string"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object"
+              },
+              {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            ],
+            "description": "the resources, or a string naming where they are"
+          },
+          "directory": {
+            "description": "the project as a directory on disk, in place of `files` (its workspace.yaml and sushi-config.yaml are read)",
+            "type": "string"
+          },
+          "files": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "the project: sources in any of the languages and FHIR JSON definitions, by file name (`profiles.fsh`, `Screening.cql`, `intake.map`, `labs.vcl`, `bp.sof`, `ValueSet-x.json`); what they define is in context for the call",
+            "type": "object"
           }
         },
         "required": [
-          "resource"
+          "data"
         ],
         "type": "object"
       },
-      "returns": "an OperationOutcome",
-      "summary": "A resource held to its type, the profiles it claims and one more when named; profiles the project defines are in context."
+      "returns": "{loaded: the key — give {loaded: key} as a later call's `data` —, count: how many resources were given (null for a place)}",
+      "summary": "Data opened once and kept for the calls after it, so that a call need not give it again: resources (held in memory), or a place (a directory or file of FHIR JSON is read now; a store or a server is opened)."
+    },
+    {
+      "name": "unload",
+      "order": [
+        "loaded"
+      ],
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "loaded": {
+            "description": "the key load answered",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loaded"
+        ],
+        "type": "object"
+      },
+      "returns": "{unloaded: was something kept under the key}",
+      "summary": "Data kept by load, let go."
     },
     {
       "name": "transform",

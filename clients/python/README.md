@@ -13,8 +13,10 @@ workflow (its artifacts), and it carries the toolkit itself, so nothing else has
 pip install fhir_toolkit-0.1.0-py3-none-<your platform>.whl
 ```
 
-Calls go to one process that starts at the first call (about a second) and answers the ones
-after it in milliseconds.
+Calls go to one process of the toolkit. It starts in the background when you make a `Toolkit`
+(making one does not wait for it) and answers each call in well under a millisecond of overhead.
+While your program does something else, it loads what your first calls will need, so that they do
+not wait for it.
 
 ## A first example
 
@@ -267,6 +269,76 @@ Patient 1990
 `fhir_toolkit.plain(obj)` and `fhir_toolkit.typed(Model, resource)` are the two conversions.
 `transform`, `operation` and `fsh` take `model=`.
 
+## Many resources, and data you use more than once
+
+A call crosses to the toolkit's process and back, so ask one question of many resources in one
+call, not in a loop:
+
+```python
+patients = [patient, dict(patient, id="bo", gender="florp", name=[{"family": "Ng"}])]
+
+print(fhir.fhirpath_each("name.family", patients))
+for outcome in fhir.validate_each(patients):
+    print(outcome)
+```
+
+```text
+[['Lee'], ['Ng']]
+valid
+Patient.gender: error: code `florp` not in required value set http://hl7.org/fhir/ValueSet/administrative-gender; it holds female, male, other, unknown
+```
+
+Data that several calls read is given once. `load` sends the resources (or reads the directory,
+or opens the store) and answers a handle that any call takes as its `data`. Nothing is sent or
+read again, and a view over it is computed once for all the SQL you ask of it.
+
+```python
+clinic = fhir.load(data)
+print(clinic)
+print(fhir.view("SELECT id, birthDate FROM Patient", clinic).rows)
+print(fhir.sql("SELECT count(*) AS results, max(value) AS highest FROM results", project=views, data=clinic).rows)
+print(fhir.search("Observation?code=4548-4", clinic).column("resource"))
+clinic.close()
+```
+
+```text
+Data(2 resources)
+[{'birthDate': '1980-02-28', 'id': 'ann'}]
+[{'highest': 9.4, 'results': 1}]
+['Observation/a1']
+```
+
+## How fast it is
+
+The toolkit is a compiled program in a process of its own. Work done inside one call is quick;
+each call also pays for crossing to that process and back (about 0.1 ms). So one call over many
+resources beats a loop of calls, and data you use twice is worth loading once.
+
+`python bench/compare.py` times it beside two pure-Python libraries. On the machine this was
+written on (medians; 5,000 resources where it says many):
+
+| task | fhir-toolkit | fhirpathpy | fhir.resources |
+|---|---|---|---|
+| making a `Toolkit`; then its first answer | 0.9 ms; 0.7 s | no start | no start |
+| one FHIRPath expression, one Patient | 0.10 ms | 0.037 ms | — |
+| the same expression over 5,000 Patients | 84 ms (one call) | 189 ms (a loop) | — |
+| validate one Patient | 0.30 ms | — | 0.026 ms |
+| validate 5,000 Patients | 515 ms (one call) | — | 179 ms (a loop) |
+| one value from each of 5,000 Observations | 175 ms (a view) | 53 ms (a loop) | 299 ms (a loop) |
+| the same, the data loaded once | 77 ms (a view) | — | — |
+| a SQL aggregate over that view, data loaded | 28 ms | — | — |
+
+Read a row as what the task costs each way, not as one engine against another: they do not do
+the same work. `fhirpathpy` is timed with its expression compiled once, walking Python dicts.
+`fhir.resources` checks that the data has the right shape; the toolkit's validation also checks
+codes against their value sets and the rules of profiles (it refuses `"gender": "florp"`, which
+`fhir.resources` accepts).
+
+The first call of each kind loads what only it needs: about 0.3 s for a first FHIRPath answer,
+2 s for a first validation, 1 s for a first CQL run. The process does that loading by itself
+whenever nobody is asking, so after a few idle seconds (a notebook between cells, a program
+reading its input) each first call takes milliseconds.
+
 ## In a notebook
 
 `%load_ext fhir_toolkit.jupyter` adds a cell magic for each language. What a cell defines stays
@@ -319,15 +391,20 @@ FROM Observation
 | `%%fml -d resource` | applies a map |
 | `%fhir` | lists what the notebook has defined; `%fhir reset` forgets it |
 
-`-o name` keeps a cell's answer in a variable. From Python cells the same state is
-`fhir_toolkit.jupyter.notebook` (`.toolkit`, `.project`).
+`-o name` keeps a cell's answer in a variable, and `-d` takes loaded data as well
+(`clinic = notebook.toolkit.load(resources)`). From Python cells the same state is
+`fhir_toolkit.jupyter.notebook` (`.toolkit`, `.project`). A `Table` and a validation's `Outcome`
+show themselves as HTML in a notebook, with or without pandas.
 
 ## What is where
 
 | you have | call |
 |---|---|
 | one resource and a question | `fhirpath(expression, resource)` |
+| many resources and a question | `fhirpath_each(expression, resources)`, or a view |
 | a resource to check | `validate(resource, profile=None, project=None)` |
+| many resources to check | `validate_each(resources, profile=None, project=None)` |
+| data several calls read | `clinic = load(resources_or_place)`, then `data=clinic` |
 | FSH | `fsh(text)` gives resources; `decompile(resource)` gives FSH back |
 | a CQL library | `cql(text, data)` runs it; `translate(text)` gives ELM |
 | a view | `view(text, data)`; `sql(statement, project=views, data=data)` |

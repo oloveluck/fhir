@@ -1,4 +1,6 @@
 """What the toolkit's functions answer, as Python values."""
+import html
+import json
 from typing import Callable, Any, Dict, Iterator, List, Optional
 
 from .errors import Diagnostic, FhirError
@@ -43,6 +45,24 @@ class Table:
 
     def __repr__(self) -> str:
         return "Table(kind=%r, columns=%r, rows=%d)" % (self.kind, self.columns, len(self.rows))
+
+    #: how many rows a notebook shows of a table (the rest are counted under it)
+    shown_rows = 20
+
+    def _repr_html_(self) -> str:
+        """The table as a notebook shows it: its first rows, without pandas."""
+        def cell(value: Any) -> str:
+            if value is None:
+                return ""
+            text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+            return html.escape(text if len(text) <= 80 else text[:79] + "…")
+
+        head = "".join("<th>%s</th>" % html.escape(c) for c in self.columns)
+        body = "".join("<tr>%s</tr>" % "".join("<td>%s</td>" % cell(row.get(c)) for c in self.columns)
+                       for row in self.rows[:self.shown_rows])
+        more = len(self.rows) - self.shown_rows
+        foot = "<p>%d more rows (%d in all)</p>" % (more, len(self.rows)) if more > 0 else ""
+        return "<table><thead><tr>%s</tr></thead><tbody>%s</tbody></table>%s" % (head, body, foot)
 
 
 class Compiled:
@@ -128,6 +148,16 @@ class Outcome:
 
     def __repr__(self) -> str:
         return "Outcome(ok=%r, errors=%d, warnings=%d)" % (self.ok, len(self.errors), len(self.warnings))
+
+    def __str__(self) -> str:
+        """`valid`, or each error and warning on a line."""
+        return "\n".join(self.messages()) or "valid"
+
+    def _repr_html_(self) -> str:
+        lines = self.messages()
+        if not lines:
+            return "<p>valid</p>"
+        return "<ul>%s</ul>" % "".join("<li>%s</li>" % html.escape(line) for line in lines)
 
 
 class Stage:

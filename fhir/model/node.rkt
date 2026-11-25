@@ -23,8 +23,12 @@
 
 (require racket/contract)
 
+;; `unchecked` is the same bindings without their contracts, for the reader that makes every node
+;; (serialize/from-json.rkt): `lazy-fhir`'s contract wraps the thunk it is given, a wrapper made and
+;; called for each node read — a quarter of a view's time over thousands of resources.
 (provide fhir fhir? fhir-type
          (contract-out
+          #:unprotected-submodule unchecked
           [fhir-fields  (-> fhir? hash?)]                         ; the fields (read now, if lazy)
           [lazy-fhir    (-> symbol? (-> (values hash? list?)) fhir?)]
           [fhir-read?   (-> fhir? boolean?)]

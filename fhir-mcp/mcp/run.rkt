@@ -146,8 +146,16 @@
 ;; store's) and the engine (engine-stamp). Only a store's views are kept (data-stamp).
 (define (kept-view h f kind compute [definitions (lambda () (definitions-stamp h))] [stamp-of (lambda (type) (data-stamp h type))])
   (define stamp (stamp-of (view-resource f)))
-  (if (not stamp)
-      (compute)
+  (cond
+    ;; resources given in memory (use-source!) never change: a view's rows over them are kept with
+    ;; the data source for as long as it lives — a caller that loaded its data once and asks
+    ;; several statements of a view computes the view once
+    [(and (not stamp) (source-resources h))
+     (hash-ref! (hash-ref! rows-in-memory (hub-data h) make-hash)
+                (list kind (file->string f) (ws-config-fhir-version (workspace-config (hub-ws h))) (hub-packages h) (definitions))
+                compute)]
+    [(not stamp) (compute)]
+    [else
       (kept-rows (build-path (hub-root h) ".fhir-mcp" "views.db")
                  ;; named by its place in the workspace, not on the disk: a copy of the workspace
                  ;; (with a copy of, or a link to, this file) reads the rows already made
@@ -155,7 +163,8 @@
                  (key-of (list 'view-cache 1 kind (file->string f)
                                (ws-config-fhir-version (workspace-config (hub-ws h))) (hub-packages h)
                                stamp (definitions) (engine-stamp)))
-                 compute)))
+                 compute)]))
+(define rows-in-memory (make-weak-hasheq))        ; data source -> (hash key -> table)
 
 ;; view-resource : view-file -> type   the resource type a ViewDefinition reads
 (define (view-resource f) (cdr (view-facts f)))

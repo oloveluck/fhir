@@ -17,12 +17,16 @@
 ;;; No files and no directory is the empty project.
 ;;;
 ;;; Data is what a call's programs read, one of:
-;;;   - resources given in the call (a list, a resource, a Bundle), written to a file of the session;
-;;;   - a string: a directory of FHIR JSON, a JSON file, a SQLite FHIR store, a FHIR server's url.
+;;;   - resources given in the call (a list, a resource, a Bundle), kept in memory for the call;
+;;;   - a string: a directory of FHIR JSON, a JSON file, a SQLite FHIR store, a FHIR server's url;
+;;;   - {loaded: key}: data given or named once (load-data!) and kept open for the calls after it.
+;;; A Loaded is (loaded source label place resources): the open data source, what to call it, the
+;;; place it was read from (#f for resources given), and the resources given (#f for a place).
 
 (require racket/contract racket/file racket/list racket/path racket/string json file/sha1
          (only-in fhir/lang/workspace open-workspace workspace-config ws-config-fhir-version)
-         (only-in fhir/mcp/hub hub? open-hub refresh! hub-root use-data!))
+         (only-in fhir/data-source resources->data-source bundle-resources)
+         (only-in fhir/mcp/hub hub? open-hub refresh! hub-root use-source! open-place))
 
 (provide
  (struct-out session)
@@ -38,10 +42,19 @@
   ;; with-data : session hub data thunk -> value   the hub over the data a call gives (#f: the
   ;; project's own, when its workspace.yaml names some)
   [with-data (-> session? hub? any/c (-> any) any)]
+  ;; load-data! : session hub data -> string natural|#f   the data opened once and kept under a key
+  ;; a later call names as {loaded: key}; the count of resources when they were given
+  [load-data! (-> session? hub? any/c (values string? (or/c exact-nonnegative-integer? #f)))]
+  ;; unload-data! : session string -> boolean   was something kept under the key
+  [unload-data! (-> session? string? boolean?)]
+  ;; given-resources : data -> (listof jsexpr)   the resources of data given in a call (a list, one
+  ;; resource, a Bundle: a Bundle's entries are its resources)
+  [given-resources (-> any/c (listof hash?))]
   ;; file-name? : string -> boolean   a relative name inside the project: no `..`, not absolute
   [file-name? (-> string? boolean?)]))
 
-(struct session (dir fhir-version packages hubs [recent #:mutable]))
+(struct session (dir fhir-version packages hubs [recent #:mutable] loaded [loads #:mutable]))
+(struct loaded (source label place resources))
 
 (define fhir-versions '("4.0.1" "5.0.0"))
 ;; the base of the canonicals a project given as files defines when it states none (FSH's own default)
@@ -52,11 +65,12 @@
 (define (open-session #:fhir-version [v "4.0.1"] #:packages [packages '()])
   (unless (member v fhir-versions)
     (raise-user-error 'fhir-api "FHIR version ~a is not one this toolkit reads (~a)" v (string-join fhir-versions ", ")))
-  (session (make-temporary-file "fhir-api-~a" 'directory) v packages (make-hash) '()))
+  (session (make-temporary-file "fhir-api-~a" 'directory) v packages (make-hash) '() (make-hash) 0))
 
 (define (close-session! s)
   (delete-directory/files (session-dir s) #:must-exist? #f)
-  (hash-clear! (session-hubs s)))
+  (hash-clear! (session-hubs s))
+  (hash-clear! (session-loaded s)))
 
 ;; ---- projects ----------------------------------------------------------------------------------
 (define (file-name? name)
@@ -133,26 +147,62 @@
   (set-session-recent! s kept))
 
 ;; ---- data --------------------------------------------------------------------------------------
-;; data-place : session data -> string   where the data is, as a workspace's `data` names it
-(define (data-place s data)
+;; given-resources : data -> (listof jsexpr)
+(define (given-resources data)
+  (define resources (if (list? data) data (list data)))
+  (unless (andmap hash? resources) (raise-user-error 'data "resources are JSON objects"))
+  (append-map bundle-resources resources))
+
+;; place-of : string -> string   where the data is, as a workspace's `data` names it
+(define (place-of data)
+  (if (regexp-match? #rx"^https?://" data) data (path->string (simplify-path (path->complete-path data)))))
+
+;; handle-key : data -> string | #f   the key of data named as loaded: {loaded: key}, and nothing
+;; else in the object (a resource has a resourceType)
+(define (handle-key data)
+  (and (hash? data) (= 1 (hash-count data)) (string? (hash-ref data 'loaded #f)) (hash-ref data 'loaded)))
+
+;; opened : session hub data -> Loaded   the data a call names, open
+(define (opened s h data)
   (cond
+    [(handle-key data)
+     => (lambda (key)
+          (or (hash-ref (session-loaded s) key #f)
+              (raise-user-error 'data "no data is loaded as ~a in this process (it was unloaded, or the process started again): load it again" key)))]
     [(string? data)
-     (if (regexp-match? #rx"^https?://" data) data (path->string (simplify-path (path->complete-path data))))]
+     (define place (place-of data))
+     (define-values (ds label) (open-place h place))
+     (loaded ds label place #f)]
     [(or (list? data) (hash? data))
-     (define resources (if (list? data) data (list data)))
-     (unless (andmap hash? resources) (raise-user-error 'data "resources are JSON objects"))
-     (define text (jsexpr->string (hasheq 'resourceType "Bundle" 'type "collection"
-                                          'entry (for/list ([r (in-list resources)]) (hasheq 'resource r)))))
-     (define f (build-path (session-dir s) (string-append "data-" (substring (sha1 (open-input-string text)) 0 16) ".json")))
-     (unless (file-exists? f) (call-with-output-file f (lambda (o) (write-string text o))))
-     (path->string f)]
+     (define resources (given-resources data))
+     (loaded (resources->data-source resources) "resources given in the call" #f resources)]
     [else (raise-user-error 'data "data is resources (a list, a resource, a Bundle) or a string: a directory, a JSON file, a SQLite store, a FHIR server's url")]))
+
+;; said-of-data : (-> X) -> X   a failure to read the data, said as the data's
+(define (said-of-data thunk)
+  (with-handlers ([exn:fail?
+                   (lambda (e) (raise-user-error 'data "~a" (regexp-replace #rx"^(data: )?(workspace[.]yaml: )?(data )?" (exn-message e) "")))])
+    (thunk)))
 
 (define (with-data s h data thunk)
   (when (and data (not (eq? data 'null)))
-    (with-handlers ([exn:fail? (lambda (e) (raise-user-error 'data "~a" (regexp-replace #rx"^(data: )?(workspace[.]yaml: )?(data )?" (exn-message e) "")))])
-      (use-data! h (data-place s data))))
+    (define l (said-of-data (lambda () (opened s h data))))
+    (use-source! h (loaded-source l) (loaded-label l) (loaded-place l) #:resources (loaded-resources l)))
   (thunk))
+
+(define (load-data! s h data)
+  (when (handle-key data) (raise-user-error 'load "the data is loaded already"))
+  (define l (said-of-data (lambda () (opened s h data))))
+  (set-session-loads! s (add1 (session-loads s)))
+  ;; the key says which process's it is (the session's own directory name): given to another
+  ;; process it names nothing there, where a bare number would name that process's own data
+  (define key (format "~a.~a" (path->string (file-name-from-path (session-dir s))) (session-loads s)))
+  (hash-set! (session-loaded s) key l)
+  (values key (and (loaded-resources l) (length (loaded-resources l)))))
+
+(define (unload-data! s key)
+  (begin0 (hash-has-key? (session-loaded s) key)
+          (hash-remove! (session-loaded s) key)))
 
 (module+ test
   (require rackunit)

@@ -62,8 +62,9 @@ Then make a @tt{Toolkit} and call it. Each line under a @tt{#} is what the examp
 
 @(example 0)
 
-@tt{Toolkit()} starts one process the first time you call it (about a second) and keeps it for
-the calls after, which take milliseconds. @tt{fhirpath} answers a list, because a FHIRPath
+@tt{Toolkit()} starts one process of the toolkit in the background and returns at once; the
+process is kept for every call. A call adds about a tenth of a millisecond to the work it asks
+for. @tt{fhirpath} answers a list, because a FHIRPath
 expression answers a collection. @tt{validate} answers an outcome: @tt{.ok} is true when no issue
 is an error, and @tt{.messages()} is one line for each issue, starting with the element it is about.
 
@@ -129,6 +130,47 @@ gives an answer back as an object.
 
 @(example 9)
 
+@section{Many resources, and data you use more than once}
+
+A call crosses to the toolkit's process and back. So ask one question of many resources in one
+call: @tt{fhirpath_each} and @tt{validate_each} take a list and answer a list, in the same order.
+
+@(example 10)
+
+Data that several calls read is given once. @tt{load} sends the resources (or reads the
+directory, or opens the store) and answers a handle that any call takes as its @tt{data}.
+Nothing is sent or read again, a search's index over it is built once, and a view over it is
+computed once for all the SQL you ask of it.
+
+@(example 11)
+
+@section{How fast it is}
+
+The toolkit is a compiled program, and it runs in a process of its own. That decides what is
+fast: work done inside one call is quick, and many small calls each pay for the crossing. The
+numbers below are from @tt{clients/python/bench/compare.py}, which you can run; it also times
+two pure-Python libraries on the same tasks. They do not do the same work (the toolkit's
+validation checks codes and profiles, a model library's checks shape), so read them as what each
+task costs, not as one engine against another.
+
+@itemlist[
+@item{@bold{Starting.} Making a @tt{Toolkit} takes about a millisecond: the process starts
+behind it. While your program does something else, the process loads what first calls need
+(the FHIR types, the definitions, the view engine, CQL). Asked straight away instead, a first
+call waits for what it needs: about 0.7 s from making the @tt{Toolkit} to a first FHIRPath
+answer, about 2 s more for a first validation, 1 s for a first CQL run. Asked after a pause of a
+few seconds, each first call takes milliseconds.}
+@item{@bold{One call.} About 0.1 ms for a FHIRPath expression over one resource, 0.3 ms to
+validate a small Patient.}
+@item{@bold{Many resources.} One call for all of them: one expression over 5,000 Patients
+takes 84 ms, validating them 515 ms. A loop of single calls costs the crossing each time.}
+@item{@bold{The same data again.} @tt{load} it: a view over 5,000 Observations takes 175 ms
+with the resources sent in the call and 77 ms over loaded data, and SQL over that view 28 ms.}
+@item{@bold{Beside pure Python.} Walking dicts in the same process, a compiled @tt{fhirpathpy}
+expression answers one resource in 0.04 ms and a model library checks a Patient's shape in
+0.03 ms: for one small in-memory thing at a time they are quicker, and they check less. The
+Python package's README has the whole table.}]
+
 @section{In a notebook}
 
 @tt{%load_ext fhir_toolkit.jupyter} adds a cell magic for each language: @tt{%%fsh},
@@ -143,8 +185,9 @@ at its line in the cell.
 
 @(example 2 "ipython")
 
-@tt{-d} names the variable that holds the data and @tt{-o} a variable for the answer;
-@tt{%fhir} lists what the notebook has defined. It needs IPython, which a notebook has.
+@tt{-d} names the variable that holds the data (resources, a path, or data you loaded) and
+@tt{-o} a variable for the answer; @tt{%fhir} lists what the notebook has defined. A table and a
+validation's outcome show as HTML. It needs IPython, which a notebook has.
 
 @section[#:tag "source"]{From a source checkout}
 

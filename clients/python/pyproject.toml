@@ -29,4 +29,4 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 # the executable a platform wheel carries (clients/python/build_wheel.py puts it there)
-fhir_toolkit = ["_bin/**/*"]
+fhir_toolkit = ["_bin/**/*", "py.typed"]

@@ -33,6 +33,8 @@
 (check-regexp-match #rx"# Observation a1c-1 2 fhir-api - corrected against the lab's report" text)
 (check-regexp-match #rx"from fhir.resources.R4B.patient import Patient" text)
 (check-regexp-match #rx"%%sof -d people" text)
+(check-regexp-match #rx"fhir.fhirpath_each\\(\"name.family\", patients\\)" text)
+(check-regexp-match #rx"# Data\\(2 resources\\)" text)
 (check-regexp-match #rx"#   patient  percent" text)
 
 ;; every function of the table is listed

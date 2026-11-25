@@ -3050,6 +3050,94 @@ showed on the way is the larger part.
 - Not done, named: publishing to PyPI (the owner's account); `write` to a FHIR server; a Docker
   image and a `uvx` entry for the MCP server.
 
+## The Python client, fast and pleasant (2026-11-25)
+The owner, after seeing it timed beside fhirpathpy and fhir.resources: "I want to improve the
+performance and user experience of using the python library. I would expect better performance
+not worse since it's using a binary?" It was slower: 6.4 ms for one FHIRPath expression
+(fhirpathpy 0.62), 492 ms for a view of 5,000 Observations given in the call. None of it was the
+engine. `clients/python/bench/compare.py` is the comparison as a program (the two libraries
+optional); its table is in the Python README and the manual ("How fast it is"), made again by
+running it. What was wrong, each found by measuring first:
+- **A module's export was looked up on disk at every call** (fhir-api `api/functions.rkt` `from`):
+  `dynamic-require` resolves the module's name through the collection paths each time, 2.3 ms a
+  look-up, and a FHIRPath call makes three — all but 0.03 ms of its 6.2. Remembered per module
+  and name; the session's FHIR types are loaded and pinned once (`tower!`: it pinned at every
+  call, 0.1 ms). A call is 0.04 ms in the server, 0.11 ms from Python.
+- **Resources given in a call were written to a file and read back** (`api/session.rkt`
+  `data-place`: a Bundle serialised, hashed, written, then parsed again by the hub): 150 ms of
+  the 5,000-resource view. They stay in memory: `opened`, and the hub's `use-source!` (a data
+  source the caller holds, with the resources it was made of — `source-resources` — for what
+  reads the data whole: a search's index was built from the PLACE's files and found nothing,
+  which the client's own test caught). Requests are read by `fhir/serialize/fast-json`.
+- **Data used twice was sent twice.** `load` (and `unload`): data opened once and kept under a
+  key that a later call gives as `{loaded: key}` — resources held in memory, a directory read
+  once, a store or server opened once. The key carries the session's own directory name, so
+  given to another process it names nothing there. Over such data a view's rows are kept with
+  the data source (`fhir-mcp/mcp/run.rkt` `kept-view`, `rows-in-memory`: it never changes), so
+  SQL over a view computes the view once. Python: `fhir.load(...)` answers a `Data` (any call's
+  `data`; a context manager; loaded again by itself when the process has started again —
+  `Server.generation`).
+- **One question of many resources was many calls.** `fhirpath` and `validate` take `resources`
+  (a list or a Bundle) and answer `results` / `outcomes` in order; `resource` is optional in
+  both now. Python: `fhirpath_each`, `validate_each`.
+- **Validation decided the same code again for every resource** (fhir-validation
+  `conformance/validate.rkt`): a third of a validation was `tx-expand` for `gender`. The
+  terminology resolver of a data source read whole is the same object for as long as the data
+  source, the registry (`fhir/registry` `registry-generation`, new) and the packages are
+  (fhir-tx `terminology/operations.rkt` `kept-resolvers`; a store's is still made per call: it
+  may change), and a verdict is kept with its resolver (`tx-member?`, `resolver-verdicts`).
+  Then the walk: an element's leaf, its JSON key and its fixed and pattern values are kept with
+  the element (`leaf-facts`, `fixed+pattern`), and a child that is no choice is looked up by its
+  key where every key of the object was compared with every child. 2,000 Patients: 365 -> 175 ms
+  in the server. Every gate as it was (below).
+- **Each node read paid for a contract on its thunk** (`fhir/model/node` `lazy-fhir`: `(-> symbol?
+  (-> (values hash? list?)) fhir?)` wraps the thunk it is given; `#:unprotected-submodule
+  unchecked`, used by `serialize/from-json.rkt` alone), **and each resource a view had read was
+  walked with every path written out to find it had dropped nothing** (`serialize/lenient.rkt`
+  `node-drops`: `any-drops?` asked first). `lenient-fields` is one pass over the object (it was
+  `field-pairs`, then three passes over its pairs; `lenient-fields/pairs` is kept as the
+  definition and the module's test holds the two equal). The view engine over 5,000
+  Observations: 128 -> 70 ms.
+- **A process's first validation took 2 to 3 s**, its first CQL run 0.9 s: the first call of each
+  kind loads what only it needs (the types, the packages' definitions and terminology, the view
+  engine, the translator). Two things. The packages are read by the fast JSON scanner
+  (`fhir-tx/terminology/index.rkt`, `fhir/sd/sd-index.rkt`: 490 -> 170 ms for the R4 core's
+  terminology), and `validate` asks `fhir/conformance/operations` for `$validate` itself
+  (`(operation "$validate")` loads every package's operations: 0.3 s). And the server WARMS
+  (`api/server.rkt` `serve`, `api/functions.rkt` `warm-steps`): when no request has come for
+  0.15 s it takes the next of six steps — a first call of each kind, made of a small resource —
+  then listens again. A caller that asks without pause is never made to wait (its calls load
+  what they need, as before); a request waits behind at most the step in hand; after a few idle
+  seconds every first call takes 1 to 17 ms. `FHIR_API_WARM=0` turns it off. The Python `Server`
+  starts the process when the `Toolkit` is made, without waiting for it (`start=False`: at the
+  first call), so the warming happens while the program does something else.
+- Python, besides: a model object among the arguments is converted while the request is encoded
+  (`json.dumps(default=plain)`; `plain(arguments)` walked every resource of every call first);
+  `Table` and `Outcome` show as HTML in a notebook (`_repr_html_`), `str(outcome)` is `valid` or
+  its lines, `repr(Toolkit)`; `py.typed`. `fhir.raw.fhirpath` and `.validate` take `resource=`
+  by name now (it is optional in the table).
+Measured from Python (`bench/compare.py`, one machine, before -> after): one FHIRPath expression
+6.4 -> 0.10 ms (a compiled fhirpathpy expression over a dict: 0.04); the expression over 5,000
+Patients in one call 84 ms (fhirpathpy in a loop: 189); one validation 0.74 -> 0.30 ms, 5,000 in
+one call 515 ms (fhir.resources' check of shape, in a loop: 179 — it accepts `gender: florp`);
+a view of 5,000 Observations 492 -> 175 ms with the resources sent, 77 ms over loaded data
+(fhirpathpy over the dicts: 53), SQL over that view 28 ms; `Toolkit()` returns in 1 ms and a
+first answer comes 0.7 s after. So: no longer slower by overhead; quicker than a Python loop
+where the work is done in one call; still behind dict-walking for one small thing at a time,
+which is the crossing (0.1 ms) and not the engine.
+Gates after: every package's suite, all fourteen (fhir 5,995 tests; the validator's 330 IG
+examples clean, fp 0 / recall 18, 2957/2968; fhir-examples' 4,795, the 741 HL7 verdicts among
+them; the lazy-read test's 4,661 checks; the Python client's 45).
+A lesson of measurement, met twice in this file already: a timing taken after a Racket source
+was edited and not made measures the compiler (`raco fhir-api` started in 0.83 s with
+functions.rkt's compiled file stale, 0.41 s made). `raco make` before any number.
+Not done, named: a node's fields are read all together when one is asked (a view that reads two
+of an Observation's seven elements parses all seven: reading by field would need the node to
+hold its JSON and fill a field at a time, with the drops of a field recorded when it is read —
+about a third of a view's time); SQL over a view of loaded data copies the rows into SQLite for
+each statement (48 ms for 5,000); a `Data` whose process ends between two calls is given again
+at the next call, not in the middle of one.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

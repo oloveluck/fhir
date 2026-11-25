@@ -37,7 +37,7 @@
 
 ;; For the verbs' modules; what other code calls is workspace.rkt, where the contracts are.
 (provide (struct-out hub) (struct-out stored) (struct-out change) (struct-out staged) hub-root open-hub data-remote?
-         configure! store-file? data-store-path open-store with-hub guide-file? current-manifest current-repository hub-manifest path-string rel from-here at-root?
+         configure! use-source! source-resources open-place store-file? data-store-path open-store with-hub guide-file? current-manifest current-repository hub-manifest path-string rel from-here at-root?
          inside argument-source shown-path path-from-here files-by-language refresh! problems-of problem-json count-severity
          state-dir saved-names next-number save-state! staged->jsexpr store! result-of result-of* stage-of
          result-uri result-listing hub-result-uris hub-read-result pending-stage-ids
@@ -202,6 +202,30 @@
   (define-values (ds label warnings) (open-data ws* (hub-packages h)))
   (when (pair? warnings) (error 'data (string-join warnings "; ")))
   (set-hub-ws! h ws*)
+  (set-hub-data! h ds)
+  (set-hub-data-label! h label))
+
+;; open-place : hub string -> data-source string   the data a place names (as use-data! reads one),
+;; opened and not put in use: for a caller that keeps data open between calls (fhir-api's `load`)
+(define (open-place h d)
+  (define ws (hub-ws h))
+  (define-values (ds label warnings)
+    (open-data (workspace (workspace-root ws) (struct-copy ws-config (workspace-config ws) [data d])) (hub-packages h)))
+  (when (pair? warnings) (error 'data (string-join warnings "; ")))
+  (values ds label))
+
+;; use-source! : hub data-source string (or/c string? #f) [#:resources rs] -> void   the same
+;; workspace over a data source the caller holds — resources it was given, or data it opened once
+;; (open-place) — with the place it came from when it has one (#f for resources in memory: there
+;; is then no store to write to). `resources` are the ones a source in memory was made of: what
+;; reads the data whole (a search's index) reads them, where it reads a place's files.
+(define given-resources (make-weak-hasheq))       ; data source -> (listof jsexpr)
+;; source-resources : hub -> (listof jsexpr) | #f   the resources the hub's data was given as
+(define (source-resources h) (hash-ref given-resources (hub-data h) #f))
+(define (use-source! h ds label [place #f] #:resources [resources #f])
+  (when resources (hash-set! given-resources ds resources))
+  (define ws (hub-ws h))
+  (set-hub-ws! h (workspace (workspace-root ws) (struct-copy ws-config (workspace-config ws) [data place])))
   (set-hub-data! h ds)
   (set-hub-data-label! h label))
 

@@ -19,8 +19,9 @@
 ;;; A problem IN what a caller gave to compile or translate is not an error: those functions answer
 ;;; their diagnostics. An error is a call that could not be answered.
 
-(require racket/contract racket/list racket/string json
+(require racket/contract racket/list racket/string racket/port json
          "session.rkt" "functions.rkt"
+         (only-in fhir/serialize/fast-json fast-string->jsexpr)
          (only-in fhir/diagnostic exn:fail:diagnostic? exn:fail:diagnostic-diagnostic diagnostic->jsexpr)
          (only-in fhir/operation exn:fail:operation? exn:fail:operation-outcome))
 
@@ -31,7 +32,7 @@
   ;; answer-line : session string -> string | #f   the same, from and to a line of text
   [answer-line (-> session? string? (or/c string? #f))]
   ;; serve : session in out -> void   lines answered until the input ends
-  [serve (-> session? input-port? output-port? void?)]))
+  [serve (->* (session? input-port? output-port?) (#:warm? boolean?) void?)]))
 
 (define (response id result) (hasheq 'jsonrpc "2.0" 'id id 'result result))
 (define (failure id code message [data #f])
@@ -79,7 +80,9 @@
   (and (or id (hash-has-key? (hash-ref reply 'error (hasheq)) 'code)) (if id reply (hash-set reply 'id 'null))))
 
 (define (answer-line s line)
-  (define request (with-handlers ([exn:fail? (lambda (_) #f)]) (string->jsexpr line)))
+  ;; a request may carry thousands of resources: read by the scanner the store reads resources with
+  ;; (the same values as racket/json's, which reads whatever the scanner does not take)
+  (define request (with-handlers ([exn:fail? (lambda (_) #f)]) (fast-string->jsexpr line)))
   (define reply
     (if (or (not request) (eof-object? request))
         (failure 'null -32700 "the line is not JSON")
@@ -90,9 +93,28 @@
          (jsexpr->string reply))))
 
 ;; serve stops when the input ends, and quietly when nobody reads its answers any more (a client
-;; that closed the pipe: the write fails, and there is no one to tell)
-(define (serve s in out)
-  (let loop ()
+;; that closed the pipe: the write fails, and there is no one to tell).
+;;
+;; While nobody is asking, it WARMS (functions.rkt `warm-steps`): when no request has come for
+;; `idle-seconds`, it takes the next step, then listens again. A request never waits behind more
+;; than the one step in hand, and a caller that asks without pause is never made to wait at all —
+;; its calls load what they need, as before. `warm?` #f (FHIR_API_WARM=0) leaves every load to
+;; the call that needs it.
+(define idle-seconds 0.15)
+(define (serve s in out #:warm? [warm? (not (equal? (getenv "FHIR_API_WARM") "0"))])
+  (let loop ([steps (if warm? (warm-steps s) '())])
+    (cond
+      [(and (pair? steps) (not (sync/timeout idle-seconds in)))
+       ;; a step that fails warms nothing and says nothing: the call that needs it will say
+       (with-handlers ([(lambda (_) #t) void])
+         (parameterize ([current-output-port (open-output-nowhere)] [current-error-port (open-output-nowhere)])
+           ((car steps))))
+       (loop (cdr steps))]
+      [else (serve-line s in out (lambda () (loop steps)))])))
+
+;; serve-line : session in out (-> any) -> any   one line read and answered, then `next`
+(define (serve-line s in out next)
+  (let ()
     (define line (read-line in 'any))
     (unless (eof-object? line)
       (define heard?
@@ -101,7 +123,7 @@
               (or (not reply)
                   (with-handlers ([exn:fail? (lambda (_) #f)])
                     (write-string reply out) (newline out) (flush-output out) #t)))))
-      (when heard? (loop)))))
+      (when heard? (next)))))
 
 (module+ test
   (require rackunit)

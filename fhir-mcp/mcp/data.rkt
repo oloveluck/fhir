@@ -19,7 +19,8 @@
   (define d (ws-config-data (workspace-config (hub-ws h))))
   (define p (and d (not (rest-url? d)) (simplify-path (path->complete-path d (hub-root h)))))
   (define (read-one f) (with-handlers ([exn:fail? (lambda (_) #f)]) (call-with-input-file f read-json)))
-  (cond [(and p (directory-exists? p))
+  (cond [(source-resources h) => values]            ; resources given in memory (use-source!)
+        [(and p (directory-exists? p))
          (for*/list ([f (in-directory p)] #:when (regexp-match? #rx"[.]json$" (path->string f))
                      [js (in-value (read-one f))] #:when (and (hash? js) (string? (hash-ref js 'resourceType #f))))
            js)]

@@ -7,14 +7,18 @@
         fhir.validate(patient).ok                         # True
         fhir.view("SELECT id, birthDate FROM Patient", data).to_pandas()
 
-A `Toolkit` is one process of the toolkit, started at the first call and kept
-for the calls after it. A PROJECT is the sources a call may refer to — profiles
+A `Toolkit` is one process of the toolkit, started in the background when the
+Toolkit is made and kept for every call. A PROJECT is the sources a call may refer to — profiles
 in FSH, CQL libraries, maps, value sets in VCL, views, FHIR JSON definitions —
 given as a dict of file name -> text, as a directory, or as a `Project`. DATA
 is the FHIR a call reads: resources (a list, one resource, a Bundle), or the
 path of a directory of FHIR JSON, a JSON file or a SQLite FHIR store, or a FHIR
 server's base url. A resource is FHIR JSON (a dict), or an object of a model
 library that writes itself as JSON (`fhir_toolkit.models`).
+
+Data used by several calls is given once: `clinic = fhir.load(resources)`, then
+`data=clinic`. One question of many resources is one call: `fhirpath_each`,
+`validate_each`, or a view.
 """
 import atexit
 import os
@@ -24,12 +28,12 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
 from ._functions import Functions
 from ._server import Server
 from .errors import Diagnostic, FhirError
-from .models import plain, typed
+from .models import typed
 from .results import Commit, Compiled, Outcome, Stage, Table
 
 Resource = Dict[str, Any]
 ProjectLike = Union["Project", Mapping[str, str], str, "os.PathLike[str]", None]
-DataLike = Union[Sequence[Resource], Resource, str, "os.PathLike[str]", None]
+DataLike = Union["Data", Sequence[Resource], Resource, str, "os.PathLike[str]", None]
 
 
 class Project:
@@ -71,8 +75,65 @@ def as_project(project: ProjectLike) -> Project:
     return Project(directory=project)
 
 
+class Data:
+    """Data given to the toolkit once and kept there: what `Toolkit.load` answers.
+
+    Give it as any call's `data`. The resources (or the directory's files) were
+    read when it was loaded, so a call does not send or read them again, and a
+    search's index over them is built once. `count` is how many resources were
+    given (None for a place). `close()` lets the toolkit forget it; it is also
+    a context manager. Should the toolkit's process start again, the data is
+    loaded again from what was given, at the next call that names it.
+    """
+
+    def __init__(self, toolkit: "Toolkit", source: Any, project: "Project"):
+        self._toolkit = toolkit
+        self._source = source
+        self._project = project
+        self._key: Optional[str] = None
+        self._generation = -1
+        self.count: Optional[int] = None
+        self._argument()
+
+    def _argument(self) -> Dict[str, str]:
+        """This data as a function's `data`; loaded (again) when this process does not hold it."""
+        if self._source is None:
+            raise FhirError("the data was closed: load it again")
+        server = self._toolkit._server
+        # (a process that has ended starts again at the next call, without this data)
+        if self._key is None or self._generation != server.generation or not server.running:
+            answer = self._toolkit._load(self._source, self._project)
+            self._key, self.count, self._generation = answer["loaded"], answer.get("count"), server.generation
+        return {"loaded": self._key}
+
+    def close(self) -> None:
+        """Let the toolkit forget the data. Using it after this is an error."""
+        key, self._key, self._source = self._key, None, None
+        server = self._toolkit._server
+        if key is not None and server.running and self._generation == server.generation:
+            self._toolkit._unload(key)
+
+    def __enter__(self) -> "Data":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+    def __len__(self) -> int:
+        if self.count is None:
+            raise TypeError("the data is a place (a directory, a store, a server): it has no count here")
+        return self.count
+
+    def __repr__(self) -> str:
+        if self._source is None:
+            return "Data(closed)"
+        return "Data(%s)" % ("%d resources" % self.count if self.count is not None else repr(self._source))
+
+
 def as_data(data: DataLike) -> Any:
-    """Data as the functions take it: a path as text, resources as they are."""
+    """Data as the functions take it: a path as text, resources as they are, loaded data by its key."""
+    if isinstance(data, Data):
+        return data._argument()
     if data is None or isinstance(data, (str, dict, list)):
         return data
     if isinstance(data, os.PathLike):
@@ -89,8 +150,8 @@ class _Raw(Functions):
         self._server = server
 
     def _call(self, name: str, arguments: Dict[str, Any]) -> Any:
-        # typed models among the arguments go as the JSON they write
-        return self._server.call(name, plain(arguments))
+        # (typed models among the arguments go as the JSON they write: Server encodes them)
+        return self._server.call(name, arguments)
 
 
 class Toolkit:
@@ -103,15 +164,23 @@ class Toolkit:
             ("hl7.fhir.us.core-6.1.0") or as .tgz paths.
         command: the command that starts the toolkit, when it should not be
             found the usual way (see `fhir_toolkit.find_command`).
+        start: True (the default) starts the process now, in the background:
+            making a Toolkit does not wait for it, and the first call waits
+            only for what is left of its start (well under a second in all).
+            False leaves it until the first call.
 
     `raw` has every function of the toolkit exactly as the server defines it
     (plain JSON values); the methods here are the convenient forms.
     """
 
-    def __init__(self, fhir_version: str = "4.0.1", *, packages: Sequence[str] = (), command: Optional[Sequence[str]] = None):
-        self._server = Server(fhir_version, packages, command)
+    def __init__(self, fhir_version: str = "4.0.1", *, packages: Sequence[str] = (), command: Optional[Sequence[str]] = None,
+                 start: bool = True):
+        self._server = Server(fhir_version, packages, command, start=start)
         self.raw = _Raw(self._server)
         atexit.register(self.close)
+
+    def __repr__(self) -> str:
+        return "Toolkit(FHIR %s, %s)" % (self._server.fhir_version, "running" if self._server.running else "not started")
 
     def close(self) -> None:
         """Stop the process. A call after this starts it again."""
@@ -140,7 +209,34 @@ class Toolkit:
         An element comes back as its FHIR JSON, a System value as a number,
         a boolean or a string (a date as FHIR writes it: "1980-02-28").
         """
-        return self.raw.fhirpath(expression, resource)["values"]
+        return self.raw.fhirpath(expression, resource=resource)["values"]
+
+    def fhirpath_each(self, expression: str, resources: Any) -> List[List[Any]]:
+        """A FHIRPath expression's values over each of several resources, in one call.
+
+        `resources` is a list of resources (or a Bundle). The answer has one
+        list of values for each, in the order given: far quicker than a call
+        for each resource.
+        """
+        return self.raw.fhirpath(expression, resources=_resources(resources))["results"]
+
+    # ---- data given once ------------------------------------------------------------------------
+    def load(self, data: DataLike, *, project: ProjectLike = None) -> "Data":
+        """Data given once and kept by the toolkit: use the answer as later calls' `data`.
+
+        Resources (a list, one, a Bundle) are sent once and held in memory; a
+        directory or file of FHIR JSON is read once; a store or a server is
+        opened once. Without this each call sends, or reads, its data again.
+        """
+        if isinstance(data, Data):
+            return data
+        return Data(self, as_data(data), as_project(project))
+
+    def _load(self, source: Any, project: "Project") -> Dict[str, Any]:
+        return self.raw.load(source, **project.arguments())
+
+    def _unload(self, key: str) -> None:
+        self.raw.unload(key)
 
     def validate(self, resource: Resource, profile: Optional[str] = None, *, project: ProjectLike = None) -> Outcome:
         """A resource held to its type, the profiles it claims and `profile`.
@@ -149,7 +245,12 @@ class Toolkit:
         defines. The answer is an `Outcome`: `.ok`, `.errors`, `.messages()`,
         `.raise_for_errors()`.
         """
-        return Outcome(self.raw.validate(resource, profile=profile, **as_project(project).arguments()))
+        return Outcome(self.raw.validate(resource=resource, profile=profile, **as_project(project).arguments()))
+
+    def validate_each(self, resources: Any, profile: Optional[str] = None, *, project: ProjectLike = None) -> List[Outcome]:
+        """Each of several resources validated, in one call: an `Outcome` for each, in the order given."""
+        answer = self.raw.validate(resources=_resources(resources), profile=profile, **as_project(project).arguments())
+        return [Outcome(o) for o in answer["outcomes"]]
 
     def decompile(self, resource: Resource, as_: Optional[str] = None, *, project: ProjectLike = None) -> str:
         """A resource written as source text.

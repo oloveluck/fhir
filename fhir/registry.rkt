@@ -30,6 +30,9 @@
           ;; file that changed or went away)
           [unregister-source! (-> any/c void?)]
           [registered-kinds (-> (listof string?))]
+          ;; registry-generation : -> natural   a number that changes whenever what is registered
+          ;; may have: what was computed from the registry holds for as long as it is the same
+          [registry-generation (-> exact-nonnegative-integer?)]
           ;; registered-by : (source -> boolean) -> (listof resource)   everything the sources a
           ;; predicate accepts registered, each once, by kind then url or id (what a workspace's
           ;; languages define, for the guide that lists them)
@@ -37,6 +40,10 @@
 
 ;; kind -> (hash key -> (cons resource source)); a resource sits under its url and its id
 (define by-kind (make-hash))
+
+(define generation 0)
+(define (registry-generation) generation)
+(define (changed!) (set! generation (add1 generation)))
 
 (define (key-of s) (canonical-url s))
 
@@ -49,11 +56,13 @@
       (define table (hash-ref! by-kind kind make-hash))
       (when url
         (define old (hash-ref table url #f))
-        (cond [(not old) (hash-set! table url (cons r source))]
+        (cond [(not old) (hash-set! table url (cons r source)) (changed!)]
               [(equal? (car old) r) (void)]                            ; the same content: the first source keeps it
-              [(equal? (cdr old) source) (hash-set! table url (cons r source))]
+              [(equal? (cdr old) source) (hash-set! table url (cons r source)) (changed!)]
               [else (error 'register-resources! "~a ~a is defined by both ~a and ~a" kind url (cdr old) source)]))
-      (when id (hash-set! table id (cons r source))))))
+      (when id
+        (unless (let ([e (hash-ref table id #f)]) (and e (eq? (car e) r) (equal? (cdr e) source))) (changed!))
+        (hash-set! table id (cons r source))))))
 
 (define (entry kind key) (hash-ref (hash-ref by-kind kind (hash)) (key-of key) #f))
 (define (registered-resource kind key) (let ([e (entry kind key)]) (and e (car e))))
@@ -70,7 +79,8 @@
 (define (unregister-source! source)
   (for ([table (in-hash-values by-kind)])
     (for ([k (in-list (for/list ([(k e) (in-hash table)] #:when (equal? (cdr e) source)) k))])
-      (hash-remove! table k))))
+      (hash-remove! table k)
+      (changed!))))
 
 (module+ test
   (require rackunit)

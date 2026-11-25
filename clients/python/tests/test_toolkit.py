@@ -21,7 +21,7 @@ if not os.environ.get("FHIR_TOOLKIT_TEST_INSTALLED"):
     sys.path.insert(0, str(ROOT / "src"))
 
 import fhir_toolkit  # noqa: E402
-from fhir_toolkit import Commit, Compiled, Diagnostic, FhirError, Outcome, Project, Stage, Table, Toolkit, ToolkitNotFound, plain, typed  # noqa: E402
+from fhir_toolkit import Commit, Compiled, Data, Diagnostic, FhirError, Outcome, Project, Stage, Table, Toolkit, ToolkitNotFound, plain, typed  # noqa: E402
 from fhir_toolkit._functions import Functions  # noqa: E402
 
 TABLE = ROOT.parent / "functions.json"
@@ -453,9 +453,83 @@ class TheToolkit(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(self.fhir.write(ann, data=pathlib.Path(tmp) / "s.db").versions, ["Patient/ann/_history/1"])
 
+    # ---- many resources in one call; data given once --------------------------------------------
+    def test_one_call_for_many_resources(self):
+        patients = [dict(PATIENT, id="p%d" % i, name=[{"family": "Lee%d" % i}]) for i in range(50)]
+        self.assertEqual(self.fhir.fhirpath_each("name.family", patients), [["Lee%d" % i] for i in range(50)])
+        self.assertEqual(self.fhir.fhirpath_each("name.family", []), [])
+        # a Bundle's entries are its resources; a tuple or a generator is a list
+        bundle = {"resourceType": "Bundle", "type": "collection", "entry": [{"resource": p} for p in patients[:3]]}
+        self.assertEqual(self.fhir.fhirpath_each("id", bundle), [["p0"], ["p1"], ["p2"]])
+        self.assertEqual(self.fhir.fhirpath_each("id", (p for p in patients[:2])), [["p0"], ["p1"]])
+        # each answer is what the call for one gives
+        mixed = [PATIENT, dict(PATIENT, gender="florp"), dict(PATIENT, birthDate="1980-02-30")]
+        each = self.fhir.validate_each(mixed)
+        self.assertEqual([o.ok for o in each], [True, False, False])
+        self.assertEqual([o.messages() for o in each], [self.fhir.validate(r).messages() for r in mixed])
+        held = self.fhir.validate_each([PATIENT, {"resourceType": "Patient"}], "AdultPatient", project={"p.fsh": PROFILE})
+        self.assertEqual([o.ok for o in held], [True, False])
+        with self.assertRaisesRegex(FhirError, "`resource` \\(one\\) or `resources`"):
+            self.fhir.raw.fhirpath("id", resource=PATIENT, resources=[PATIENT])
+        with self.assertRaisesRegex(FhirError, "resource 1 does not read as FHIR"):
+            self.fhir.fhirpath_each("id", [PATIENT, {"resourceType": "Nope"}])
+
+    def test_data_loaded_once_is_any_calls_data(self):
+        with self.fhir.load(DATA) as people:
+            self.assertIsInstance(people, Data)
+            self.assertEqual((len(people), people.count, repr(people)), (2, 2, "Data(2 resources)"))
+            self.assertIs(self.fhir.load(people), people)
+            self.assertEqual(self.fhir.view("SELECT id FROM Patient", people).rows, [{"id": "ann"}])
+            self.assertEqual(self.fhir.cql(CQL, people).rows, self.fhir.cql(CQL, DATA).rows)
+            self.assertEqual(self.fhir.search("Observation?code=4548-4", people).column("resource"), ["Observation/a1"])
+            self.assertEqual(self.fhir.sql("SELECT p.family, o.value FROM obs o JOIN pts p ON p.id = o.patient", project=VIEWS, data=people).rows,
+                             [{"family": "Lee", "value": 9.4}])
+            # other data in between does not disturb it
+            self.assertEqual(self.fhir.view("SELECT id FROM Patient", [dict(PATIENT, id="bo")]).rows, [{"id": "bo"}])
+            self.assertEqual(self.fhir.view("SELECT id FROM Patient", people).rows, [{"id": "ann"}])
+        self.assertEqual(repr(people), "Data(closed)")
+        with self.assertRaisesRegex(FhirError, "the data was closed"):
+            self.fhir.view("SELECT id FROM Patient", people)
+        # a place is opened once; it has no count
+        with tempfile.TemporaryDirectory() as tmp:
+            (pathlib.Path(tmp) / "ann.json").write_text(json.dumps(PATIENT), encoding="utf-8")
+            folder = self.fhir.load(tmp)
+            self.assertIsNone(folder.count)
+            with self.assertRaises(TypeError):
+                len(folder)
+            self.assertEqual(self.fhir.view("SELECT id FROM Patient", folder).rows, [{"id": "ann"}])
+            self.assertEqual(self.fhir.search("Patient?gender=female", folder).column("resource"), ["Patient/ann"])
+            folder.close()
+        with self.assertRaisesRegex(FhirError, "does not exist|not a directory|cannot"):
+            self.fhir.load("/nonexistent/place")
+
+    def test_loaded_data_is_one_process_s(self):
+        with Toolkit() as other:
+            theirs = other.load(DATA)
+            # asked of another process, the key names nothing there
+            with self.assertRaisesRegex(FhirError, "no data is loaded as"):
+                self.fhir.raw.query("view", "SELECT id FROM Patient", data=theirs._argument())
+            # the process gone, the data is given again at the next call that names it
+            other._server._process.kill()
+            other._server._process.wait()
+            self.assertEqual(other.view("SELECT id FROM Patient", theirs).rows, [{"id": "ann"}])
+
+    def test_how_answers_show(self):
+        table = self.fhir.view("SELECT id, name.family.first() AS family FROM Patient", [dict(PATIENT, id="p%d" % i) for i in range(25)])
+        shown = table._repr_html_()
+        self.assertIn("<th>id</th><th>family</th>", shown)
+        self.assertEqual(shown.count("<tr>"), 21)                   # the header and twenty rows
+        self.assertIn("5 more rows (25 in all)", shown)
+        self.assertIn("&lt;b&gt;", Table({"columns": ["a"], "rows": [{"a": "<b>"}]})._repr_html_())
+        self.assertEqual(str(self.fhir.validate(PATIENT)), "valid")
+        bad = self.fhir.validate(dict(PATIENT, gender="florp"))
+        self.assertTrue(str(bad).startswith("Patient.gender: error: code `florp`"))
+        self.assertIn("<li>Patient.gender: error", bad._repr_html_())
+        self.assertRegex(repr(self.fhir), r"Toolkit\(FHIR 4\.0\.1, running\)")
+
     # ---- the plain functions, and calls from several threads ------------------------------------
     def test_raw_is_the_table_as_it_is(self):
-        self.assertEqual(self.fhir.raw.fhirpath("name.family", PATIENT), {"values": ["Lee"]})
+        self.assertEqual(self.fhir.raw.fhirpath("name.family", resource=PATIENT), {"values": ["Lee"]})
         answer = self.fhir.raw.compile(files={"p.fsh": PROFILE})
         self.assertEqual(sorted(answer), ["diagnostics", "resources"])
         with self.assertRaises(FhirError) as refused:
@@ -482,16 +556,21 @@ class TheToolkit(unittest.TestCase):
 class TheProcess(unittest.TestCase):
     """Starting, stopping, another FHIR version, and what goes wrong before a call is answered."""
 
-    def test_a_toolkit_starts_at_its_first_call_and_again_after_close(self):
+    def test_a_toolkit_starts_when_it_is_made_and_again_after_close(self):
         fhir = Toolkit()
-        self.assertFalse(fhir._server.running)
-        self.assertEqual(fhir.fhirpath("gender", PATIENT), ["female"])
-        self.assertTrue(fhir._server.running)
-        fhir.close()
-        self.assertFalse(fhir._server.running)
+        self.assertTrue(fhir._server.running)                       # started, and not waited for
         self.assertEqual(fhir.fhirpath("gender", PATIENT), ["female"])
         fhir.close()
+        self.assertFalse(fhir._server.running)
+        self.assertEqual(repr(fhir), "Toolkit(FHIR 4.0.1, not started)")
+        self.assertEqual(fhir.fhirpath("gender", PATIENT), ["female"])
         fhir.close()
+        fhir.close()
+        late = Toolkit(start=False)                                 # left until the first call
+        self.assertFalse(late._server.running)
+        self.assertEqual(late.fhirpath("gender", PATIENT), ["female"])
+        self.assertTrue(late._server.running)
+        late.close()
 
     def test_a_process_that_dies_is_said_and_started_again(self):
         with Toolkit() as fhir:

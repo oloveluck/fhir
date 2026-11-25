@@ -20,6 +20,7 @@
          file/untar
          racket/contract
          (only-in racket/list last)
+         (only-in fhir/serialize/fast-json fast-bytes->jsexpr)
          (only-in fhir/spec-package spec-package-path))
 
 (provide (contract-out
@@ -92,7 +93,7 @@
 ;; among them) and the promise of the resource. When the skim cannot read the bytes, they are parsed
 ;; at once, as before (a file that is not a JSON object is no entry: no keys).
 (define (index-entry bs)
-  (define (parse) (let ([js (with-handlers ([exn:fail? (lambda (_) #f)]) (bytes->jsexpr bs))]) (and (hash? js) js)))
+  (define (parse) (let ([js (with-handlers ([exn:fail? (lambda (_) #f)]) (fast-bytes->jsexpr bs))]) (and (hash? js) js)))
   (define skim (skim-keys bs))
   (cond
     [skim (values (filter string? skim) (delay (parse)))]

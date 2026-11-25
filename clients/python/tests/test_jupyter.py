@@ -122,6 +122,14 @@ class TheMagics(unittest.TestCase):
         self.shell.run_line_magic("fhir", "forget obs.sof")
         self.assertEqual(self.shell.run_line_magic("fhir", ""), ["A1c.cql", "a1c.vcl", "pts.sof"])
 
+    def test_data_loaded_once_is_a_cell_s_data(self):
+        from fhir_toolkit.jupyter import notebook
+        self.shell.user_ns["kept"] = notebook.toolkit.load([PATIENT, OBSERVATION])
+        answer, _, wrong = self.cell("sof", "-d kept", "SELECT id FROM Patient")
+        self.assertEqual(wrong, "")
+        self.assertEqual(rows(answer), [{"id": "ann"}])
+        self.shell.user_ns["kept"].close()
+
     def test_fhirpath_and_a_map(self):
         one, _, _ = self.cell("fhirpath", "-d patient", "name.given.first()")
         self.assertEqual(one, ["Ann"])

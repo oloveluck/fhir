@@ -109,7 +109,9 @@ print(fhir.view("SELECT id, birthDate FROM Patient", data).to_pandas())   # a Da
 
 It also writes to a store with a record of who and why (`fhir.write(...)`), takes
 `fhir.resources` objects where it takes dicts, and adds a cell magic for each language to a
-notebook (`%load_ext fhir_toolkit.jupyter`). It is not on the Python Package Index yet: the
+notebook (`%load_ext fhir_toolkit.jupyter`). A call costs about a tenth of a millisecond beyond
+its work; many resources go in one call (`fhirpath_each`, `validate_each`, a view) and data used
+twice is loaded once (`fhir.load`). Its README has the timings beside two pure-Python libraries. It is not on the Python Package Index yet: the
 `wheels` workflow builds the files ([release/RELEASING.md](release/RELEASING.md) has the steps).
 
 Under it is `fhir-api`, one process that answers function calls as JSON lines, with its

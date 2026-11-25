@@ -269,6 +269,85 @@
   (check-equal? (hash-ref d 'text) cql))
 (check-regexp-match #rx"written as fsh, fml, sof, vcl or cql" (message (decompiled patient "xml")))
 
+;; ---- several resources in one call: each answered as the call for one answers it -------------------
+(let* ([patients (for/list ([i 5]) (hash-set (hash-set patient 'id (format "p~a" i)) 'name (list (hasheq 'family (format "Lee~a" i)))))]
+       [bundle (hasheq 'resourceType "Bundle" 'type "collection" 'entry (for/list ([p patients]) (hasheq 'resource p)))])
+  (check-equal? (hash-ref (call "fhirpath" (hasheq 'expression "name.family" 'resources patients)) 'results)
+                (for/list ([i 5]) (list (format "Lee~a" i))))
+  (check-equal? (hash-ref (call "fhirpath" (hasheq 'expression "id" 'resources bundle)) 'results) (for/list ([i 5]) (list (format "p~a" i))))
+  (check-equal? (hash-ref (call "fhirpath" (hasheq 'expression "id" 'resources '())) 'results) '())
+  (check-regexp-match #rx"`resource` [(]one[)] or `resources` [(]several[)]" (message (call "fhirpath" (hasheq 'expression "id"))))
+  (check-regexp-match #rx"`resource` [(]one[)] or `resources`" (message (call "fhirpath" (hasheq 'expression "id" 'resource patient 'resources patients))))
+  (check-regexp-match #rx"resource 1 does not read as FHIR 4.0.1"
+                      (message (call "fhirpath" (hasheq 'expression "id" 'resources (list patient (hasheq 'resourceType "Nope"))))))
+  (define mixed (list patient (hash-set patient 'gender "florp") (hash-set patient 'birthDate "1980-02-30")))
+  (check-equal? (hash-ref (call "validate" (hasheq 'resources mixed)) 'outcomes)
+                (for/list ([r mixed]) (call "validate" (hasheq 'resource r))))
+  (check-equal? (for/list ([o (hash-ref (call "validate" (hasheq 'resources (list patient (hasheq 'resourceType "Patient")) 'profile "AdultPatient"
+                                                                 'files (hasheq 'p.fsh "Profile: AdultPatient\nParent: Patient\n* birthDate 1..1\n")))
+                                        'outcomes)])
+                  (hash-ref (car (hash-ref o 'issue)) 'severity))
+                '("information" "error"))
+  (check-regexp-match #rx"`resource` [(]one[)] or `resources`" (message (call "validate" (hasheq)))))
+
+;; ---- data given once: kept in the process, named by its key in the calls after it -----------------
+(let* ([l (call "load" (hasheq 'data data))]
+       [key (hash-ref l 'loaded)]
+       [loaded (hasheq 'loaded key)]
+       [views (hasheq 'obs.sof "CREATE VIEW obs WITH (status = 'active') AS SELECT id, value.ofType(Quantity).value AS value FROM Observation")])
+  (check-equal? (hash-ref l 'count) 2)
+  (check-equal? (hash-ref (call "query" (hasheq 'language "view" 'text "SELECT id FROM Patient" 'data loaded)) 'rows) (list (hasheq 'id "ann")))
+  (check-equal? (hash-ref (call "run" (hasheq 'path "A1c.cql" 'files (hasheq 'A1c.cql cql) 'data loaded)) 'rows)
+                (hash-ref (call "run" (hasheq 'path "A1c.cql" 'files (hasheq 'A1c.cql cql) 'data data)) 'rows))
+  ;; a search reads the resources given (its index is built of them)
+  (check-equal? (map (lambda (r) (hash-ref r 'resource)) (hash-ref (call "query" (hasheq 'language "search" 'text "Observation?code=4548-4" 'data loaded)) 'rows))
+                '("Observation/a1"))
+  (check-equal? (map (lambda (r) (hash-ref r 'resource)) (hash-ref (call "query" (hasheq 'language "search" 'text "Observation?code=4548-4" 'data data)) 'rows))
+                '("Observation/a1"))
+  ;; a view's rows over loaded data are computed once and serve every statement after
+  (for ([_ 2])
+    (check-equal? (hash-ref (call "query" (hasheq 'language "sql" 'text "SELECT count(*) AS n, max(value) AS top FROM obs" 'files views 'data loaded)) 'rows)
+                  (list (hasheq 'n 1 'top 9.4))))
+  ;; other data in between is its own
+  (check-equal? (hash-ref (call "query" (hasheq 'language "view" 'text "SELECT id FROM Patient" 'data (list (hash-set patient 'id "bo")))) 'rows) (list (hasheq 'id "bo")))
+  (check-equal? (hash-ref (call "query" (hasheq 'language "view" 'text "SELECT id FROM Patient" 'data loaded)) 'rows) (list (hasheq 'id "ann")))
+  (check-regexp-match #rx"the data is loaded already" (message (call "load" (hasheq 'data loaded))))
+  ;; let go, it names nothing; a key of another process's never did
+  (check-equal? (call "unload" (hasheq 'loaded key)) (hasheq 'unloaded #t))
+  (check-equal? (call "unload" (hasheq 'loaded key)) (hasheq 'unloaded #f))
+  (check-regexp-match #rx"no data is loaded as .* load it again" (message (call "query" (hasheq 'language "view" 'text "SELECT id FROM Patient" 'data loaded))))
+  (check-regexp-match #rx"no data is loaded as fhir-api-0.1" (message (call "query" (hasheq 'language "view" 'text "SELECT id FROM Patient" 'data (hasheq 'loaded "fhir-api-0.1")))))
+  ;; a place: read once, no count
+  (define dir (make-temporary-file "fhir-api-data-~a" 'directory))
+  (call-with-output-file (build-path dir "ann.json") (lambda (o) (write-json patient o)))
+  (define place (call "load" (hasheq 'data (path->string dir))))
+  (check-equal? (hash-ref place 'count) (json-null))
+  (delete-directory/files dir)                      ; read when it was loaded
+  (check-equal? (hash-ref (call "query" (hasheq 'language "view" 'text "SELECT id FROM Patient" 'data (hasheq 'loaded (hash-ref place 'loaded)))) 'rows)
+                (list (hasheq 'id "ann")))
+  (check-regexp-match #rx"^data: " (message (call "load" (hasheq 'data "/nonexistent/place")))))
+
+;; ---- warming: each step is a first call made early; a server that is not asked takes them ----------
+(let ([w (open-session)])
+  (for ([step (in-list (warm-steps w))]) (check-not-exn step))
+  (close-session! w))
+(let ([w (open-session)])
+  (define-values (in to-server) (make-pipe))
+  (define out (open-output-string))
+  (define server (thread (lambda () (serve w in out #:warm? #t))))
+  (sleep 0.6)                                       ; nobody asks: it warms
+  (check-true (positive? (hash-count (session-hubs w))) "a project was opened before any request")
+  (write-string "{\"id\":1,\"method\":\"version\"}\n" to-server)
+  (close-output-port to-server)
+  (check-not-false (sync/timeout 120 server) "the request is answered once the step in hand is done, and the server ends with its input")
+  (check-equal? (hash-ref (string->jsexpr (get-output-string out)) 'id) 1)
+  (close-session! w))
+(let ([w (open-session)])
+  (define out (open-output-string))
+  (serve w (open-input-string "") out #:warm? #f)
+  (check-equal? (hash-count (session-hubs w)) 0)
+  (close-session! w))
+
 ;; ---- many projects: the least recently used are closed, and come back when asked again -------------
 (for ([i (in-range 12)])
   (define r (call "compile" (hasheq 'files (hasheq 'p.fsh (format "Profile: Q~a\nParent: Patient\n" i)))))

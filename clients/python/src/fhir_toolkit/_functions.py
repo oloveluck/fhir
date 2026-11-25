@@ -8,7 +8,7 @@ its arguments as they are and returns the server's answer as plain JSON values;
 from typing import Any, Dict, Optional
 
 PROTOCOL = 1
-FUNCTIONS = ['compile', 'run', 'query', 'explain', 'fhirpath', 'translate', 'decompile', 'validate', 'transform', 'operation', 'stage', 'commit', 'guide', 'version']
+FUNCTIONS = ['compile', 'run', 'query', 'explain', 'fhirpath', 'translate', 'decompile', 'validate', 'load', 'unload', 'transform', 'operation', 'stage', 'commit', 'guide', 'version']
 
 
 class Functions:
@@ -153,20 +153,25 @@ class Functions:
         }
         return self._call('explain', {k: v for k, v in arguments.items() if v is not None})
 
-    def fhirpath(self, expression: str, resource: Dict[str, Any]) -> Any:
-        """A FHIRPath expression evaluated over one resource.
+    def fhirpath(self, expression: str, *, resource: Optional[Dict[str, Any]] = None, resources: Optional[Any] = None) -> Any:
+        """A FHIRPath expression evaluated over one resource, or over each of several in one
+        call.
 
         Args:
             expression: the FHIRPath expression
             resource: the resource it is evaluated over
+            resources: in place of `resource`: several resources (a list, or a Bundle), each
+                evaluated on its own
 
         Returns:
-            {values: [json…]}: FHIR JSON for an element, a JSON number, boolean or string for a
-                System value
+            {values: [json…]} for `resource`: FHIR JSON for an element, a JSON number, boolean
+                or string for a System value; {results: [[json…]…]} for `resources`: the values
+                for each, in the order given
         """
         arguments = {
             'expression': expression,
             'resource': resource,
+            'resources': resources,
         }
         return self._call('fhirpath', {k: v for k, v in arguments.items() if v is not None})
 
@@ -226,12 +231,14 @@ class Functions:
         }
         return self._call('decompile', {k: v for k, v in arguments.items() if v is not None})
 
-    def validate(self, resource: Dict[str, Any], *, profile: Optional[str] = None, files: Optional[Dict[str, str]] = None, directory: Optional[str] = None, canonical: Optional[str] = None) -> Any:
+    def validate(self, *, resource: Optional[Dict[str, Any]] = None, resources: Optional[Any] = None, profile: Optional[str] = None, files: Optional[Dict[str, str]] = None, directory: Optional[str] = None, canonical: Optional[str] = None) -> Any:
         """A resource held to its type, the profiles it claims and one more when named; profiles
         the project defines are in context.
 
         Args:
             resource: the resource to validate
+            resources: in place of `resource`: several resources (a list, or a Bundle), each
+                validated on its own
             profile: a profile to hold it to as well: its canonical, or the id or name of one
                 the project defines
             files: the project: sources in any of the languages and FHIR JSON definitions, by
@@ -243,16 +250,59 @@ class Functions:
                 none (http://example.org otherwise); with `files`
 
         Returns:
-            an OperationOutcome
+            an OperationOutcome for `resource`; {outcomes: [OperationOutcome…]} for `resources`,
+                in the order given
         """
         arguments = {
             'resource': resource,
+            'resources': resources,
             'profile': profile,
             'files': files,
             'directory': directory,
             'canonical': canonical,
         }
         return self._call('validate', {k: v for k, v in arguments.items() if v is not None})
+
+    def load(self, data: Any, *, files: Optional[Dict[str, str]] = None, directory: Optional[str] = None, canonical: Optional[str] = None) -> Any:
+        """Data opened once and kept for the calls after it, so that a call need not give it
+        again: resources (held in memory), or a place (a directory or file of FHIR JSON is read
+        now; a store or a server is opened).
+
+        Args:
+            data: the resources, or a string naming where they are
+            files: the project: sources in any of the languages and FHIR JSON definitions, by
+                file name (`profiles.fsh`, `Screening.cql`, `intake.map`, `labs.vcl`, `bp.sof`,
+                `ValueSet-x.json`); what they define is in context for the call
+            directory: the project as a directory on disk, in place of `files` (its
+                workspace.yaml and sushi-config.yaml are read)
+            canonical: the base of the canonicals the project's files define when they state
+                none (http://example.org otherwise); with `files`
+
+        Returns:
+            {loaded: the key — give {loaded: key} as a later call's `data` —, count: how many
+                resources were given (null for a place)}
+        """
+        arguments = {
+            'data': data,
+            'files': files,
+            'directory': directory,
+            'canonical': canonical,
+        }
+        return self._call('load', {k: v for k, v in arguments.items() if v is not None})
+
+    def unload(self, loaded: str) -> Any:
+        """Data kept by load, let go.
+
+        Args:
+            loaded: the key load answered
+
+        Returns:
+            {unloaded: was something kept under the key}
+        """
+        arguments = {
+            'loaded': loaded,
+        }
+        return self._call('unload', {k: v for k, v in arguments.items() if v is not None})
 
     def transform(self, map: str, source: Dict[str, Any], *, files: Optional[Dict[str, str]] = None, directory: Optional[str] = None, canonical: Optional[str] = None) -> Any:
         """A resource converted by a map written in the mapping language; structures the project

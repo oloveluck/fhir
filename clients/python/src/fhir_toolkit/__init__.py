@@ -13,11 +13,11 @@ from ._server import COMMAND_VARIABLE, find_command
 from .errors import Diagnostic, FhirError, ToolkitNotFound
 from .models import plain, typed
 from .results import Commit, Compiled, Outcome, Stage, Table
-from .toolkit import Project, Toolkit
+from .toolkit import Data, Project, Toolkit
 
 __version__ = "0.1.0"
 
 __all__ = [
-    "Toolkit", "Project", "Table", "Compiled", "Outcome", "Stage", "Commit", "plain", "typed", "Diagnostic", "FhirError", "ToolkitNotFound",
+    "Toolkit", "Project", "Data", "Table", "Compiled", "Outcome", "Stage", "Commit", "plain", "typed", "Diagnostic", "FhirError", "ToolkitNotFound",
     "find_command", "COMMAND_VARIABLE", "FUNCTIONS", "PROTOCOL", "__version__",
 ]

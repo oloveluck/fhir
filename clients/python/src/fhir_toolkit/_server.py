@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from ._functions import PROTOCOL
 from .errors import Diagnostic, FhirError, ToolkitNotFound
+from .models import plain
 
 #: the environment variable that names the command to start, e.g. "raco fhir-api"
 COMMAND_VARIABLE = "FHIR_API_COMMAND"
@@ -52,30 +53,45 @@ def find_command(command: Optional[Sequence[str]] = None) -> List[str]:
 
 
 class Server:
-    """One process of the function server, started at the first call.
+    """One process of the function server.
 
-    A process reads one version of FHIR; calls are answered one at a time
-    (a lock makes it safe to share between threads).
+    It is started when this is made, without waiting for it: the process
+    loads while the program goes on, so the first call waits less (or not at
+    all). `start=False` leaves it until the first call. A process reads one
+    version of FHIR; calls are answered one at a time (a lock makes it safe
+    to share between threads).
     """
 
-    def __init__(self, fhir_version: str = "4.0.1", packages: Sequence[str] = (), command: Optional[Sequence[str]] = None):
+    def __init__(self, fhir_version: str = "4.0.1", packages: Sequence[str] = (), command: Optional[Sequence[str]] = None,
+                 start: bool = True):
         self.fhir_version = fhir_version
         self.packages = list(packages)
         self._command = command
         self._process: Optional[subprocess.Popen] = None
+        self._greeted = False
         self._lock = threading.Lock()
         self._id = 0
+        #: how many processes this has started: what one process was told (data it loaded) is
+        #: gone with it, and a holder of such a thing compares this number to know
+        self.generation = 0
+        if start:
+            with self._lock:
+                self._spawn()
 
     # ---- the process --------------------------------------------------------------------------
-    def _start(self) -> subprocess.Popen:
+    def _spawn(self) -> None:
+        """Start the process and return at once; `_greet` (the first call) checks what it is."""
         arguments = find_command(self._command) + ["serve", "--fhir-version", self.fhir_version]
         for package in self.packages:
             arguments += ["--package", str(package)]
         try:
-            process = subprocess.Popen(arguments, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding="utf-8")
+            self._process = subprocess.Popen(arguments, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding="utf-8")
         except OSError as e:
             raise ToolkitNotFound("could not start the FHIR toolkit (%s): %s" % (" ".join(arguments), e)) from e
-        self._process = process
+        self._greeted = False
+        self.generation += 1
+
+    def _greet(self) -> None:
         version = self._exchange("version", {})
         if version.get("protocol") != PROTOCOL:
             self.close()
@@ -83,7 +99,7 @@ class Server:
                 "the toolkit that was started speaks protocol %s and this package protocol %s: install matching versions"
                 % (version.get("protocol"), PROTOCOL)
             )
-        return process
+        self._greeted = True
 
     @property
     def running(self) -> bool:
@@ -111,8 +127,10 @@ class Server:
         assert process is not None and process.stdin is not None and process.stdout is not None
         self._id += 1
         request = {"jsonrpc": "2.0", "id": self._id, "method": name, "params": arguments}
+        # an object of a model library among the arguments goes as the JSON it writes
+        text = json.dumps(request, default=plain, separators=(",", ":"))
         try:
-            process.stdin.write(json.dumps(request) + "\n")
+            process.stdin.write(text + "\n")
             process.stdin.flush()
             line = process.stdout.readline()
         except (BrokenPipeError, OSError, ValueError):
@@ -139,5 +157,7 @@ class Server:
         with self._lock:
             if not self.running:
                 self.close()  # a process that ended by itself: its pipes are closed before another starts
-                self._start()
+                self._spawn()
+            if not self._greeted:
+                self._greet()
             return self._exchange(name, arguments)

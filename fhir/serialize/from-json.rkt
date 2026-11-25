@@ -15,7 +15,8 @@
 
 (require racket/contract
          racket/string
-         fhir/model/node
+         (except-in fhir/model/node lazy-fhir)
+         (only-in (submod fhir/model/node unchecked) lazy-fhir)   ; made for every node read: see node.rkt
          fhir/result/result
          "read-json.rkt"                             ; jnum (precision-preserving numbers) + strip-jnum
          (only-in fhir/model/schema
@@ -107,7 +108,43 @@
 ;; lenient-fields : type schema object -> (values fields Drops)   the fields that read, and the keys
 ;; of the object left out with their JSON (a key the type does not have, a value that does not
 ;; read, with its `_key` sibling; a value-less `_key` that does not read). A JSON null is not data.
+;; One pass over the object (it is what every lenient read of every node runs): what `field-pairs`
+;; answers leniently, sorted as it is read into the fields, the keys the type lacks and the values
+;; that failed — in the order the passes over its pairs gave them (`lenient-fields/pairs`, kept
+;; below as the definition; the test holds the two equal).
 (define (lenient-fields type sch js)
+  (define ftindex (field-index type sch))
+  (define unders (underscore-map js))
+  (define (sibling-of k) (let ([u (underscore-of k)]) (if (hash-has-key? js u) (list (cons u (hash-ref js u))) '())))
+  ;; the object's own keys: a field that reads, a key the type lacks, a value that does not read
+  (define-values (fields unknown failed)
+    (for/fold ([fields (hasheq)] [unknown '()] [failed '()])
+              ([(k v) (in-hash js)]
+               #:unless (eq? k 'resourceType)
+               #:unless (underscore-key? k))
+      (define spec (hash-ref ftindex k #f))
+      (cond
+        [(not spec) (values fields (append (reverse (cons (cons k v) (sibling-of k))) unknown) failed)]
+        [else
+         (define r (parse-field (car spec) (cdr spec) v (hash-ref unders k #f) #t))
+         (if (ok? r)
+             (values (hash-set fields k (ok-value r)) unknown failed)
+             (values fields unknown (append (reverse (cons (cons k v) (sibling-of k))) failed)))])))
+  ;; value-less primitives: a `_field` sibling whose base name has NO matching value key
+  (define-values (fields* failed*)
+    (for/fold ([fields fields] [failed failed])
+              ([(base sibval) (in-hash unders)]
+               #:unless (hash-has-key? js base))
+      (define spec (hash-ref ftindex base #f))
+      (define r (and spec (parse-absent (car spec) (cdr spec) sibval #t)))
+      (if (and r (ok? r))
+          (values (hash-set fields base (ok-value r)) failed)
+          (values fields (cons (cons (underscore-of base) (hash-ref js (underscore-of base))) failed)))))
+  (values fields* (filter (lambda (d) (not (eq? (cdr d) 'null))) (append (reverse unknown) (reverse failed*)))))
+
+;; lenient-fields/pairs : the same, as passes over `field-pairs`: the definition lenient-fields is
+;; held to
+(define (lenient-fields/pairs type sch js)
   (define pairs (field-pairs type sch js #t))
   (define ftindex (field-index type sch))
   (define fields
@@ -291,4 +328,19 @@
   (check-true (err? (parse (hasheq 'status "final" 'when "2020-13-01"))))
   ;; round-trip: parse ∘ serialize ∘ parse is the identity on the jsexpr view
   (define js1 (node->jsexpr n))
-  (check-equal? (node->jsexpr (ok-value (from-json js1 #:type 'DemoRes))) js1))
+  (check-equal? (node->jsexpr (ok-value (from-json js1 #:type 'DemoRes))) js1)
+  ;; the one-pass lenient reader answers what the passes over field-pairs do: the same fields and
+  ;; the same drops in the same order — for a key the type lacks (with its `_` sibling), a value
+  ;; that does not read (with its sibling), a value-less `_key` that reads and one that names no
+  ;; element, a JSON null, and nothing wrong at all
+  (define demo (type-schema-of 'DemoRes))
+  (for ([js (in-list (list (hasheq 'status "final" 'given (list "a" "b") 'value (jnum "1.50"))
+                           (hasheq 'status "final" 'nope 1 '_nope (hasheq 'id "n") 'zzz (hasheq 'a 1) 'aaa 'null)
+                           (hasheq 'status "final" 'when "2020-13-01" '_when (hasheq 'id "w") 'value "x")
+                           (hasheq 'status "final" '_when (hasheq 'id "only") '_nowhere (hasheq 'id "x") '_given (list 'null))
+                           (hasheq 'resourceType "DemoRes" 'status 'null 'given "not a list" '_given (list (hasheq 'id "g")))
+                           (hasheq)))])
+    (define-values (fields drops) (lenient-fields 'DemoRes demo js))
+    (define-values (fields/pairs drops/pairs) (lenient-fields/pairs 'DemoRes demo js))
+    (check-equal? fields fields/pairs)
+    (check-equal? drops drops/pairs)))

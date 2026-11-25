@@ -228,20 +228,29 @@
 ;; child-issues : Index path ElementDef jsexpr tx -> (listof Issue)   one child element of `obj`: its
 ;; matched keys (choice variants narrowed), cardinality, empty arrays, values, and the slicing on it
 (define (child-issues idx path ce obj tx)
-  (define leaf (elem-leaf ce path))
+  (define facts (leaf-facts ce path))
+  (define leaf (vector-ref facts 1))
+  (define key (vector-ref facts 2))               ; the one key of a leaf that is no choice
   ;; keys aimed at this element with an ALLOWED variant (a disallowed choice variant is left for
-  ;; unknown-element-issues and is not counted toward cardinality)
-  (define matched (for/list ([k (in-list (hash-keys obj))] #:when (allowed-key? leaf ce k)) k))
+  ;; unknown-element-issues and is not counted toward cardinality). A leaf that is no choice has
+  ;; one key, looked up; a choice's keys are found among the object's.
+  (define matched
+    (if key
+        (if (hash-has-key? obj key) (list key) '())
+        (for/list ([k (in-list (hash-keys obj))] #:when (allowed-key? leaf ce k)) k)))
   (define instances (append-map (lambda (k) (instances-of (hash-ref obj k))) matched))
   ;; a primitive carried ONLY by its `_name` sibling (extensions, no value — e.g. a data-absent-reason
   ;; on `_performedDateTime`) is PRESENT for cardinality (https://hl7.org/fhir/json.html#primitive)
   (define extension-only
-    (for*/list ([k (in-list (hash-keys obj))]
-                [n (in-value (symbol->string k))]
-                #:when (and (> (string-length n) 1) (char=? (string-ref n 0) #\_))
-                [base (in-value (string->symbol (substring n 1)))]
-                #:when (and (not (hash-has-key? obj base)) (allowed-key? leaf ce base)))
-      (hash-ref obj k)))
+    (if key
+        (let ([under (vector-ref facts 3)])
+          (if (and (hash-has-key? obj under) (not (hash-has-key? obj key))) (list (hash-ref obj under)) '()))
+        (for*/list ([k (in-list (hash-keys obj))]
+                    [n (in-value (symbol->string k))]
+                    #:when (and (> (string-length n) 1) (char=? (string-ref n 0) #\_))
+                    [base (in-value (string->symbol (substring n 1)))]
+                    #:when (and (not (hash-has-key? obj base)) (allowed-key? leaf ce base)))
+          (hash-ref obj k))))
   (define present (+ (length instances) (for/sum ([v (in-list extension-only)]) (length (instances-of v)))))
   (append
    ;; an empty JSON array is never valid — the property should be absent if it has no values
@@ -403,6 +412,8 @@
   (for/list ([k (in-list (hash-keys obj))]
              #:unless (or (eq? k 'resourceType)
                           (char=? (string-ref (symbol->string k) 0) #\_)   ; primitive _field sibling
+                          ;; the key of a child that is no choice
+                          (for/or ([ce (in-list children)]) (eq? k (leaf-key ce path)))
                           ;; a disallowed choice variant (allowed-key? #f) is NOT known -> flagged here
                           (for/or ([ce (in-list children)]) (allowed-key? (elem-leaf ce path) ce k))))
     (issue "error" "structure" (string-append path "." (symbol->string k))
@@ -1103,6 +1114,17 @@
 ;; A Tx is a tx-service (fhirpath/terminology: closures answering typed nodes) or a terminology
 ;; resolver ((url [version]) -> resource | #f, fhir-tx), asked directly.
 (define (tx-member? tx vs code system)
+  (if (procedure? tx)
+      ;; a resolver answers the same for the same question for as long as it lives (it is built
+      ;; over what its data source, the registry and the packages held then): the answer is kept
+      ;; with it, so a thousand resources with one code ask once
+      (hash-ref! (hash-ref! resolver-verdicts tx make-hash) (list vs code system)
+                 (lambda () (decide-member tx vs code system)))
+      (decide-member tx vs code system)))
+(define resolver-verdicts (make-weak-hasheq))     ; resolver -> (hash (list vs code system) -> Membership)
+
+;; decide-member : tx value-set-url code system|#f -> Membership
+(define (decide-member tx vs code system)
   (with-handlers ([exn:fail? (lambda (_) 'unknown)])
     ;; the expansion and the verdict as JSON. A resolver is asked at the JSON level, so the answer
     ;; needs no type tower: through the service's typed nodes a program that had loaded no FHIR
@@ -1161,9 +1183,26 @@
 
 ;; ---- small helpers ---------------------------------------------------------------------------
 ;; elem-leaf : ElementDef parent-path -> leaf   the element's own step ("value[x]")
-(define (elem-leaf ce parent)
-  (define p (hash-ref ce 'path))
-  (if (string-prefix? p (string-append parent ".")) (substring p (add1 (string-length parent))) p))
+;; An element is asked this for every object validated against it, under the one parent it has:
+;; the answer is kept with the element (and asked again should the parent differ).
+(define (elem-leaf ce parent) (vector-ref (leaf-facts ce parent) 1))
+;; leaf-key : ElementDef parent-path -> symbol | #f   the JSON key of a leaf that is no choice
+;; (`birthDate`), #f for a choice (`value[x]`: its keys are the base and a type)
+(define (leaf-key ce parent) (vector-ref (leaf-facts ce parent) 2))
+;; leaf-facts : ElementDef parent-path -> (vector parent leaf key|#f underscore-key|#f)
+(define leaves (make-weak-hasheq))
+(define (leaf-facts ce parent)
+  (define kept (hash-ref leaves ce #f))
+  (cond
+    [(and kept (let ([p (vector-ref kept 0)]) (or (eq? p parent) (string=? p parent)))) kept]
+    [else
+     (define p (hash-ref ce 'path))
+     (define leaf (if (string-prefix? p (string-append parent ".")) (substring p (add1 (string-length parent))) p))
+     (define facts (vector parent leaf
+                           (and (not (choice-leaf? leaf)) (string->symbol leaf))
+                           (and (not (choice-leaf? leaf)) (string->symbol (string-append "_" leaf)))))
+     (hash-set! leaves ce facts)
+     facts]))
 ;; child-loc : path leaf -> path
 (define (child-loc path leaf) (string-append path "." leaf))
 ;; choice-leaf? : leaf -> boolean
@@ -1216,10 +1255,19 @@
 ;; a fixed[x]/pattern[x] value on an element: scan keys prefixed "fixed"/"pattern"
 ;; choice-value : ElementDef prefix -> jsexpr | #f
 (define (choice-value ce prefix)
+  (cond [(equal? prefix "fixed") (car (fixed+pattern ce))]
+        [(equal? prefix "pattern") (cdr (fixed+pattern ce))]
+        [else (choice-value* ce prefix)]))
+(define (choice-value* ce prefix)
   (for/or ([(k v) (in-hash ce)])
     (define ks (symbol->string k))
     (and (string-prefix? ks prefix) (> (string-length ks) (string-length prefix))
          (char-upper-case? (string-ref ks (string-length prefix))) v)))
+;; fixed+pattern : ElementDef -> (cons fixed|#f pattern|#f)   an element's fixed[x] and pattern[x],
+;; found once (every value of the element is held to them)
+(define fixed+patterns (make-weak-hasheq))
+(define (fixed+pattern ce)
+  (hash-ref! fixed+patterns ce (lambda () (cons (choice-value* ce "fixed") (choice-value* ce "pattern")))))
 
 ;; coded values for binding: 'code scalar -> (#f . code); Coding -> (system . code); CodeableConcept -> its codings
 ;; coded-values : ElementDef value -> (listof (cons system|#f code))

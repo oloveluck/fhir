@@ -55,6 +55,9 @@
   ;; functions->jsexpr : -> jsexpr   the table as data: each function with its parameters as a JSON Schema
   [functions->jsexpr (-> jsexpr?)]
   [functions->text (-> string?)]
+  ;; warm-steps : session -> (listof (-> any))   what a process's first calls each wait for, as
+  ;; steps a server takes while nobody is asking (server.rkt), most likely needed first
+  [warm-steps (-> session? (listof (-> any)))]
   ;; functions-json-text : -> string   the table as the text kept in clients/functions.json: the
   ;; same for the same table (keys by name, a value to a line)
   [functions-json-text (-> string?)]
@@ -87,14 +90,21 @@
 (define-runtime-module-path-index fml-structuremap 'fml/structuremap)
 (define-runtime-module-path-index vcl-decompile 'vcl/decompile)
 (define-runtime-module-path-index sof-decompile 'sql-on-fhir/decompile)
+(define-runtime-module-path-index conformance-operations 'fhir/conformance/operations)
 (define-runtime-module-path-index r4-tower 'fhir/r4/schemas)
 (define-runtime-module-path-index r5-tower 'fhir/r5/schemas)
 
-;; from : module name -> value   the module's export, or a user error naming the package to install
+;; from : module name -> value   the module's export, or a user error naming the package to install.
+;; Looked up once: `dynamic-require` resolves the module's name on disk at every call (2.3 ms each,
+;; which was all but 0.03 ms of a FHIRPath call).
+(define exports (make-hasheq))                  ; module path index -> (hasheq name -> value)
 (define (from module name)
-  (with-handlers ([exn:fail:filesystem:missing-module?
-                   (lambda (e) (raise-user-error 'fhir-api "this needs a package that is not installed: ~a" (exn-message e)))])
-    (dynamic-require module name)))
+  (define names (hash-ref! exports module make-hasheq))
+  (hash-ref! names name
+             (lambda ()
+               (with-handlers ([exn:fail:filesystem:missing-module?
+                                (lambda (e) (raise-user-error 'fhir-api "this needs a package that is not installed: ~a" (exn-message e)))])
+                 (dynamic-require module name)))))
 
 ;; ---- arguments ---------------------------------------------------------------------------------
 (define (arg a name) (let ([v (hash-ref a name #f)]) (if (eq? v 'null) #f v)))
@@ -202,9 +212,14 @@
 
 ;; tower! : session -> void   the session's FHIR types, loaded and pinned (a function that needs no
 ;; project reads typed resources too)
+(define towers (make-hash))                     ; FHIR version -> #t, once its types are loaded and pinned
 (define (tower! s)
-  (dynamic-require (if (equal? (session-fhir-version s) "4.0.1") r4-tower r5-tower) #f)
-  (pin-registered-types!))
+  (hash-ref! towers (session-fhir-version s)
+             (lambda ()
+               (dynamic-require (if (equal? (session-fhir-version s) "4.0.1") r4-tower r5-tower) #f)
+               (pin-registered-types!)
+               #t))
+  (void))
 
 ;; ---- the functions ------------------------------------------------------------------------------
 ;; the same resource is listed once: a map beside FSH is found by fsh's project and by fml's support
@@ -233,12 +248,25 @@
 (define (run-explain s a)
   (in-project s a (lambda (h) (hub-explain h (arg a 'path) (arg a 'subject) (run-options a)))))
 
+;; run-fhirpath : one expression over one resource ({values}), or over each of several in one call
+;; ({results}: a list of values for each resource, in the order given)
 (define (run-fhirpath s a)
   (tower! s)
-  (define node (from-json (arg a 'resource) #:lenient? #t))
-  (unless (ok? node) (raise-user-error 'fhirpath "the resource does not read as FHIR ~a" (session-fhir-version s)))
+  (define one (arg a 'resource))
+  (define several (arg a 'resources))
+  (unless (if one (not several) several)
+    (raise-user-error 'fhirpath "give `resource` (one) or `resources` (several)"))
   (define ast ((from fhirpath-parse 'parse-fhirpath) (arg a 'expression)))
-  (hasheq 'values (map value-json ((from fhirpath-eval 'eval-fhirpath) ast (list (ok-value node))))))
+  (define eval-fhirpath (from fhirpath-eval 'eval-fhirpath))
+  ;; values-of : jsexpr natural|#f -> (listof jsexpr)
+  (define (values-of r i)
+    (define node (from-json r #:lenient? #t))
+    (unless (ok? node)
+      (raise-user-error 'fhirpath "~a does not read as FHIR ~a" (if i (format "resource ~a" i) "the resource") (session-fhir-version s)))
+    (map value-json (eval-fhirpath ast (list (ok-value node)))))
+  (if one
+      (hasheq 'values (values-of one #f))
+      (hasheq 'results (for/list ([r (in-list (given-resources several))] [i (in-naturals)]) (values-of r i)))))
 
 ;; value-json : FHIRPath item -> jsexpr   as JSON holds it: FHIR JSON for an element, a number, a
 ;; boolean, a string — and a date, dateTime or time as FHIR JSON writes one (`1980-02-28`, not the
@@ -318,11 +346,33 @@
              (hash-ref r 'url)))
       named))
 
+;; run-validate : one resource (its OperationOutcome), or each of several in one call ({outcomes})
 (define (run-validate s a)
+  (define one (arg a 'resource))
+  (define several (arg a 'resources))
+  (unless (if one (not several) several)
+    (raise-user-error 'validate "give `resource` (one) or `resources` (several)"))
   (in-project s a
     (lambda (h)
       (define inputs (if (arg a 'profile) (hasheq 'profile (profile-canonical h (arg a 'profile))) (hasheq)))
-      (with-hub h (lambda () (apply-json (operation "$validate") inputs (arg a 'resource)))))))
+      ;; its own module, asked directly: `(operation "$validate")` loads every package's operations
+      ;; to find it (0.3 s of a process's first validation)
+      (define validate (from conformance-operations '$validate))
+      (with-hub h
+        (lambda ()
+          (if one
+              (apply-json validate inputs one)
+              (hasheq 'outcomes (for/list ([r (in-list (given-resources several))]) (apply-json validate inputs r)))))))))
+
+;; run-load : data opened once and kept: resources given (held in memory), or a place (a directory
+;; or file is read now; a store or server is opened). A later call names it as {loaded: key}.
+(define (run-load s a)
+  (define h (project-of s a))
+  (define-values (key count) (load-data! s h (arg a 'data)))
+  (hasheq 'loaded key 'count (or count 'null)))
+
+(define (run-unload s a)
+  (hasheq 'unloaded (unload-data! s (arg a 'loaded))))
 
 ;; run-transform : the map is checked against its structures first (an element the target lacks is
 ;; an error at its rule: run unchecked, `tgt.gendr = g` wrote a `gendr` into the result), then run
@@ -429,9 +479,11 @@
                project (list p-data))
        "an object, by language"
        run-explain)
-   (fn "fhirpath" "A FHIRPath expression evaluated over one resource."
-       (list (param "expression" 'string #t "the FHIRPath expression") (param "resource" 'resource #t "the resource it is evaluated over"))
-       "{values: [json…]}: FHIR JSON for an element, a JSON number, boolean or string for a System value"
+   (fn "fhirpath" "A FHIRPath expression evaluated over one resource, or over each of several in one call."
+       (list (param "expression" 'string #t "the FHIRPath expression")
+             (param "resource" 'resource #f "the resource it is evaluated over")
+             (param "resources" 'resources #f "in place of `resource`: several resources (a list, or a Bundle), each evaluated on its own"))
+       "{values: [json…]} for `resource`: FHIR JSON for an element, a JSON number, boolean or string for a System value; {results: [[json…]…]} for `resources`: the values for each, in the order given"
        run-fhirpath)
    (fn "translate" "A CQL library translated to ELM, with every translation error and warning; includes are found in the project, then among the libraries the toolkit carries."
        (append (list (param "text" 'string #t "the library's CQL") (param "name" 'string #f "a file name for its problems (library.cql otherwise)")) project)
@@ -442,9 +494,20 @@
        "{language, text}"
        run-decompile)
    (fn "validate" "A resource held to its type, the profiles it claims and one more when named; profiles the project defines are in context."
-       (append (list (param "resource" 'resource #t "the resource to validate") (param "profile" 'string #f "a profile to hold it to as well: its canonical, or the id or name of one the project defines")) project)
-       "an OperationOutcome"
+       (append (list (param "resource" 'resource #f "the resource to validate")
+                     (param "resources" 'resources #f "in place of `resource`: several resources (a list, or a Bundle), each validated on its own")
+                     (param "profile" 'string #f "a profile to hold it to as well: its canonical, or the id or name of one the project defines"))
+               project)
+       "an OperationOutcome for `resource`; {outcomes: [OperationOutcome…]} for `resources`, in the order given"
        run-validate)
+   (fn "load" "Data opened once and kept for the calls after it, so that a call need not give it again: resources (held in memory), or a place (a directory or file of FHIR JSON is read now; a store or a server is opened)."
+       (append (list (param "data" 'data #t "the resources, or a string naming where they are")) project)
+       "{loaded: the key — give {loaded: key} as a later call's `data` —, count: how many resources were given (null for a place)}"
+       run-load)
+   (fn "unload" "Data kept by load, let go."
+       (list (param "loaded" 'string #t "the key load answered"))
+       "{unloaded: was something kept under the key}"
+       run-unload)
    (fn "transform" "A resource converted by a map written in the mapping language; structures the project defines (logical models, profiles) are in context."
        (append (list (param "map" 'string #t "the map's text") (param "source" 'resource #t "the resource to convert")) project)
        "the resulting resource"
@@ -483,6 +546,24 @@
        run-version)))
 
 (define (function-named name) (findf (lambda (f) (equal? (fn-name f) name)) functions))
+
+;; ---- warming ------------------------------------------------------------------------------------
+;; The first call of each kind waits for what only it needs loaded: the FHIR types (0.3 s), the
+;; packages' definitions and terminology read and indexed (a first validation: about a second),
+;; the view engine, CQL's translator. Each step here is one such first call made of a small
+;; resource, so that a process that has had a moment to itself answers its first real call as
+;; fast as its hundredth. They load and index; what they answer is dropped.
+(define (warm-steps s)
+  (define patient (hasheq 'resourceType "Patient" 'id "warm" 'gender "female" 'birthDate "1980-02-28"
+                          'name (list (hasheq 'family "Warm"))))
+  (define (step name args) (lambda () ((fn-run (function-named name)) s args)))
+  (list (step "fhirpath" (hasheq 'expression "name.family.first()" 'resource patient))
+        (step "validate" (hasheq 'resource patient))
+        (step "query" (hasheq 'language "view" 'text "SELECT id FROM Patient" 'data (list patient)))
+        (step "query" (hasheq 'language "search" 'text "Patient?gender=female" 'data (list patient)))
+        (step "compile" (hasheq 'files (hasheq 'warm.fsh "Profile: WarmPatient\nParent: Patient\n* birthDate 1..1\n")))
+        (step "run" (hasheq 'path "Warm.cql" 'data (list patient)
+                            'files (hasheq 'Warm.cql "library Warm version '1'\nusing FHIR version '4.0.1'\ninclude FHIRHelpers version '4.0.1'\ncontext Patient\ndefine \"Is Female\": Patient.gender = 'female'\n")))))
 
 ;; ---- the table as data ---------------------------------------------------------------------------
 ;; param-schema : Param -> jsexpr   a JSON Schema for the value
@@ -552,9 +633,9 @@
   ;; arguments held to the table: an unknown name, a missing one, a value of another type
   (define f (function-named "fhirpath"))
   (check-equal? (argument-problems f (hasheq 'expression "name" 'resource (hasheq))) '())
-  (check-regexp-match #rx"`expresion` is not a parameter of fhirpath [(]it takes: expression, resource[)]"
+  (check-regexp-match #rx"`expresion` is not a parameter of fhirpath [(]it takes: expression, resource, resources[)]"
                       (car (argument-problems f (hasheq 'expresion "name" 'resource (hasheq)))))
-  (check-regexp-match #rx"fhirpath needs `resource`" (car (argument-problems f (hasheq 'expression "name"))))
+  (check-regexp-match #rx"fhirpath needs `expression`" (car (argument-problems f (hasheq 'resource (hasheq)))))
   (check-regexp-match #rx"`resource` is a FHIR resource" (car (argument-problems f (hasheq 'expression "name" 'resource "x"))))
   (check-regexp-match #rx"`files` is an object of file name -> text"
                       (car (argument-problems (function-named "compile") (hasheq 'files (hasheq 'a.fsh 1)))))

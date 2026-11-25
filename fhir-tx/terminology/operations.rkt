@@ -11,7 +11,7 @@
 ;;; ConceptMaps, then `current-sd-packages` (indexed once per package list). Results are FHIR JSON.
 
 (require (only-in fhir/canonical canonical-url)
-         racket/contract racket/list (only-in fhir/registry registered-resources)
+         racket/contract racket/list (only-in fhir/registry registered-resources registry-generation)
          (only-in fhir/r5/operations expand-definition ValueSet-validate-code-definition
                   CodeSystem-validate-code-definition lookup-definition translate-definition
                   subsumes-definition find-matches-definition closure-definition)
@@ -42,9 +42,27 @@
   (hash-ref! package-resolvers pkgs (lambda () (packages->resolver pkgs))))
 
 ;; current-terminology-resolver : [extra-resources] -> (url [version] -> resource|#f)
+;; For a data source that is read whole (resources in memory, a directory read once), with nothing
+;; extra, the resolver is the same object for as long as the data source, the registry and the
+;; packages are the same: what is remembered per resolver (expansions, here; a code's membership,
+;; in the validator) then serves every call over that data, where each call had worked it out again.
 (define terminology-types '("ValueSet" "CodeSystem" "ConceptMap"))
+(define kept-resolvers (make-weak-hasheq))        ; data source -> (vector generation packages resolver)
 (define (current-terminology-resolver [extra '()])
   (define ds (current-data-source))
+  (cond
+    [(or (pair? extra) (data-source-search ds)) (terminology-resolver ds extra)]
+    [else
+     (define kept (hash-ref kept-resolvers ds #f))
+     (define pkgs (sd-context))
+     (if (and kept (eqv? (vector-ref kept 0) (registry-generation)) (equal? (vector-ref kept 1) pkgs))
+         (vector-ref kept 2)
+         (let ([r (terminology-resolver ds '())])
+           (hash-set! kept-resolvers ds (vector (registry-generation) pkgs r))
+           r))]))
+
+;; terminology-resolver : data-source extra-resources -> resolver
+(define (terminology-resolver ds extra)
   (define search (data-source-search ds))
   (define given (resources->resolver extra))
   (define local
