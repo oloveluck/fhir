@@ -2,7 +2,7 @@
 # Written by release/lock-family.sh; read by release/install-family.sh.
 fhirpath 0076d5e3a0ea0012922a379cd4e83e0b085e7911
 vcl 502e35e49daf90a18590f81b5f21149381ace761
-cql 09dca4c99568709b173cfc08ee79ad3f130dc1c9
+cql ad555d167956bb76cc8c4a94f4d3ebb96ea6ff47
 fml 52a0055649ee7db9445db9cc0a73e59ec350e846
 fsh 73b25b4e2a0084ec4c61965e5b9a77b60c68788a
-sql-on-fhir 5389ac3bfb5bfdb6235b059dab1dc9e636a8c4d6
+sql-on-fhir a238029105ba841b9b379e909da44bbf5b20b3f7

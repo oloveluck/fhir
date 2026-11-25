@@ -37,7 +37,8 @@
          (only-in fhir/mcp/tools apply-json)
          (only-in fhir/mcp/resources learn-topics learn-text)
          (only-in fhir/operation operation)
-         (only-in fhir/diagnostic diagnostic loc diagnostic->jsexpr diagnostic-severity diagnostic-message)
+         (only-in fhir/diagnostic diagnostic loc diagnostic->jsexpr diagnostic-severity diagnostic-message
+                  exn:fail:diagnostic? exn:fail:diagnostic-diagnostic)
          (only-in fhir/lang/workspace run-result-kind run-result-columns run-result-rows run-result-summary
                   workspace-language-of workspace-support ws-support-artifacts)
          (only-in fhir/serialize/from-json from-json)
@@ -147,7 +148,13 @@
 ;; in-project : session args (hub -> X) -> X   the call's project, over the call's data
 (define (in-project s a proc)
   (define h (project-of s a))
-  (with-data s h (arg a 'data) (lambda () (proc h))))
+  ;; a problem with a place in one of the project's files names the file as the project does (a
+  ;; project given as `files` is kept in a temporary directory, whose path means nothing to a caller)
+  (with-handlers ([exn:fail:diagnostic?
+                   (lambda (e)
+                     (raise (exn:fail:problems (shown-message h (exn-message e)) (exn-continuation-marks e)
+                                               (list (diagnostic-json h (exn:fail:diagnostic-diagnostic e))))))])
+    (with-data s h (arg a 'data) (lambda () (proc h)))))
 
 ;; shown-source : hub source -> string   a file of the project by its name there
 (define (shown-source h src)
@@ -156,11 +163,21 @@
   (define full (if (and (absolute-path? text) (file-exists? text)) (path->string (simplify-path text)) text))
   (if (string-prefix? full root) (substring full (string-length root)) text))
 
-;; diagnostic-json : hub diagnostic -> jsexpr
-(define (diagnostic-json h d)
-  (define js (diagnostic->jsexpr d))
+;; shown-message : hub string -> string   a message that names a file of the project by its place on
+;; disk ("constrained by profile X at /tmp/…/p-0843/profiles.fsh:3:3") names it as the project does
+(define (shown-message h message)
+  (string-replace message (path->string (path->directory-path (hub-root h))) ""))
+
+;; placed : hub jsexpr -> jsexpr   a problem as JSON, its file and message in the project's names
+(define (placed h js)
   (define src (hash-ref js 'source #f))
-  (if src (hash-set js 'source (shown-source h src)) js))
+  (define message (hash-ref js 'message #f))
+  (let* ([js (if src (hash-set js 'source (shown-source h src)) js)]
+         [js (if (string? message) (hash-set js 'message (shown-message h message)) js)])
+    js))
+
+;; diagnostic-json : hub diagnostic -> jsexpr
+(define (diagnostic-json h d) (placed h (diagnostic->jsexpr d)))
 
 ;; project-diagnostics : hub -> (listof jsexpr)   every problem of the project's files, and what
 ;; its configuration could not find (a package), as warnings
@@ -169,10 +186,13 @@
           (for/list ([w (in-list (hub-warnings h))])
             (hasheq 'lang "project" 'phase "configure" 'severity "warning" 'message w))))
 
-;; table-json : run-result -> jsexpr
-(define (table-json r)
+;; table-json : hub run-result -> jsexpr   the summary's problems name their file as the project does
+(define (table-json h r)
+  (define summary (run-result-summary r))
   (hasheq 'kind (run-result-kind r) 'columns (run-result-columns r) 'rows (run-result-rows r)
-          'summary (run-result-summary r)))
+          'summary (if (and (hash? summary) (list? (hash-ref summary 'problems #f)))
+                       (hash-set summary 'problems (for/list ([p (in-list (hash-ref summary 'problems))]) (if (hash? p) (placed h p) p)))
+                       summary)))
 
 ;; run-options : args -> Options (fhir/lang/workspace)
 (define (run-options a)
@@ -198,7 +218,7 @@
       (unless (file-exists? full) (raise-user-error 'run "no file ~a in the project" (arg a 'path)))
       (define lang (or (workspace-language-of full)
                        (raise-user-error 'run "~a is not a file of the toolkit's languages" (arg a 'path))))
-      (table-json (execute h lang full (file->string full) (run-options a))))))
+      (table-json h (execute h lang full (file->string full) (run-options a))))))
 
 ;; the languages a text is asked in without a file (fhir-mcp's query)
 (define query-languages
@@ -208,7 +228,7 @@
   (define lang (or (hash-ref query-languages (arg a 'language) #f)
                    (raise-user-error 'query "query takes ~a (got ~a)"
                                      (string-join (sort (hash-keys query-languages) string<?) ", ") (arg a 'language))))
-  (in-project s a (lambda (h) (table-json (execute h lang #f (arg a 'text) (run-options a))))))
+  (in-project s a (lambda (h) (table-json h (execute h lang #f (arg a 'text) (run-options a))))))
 
 (define (run-explain s a)
   (in-project s a (lambda (h) (hub-explain h (arg a 'path) (arg a 'subject) (run-options a)))))

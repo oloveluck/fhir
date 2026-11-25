@@ -49,7 +49,13 @@ case "$(uname -s)" in
   Linux)  library="libsqlite3.so.0"
           cc $options -fPIC -shared "$source_dir/sqlite3.c" -o "$work/$library" -lpthread -ldl -lm ;;
   Darwin) library="libsqlite3.0.dylib"
-          cc $options -dynamiclib "$source_dir/sqlite3.c" -o "$work/$library" -install_name "$library" ;;
+          # for the processor RACKET runs on, which is not always the machine's: an Intel Racket runs
+          # on Apple silicon, and loads no arm64 library (it then falls back to the system's SQLite)
+          case "$(racket -l racket/base -e '(display (path->string (system-library-subpath #f)))')" in
+            aarch64*) arch=arm64 ;;
+            *)        arch=x86_64 ;;
+          esac
+          cc $options -arch "$arch" -dynamiclib "$source_dir/sqlite3.c" -o "$work/$library" -install_name "$library" ;;
   MINGW*|MSYS*|CYGWIN*)
           library="sqlite3.dll"
           gcc $options -shared -static-libgcc "$source_dir/sqlite3.c" -o "$work/$library" ;;

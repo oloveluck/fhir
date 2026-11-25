@@ -71,6 +71,19 @@
     (for ([f (in-list '("release/install-family.sh" "build-tools.sh" "clients/python/build_wheel.py" "clients/python/test_wheel.py"))])
       (check-true (and (regexp-match? (regexp-quote f) wheels) #t) f)
       (check-true (or (file-exists? (build-path repository f)) (directory-exists? (build-path repository f))) f)))
+  (test-case "the clients are tested where the server is"
+    ;; each client's tests are run by the docs workflow, in the client's own directory
+    (check-regexp-match #rx"unittest discover -s clients/python/tests" text)
+    (check-regexp-match #rx"cd clients/typescript\n +npm ci[^\n]*\n +npm test" text)
+    (for ([f (in-list '("clients/functions.json" "clients/python/generate.py" "clients/typescript/generate.mjs"
+                        "clients/typescript/package.json" "clients/typescript/package-lock.json"))])
+      (check-true (file-exists? (build-path repository f)) f))
+    ;; what a release is made of is named, and is there
+    (define releasing (file->string (build-path repository "release" "RELEASING.md")))
+    (for ([f (in-list '("release/family.lock" "release/sqlite.lock" "release/build-sqlite.sh" "release/lock-family.sh"
+                        "clients/python/build_wheel.py" "clients/python/test_wheel.py" "clients/python/pyproject.toml"))])
+      (check-true (and (regexp-match? (regexp-quote f) releasing) #t) (format "RELEASING.md does not name ~a" f))
+      (check-true (file-exists? (build-path repository f)) f)))
   (test-case "every file the workflow names is there"
     (define named (remove-duplicates (regexp-match* #px"[a-z-]+/[A-Za-z0-9/_.-]*[.](?:rkt|scrbl|css)" text)))
     (check-true (> (length named) 30))

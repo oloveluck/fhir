@@ -7,8 +7,9 @@
 # The family's other repositories are installed at the commits release/family.lock names
 # (release/lock-family.sh writes it before a release is tagged). Each wheel is installed into a
 # clean environment and the client's tests are run against it with nothing else on the PATH
-# (clients/python/test_wheel.py). The wheels are kept as the run's artifacts; nothing is
-# published from here.
+# (clients/python/test_wheel.py). The wheels are kept as the run's artifacts. They are published
+# to the Python Package Index only from a version tag, and only once the repository says so
+# (the variable PUBLISH_TO_PYPI: release/RELEASING.md); that job has not run yet.
 name: wheels
 
 on:
@@ -42,6 +43,10 @@ jobs:
         os: [ubuntu-22.04, macos-15, macos-15-intel]
         experimental: [false]
         include:
+          # Racket for the runner's own processor: left to its default the setup installs the Intel
+          # build on Apple silicon too, and the wheel would be an Intel one under an arm64 name
+          - os: macos-15
+            racket: arm64
           # Windows has never been built: this job says how far it gets, and does not fail the run
           - os: windows-2022
             experimental: true
@@ -54,6 +59,7 @@ jobs:
           version: stable
           variant: CS
           distribution: full
+          architecture: ${{ matrix.racket || 'x64' }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -74,9 +80,27 @@ jobs:
           python -m pip install --upgrade pip wheel
           python clients/python/build_wheel.py dist --out wheels
       - name: Test the wheel where nothing else is installed
-        run: python clients/python/test_wheel.py wheels --with pandas
+        run: python clients/python/test_wheel.py wheels --with pandas --with ipython --with fhir.resources
       - uses: actions/upload-artifact@v4
         with:
           name: wheel-${{ matrix.os }}
           path: wheels/*.whl
           if-no-files-found: error
+
+  # The wheels of a tagged version, sent to the Python Package Index. Off until the repository
+  # variable PUBLISH_TO_PYPI is "true" and PyPI trusts this workflow (release/RELEASING.md): it
+  # uploads with a short-lived token PyPI gives this job, so no password is kept anywhere.
+  publish:
+    needs: wheel
+    if: startsWith(github.ref, 'refs/tags/v') && vars.PUBLISH_TO_PYPI == 'true'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1

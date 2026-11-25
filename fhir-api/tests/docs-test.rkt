@@ -28,6 +28,12 @@
 (check-regexp-match #rx"# \\['Ann Lee'\\]" text)
 (check-regexp-match #rx"# input.fsh:3:3: error: profile: P: `nmae` is not an element of Patient" text)
 (check-false (regexp-match? #rx"the example is in clients/python/README.md" text))
+;; among them: a write and its trail, a model object, a notebook cell with what it shows
+(check-regexp-match #rx"fhir.write\\(\\[patient, a1c\\]" text)
+(check-regexp-match #rx"# Observation a1c-1 2 fhir-api - corrected against the lab's report" text)
+(check-regexp-match #rx"from fhir.resources.R4B.patient import Patient" text)
+(check-regexp-match #rx"%%sof -d people" text)
+(check-regexp-match #rx"#   patient  percent" text)
 
 ;; every function of the table is listed
 (for ([f (in-list functions)])

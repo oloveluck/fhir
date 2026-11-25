@@ -25,7 +25,7 @@ never `../model/node.rkt`. Dependency order (base first):
 | `fhir-server` | `oloveluck/fhir` → `fhir-server/` | `capability/ http/ store/` (SQLite), IG-generated servers, `$evaluate-measure`, `server-cli.rkt` (`raco fhir-server`), server tests | fhir, fhir-spec, fhirpath, fhir-tx, fhir-validation, cql, db-lib |
 | `fhir-lsp` | `oloveluck/fhir` → `fhir-lsp/` | the Language Server Protocol server for the five languages: `lsp/jsonrpc.rkt` (framing), `lsp/diagnostics.rkt` (fhir/diagnostic -> LSP), `lsp/languages.rkt` (the catalogue over `fhir/lang/support`), `lsp/server.rkt` (state, dispatch, loop; hover/definition/completion/symbols handed to the document's language support with its project), `lsp-cli.rkt` (`raco fhir-lsp`, `check`) | fhir (+ the languages' `support` modules at run time) |
 | `fhir-mcp` | `oloveluck/fhir` → `fhir-mcp/` | the Model Context Protocol server over a WORKSPACE (below): `mcp/workspace.rkt` (the hub's contracted interface over `hub.rkt` — config, packages, data source, artifacts registered, results, stages — and a module per verb: `check.rkt`, `run.rkt`, `describe.rkt`, `apply.rkt`, `stage.rkt`), `mcp/verbs.rkt` (the nine tools), `learn/*.md` (`learn://` guides with the official references for the workspace, search and the languages that do not ship their own yet; a language's own guide comes from its repo, below; their examples compile in the test), `mcp/tools.rkt` (the Tool struct; operations loaded and applied to JSON; elements and definitions in the packages), `mcp/resources.rkt` (guides, packages, definitions, learn, results; prompts), `mcp/server.rkt` (dispatch, one JSON line per message), `mcp/init.rkt` (`raco fhir-mcp init`: workspace.yaml, data/, .mcp.json, CLAUDE.md), `mcp/search-index.rkt` (FHIR search over data that is files, through fhir-server's store, loaded on demand), `mcp/sql.rkt` (SQL over views and results, and over the workspace's store read-only), `mcp-cli.rkt` (`raco fhir-mcp [--workspace d]`, `init`, `guide`, `tools`, `call`), `mcp-main.rkt` + `mcp-daemon.rkt` (shell calls answered by a warm process) | fhir, fhir-lsp (+ the operations and languages at run time) |
-| `fhir-api` | `oloveluck/fhir` → `fhir-api/` | the toolkit's functions for programs in other languages: `api/functions.rkt` (THE TABLE: each function's name, parameters and answer, as data), `api/session.rkt` (a process's projects and data), `api/server.rkt` (JSON-RPC 2.0, a message to a line), `api-cli.rkt` (`raco fhir-api [serve]`, `functions [--json]`, `call`); the Python client is `clients/python` (below) | fhir, fhir-mcp (+ the languages at run time) |
+| `fhir-api` | `oloveluck/fhir` → `fhir-api/` | the toolkit's functions for programs in other languages: `api/functions.rkt` (THE TABLE: each function's name, parameters and answer, as data), `api/session.rkt` (a process's projects and data), `api/server.rkt` (JSON-RPC 2.0, a message to a line), `api-cli.rkt` (`raco fhir-api [serve]`, `functions [--json]`, `call`); the clients generated from the table are `clients/python` and `clients/typescript` (below) | fhir, fhir-mcp (+ the languages at run time) |
 | `sql-on-fhir` | `oloveluck/sql-on-fhir` | `#lang sql-on-fhir`: a source language for views (`.sof`: a SQL dialect with FHIRPath, defined in its LANGUAGE.md, compiled to ViewDefinitions and back), the ViewDefinition model and operation definitions GENERATED from the IG package (`target.rkt`, `model/`), the view engine, `$sql-run`/`$sql-export` as operations; `raco sql-on-fhir` | fhir, fhirpath (fhir-spec to regenerate) |
 | `fhir-examples` | `oloveluck/fhir-examples` | `examples/` (operations applied as procedures), `bench.rkt` (prose → FSH tasks from a published IG, scored), recorded runs; `raco spec-bench` | fhir, fhir-spec, fhir-validation, fsh, fml |
 
@@ -2962,9 +2962,93 @@ same thing later for typescript". So the split is a shared part and thin clients
   processors; each wheel is installed clean and tested. It uploads artifacts and publishes nothing.
   `fhir/tests/workflow-test.rkt` also holds: every package directory here is installed by the docs
   workflow, and the lock names exactly the repositories that workflow installs.
-- Not done, named: Windows (never built); publishing to PyPI (the owner's account); typed
-  resources (values are JSON); the workspace's stage/commit from Python; decimals keep no
-  trailing zeros through JSON; a TypeScript client (start from `clients/functions.json`).
+- Not done, named: publishing to PyPI (the owner's account); decimals keep no trailing zeros
+  through JSON. (Windows, typed resources, stage/commit and a TypeScript client: next section.)
+
+## The wheel built on CI; writing, models, notebooks; a second client (2026-11-25)
+The owner: "Continue with the next steps". Each was the list above; what CI and the examples
+showed on the way is the larger part.
+- **The wheels workflow had never run** (it starts on a tag or by hand, and this session cannot
+  dispatch a workflow). It also runs now on a push to `main` that changes the release machinery
+  (`wheels.yml`, `release/**`, `.gitattributes`, `build-tools.sh`, the wheel's builder, its test,
+  `pyproject.toml`) and on nothing else. `clients/python/test_wheel.py` is the clean-install test
+  as a program (a new environment, the wheel, the tests from an empty directory with that
+  environment's programs alone on the PATH; Windows keeps what a program there cannot start
+  without). Its first runs found, in order:
+  - **The store needs SQLite 3.45 and nothing guaranteed it.** Resources are kept as JSONB.
+    Racket's db library loads the SQLite it finds: the system's on Linux (Ubuntu 22.04: 3.37), and
+    on macOS the one RACKET'S OWN DISTRIBUTION carries, which lacks `jsonb` too — so on a Mac the
+    family installed from source could not open a store at all (`no such function: jsonb`); the
+    docs workflow (Ubuntu 24.04, 3.45.1) and this container never showed it.
+    `release/build-sqlite.sh` builds SQLite's amalgamation (`release/sqlite.lock`: version, year,
+    SHA-256 — the hash two runners each fetched) into Racket's USER library directory
+    (`find-user-lib-dir`), which is searched before the installation's and the system's; and
+    `raco distribute` copies a library found there into the standalone build (db's `ffi.rkt`
+    declares it as a runtime path), so the wheel carries its SQLite. Checked here with a copy of
+    the source: the executable answered `sqlite_version()` 3.54.1 with Racket's copy hidden and
+    the system's at 3.45.1. sqlite.org is not reachable from this container (the first CI run
+    printed the hash, which was then pinned). And fhir-server says it
+    (`store/fhir-sqlite.rkt` `check-sqlite!`, `old-sqlite-message`, once a process): `a FHIR store
+    needs SQLite 3.45 or newer …; the SQLite found here is 3.37.2`, with the script that fixes it.
+  - **An Intel Racket on Apple silicon.** setup-racket installs x64 unless told (`architecture`),
+    so the arm64 SQLite was not loadable (Racket fell back to the system's 3.43) and the wheel
+    would have been an Intel build under an arm64 name. The workflow asks for arm64 there;
+    `build-sqlite.sh` compiles for the processor RACKET runs on (`system-library-subpath`);
+    `build_wheel.py` tags a macOS wheel by the executable's own architecture (`lipo -archs`).
+  - **Windows** (a trial job that does not fail the run): `release/family.lock` was checked out
+    with carriage returns and a commit followed by one names nothing — `.gitattributes` is
+    `* -text` (every file as stored, on every system) and `install-family.sh` strips them; and the
+    cql repository could not be checked out there at all: two vendored QDM patients had `<` and
+    `>` in their file names (renamed in cql, noted in its SOURCE.txt). `raco distribute` puts the
+    executable at the top of the build on Windows, not in `bin/`: `fhir/spec-package`,
+    `build-tools.sh`, `build_wheel.py` and the client look in both places.
+- **A tower's value-set codes are pinned with its types** (`fhir/model/binding.rkt`
+  `pin-binding-expansions!`, called by `pin-registered-types!`). A value set is registered by its
+  URL, which every FHIR version shares, so when the R6 tower loaded (a ViewDefinition's model) its
+  codes replaced R4's: an R4 process said a wrong `Observation.status` was not among "amended,
+  appended, cannot-be-obtained, … specimen-in-process" (R6's list), and where nothing else decides
+  a plain `code`, decided by it. Found because the Python README's example printed one list in a
+  fresh process and another after other calls; the top-level README had quoted the wrong list
+  since it was written. The first cut pinned too much: a ViewDefinition is of the model loaded
+  AFTER the pin (its `fhirVersion` takes "4.0", which R6's value set holds and R4's does not), and
+  sql-on-fhir's cli-test caught it. So the registry keeps both: the codes IN FORCE
+  (`binding-expansion`: pinned, what data is validated by) and the LATEST registered for a url
+  (`latest-binding-expansion`), which sql-on-fhir's `definition.rkt` asks. Gates unchanged (fhir,
+  fhir-validation, fhir-tx: 6,250 tests; fhir-server, fhir-mcp, fhir-api, sql-on-fhir: 4,444).
+- **`stage` and `commit` are functions** (fourteen now; `api/functions.rkt` `run-stage`,
+  `run-commit`): fhir-mcp's own route (`hub-stage!`, `hub-commit!`) over a project and a place —
+  a SQLite store (made when the file is not there) or a directory —, their answers without the
+  lines that name another tool's call (`without-hints`, `said-plainly`). A stage is kept with the
+  project, in the process that made it. Python: `Toolkit.stage` (a `Stage`: changes, errors,
+  `.commit(reason, agent=)`), `.write` (stage and commit, or FhirError and nothing written, the
+  refused stage dropped), `Commit`; `sql` needs no project (the store's own `trail`). A problem in
+  a file of a project given as `files` names the file as the project does, in sources AND inside
+  messages (`shown-message`, `placed`; `in-project` re-raises a positioned error so: a
+  temporary directory's path meant nothing to a caller).
+- **Typed models** (`fhir_toolkit/models.py` `plain`, `typed`): an object that writes itself as
+  JSON goes in wherever a resource does (pydantic 2's `model_dump_json`, pydantic 1's `json`,
+  fhirclient's `as_json` — converted in `_Raw._call`, so the generated functions take them too);
+  `model=` on `transform`, `operation` and `fsh` gives objects back. No library is named in the
+  code; the tests use `fhir.resources` when it is installed.
+- **Notebook magics** (`fhir_toolkit/jupyter.py`, `%load_ext fhir_toolkit.jupyter`): `%%fsh`,
+  `%%cql`, `%%sof`, `%%fhir_sql`, `%%fhirpath`, `%%vcl`, `%%fml`, `%fhir`. The notebook's project
+  is what its cells have defined (a cell is kept as a file named by what it defines; a cell with
+  an error defines nothing). `tests/test_jupyter.py` runs them in an IPython shell; the README's
+  ```ipython blocks are cells its test runs (`test_readme.py`: an example whose library is
+  missing is left out and the test reported as skipped, the others still held).
+- **`clients/typescript`** (`fhir-toolkit` for Node, ESM, no runtime dependency): `generate.mjs`
+  writes `src/functions.ts` from the table (an interface of arguments and a method a function,
+  the table's words as comments; `--check`); `server.ts` (the process: calls sent at once are
+  answered by id; while no call waits it does not keep Node running; a pending call belongs to
+  the process it was sent to — closed and used again at once, the old process's exit had
+  refused the new one's call); `toolkit.ts` (the same methods as Python's, promises);
+  `results.ts`. `npm test`: the generator's check, the compiler, 17 tests against the server and
+  the README's examples held to their output. It carries no executable and is not published.
+- `release/RELEASING.md`: what a wheel is made of and the steps; a `publish` job in `wheels.yml`
+  (PyPI's trusted publishing) that runs only on a `v*` tag with the repository variable
+  `PUBLISH_TO_PYPI` set — it has NOT run.
+- Not done, named: publishing (PyPI, npm: the owner's accounts); an npm package that carries the
+  executable; `write` to a FHIR server; a Docker image and a `uvx` entry for the MCP server.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

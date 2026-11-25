@@ -90,7 +90,7 @@ versionId,agent,reason,value,at
 ```
 
 A status FHIR does not have is refused before anything is written:
-``bad2.fsh:2: Observation.status: code `finished` not in required value set … it holds amended, appended, cancelled, …``.
+``bad2.fsh:2: Observation.status: code `finished` not in required value set … it holds amended, cancelled, corrected, …``.
 
 ## From Python
 
@@ -107,10 +107,15 @@ print(fhir.validate({"resourceType": "Patient", "gender": "florp"}).messages())
 print(fhir.view("SELECT id, birthDate FROM Patient", data).to_pandas())   # a DataFrame
 ```
 
-It is not on the Python Package Index yet: the `wheels` workflow builds the files. Under it is
-`fhir-api`, one process that answers function calls as JSON lines, with its functions described
-in one table ([clients/functions.json](clients/functions.json)) that a client in any language
-can be generated from.
+It also writes to a store with a record of who and why (`fhir.write(...)`), takes
+`fhir.resources` objects where it takes dicts, and adds a cell magic for each language to a
+notebook (`%load_ext fhir_toolkit.jupyter`). It is not on the Python Package Index yet: the
+`wheels` workflow builds the files ([release/RELEASING.md](release/RELEASING.md) has the steps).
+
+Under it is `fhir-api`, one process that answers function calls as JSON lines, with its
+functions described in one table ([clients/functions.json](clients/functions.json)) that a
+client in any language is generated from. The second such client is for TypeScript and
+JavaScript: [clients/typescript](clients/typescript/README.md).
 
 ## The pieces
 

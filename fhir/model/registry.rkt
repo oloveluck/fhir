@@ -12,7 +12,8 @@
 ;;; information-model types (name -> type-schema + ctor/pred), and elements (path -> spec).
 
 (require racket/contract/base
-         (only-in "schema.rkt" type-schema?))
+         (only-in "schema.rkt" type-schema?)
+         (only-in "binding.rkt" pin-binding-expansions! unpin-binding-expansions!))
 
 (provide (struct-out fhir-spec)
          prop:fhir-spec fhir-spec-property? value->fhir-spec
@@ -111,11 +112,16 @@
     (set! generation (add1 generation))
     (hash-set! type-registry name (type-info spec schema pred ctor)))
   (void))
-;; pin-registered-types! : -> void   the types registered now are kept against later registrations
+;; pin-registered-types! : -> void   the types registered now are kept against later registrations,
+;; and with them the codes of the value sets their towers registered (binding.rkt: a value set's
+;; url is the same in every version, so the later tower's codes replaced the earlier's too)
 (define (pin-registered-types!)
-  (for ([k (in-list (hash-keys type-registry))]) (hash-set! pinned k #t)))
+  (for ([k (in-list (hash-keys type-registry))]) (hash-set! pinned k #t))
+  (pin-binding-expansions!))
 ;; unpin-registered-types! : -> void   later registrations replace again (before loading another tower)
-(define (unpin-registered-types!) (hash-clear! pinned))
+(define (unpin-registered-types!)
+  (hash-clear! pinned)
+  (unpin-binding-expansions!))
 
 (define (type-entry name) (hash-ref type-registry name #f))
 (define (type-spec-of name)        (let ([e (type-entry name)]) (and e (type-info-spec e))))

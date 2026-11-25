@@ -21,7 +21,7 @@ if not os.environ.get("FHIR_TOOLKIT_TEST_INSTALLED"):
     sys.path.insert(0, str(ROOT / "src"))
 
 import fhir_toolkit  # noqa: E402
-from fhir_toolkit import Compiled, Diagnostic, FhirError, Outcome, Project, Table, Toolkit, ToolkitNotFound  # noqa: E402
+from fhir_toolkit import Commit, Compiled, Diagnostic, FhirError, Outcome, Project, Stage, Table, Toolkit, ToolkitNotFound, plain, typed  # noqa: E402
 from fhir_toolkit._functions import Functions  # noqa: E402
 
 TABLE = ROOT.parent / "functions.json"
@@ -330,6 +330,128 @@ class TheToolkit(unittest.TestCase):
             self.fhir.compile({"../x.fsh": PROFILE})
         with self.assertRaisesRegex(FhirError, "the project is FHIR 5.0.0 and this process reads FHIR 4.0.1"):
             self.fhir.compile({"sushi-config.yaml": "id: x\ncanonical: http://x.org\nfhirVersion: 5.0.0\nversion: 1.0.0\n"})
+
+    # ---- writing: stage, commit, write ----------------------------------------------------------
+    def test_stage_then_commit_and_the_trail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = pathlib.Path(tmp) / "clinic.db"
+            staged = self.fhir.stage(DATA, data=store)
+            self.assertIsInstance(staged, Stage)
+            self.assertTrue(staged.ok)
+            self.assertEqual(staged.of("create"), ["Patient/ann", "Observation/a1"])
+            self.assertEqual(len(self.fhir.search("Patient", store)), 0, "nothing is written until commit")
+            written = staged.commit("first load", agent="intake desk")
+            self.assertIsInstance(written, Commit)
+            self.assertEqual(written.versions, ["Patient/ann/_history/1", "Observation/a1/_history/1"])
+            self.assertTrue(written.provenance.startswith("Provenance/"))
+            self.assertEqual((written.reason, written.agent), ("first load", "intake desk"))
+            # the same resources again differ in nothing: no stage, and nothing to commit
+            again = self.fhir.stage(DATA, data=store)
+            self.assertIsNone(again.id)
+            self.assertEqual(again.of("unchanged"), ["Patient/ann", "Observation/a1"])
+            with self.assertRaisesRegex(FhirError, "nothing to commit"):
+                again.commit()
+            # a change said as the FSH rules that change
+            change = self.fhir.stage(fsh="Instance: Observation/a1\n* status = #amended\n* valueQuantity = 9.1 '%'", data=store)
+            self.assertEqual(change.changes[0]["changed"], ['status: "final" → "amended"', "valueQuantity.value: 9.4 → 9.1"])
+            self.assertEqual(change.commit("corrected against the lab's report").versions, ["Observation/a1/_history/2"])
+            trail = self.fhir.sql("SELECT type, id, versionId, agent, reason FROM trail ORDER BY type, id, versionId", data=store)
+            self.assertEqual([(r["type"], r["id"], r["versionId"], r["agent"], r["reason"]) for r in trail.rows],
+                             [("Observation", "a1", 1, "intake desk", "first load"),
+                              ("Observation", "a1", 2, "fhir-api", "corrected against the lab's report"),
+                              ("Patient", "ann", 1, "intake desk", "first load")])
+
+    def test_write_is_stage_and_commit_and_refuses_whole(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = pathlib.Path(tmp) / "clinic.db"
+            bad = dict(OBSERVATION, id="a2", status="finl")
+            with self.assertRaisesRegex(FhirError, r"Observation/a2: Observation.status: code `finl` not in required value set"):
+                self.fhir.write([PATIENT, bad], data=store, reason="load")
+            self.assertEqual(len(self.fhir.search("Patient", store)), 0, "one error and nothing is written")
+            self.assertEqual(self.fhir.raw.stage(str(store), drop="all")["stages"], [], "the refused stage was dropped")
+            written = self.fhir.write([PATIENT, OBSERVATION], data=store, reason="load")
+            self.assertEqual(len(written), 2)
+            self.assertEqual(len(self.fhir.write(PATIENT, data=store)), 0)
+            # a check only: the same answer, nothing kept
+            check = self.fhir.stage(bad, data=store, keep=False)
+            self.assertFalse(check.ok)
+            self.assertIsNone(check.id)
+            self.assertIn("did you mean `final`?", check.errors[0])
+            # a profile of the project is what an instance written in FSH is held to
+            with self.assertRaisesRegex(FhirError, "birthDate"):
+                self.fhir.write(fsh="Instance: bo\nInstanceOf: AdultPatient\n* gender = #male", data=store, project={"p.fsh": PROFILE})
+            with self.assertRaisesRegex(FhirError, "give one of `resources`, `fsh`"):
+                self.fhir.stage(data=store)
+
+    # ---- typed models -------------------------------------------------------------------------
+    def test_a_model_object_goes_in_as_the_json_it_writes(self):
+        class Pydantic2:                                   # what pydantic 2 models offer
+            def model_dump_json(self, **options):
+                self.options = options
+                return json.dumps(PATIENT)
+
+            @classmethod
+            def model_validate(cls, resource):
+                made = cls()
+                made.read = resource
+                return made
+
+        class Pydantic1:                                   # what pydantic 1 models offer
+            def json(self):
+                return json.dumps(PATIENT)
+
+            def dict(self):
+                return PATIENT
+
+            @classmethod
+            def parse_obj(cls, resource):
+                made = cls()
+                made.read = resource
+                return made
+
+        class Fhirclient:                                  # what fhirclient's models offer
+            def __init__(self, jsondict=None):
+                self.read = jsondict
+
+            def as_json(self):
+                return PATIENT
+
+        model = Pydantic2()
+        self.assertEqual(plain(model), PATIENT)
+        self.assertEqual(model.options, {"exclude_none": True, "by_alias": True})
+        for model in (Pydantic2(), Pydantic1(), Fhirclient()):
+            self.assertEqual(plain({"resource": model, "list": [model]}), {"resource": PATIENT, "list": [PATIENT]})
+            self.assertEqual(self.fhir.fhirpath("name.family", model), ["Lee"])
+            self.assertTrue(self.fhir.validate(model).ok)
+            self.assertEqual(self.fhir.view("SELECT id FROM Patient", [model]).rows, [{"id": "ann"}])
+            self.assertEqual(self.fhir.view("SELECT id FROM Patient", model).rows, [{"id": "ann"}])
+            self.assertEqual(typed(type(model), {"resourceType": "Patient"}).read, {"resourceType": "Patient"})
+            self.assertEqual(self.fhir.transform(MAP, model, model=type(model)).read, {"resourceType": "Patient", "birthDate": "1980-02-28", "gender": "female"})
+        self.assertEqual([m.read["id"] for m in typed(Fhirclient, [PATIENT, PATIENT])], ["ann", "ann"])
+        import datetime
+        import decimal
+        self.assertEqual(plain({"when": datetime.date(1980, 2, 28), "value": decimal.Decimal("7.20"), "count": decimal.Decimal("3"),
+                                "where": pathlib.PurePosixPath("a/b")}),
+                         {"when": "1980-02-28", "value": 7.2, "count": 3, "where": "a/b"})
+        with self.assertRaisesRegex(TypeError, "object is not FHIR JSON"):
+            plain(object())
+
+    def test_fhir_resources_models(self):
+        try:
+            from fhir.resources.R4B.patient import Patient
+        except ImportError:
+            self.skipTest("fhir.resources is not installed")
+        ann = Patient(id="ann", gender="female", birthDate="1980-02-28", name=[{"family": "Lee", "given": ["Ann"]}])
+        self.assertEqual(plain(ann), PATIENT)
+        self.assertEqual(self.fhir.fhirpath("name.given", ann), ["Ann"])
+        self.assertTrue(self.fhir.validate(ann).ok)
+        copy = self.fhir.transform(MAP, ann, model=Patient)
+        self.assertIsInstance(copy, Patient)
+        self.assertEqual(copy.birthDate.isoformat(), "1980-02-28")
+        made = self.fhir.fsh('Instance: bo\nInstanceOf: Patient\n* birthDate = "1990-01-01"\n', model=Patient)
+        self.assertEqual([(type(m).__name__, m.id) for m in made], [("Patient", "bo")])
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(self.fhir.write(ann, data=pathlib.Path(tmp) / "s.db").versions, ["Patient/ann/_history/1"])
 
     # ---- the plain functions, and calls from several threads ------------------------------------
     def test_raw_is_the_table_as_it_is(self):

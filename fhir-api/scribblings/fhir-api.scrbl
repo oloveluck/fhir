@@ -13,11 +13,12 @@
 @(define-runtime-path python-readme "../../clients/python/README.md")
 @(define readme-blocks
    (if (file-exists? python-readme)
-       (regexp-match* #px"```(python|text)\n(.*?)```" (file->string python-readme) #:match-select cdr)
+       (regexp-match* #px"```(python|ipython|text)\n(.*?)```" (file->string python-readme) #:match-select cdr)
        '()))
-@; example : n -> block   the n-th Python example of the README, with what it prints
-@(define (example n)
-   (define programs (for/list ([b (in-list readme-blocks)] [i (in-naturals)] #:when (equal? (car b) "python")) i))
+@; example : n [kind] -> block   the n-th Python example of the README (the n-th notebook cell, for
+@; kind "ipython"), with what it prints
+@(define (example n [kind "python"])
+   (define programs (for/list ([b (in-list readme-blocks)] [i (in-naturals)] #:when (equal? (car b) kind)) i))
    (cond
      [(< n (length programs))
       (define i (list-ref programs n))
@@ -104,6 +105,47 @@ definition. @tt{translate} answers the library's ELM, the form other CQL engines
 
 @(example 5)
 
+@section{Writing data}
+
+@tt{write} puts resources into a store, a SQLite file made the first time. Each resource is
+validated first, and one error means nothing is written. What is written leaves a trail in the
+store: who wrote which version, when and why.
+
+@(example 7)
+
+@tt{stage} is the first half alone: it says what would be created or changed, and writes nothing
+until you @tt{commit}. A correction can be said as the FSH rules that change, laid over the
+stored resource. The trail is a table SQL reads.
+
+@(example 8)
+
+With a project, what is written is held to the project's profiles too.
+
+@section{Objects of a model library}
+
+Values are FHIR JSON, and you can give objects instead: anything that writes itself as JSON goes
+in as it is (pydantic models, so @tt{fhir.resources}; @tt{fhirclient}'s models). @tt{model=}
+gives an answer back as an object.
+
+@(example 9)
+
+@section{In a notebook}
+
+@tt{%load_ext fhir_toolkit.jupyter} adds a cell magic for each language: @tt{%%fsh},
+@tt{%%cql}, @tt{%%sof}, @tt{%%fhir_sql}, @tt{%%fhirpath}, @tt{%%vcl} and @tt{%%fml}. What a
+cell defines stays for the cells after it, so a profile written in one cell is what a later
+cell validates against, and a view written in one is a table the next joins. A mistake is said
+at its line in the cell.
+
+@(example 0 "ipython")
+
+@(example 1 "ipython")
+
+@(example 2 "ipython")
+
+@tt{-d} names the variable that holds the data and @tt{-o} a variable for the answer;
+@tt{%fhir} lists what the notebook has defined. It needs IPython, which a notebook has.
+
 @section[#:tag "source"]{From a source checkout}
 
 Without a wheel, the package looks for the toolkit in this order: the command the
@@ -135,6 +177,11 @@ them with a JSON Schema for each one's arguments. That text is kept in this repo
 (@tt{clients/python/generate.py}): a client for another language starts from the same file.
 @tt{raco fhir-api call fhirpath '<json arguments>'} makes one call from a shell.
 
+The second client is for TypeScript and JavaScript (@tt{clients/typescript}): its methods and
+their argument types are generated from the same file, and its own page's examples are run by a
+test as this page's are. It starts the same process, which has to be on the machine: it is not
+published, and carries no executable as the Python wheel does.
+
 A call that cannot be answered is an error with a code: @tt{-32601} for a function that does not
 exist, @tt{-32602} for arguments that are not the function's, @tt{-32000} when the function
 failed, with @tt{data.diagnostics} when the failure has a place in a source and @tt{data.outcome}
@@ -157,11 +204,11 @@ when it is a FHIR OperationOutcome. Problems in a source you gave to @tt{compile
 @section{Limits}
 
 @itemlist[
-@item{Values are JSON. A resource is a dictionary, not a typed object.}
+@item{The toolkit has no resource classes of its own. Values are JSON, and objects of a model library are converted on the way in and out.}
 @item{A process reads one version of FHIR, 4.0.1 or 5.0.0. @tt{Toolkit("5.0.0")} is a second process.}
 @item{Numbers pass through JSON: a decimal written @tt{1.50} arrives as @tt{1.5}.}
 @item{A wheel carries the FHIR R4 and R5 core packages. Any other implementation guide is given by its package file.}
-@item{Writing to a store with a recorded trail (stage, commit) is @hyperlink["../fhir-mcp/index.html"]{fhir-mcp}'s workspace, which the package does not wrap.}
+@item{@tt{write} and @tt{stage} write to a SQLite store or a directory of FHIR JSON, not to a FHIR server. A stage is kept by the process that made it: commit it from the same @tt{Toolkit}.}
 @item{Wheels are built for Linux and macOS. Windows has not been built.}
 @item{A table defined over a large SQLite store is computed again by each new process: for that, use a workspace.}]
 
@@ -172,7 +219,7 @@ The server's functions are each called as a client calls them, in every language
 tests (@tt{clients/python/tests}) hold its generated functions to the table and call every
 method against the server; they are run again against a built wheel, in a clean environment
 with nothing else on the PATH. Every example on this page is run by a test and compared with the
-output shown.
+output shown, the notebook cells in an IPython shell.
 
 @section{The functions}
 

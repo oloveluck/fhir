@@ -23,7 +23,18 @@ BUNDLE = HERE / "src" / "fhir_toolkit" / "_bin"
 CORE = ("hl7.fhir.r4.core.tgz", "hl7.fhir.r5.core.tgz")
 
 
-def platform_tag():
+def executable_machine(executable):
+    """The processor a macOS executable is for (arm64, x86_64), None when it cannot be told."""
+    if executable is None:
+        return None
+    try:
+        archs = subprocess.run(["lipo", "-archs", str(executable)], check=True, capture_output=True, text=True).stdout.split()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return archs[0] if len(archs) == 1 else None
+
+
+def platform_tag(executable=None):
     """The wheel's platform tag for the machine the executable was built on."""
     system = platform.system()
     machine = platform.machine().lower()
@@ -34,9 +45,10 @@ def platform_tag():
         major, minor = version.split(".")[:2]
         return "manylinux_%s_%s_%s" % (major, minor, machine)
     if system == "Darwin":
-        # the machine it was built on, and anything newer: Python's own tag would name what the
-        # interpreter was built for (often every processor, and an older system)
-        return "macosx_%s_0_%s" % (platform.mac_ver()[0].split(".")[0], machine)
+        # the system it was built on, and anything newer, for the processor the EXECUTABLE is for:
+        # Python's own tag would name what the interpreter was built for (often every processor,
+        # and an older system), and an Intel Racket builds an Intel executable on Apple silicon
+        return "macosx_%s_0_%s" % (platform.mac_ver()[0].split(".")[0], executable_machine(executable) or machine)
     # Windows ("win-amd64") as sysconfig names it
     return sysconfig.get_platform().replace("-", "_").replace(".", "_")
 
@@ -73,13 +85,15 @@ def main():
     options = parser.parse_args()
     out = options.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    copy_build(options.dist.resolve(), options.packages)
+    dist = options.dist.resolve()
+    copy_build(dist, options.packages)
     try:
         for stale in (HERE / "build", HERE / "src" / "fhir_toolkit.egg-info"):
             shutil.rmtree(stale, ignore_errors=True)
         subprocess.run([sys.executable, "-m", "pip", "wheel", str(HERE), "--no-deps", "-w", str(out)], check=True)
         built = sorted(out.glob("fhir_toolkit-*-py3-none-any.whl"))[-1]
-        subprocess.run([sys.executable, "-m", "wheel", "tags", "--platform-tag", platform_tag(), "--remove", str(built)], check=True)
+        executable = next((p for p in (dist / "bin" / "fhir-api", dist / "fhir-api.exe") if p.is_file()), None)
+        subprocess.run([sys.executable, "-m", "wheel", "tags", "--platform-tag", platform_tag(executable), "--remove", str(built)], check=True)
     finally:
         shutil.rmtree(BUNDLE, ignore_errors=True)
         for stale in (HERE / "build", HERE / "src" / "fhir_toolkit.egg-info"):
