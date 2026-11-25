@@ -68,7 +68,7 @@
                   (format "release/install-family.sh does not install ~a" package))))
   (test-case "the wheels workflow names files that are there"
     (define wheels (file->string (build-path repository ".github" "workflows" "wheels.yml")))
-    (for ([f (in-list '("release/install-family.sh" "build-tools.sh" "clients/python/build_wheel.py" "clients/python/tests"))])
+    (for ([f (in-list '("release/install-family.sh" "build-tools.sh" "clients/python/build_wheel.py" "clients/python/test_wheel.py"))])
       (check-true (and (regexp-match? (regexp-quote f) wheels) #t) f)
       (check-true (or (file-exists? (build-path repository f)) (directory-exists? (build-path repository f))) f)))
   (test-case "every file the workflow names is there"

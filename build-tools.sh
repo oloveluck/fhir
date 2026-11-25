@@ -31,6 +31,10 @@ wanted() {
 }
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+# on Windows (Git Bash) `raco exe` writes <name>.exe, and `raco distribute` puts the executables
+# at the top of out-dir, not in out-dir/bin
+exe=""
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) exe=".exe" ;; esac
 
 towers="fhir/r4/schemas fhir/r5/schemas"
 languages="fsh/support cql/support fml/support vcl/support fhirpath/support"
@@ -78,7 +82,7 @@ for entry in "${tools[@]}"; do
   printf '#lang racket/base\n(require (submod %s main))\n' "$module" > "$work/$name.rkt"
   echo "build $name"
   raco exe "${embed[@]}" -o "$work/$name" "$work/$name.rkt"
-  built+=("$work/$name")
+  built+=("$work/$name$exe")
 done
 
 rm -rf "$out"
@@ -92,4 +96,4 @@ if [ -n "$core" ] && [ -f "$core" ]; then
 else
   echo "packages: fhir-spec is not installed; set FHIR_PACKAGE_PATH to a directory of FHIR packages (.tgz) when running the tools"
 fi
-echo "done: $out/bin has ${#built[@]} tools"
+if [ -d "$out/bin" ]; then echo "done: $out/bin has ${#built[@]} tools"; else echo "done: $out has ${#built[@]} tools"; fi

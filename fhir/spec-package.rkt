@@ -28,14 +28,17 @@
   (define v (getenv "FHIR_PACKAGE_PATH"))
   (if (and v (not (equal? v ""))) (path-list-string->path-list v '()) '()))
 
-;; executable-package-directory : -> (or/c path #f)   <executable's dir>/../share/fhir-packages, if
-;; it exists (the executable found through PATH when it was started by name, a symlink to it followed)
+;; executable-package-directory : -> (or/c path #f)   the standalone build's packages, if they are
+;; there: <executable's dir>/../share/fhir-packages (Unix and macOS: `raco distribute` puts the
+;; executables in bin/), else <executable's dir>/share/fhir-packages (Windows: it puts them at the
+;; top). The executable is found through PATH when it was started by name, a symlink to it followed.
 (define (executable-package-directory)
   (define exe (find-executable-path (find-system-path 'exec-file)))
   (and exe
-       (let* ([real (simplify-path (path->complete-path (resolve-path exe) (current-directory)))]
-              [dir (simplify-path (build-path real 'up 'up "share" "fhir-packages"))])
-         (and (directory-exists? dir) dir))))
+       (let ([real (simplify-path (path->complete-path (resolve-path exe) (current-directory)))])
+         (for/or ([up (in-list '((up up) (up)))])
+           (define dir (simplify-path (apply build-path real (append up '("share" "fhir-packages")))))
+           (and (directory-exists? dir) dir)))))
 
 ;; current-package-directories : (parameter (listof dir))
 (define current-package-directories

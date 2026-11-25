@@ -4,9 +4,9 @@
     ./build-tools.sh dist fhir-api                       # at the repository's root: the executable
     python3 clients/python/build_wheel.py dist [--out wheels] [--packages core|all]
 
-The standalone build (bin/, lib/, share/fhir-packages/) is copied into the package as
-fhir_toolkit/_bin, a wheel is built and tagged for this platform, and the copy is removed
-again. `--packages core` (the default) carries the FHIR R4 and R5 core packages only; `all`
+The standalone build (bin/ — on Windows the executable itself —, lib/, share/fhir-packages/)
+is copied into the package as fhir_toolkit/_bin, a wheel is built and tagged for this platform,
+and the copy is removed again. `--packages core` (the default) carries the FHIR R4 and R5 core packages only; `all`
 carries every package the build holds (US Core, IPS, mCODE and the rest: a larger file).
 A package the wheel does not carry is given to `Toolkit(packages=[…])` as a .tgz path.
 """
@@ -33,20 +33,30 @@ def platform_tag():
             raise SystemExit("the executable is built against %s; only glibc Linux is tagged" % (libc or "an unknown libc"))
         major, minor = version.split(".")[:2]
         return "manylinux_%s_%s_%s" % (major, minor, machine)
-    # macOS ("macosx-14.0-arm64") and Windows ("win-amd64") as sysconfig names them
+    if system == "Darwin":
+        # the machine it was built on, and anything newer: Python's own tag would name what the
+        # interpreter was built for (often every processor, and an older system)
+        return "macosx_%s_0_%s" % (platform.mac_ver()[0].split(".")[0], machine)
+    # Windows ("win-amd64") as sysconfig names it
     return sysconfig.get_platform().replace("-", "_").replace(".", "_")
 
 
 def copy_build(dist, packages):
-    if not (dist / "bin").is_dir():
-        raise SystemExit("%s is not a standalone build (no bin/): run ./build-tools.sh %s fhir-api first" % (dist, dist))
+    executables = [dist / "bin"] if (dist / "bin").is_dir() else sorted(dist.glob("fhir-api*.exe"))
+    if not executables:
+        raise SystemExit("%s is not a standalone build (no bin/, no fhir-api.exe): run ./build-tools.sh %s fhir-api first" % (dist, dist))
     if BUNDLE.exists():
         shutil.rmtree(BUNDLE)
-    shutil.copytree(dist / "bin", BUNDLE / "bin")
+    BUNDLE.mkdir(parents=True)
+    for entry in executables:
+        if entry.is_dir():
+            shutil.copytree(entry, BUNDLE / entry.name)
+        else:
+            shutil.copy2(entry, BUNDLE / entry.name)
     if (dist / "lib").is_dir():
         shutil.copytree(dist / "lib", BUNDLE / "lib", symlinks=True)
     target = BUNDLE / "share" / "fhir-packages"
-    target.mkdir(parents=True)
+    target.mkdir(parents=True, exist_ok=True)
     for package in sorted((dist / "share" / "fhir-packages").glob("*.tgz")):
         if packages == "all" or package.name in CORE:
             shutil.copy2(package, target / package.name)

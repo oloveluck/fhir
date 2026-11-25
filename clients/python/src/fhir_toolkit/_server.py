@@ -17,8 +17,9 @@ COMMAND_VARIABLE = "FHIR_API_COMMAND"
 def bundled_command() -> Optional[List[str]]:
     """The executable a wheel carries, beside this module, when it does."""
     here = os.path.dirname(os.path.abspath(__file__))
-    for name in ("fhir-api", "fhir-api.exe"):
-        candidate = os.path.join(here, "_bin", "bin", name)
+    # bin/fhir-api on Unix and macOS; on Windows the executable is at the top of the build
+    for parts in (("bin", "fhir-api"), ("fhir-api.exe",), ("bin", "fhir-api.exe")):
+        candidate = os.path.join(here, "_bin", *parts)
         if os.path.isfile(candidate):
             return [candidate]
     return None

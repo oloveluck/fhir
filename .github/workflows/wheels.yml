@@ -1,20 +1,35 @@
 # Builds the Python client's wheels: one per platform, each carrying the toolkit's executable,
 # so that `pip install` is the whole setup and no Racket is needed to use it.
 #
-# Runs when a version is tagged (v0.1.0) or when started by hand; never on an ordinary push.
+# Runs when a version is tagged (v0.1.0), when started by hand, and on a push to main that
+# changes the release machinery itself (this file, release/, the build script, the wheel's
+# builder and its test) — never on an ordinary push: three machines build for ten minutes.
 # The family's other repositories are installed at the commits release/family.lock names
 # (release/lock-family.sh writes it before a release is tagged). Each wheel is installed into a
-# clean environment and the client's tests are run against it with nothing else on the PATH.
-# The wheels are kept as the run's artifacts; nothing is published from here.
+# clean environment and the client's tests are run against it with nothing else on the PATH
+# (clients/python/test_wheel.py). The wheels are kept as the run's artifacts; nothing is
+# published from here.
 name: wheels
 
 on:
   push:
     tags: ["v*"]
+    branches: [main]
+    paths:
+      - ".github/workflows/wheels.yml"
+      - "release/**"
+      - "build-tools.sh"
+      - "clients/python/build_wheel.py"
+      - "clients/python/test_wheel.py"
+      - "clients/python/pyproject.toml"
   workflow_dispatch:
 
 permissions:
   contents: read
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   wheel:
@@ -23,8 +38,14 @@ jobs:
       matrix:
         # the oldest Linux image offered (a wheel is tagged for the C library it was built
         # against, and installs on that or anything newer); macOS on Apple silicon and on Intel
-        os: [ubuntu-22.04, macos-14, macos-13]
+        os: [ubuntu-22.04, macos-15, macos-15-intel]
+        experimental: [false]
+        include:
+          # Windows has never been built: this job says how far it gets, and does not fail the run
+          - os: windows-2022
+            experimental: true
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.experimental }}
     steps:
       - uses: actions/checkout@v4
       - uses: Bogdanp/setup-racket@v1.11
@@ -38,6 +59,7 @@ jobs:
       - name: Install the packages at the locked commits
         run: release/install-family.sh
       - name: The function server's own tests
+        continue-on-error: ${{ matrix.experimental }}
         run: raco test fhir-api
       - name: Build the standalone executable
         run: ./build-tools.sh dist fhir-api
@@ -46,13 +68,7 @@ jobs:
           python -m pip install --upgrade pip wheel
           python clients/python/build_wheel.py dist --out wheels
       - name: Test the wheel where nothing else is installed
-        run: |
-          python -m venv clean
-          clean/bin/python -m pip install wheels/*.whl pandas
-          mkdir -p scratch
-          cd scratch
-          env -i PATH="$PWD/../clean/bin" HOME="$PWD" FHIR_TOOLKIT_TEST_INSTALLED=1 \
-            "$PWD/../clean/bin/python" -m unittest discover -s ../clients/python/tests
+        run: python clients/python/test_wheel.py wheels --with pandas
       - uses: actions/upload-artifact@v4
         with:
           name: wheel-${{ matrix.os }}
