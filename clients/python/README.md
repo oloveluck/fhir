@@ -351,8 +351,6 @@ FROM Observation
 - Numbers pass through JSON, so a decimal written `1.50` arrives as `1.5`.
 - A wheel carries the FHIR R4 and R5 core packages. An implementation guide is given by its
   package file: `Toolkit(packages=["hl7.fhir.us.core-6.1.0.tgz"])`.
-- Writing to a store with a recorded trail (stage, commit, Provenance) is the toolkit's
-  workspace, which this package does not wrap yet.
 
 ## From a source checkout
 
