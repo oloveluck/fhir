@@ -8,7 +8,7 @@ its arguments as they are and returns the server's answer as plain JSON values;
 from typing import Any, Dict, Optional
 
 PROTOCOL = 1
-FUNCTIONS = ['compile', 'run', 'query', 'explain', 'fhirpath', 'translate', 'decompile', 'validate', 'transform', 'operation', 'guide', 'version']
+FUNCTIONS = ['compile', 'run', 'query', 'explain', 'fhirpath', 'translate', 'decompile', 'validate', 'transform', 'operation', 'stage', 'commit', 'guide', 'version']
 
 
 class Functions:
@@ -313,6 +313,81 @@ class Functions:
             'data': data,
         }
         return self._call('operation', {k: v for k, v in arguments.items() if v is not None})
+
+    def stage(self, data: str, *, resources: Optional[Any] = None, fsh: Optional[str] = None, drop: Optional[str] = None, keep: Optional[bool] = None, files: Optional[Dict[str, str]] = None, directory: Optional[str] = None, canonical: Optional[str] = None) -> Any:
+        """A write prepared and not yet made: resources, given as JSON or as FSH Instances,
+        validated in the project's context (the profiles they claim, the project's own among
+        them) and compared with what the data holds: created, changed (each path old → new) or
+        unchanged, with every error. Nothing is written until commit.
+
+        Args:
+            data: where the data is kept: a SQLite FHIR store (the file is made when it is not
+                there), or a directory of FHIR JSON
+            resources: the resources to write (a list, one resource, or a Bundle); one with an
+                id the data holds is an update
+            fsh: in place of `resources`: FSH Instances as text; `Instance: Type/id` with rules
+                alone changes that stored resource
+            drop: discard a stage instead: its id, latest, refused (those with errors) or all
+            keep: false: check only — the same answer, no stage kept
+            files: the project: sources in any of the languages and FHIR JSON definitions, by
+                file name (`profiles.fsh`, `Screening.cql`, `intake.map`, `labs.vcl`, `bp.sof`,
+                `ValueSet-x.json`); what they define is in context for the call
+            directory: the project as a directory on disk, in place of `files` (its
+                workspace.yaml and sushi-config.yaml are read)
+            canonical: the base of the canonicals the project's files define when they state
+                none (http://example.org otherwise); with `files`
+
+        Returns:
+            {stage, changes: [{resource, action, changed, errors, warnings}…], errors}: `stage`
+                the id commit takes (none when nothing differs or with keep false), `action`
+                create | update | unchanged, `errors` their count
+        """
+        arguments = {
+            'data': data,
+            'resources': resources,
+            'fsh': fsh,
+            'drop': drop,
+            'keep': keep,
+            'files': files,
+            'directory': directory,
+            'canonical': canonical,
+        }
+        return self._call('stage', {k: v for k, v in arguments.items() if v is not None})
+
+    def commit(self, stage: str, data: str, *, reason: Optional[str] = None, agent: Optional[str] = None, files: Optional[Dict[str, str]] = None, directory: Optional[str] = None, canonical: Optional[str] = None) -> Any:
+        """A stage written to the data, with its trail: the resources in one step (a SQLite
+        store: one transaction), then a Provenance (the versions written, who, why, the source
+        text with its hash) and an AuditEvent. A stage with errors is refused.
+
+        Args:
+            stage: the stage's id, as stage answered it, or latest
+            data: where the data is kept: a SQLite FHIR store (the file is made when it is not
+                there), or a directory of FHIR JSON
+            reason: why: recorded in the Provenance
+            agent: who is writing, for the Provenance and the AuditEvent: a name, or a reference
+                (Practitioner/x); fhir-api when none is given
+            files: the project: sources in any of the languages and FHIR JSON definitions, by
+                file name (`profiles.fsh`, `Screening.cql`, `intake.map`, `labs.vcl`, `bp.sof`,
+                `ValueSet-x.json`); what they define is in context for the call
+            directory: the project as a directory on disk, in place of `files` (its
+                workspace.yaml and sushi-config.yaml are read)
+            canonical: the base of the canonicals the project's files define when they state
+                none (http://example.org otherwise); with `files`
+
+        Returns:
+            {stage, written: [{resource, version, status, ok}…], provenance, reason, agent}:
+                `version` as Type/id/_history/n, `provenance` the Provenance written
+        """
+        arguments = {
+            'stage': stage,
+            'data': data,
+            'reason': reason,
+            'agent': agent,
+            'files': files,
+            'directory': directory,
+            'canonical': canonical,
+        }
+        return self._call('commit', {k: v for k, v in arguments.items() if v is not None})
 
     def guide(self, *, topic: Optional[str] = None) -> Any:
         """A guide to one of the languages or to FHIR itself, written for an agent; without a

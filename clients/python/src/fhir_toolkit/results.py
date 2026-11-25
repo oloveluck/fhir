@@ -1,5 +1,5 @@
 """What the toolkit's functions answer, as Python values."""
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Callable, Any, Dict, Iterator, List, Optional
 
 from .errors import Diagnostic, FhirError
 
@@ -128,3 +128,81 @@ class Outcome:
 
     def __repr__(self) -> str:
         return "Outcome(ok=%r, errors=%d, warnings=%d)" % (self.ok, len(self.errors), len(self.warnings))
+
+
+class Stage:
+    """A write prepared and not yet made: what would be created or changed, and every problem.
+
+    `changes` is one entry per resource: `resource` (Type/id), `action` (create,
+    update, unchanged), `changed` (an update's paths, each `path: old → new`),
+    `errors` and `warnings`. `id` names the stage for `commit` (None when
+    nothing differs, or when it was a check only).
+    """
+
+    def __init__(self, js: Dict[str, Any], commit: Optional[Callable[..., "Commit"]] = None):
+        self.raw = js
+        self.id: Optional[str] = js.get("stage")
+        self.changes: List[Dict[str, Any]] = list(js.get("changes", []))
+        self._commit = commit
+
+    def _lines(self, key: str) -> List[str]:
+        return ["%s: %s" % (c.get("resource"), line) for c in self.changes for line in c.get(key, [])]
+
+    @property
+    def errors(self) -> List[str]:
+        """Each error as a line: `Observation/a2: Observation.status: …`."""
+        return self._lines("errors")
+
+    @property
+    def warnings(self) -> List[str]:
+        return self._lines("warnings")
+
+    @property
+    def ok(self) -> bool:
+        """Nothing stands in the way of a commit (warnings do not)."""
+        return not self.errors
+
+    def __bool__(self) -> bool:
+        return self.ok
+
+    def of(self, action: str) -> List[str]:
+        """The resources (Type/id) with that action: create, update or unchanged."""
+        return [c.get("resource") for c in self.changes if c.get("action") == action]
+
+    def raise_for_errors(self) -> "Stage":
+        if self.errors:
+            raise FhirError("\n".join(self.errors))
+        return self
+
+    def commit(self, reason: Optional[str] = None, *, agent: Optional[str] = None) -> "Commit":
+        """Write this stage to the data it was staged for, with its trail."""
+        if self._commit is None or self.id is None:
+            raise FhirError("nothing to commit: " + ("the stage was a check only, or nothing differs from the data"
+                                                    if self.ok else "the stage has errors"))
+        return self._commit(reason=reason, agent=agent)
+
+    def __repr__(self) -> str:
+        return "Stage(%s, create=%d, update=%d, unchanged=%d, errors=%d)" % (
+            self.id, len(self.of("create")), len(self.of("update")), len(self.of("unchanged")), len(self.errors))
+
+
+class Commit:
+    """What a commit wrote: each resource's new version, and the Provenance that records it."""
+
+    def __init__(self, js: Dict[str, Any]):
+        self.raw = js
+        self.written: List[Dict[str, Any]] = list(js.get("written", []))
+        self.provenance: Optional[str] = js.get("provenance")
+        self.reason: Optional[str] = js.get("reason")
+        self.agent: Optional[str] = js.get("agent")
+
+    @property
+    def versions(self) -> List[str]:
+        """The versions written, each as `Type/id/_history/n`."""
+        return [w.get("version") for w in self.written if w.get("version")]
+
+    def __len__(self) -> int:
+        return len(self.written)
+
+    def __repr__(self) -> str:
+        return "Commit(%d written, provenance=%s)" % (len(self.written), self.provenance)

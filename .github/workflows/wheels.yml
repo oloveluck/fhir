@@ -18,6 +18,7 @@ on:
     paths:
       - ".github/workflows/wheels.yml"
       - "release/**"
+      - ".gitattributes"
       - "build-tools.sh"
       - "clients/python/build_wheel.py"
       - "clients/python/test_wheel.py"
@@ -56,6 +57,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # the store needs SQLite 3.45 or newer; the runner's (Ubuntu 22.04) and the one Racket's
+      # own distribution carries (macOS) are older. Built here and put where Racket loads it
+      # first, it is also what `raco distribute` copies into the standalone build.
+      - name: A SQLite of the toolkit's own
+        run: release/build-sqlite.sh
       - name: Install the packages at the locked commits
         run: release/install-family.sh
       - name: The function server's own tests

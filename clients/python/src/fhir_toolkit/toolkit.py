@@ -13,7 +13,8 @@ in FSH, CQL libraries, maps, value sets in VCL, views, FHIR JSON definitions —
 given as a dict of file name -> text, as a directory, or as a `Project`. DATA
 is the FHIR a call reads: resources (a list, one resource, a Bundle), or the
 path of a directory of FHIR JSON, a JSON file or a SQLite FHIR store, or a FHIR
-server's base url.
+server's base url. A resource is FHIR JSON (a dict), or an object of a model
+library that writes itself as JSON (`fhir_toolkit.models`).
 """
 import atexit
 import os
@@ -23,7 +24,8 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
 from ._functions import Functions
 from ._server import Server
 from .errors import Diagnostic, FhirError
-from .results import Compiled, Outcome, Table
+from .models import plain, typed
+from .results import Commit, Compiled, Outcome, Stage, Table
 
 Resource = Dict[str, Any]
 ProjectLike = Union["Project", Mapping[str, str], str, "os.PathLike[str]", None]
@@ -75,7 +77,9 @@ def as_data(data: DataLike) -> Any:
         return data
     if isinstance(data, os.PathLike):
         return os.fspath(data)
-    return list(data)
+    if isinstance(data, (tuple, set, frozenset)) or hasattr(data, "__next__"):
+        return list(data)
+    return data            # one typed model: written as its JSON when the call is made
 
 
 class _Raw(Functions):
@@ -85,7 +89,8 @@ class _Raw(Functions):
         self._server = server
 
     def _call(self, name: str, arguments: Dict[str, Any]) -> Any:
-        return self._server.call(name, arguments)
+        # typed models among the arguments go as the JSON they write
+        return self._server.call(name, plain(arguments))
 
 
 class Toolkit:
@@ -156,14 +161,18 @@ class Toolkit:
         """
         return self.raw.decompile(resource, as_=as_, **as_project(project).arguments())["text"]
 
-    def transform(self, map: str, source: Resource, *, project: ProjectLike = None) -> Resource:
-        """A resource converted by a map written in the FHIR Mapping Language."""
-        return self.raw.transform(map, source, **as_project(project).arguments())
+    def transform(self, map: str, source: Resource, *, project: ProjectLike = None, model: Any = None) -> Any:
+        """A resource converted by a map written in the FHIR Mapping Language.
+
+        With `model` (a class of a model library) the result is an object of it.
+        """
+        return _as(model, self.raw.transform(map, source, **as_project(project).arguments()))
 
     def operation(self, operation: str, resource: Optional[Resource] = None, *, inputs: Optional[Dict[str, Any]] = None,
-                  project: ProjectLike = None, data: DataLike = None) -> Resource:
+                  project: ProjectLike = None, data: DataLike = None, model: Any = None) -> Any:
         """Any FHIR operation the toolkit implements: "$expand", "$validate-code", "$lookup", …"""
-        return self.raw.operation(operation, resource=resource, inputs=inputs, data=as_data(data), **as_project(project).arguments())
+        return _as(model, self.raw.operation(operation, resource=resource, inputs=inputs, data=as_data(data),
+                                             **as_project(project).arguments()))
 
     # ---- a project ------------------------------------------------------------------------------
     def compile(self, project: ProjectLike, *, check: bool = True) -> Compiled:
@@ -213,14 +222,15 @@ class Toolkit:
                                 **as_project(project).arguments())
 
     # ---- by language ----------------------------------------------------------------------------
-    def fsh(self, text: str, *, project: ProjectLike = None, canonical: Optional[str] = None) -> List[Resource]:
+    def fsh(self, text: str, *, project: ProjectLike = None, canonical: Optional[str] = None, model: Any = None) -> List[Any]:
         """FHIR Shorthand compiled: the resources its entities define.
 
         An error (a rule that names no element, an example that breaks its
         profile) raises FhirError with the line it is at.
         """
         base = as_project(project)
-        return self.compile(Project(base.with_file("input.fsh", text).files, canonical=canonical or base.canonical)).resources
+        resources = self.compile(Project(base.with_file("input.fsh", text).files, canonical=canonical or base.canonical)).resources
+        return _as(model, resources)
 
     def cql(self, text: str, data: DataLike, *, project: ProjectLike = None, entry: Optional[str] = None,
             parameters: Optional[Mapping[str, str]] = None) -> Table:
@@ -232,8 +242,13 @@ class Toolkit:
         """A view's rows: SQL on FHIR source text (`SELECT id, birthDate FROM Patient`), or a ViewDefinition as JSON text."""
         return self.query("view", text, project=project, data=data)
 
-    def sql(self, statement: str, *, project: ProjectLike, data: DataLike) -> Table:
-        """A SQL statement over the project's views (each view file is a table of its name)."""
+    def sql(self, statement: str, *, project: ProjectLike = None, data: DataLike) -> Table:
+        """A SQL statement over the project's views (each view file is a table of its name).
+
+        Over a store the statement also reads what the store keeps itself: a
+        table per resource type, `history`, and `trail` (who wrote which
+        version, when and why).
+        """
         return self.query("sql", statement, project=project, data=data)
 
     def search(self, query: str, data: DataLike, *, strict: Optional[bool] = None) -> Table:
@@ -250,6 +265,56 @@ class Toolkit:
             expansion = self.operation("$expand", inputs={"url": value_set}, project=project).get("expansion", {})
             return [{"system": c.get("system"), "code": c.get("code"), "display": c.get("display")} for c in expansion.get("contains", [])]
         return self.query("vcl", value_set, project=project).rows
+
+    # ---- writing --------------------------------------------------------------------------------
+    def stage(self, resources: Any = None, *, data: Union[str, "os.PathLike[str]"], fsh: Optional[str] = None,
+              project: ProjectLike = None, keep: bool = True) -> Stage:
+        """A write prepared and not yet made.
+
+        `resources` (a list, one resource, a Bundle) or `fsh` (FSH Instances as
+        text; `Instance: Type/id` with rules alone changes that stored resource)
+        are validated in the project's context and compared with what `data`
+        holds: a SQLite FHIR store (made when the file is not there) or a
+        directory of FHIR JSON. The answer is a `Stage`: `.changes`, `.errors`,
+        `.ok`, and `.commit(reason)`, which writes it. `keep=False` only checks.
+        """
+        place = os.fspath(data)
+        arguments = as_project(project).arguments()
+        answer = self.raw.stage(resources=_resources(resources), fsh=fsh, data=place, keep=None if keep else False, **arguments)
+
+        def commit(reason: Optional[str] = None, agent: Optional[str] = None) -> Commit:
+            return Commit(self.raw.commit(answer["stage"], place, reason=reason, agent=agent, **arguments))
+
+        return Stage(answer, commit if answer.get("stage") else None)
+
+    def write(self, resources: Any = None, *, data: Union[str, "os.PathLike[str]"], fsh: Optional[str] = None,
+              reason: Optional[str] = None, agent: Optional[str] = None, project: ProjectLike = None) -> Commit:
+        """Resources written to the data: staged, and committed when nothing is wrong.
+
+        An error in any of them (a code its value set lacks, a rule of a
+        profile broken) raises FhirError and nothing is written. The answer is
+        a `Commit`: the versions written and the Provenance that records who,
+        why and from what (empty when the data already holds them as given).
+        """
+        staged = self.stage(resources, data=data, fsh=fsh, project=project)
+        if not staged.ok:
+            if staged.id:
+                self.raw.stage(drop=staged.id, data=os.fspath(data), **as_project(project).arguments())
+            staged.raise_for_errors()
+        return staged.commit(reason, agent=agent) if staged.id else Commit({})
+
+
+def _as(model: Any, resource: Any) -> Any:
+    return resource if model is None else typed(model, resource)
+
+
+def _resources(resources: Any) -> Any:
+    """What is to be written, as the function takes it: a list or one resource."""
+    if resources is None or isinstance(resources, (dict, list)):
+        return resources
+    if isinstance(resources, (tuple, set, frozenset)) or hasattr(resources, "__next__"):
+        return list(resources)
+    return resources
 
 
 def _parameters(parameters: Optional[Mapping[str, str]]) -> Optional[Dict[str, str]]:

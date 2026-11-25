@@ -149,6 +149,64 @@
   (check-equal? (hash-ref (car (hash-ref e 'uses)) 'define) "Latest"))
 (check-regexp-match #rx"no file nope.cql in the project" (message (call "run" (hasheq 'path "nope.cql"))))
 
+;; ---- writing: stage, then commit -----------------------------------------------------------------
+(define store-dir (make-temporary-file "fhir-api-store-~a" 'directory))
+(define store (path->string (build-path store-dir "clinic.db")))
+(define (staged args) (call "stage" (hash-set args 'data store)))
+(let ([st (staged (hasheq 'resources data))])
+  (check-equal? (hash-ref st 'stage) "stage-1")
+  (check-equal? (hash-ref st 'errors) 0)
+  (check-equal? (for/list ([c (hash-ref st 'changes)]) (list (hash-ref c 'resource) (hash-ref c 'action)))
+                '(("Patient/ann" "create") ("Observation/a1" "create")))
+  ;; nothing is written until commit
+  (check-equal? (hash-ref (call "query" (hasheq 'language "search" 'text "Patient" 'data store)) 'rows) '())
+  (define c (call "commit" (hasheq 'stage "stage-1" 'data store 'reason "first load" 'agent "intake desk")))
+  (check-equal? (for/list ([w (hash-ref c 'written)]) (hash-ref w 'version)) '("Patient/ann/_history/1" "Observation/a1/_history/1"))
+  (check-regexp-match #rx"^Provenance/" (hash-ref c 'provenance))
+  (check-equal? (hash-ref c 'reason) "first load")
+  (check-equal? (hash-ref c 'agent) "intake desk")
+  ;; an answer names no call of the workspace's own tools
+  (check-false (hash-has-key? c 'next))
+  (check-equal? (length (hash-ref (call "query" (hasheq 'language "search" 'text "Patient" 'data store)) 'rows)) 1))
+;; one resource, not a list; the same resource again differs in nothing and makes no stage
+(let ([st (staged (hasheq 'resources patient))])
+  (check-equal? (hash-ref st 'stage) 'null)
+  (check-equal? (hash-ref (car (hash-ref st 'changes)) 'action) "unchanged"))
+;; a change as the FSH rules that change, laid over the stored resource
+(let ([st (staged (hasheq 'fsh "Instance: Observation/a1\n* status = #amended\n* valueQuantity = 9.1 '%'"))])
+  (check-equal? (hash-ref (car (hash-ref st 'changes)) 'changed) '("status: \"final\" → \"amended\"" "valueQuantity.value: 9.4 → 9.1"))
+  (define c (call "commit" (hasheq 'stage "latest" 'data store 'reason "corrected")))
+  (check-equal? (hash-ref (car (hash-ref c 'written)) 'version) "Observation/a1/_history/2")
+  (check-equal? (hash-ref c 'agent) "fhir-api"))
+;; an error refuses the commit, and says why without naming another tool's call
+(let* ([bad (hash-set* observation 'id "a2" 'status "finl")]
+       [st (staged (hasheq 'resources (list bad)))])
+  (check-equal? (hash-ref st 'errors) 1)
+  (check-regexp-match #rx"code `finl` not in required value set" (car (hash-ref (car (hash-ref st 'changes)) 'errors)))
+  (define refused (call "commit" (hasheq 'stage (hash-ref st 'stage) 'data store)))
+  (check-true (failed? refused))
+  (check-regexp-match #rx"has 1 validation error" (message refused))
+  (check-false (regexp-match? #rx"stage\\(drop" (message refused)))
+  ;; a check only keeps nothing; a refused stage is dropped
+  (check-equal? (hash-ref (staged (hasheq 'resources (list bad) 'keep #f)) 'stage) 'null)
+  (check-equal? (hash-ref (staged (hasheq 'drop "refused")) 'stages) '()))
+;; a profile of the project is what a staged instance is held to
+(let ([st (staged (hasheq 'fsh "Instance: bo\nInstanceOf: AdultPatient\n* gender = #male" 'files (hasheq 'profiles.fsh fsh) 'keep #f))])
+  (check-equal? (hash-ref st 'errors) 1)
+  (check-regexp-match #rx"birthDate" (car (hash-ref (car (hash-ref st 'changes)) 'errors))))
+;; the trail is in the store: who wrote which version, and why
+(check-equal? (for/list ([r (hash-ref (call "query" (hasheq 'language "sql" 'data store
+                                                            'text "SELECT type, id, versionId, agent, reason FROM trail ORDER BY type, id, versionId"))
+                                      'rows)])
+                (list (hash-ref r 'type) (hash-ref r 'id) (hash-ref r 'versionId) (hash-ref r 'agent) (hash-ref r 'reason)))
+              '(("Observation" "a1" 1 "intake desk" "first load") ("Observation" "a1" 2 "fhir-api" "corrected")
+                ("Patient" "ann" 1 "intake desk" "first load")))
+(check-regexp-match #rx"give one of `resources`, `fsh`" (message (staged (hasheq))))
+(check-regexp-match #rx"give one of `resources`, `fsh`" (message (staged (hasheq 'resources data 'fsh "x"))))
+(check-regexp-match #rx"stage needs `data`" (message (call "stage" (hasheq 'resources data))))
+(check-regexp-match #rx"no stage stage-99" (message (call "commit" (hasheq 'stage "stage-99" 'data store))))
+(delete-directory/files store-dir)
+
 ;; ---- data: one resource, a Bundle, a directory, a place that is not there -------------------------
 (check-equal? (hash-ref (car (hash-ref (call "query" (hasheq 'language "fhirpath" 'text "Patient.birthDate" 'data patient)) 'rows)) 'resource) "Patient/ann")
 (check-equal? (length (hash-ref (call "query" (hasheq 'language "fhirpath" 'text "Patient.birthDate"

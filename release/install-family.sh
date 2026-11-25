@@ -11,6 +11,7 @@ for package in fhir fhir-spec fhir-tx fhir-validation fhir-server fhir-lsp fhir-
   sources+=("$root/$package")
 done
 while read -r repository commit; do
+  commit=${commit%$'\r'}                  # a lock file checked out with Windows line ends
   case "$repository" in ''|'#'*) continue ;; esac
   sources+=("https://github.com/oloveluck/$repository.git#$commit")
 done < "$root/release/family.lock"

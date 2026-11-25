@@ -33,6 +33,7 @@
          "session.rkt"
          (only-in fhir/mcp/hub hub? hub-ws hub-root hub-diagnostics hub-warnings hub-defined with-hub inside)
          (only-in fhir/mcp/run execute hub-explain)
+         (only-in fhir/mcp/stage hub-stage! hub-commit!)
          (only-in fhir/mcp/tools apply-json)
          (only-in fhir/mcp/resources learn-topics learn-text)
          (only-in fhir/operation operation)
@@ -103,6 +104,7 @@
     [(string) (string? v)]
     [(boolean) (boolean? v)]
     [(object resource) (hash? v)]
+    [(resources) (or (hash? v) (and (list? v) (andmap hash? v)))]
     [(files) (and (hash? v) (for/and ([x (in-hash-values v)]) (string? x)))]
     [(data) (or (string? v) (hash? v) (and (list? v) (andmap hash? v)))]
     [else #t]))
@@ -111,6 +113,7 @@
   (case type
     [(string) "a string"] [(boolean) "true or false"] [(object) "an object"]
     [(resource) "a FHIR resource (a JSON object)"]
+    [(resources) "FHIR resources (a list of JSON objects, or one: a resource or a Bundle)"]
     [(files) "an object of file name -> text"]
     [(data) "resources (a list, a resource, a Bundle) or a string naming where they are"]
     [else "a value"]))
@@ -320,6 +323,57 @@
     (lambda (h)
       (with-hub h (lambda () (apply-json (operation (arg a 'operation)) (or (arg a 'inputs) (hasheq)) (arg a 'resource)))))))
 
+;; ---- writing: stage, then commit ---------------------------------------------------------------
+;; A write goes the workspace's way (fhir-mcp's stage.rkt): staged — validated in the project's
+;; context and compared with what the data holds —, then committed, which writes the resources and
+;; their trail (a Provenance and an AuditEvent) in one step. The stage is kept with the project, so
+;; `commit` is given the project and the place `stage` was.
+(define p-place (param "data" 'string #t "where the data is kept: a SQLite FHIR store (the file is made when it is not there), or a directory of FHIR JSON"))
+
+;; without-hints : jsexpr -> jsexpr   an answer without the lines that say the next call in the
+;; workspace's own tools' words (`next`, `table`): a caller here calls functions
+(define (without-hints js)
+  (cond [(hash? js) (for/hasheq ([(k v) (in-hash js)] #:unless (memq k '(next table))) (values k (without-hints v)))]
+        [(list? js) (map without-hints js)]
+        [else js]))
+
+;; without-hint-text : string -> string   a refusal without its parenthesis naming a tool call
+(define (without-hint-text message)
+  (regexp-replace* #px" \\(stage\\([^()]*\\)[^()]*\\)" message ""))
+
+;; said-plainly : (-> X) -> X   the thunk's answer without hints; its refusal without them too
+(define (said-plainly thunk)
+  (with-handlers ([(lambda (e) (and (exn:fail? e) (not (exn:fail:problems? e))
+                                    (not (equal? (without-hint-text (exn-message e)) (exn-message e)))))
+                   (lambda (e) (raise-user-error (without-hint-text (exn-message e))))])
+    (without-hints (thunk))))
+
+(define (run-stage s a)
+  (define resources (arg a 'resources))
+  (define fsh (arg a 'fsh))
+  (define drop (arg a 'drop))
+  (unless (= 1 (length (filter values (list resources fsh drop))))
+    (raise-user-error 'stage "give one of `resources`, `fsh` (what to write) or `drop` (a stage to discard)"))
+  (in-project s a
+    (lambda (h)
+      (said-plainly
+       (lambda ()
+         (hub-stage! h (hasheq-some 'resources (and resources (if (list? resources) resources (list resources)))
+                                    'fsh fsh
+                                    'drop drop
+                                    'keep (and (eq? (hash-ref a 'keep #t) #f) 'false))))))))
+
+;; hasheq-some : key value … -> hasheq   the pairs whose value is not #f ('false: a false to keep)
+(define (hasheq-some . kvs)
+  (let loop ([kvs kvs] [h (hasheq)])
+    (cond [(null? kvs) h]
+          [(not (cadr kvs)) (loop (cddr kvs) h)]
+          [else (loop (cddr kvs) (hash-set h (car kvs) (if (eq? (cadr kvs) 'false) #f (cadr kvs))))])))
+
+(define (run-commit s a)
+  (in-project s a
+    (lambda (h) (said-plainly (lambda () (hub-commit! h (arg a 'stage) (arg a 'reason) #:agent (or (arg a 'agent) "fhir-api")))))))
+
 (define (run-guide s a)
   (define topic (arg a 'topic))
   (cond [(not topic) (hasheq 'topics (for/list ([t (in-list learn-topics)]) (car t)))]
@@ -382,6 +436,23 @@
                project (list p-data))
        "the resource the operation returns (its `return`, or a Parameters of its outputs)"
        run-operation)
+   (fn "stage" "A write prepared and not yet made: resources, given as JSON or as FSH Instances, validated in the project's context (the profiles they claim, the project's own among them) and compared with what the data holds: created, changed (each path old → new) or unchanged, with every error. Nothing is written until commit."
+       (append (list p-place
+                     (param "resources" 'resources #f "the resources to write (a list, one resource, or a Bundle); one with an id the data holds is an update")
+                     (param "fsh" 'string #f "in place of `resources`: FSH Instances as text; `Instance: Type/id` with rules alone changes that stored resource")
+                     (param "drop" 'string #f "discard a stage instead: its id, latest, refused (those with errors) or all")
+                     (param "keep" 'boolean #f "false: check only — the same answer, no stage kept"))
+               project)
+       "{stage, changes: [{resource, action, changed, errors, warnings}…], errors}: `stage` the id commit takes (none when nothing differs or with keep false), `action` create | update | unchanged, `errors` their count"
+       run-stage)
+   (fn "commit" "A stage written to the data, with its trail: the resources in one step (a SQLite store: one transaction), then a Provenance (the versions written, who, why, the source text with its hash) and an AuditEvent. A stage with errors is refused."
+       (append (list (param "stage" 'string #t "the stage's id, as stage answered it, or latest")
+                     p-place
+                     (param "reason" 'string #f "why: recorded in the Provenance")
+                     (param "agent" 'string #f "who is writing, for the Provenance and the AuditEvent: a name, or a reference (Practitioner/x); fhir-api when none is given"))
+               project)
+       "{stage, written: [{resource, version, status, ok}…], provenance, reason, agent}: `version` as Type/id/_history/n, `provenance` the Provenance written"
+       run-commit)
    (fn "guide" "A guide to one of the languages or to FHIR itself, written for an agent; without a topic, the topics."
        (list (param "topic" 'string #f "fhir, fsh, cql, fhirpath, fml, vcl, sql-on-fhir, …"))
        "{topics: [string…]} or {topic, text}"
@@ -401,6 +472,7 @@
       [(string) (hasheq 'type "string")]
       [(boolean) (hasheq 'type "boolean")]
       [(object resource) (hasheq 'type "object")]
+      [(resources) (hasheq 'anyOf (list (hasheq 'type "object") (hasheq 'type "array" 'items (hasheq 'type "object"))))]
       [(files) (hasheq 'type "object" 'additionalProperties (hasheq 'type "string"))]
       [(data) (hasheq 'anyOf (list (hasheq 'type "string") (hasheq 'type "object")
                                    (hasheq 'type "array" 'items (hasheq 'type "object"))))]))

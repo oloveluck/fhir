@@ -1,0 +1,5 @@
+# The SQLite a wheel carries (release/build-sqlite.sh): the amalgamation's version as its file
+# name writes it, the year of its directory at sqlite.org, and the SHA-256 of the zip
+# (https://www.sqlite.org/<year>/sqlite-amalgamation-<version>.zip). A `-` for the hash pins
+# nothing: the build then prints the hash of what it fetched, to be written here.
+3540100 2026 -

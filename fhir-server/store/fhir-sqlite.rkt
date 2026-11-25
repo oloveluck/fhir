@@ -19,7 +19,7 @@
 ;;; No global state: every operation takes the store explicitly. All writes happen inside
 ;;; call-with-store-transaction (db-lib's call-with-transaction on a leased connection).
 
-(require racket/contract
+(require racket/contract racket/list racket/string
          db)
 
 (provide
@@ -36,8 +36,46 @@
 
 (struct fhir-store (path pool) #:transparent)
 
+;; ---- the SQLite underneath ---------------------------------------------------------------------
+;; The store keeps resources as JSONB, which SQLite has had since 3.45 (January 2024). Racket's db
+;; library uses the SQLite it finds: the system's on Linux, which on an older distribution (Ubuntu
+;; 22.04: 3.37) lacks it, and on macOS the one Racket's own distribution carries, which lacks it
+;; too (found by the first wheel builds on CI, 2026-11-25) — and the first write then fails with
+;; "no such function: jsonb", which says nothing a person can act on. So the version is read once
+;; and said.
+(define needed-sqlite '(3 45 0))
+
+;; version-numbers : string -> (listof natural)   "3.45.1" -> '(3 45 1)
+(define (version-numbers text)
+  (for/list ([part (in-list (regexp-match* #rx"[0-9]+" text))]) (string->number part)))
+
+;; version-at-least? : (listof natural) (listof natural) -> boolean   compared part by part, a
+;; missing part read as 0
+(define (version-at-least? have need)
+  (cond [(null? need) #t]
+        [(null? have) (andmap zero? need)]
+        [(> (car have) (car need)) #t]
+        [(< (car have) (car need)) #f]
+        [else (version-at-least? (cdr have) (cdr need))]))
+
+;; old-sqlite-message : string -> (or/c string #f)   what to say of a SQLite of that version, #f
+;; when it is new enough
+(define (old-sqlite-message version)
+  (and (not (version-at-least? (version-numbers version) needed-sqlite))
+       (format "a FHIR store needs SQLite ~a or newer (it keeps resources as JSONB); the SQLite found here is ~a. Install a newer libsqlite3 where Racket finds it (release/build-sqlite.sh in the fhir repository builds one there), or use a build of the toolkit that carries its own (the Python wheel does)"
+               (string-join (map number->string (take needed-sqlite 2)) ".") version)))
+
+(define sqlite-checked? #f)
+;; check-sqlite! : connection -> void   once a process
+(define (check-sqlite! c)
+  (unless sqlite-checked?
+    (define message (old-sqlite-message (query-value c "SELECT sqlite_version()")))
+    (when message (raise-user-error 'fhir-store message))
+    (set! sqlite-checked? #t)))
+
 ;; every pooled connection gets WAL + NORMAL sync (durable enough for an app store, much faster)
 (define (configure! c)
+  (check-sqlite! c)
   (query-exec c "PRAGMA journal_mode=WAL")
   (query-exec c "PRAGMA synchronous=NORMAL")
   (query-exec c "PRAGMA foreign_keys=ON")
@@ -215,6 +253,14 @@
           (query-exec c (format "ALTER TABLE ~a DROP COLUMN raw_resource" t)))))))
 
 (module+ test
+  ;; the SQLite underneath: 3.45 and newer are enough, by number and not by text ("3.9" < "3.45")
+  (check-false (old-sqlite-message "3.45.0"))
+  (check-false (old-sqlite-message "3.45.1"))
+  (check-false (old-sqlite-message "3.54.1"))
+  (check-false (old-sqlite-message "4.0"))
+  (check-regexp-match #rx"needs SQLite 3.45 or newer.*found here is 3.37.2" (old-sqlite-message "3.37.2"))
+  (check-true (string? (old-sqlite-message "3.9.2")))
+  (check-true (string? (old-sqlite-message "3.44.9")))
   (require rackunit racket/file)
   (define tmp (make-temporary-file "fhir-store-~a.db"))
   (define store (open-fhir-store tmp))

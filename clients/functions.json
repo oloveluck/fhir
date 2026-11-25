@@ -537,6 +537,130 @@
       "summary": "Any FHIR operation the toolkit implements, by reference: $expand, $validate-code, $lookup, $translate, $snapshot, $evaluate-measure, $sql-run and the others."
     },
     {
+      "name": "stage",
+      "order": [
+        "data",
+        "resources",
+        "fsh",
+        "drop",
+        "keep",
+        "files",
+        "directory",
+        "canonical"
+      ],
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical": {
+            "description": "the base of the canonicals the project's files define when they state none (http://example.org otherwise); with `files`",
+            "type": "string"
+          },
+          "data": {
+            "description": "where the data is kept: a SQLite FHIR store (the file is made when it is not there), or a directory of FHIR JSON",
+            "type": "string"
+          },
+          "directory": {
+            "description": "the project as a directory on disk, in place of `files` (its workspace.yaml and sushi-config.yaml are read)",
+            "type": "string"
+          },
+          "drop": {
+            "description": "discard a stage instead: its id, latest, refused (those with errors) or all",
+            "type": "string"
+          },
+          "files": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "the project: sources in any of the languages and FHIR JSON definitions, by file name (`profiles.fsh`, `Screening.cql`, `intake.map`, `labs.vcl`, `bp.sof`, `ValueSet-x.json`); what they define is in context for the call",
+            "type": "object"
+          },
+          "fsh": {
+            "description": "in place of `resources`: FSH Instances as text; `Instance: Type/id` with rules alone changes that stored resource",
+            "type": "string"
+          },
+          "keep": {
+            "description": "false: check only — the same answer, no stage kept",
+            "type": "boolean"
+          },
+          "resources": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            ],
+            "description": "the resources to write (a list, one resource, or a Bundle); one with an id the data holds is an update"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "returns": "{stage, changes: [{resource, action, changed, errors, warnings}…], errors}: `stage` the id commit takes (none when nothing differs or with keep false), `action` create | update | unchanged, `errors` their count",
+      "summary": "A write prepared and not yet made: resources, given as JSON or as FSH Instances, validated in the project's context (the profiles they claim, the project's own among them) and compared with what the data holds: created, changed (each path old → new) or unchanged, with every error. Nothing is written until commit."
+    },
+    {
+      "name": "commit",
+      "order": [
+        "stage",
+        "data",
+        "reason",
+        "agent",
+        "files",
+        "directory",
+        "canonical"
+      ],
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "agent": {
+            "description": "who is writing, for the Provenance and the AuditEvent: a name, or a reference (Practitioner/x); fhir-api when none is given",
+            "type": "string"
+          },
+          "canonical": {
+            "description": "the base of the canonicals the project's files define when they state none (http://example.org otherwise); with `files`",
+            "type": "string"
+          },
+          "data": {
+            "description": "where the data is kept: a SQLite FHIR store (the file is made when it is not there), or a directory of FHIR JSON",
+            "type": "string"
+          },
+          "directory": {
+            "description": "the project as a directory on disk, in place of `files` (its workspace.yaml and sushi-config.yaml are read)",
+            "type": "string"
+          },
+          "files": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "the project: sources in any of the languages and FHIR JSON definitions, by file name (`profiles.fsh`, `Screening.cql`, `intake.map`, `labs.vcl`, `bp.sof`, `ValueSet-x.json`); what they define is in context for the call",
+            "type": "object"
+          },
+          "reason": {
+            "description": "why: recorded in the Provenance",
+            "type": "string"
+          },
+          "stage": {
+            "description": "the stage's id, as stage answered it, or latest",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stage",
+          "data"
+        ],
+        "type": "object"
+      },
+      "returns": "{stage, written: [{resource, version, status, ok}…], provenance, reason, agent}: `version` as Type/id/_history/n, `provenance` the Provenance written",
+      "summary": "A stage written to the data, with its trail: the resources in one step (a SQLite store: one transaction), then a Provenance (the versions written, who, why, the source text with its hash) and an AuditEvent. A stage with errors is refused."
+    },
+    {
       "name": "guide",
       "order": [
         "topic"

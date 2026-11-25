@@ -1,0 +1,5 @@
+# Files are checked out byte for byte as they are stored, on every system. On Windows git would
+# otherwise rewrite line ends as it checks out, and what reads a file by line (release/family.lock:
+# a commit followed by a carriage return names nothing) or compares a file with generated text
+# (clients/functions.json, the README's examples) would differ there.
+* -text
