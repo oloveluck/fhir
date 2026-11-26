@@ -43,7 +43,11 @@
          (only-in fhir/primitives/temporal calendar-problem)
          (only-in fhirpath/terminology tx-service-validate tx-service-expand)
          (only-in fhir/terminology/service expand/json validate-code/json packages->resolver)
-         (only-in fhir/terminology/index find-concept cs-index csix-by-code))
+         (only-in fhir/terminology/index find-concept cs-index csix-by-code)
+         (only-in fhir/registry registered-resource)
+         (only-in fhir/data-source current-data-source data-source-all)
+         (only-in fhir/canonical canonical-url)
+         "resource-rules.rkt")
 
 (provide
  (struct-out issue)
@@ -111,12 +115,31 @@
         (define seen (make-hash))
         ;; the invariants of the datatypes the resource's values are of: the same for every index
         (define of-datatypes (if inv? (datatype-invariant-issues rt node) '()))
-        (for/fold ([acc (reverse (append dup-issues (unchecked-profile-issues rt json profiles) of-datatypes))] #:result (reverse acc))
+        (for/fold ([acc (reverse (append dup-issues (unchecked-profile-issues rt json profiles) of-datatypes
+                                         (resource-rule-issues json inv?)))] #:result (reverse acc))
                   ([i (in-list indexes)] #:when i)
           (define issues (append (walk i rt json tx) (if inv? (invariant-issues i rt node) '())))
           (for/fold ([acc acc]) ([is (in-list issues)])
             (define k (list (issue-code is) (issue-path is) (issue-msg is)))
             (if (hash-ref seen k #f) acc (begin (hash-set! seen k #t) (cons is acc)))))])]))
+
+;; resource-rule-issues : jsexpr boolean -> (listof Issue)
+;; the rules about a whole resource's JSON (resource-rules.rkt); dom-3 with the invariants
+(define (resource-rule-issues json inv?)
+  (for/list ([f (in-list (append (if inv? (contained-reference-findings json) '())
+                                 (value-set-system-findings json)
+                                 (derived-questionnaire-findings json questionnaire-at)))])
+    (apply issue f)))
+
+;; questionnaire-at : url -> Questionnaire | #f   a Questionnaire by its canonical (a |version is not
+;; matched): what a program registered, else the data source's
+(define (questionnaire-at u)
+  (define url (canonical-url u))
+  (or (with-handlers ([exn:fail? (lambda (_) #f)]) (registered-resource "Questionnaire" url))
+      (for/first ([r (in-list (with-handlers ([exn:fail? (lambda (_) '())])
+                                ((data-source-all (current-data-source)) "Questionnaire")))]
+                  #:when (equal? (hash-ref r 'url #f) url))
+        r)))
 
 ;; unknown-resource-type? : string -> boolean   a plain name that neither the packages in context (which
 ;; do define the base types) nor the registered towers and logical models know

@@ -9,25 +9,29 @@
 ;;; recall (dirty cases we also flag) is a ratchet that should only rise.
 
 (require rackunit
-         racket/string racket/port
+         racket/string racket/port racket/list
          racket/runtime-path
          json
          (only-in fhir/r5/schemas)
          (only-in fhir/serialize/read-json read-fhir-json read-fhir-json/duplicates)
-         (only-in fhir/conformance/validate validate-issues issue-severity))
+         (only-in fhir/conformance/validate validate-issues issue-severity)
+         (only-in fhir/data-source current-data-source resources->data-source))
 
 (define-runtime-path dir "vendor/validation")
-(define recall-floor 17)                               ; ratchet: raise as coverage grows
+(define recall-floor 22)                               ; ratchet: raise as coverage grows
 
-;; a case may name SUPPORTING resources (3rd manifest column): the profiles/extensions it is
-;; validated against. Only StructureDefinitions are passed as profiles; the rest are context the
-;; reference resolves and we fail open on.
-(define (our-error? js dups [profiles '()])
-  (for/or ([i (in-list (validate-issues js #:profiles profiles #:duplicates dups #:invariants? #t))])
-    (member (issue-severity i) '("error" "fatal"))))
+;; a case may name SUPPORTING resources (3rd manifest column). StructureDefinitions are the profiles
+;; it is validated against; the rest (a Questionnaire another derives from) are the data source,
+;; the context the reference resolves canonicals in.
+(define (our-error? js dups [supporting '()])
+  (define-values (profiles others) (partition structure-definition? supporting))
+  (parameterize ([current-data-source (resources->data-source others)])
+    (for/or ([i (in-list (validate-issues js #:profiles profiles #:duplicates dups #:invariants? #t))])
+      (member (issue-severity i) '("error" "fatal")))))
 
-(define (load-profiles names)
-  (filter (lambda (p) (and (hash? p) (equal? (hash-ref p 'resourceType #f) "StructureDefinition")))
+(define (structure-definition? r) (equal? (hash-ref r 'resourceType #f) "StructureDefinition"))
+(define (load-supporting names)
+  (filter (lambda (r) (and (hash? r) (string? (hash-ref r 'resourceType #f))))
           (for/list ([n (in-list names)])
             (with-handlers ([exn:fail? (lambda (_) #f)])
               (call-with-input-file (build-path dir n) read-json)))))
@@ -50,7 +54,7 @@
        (define ref? (and (ref-error? (call-with-input-file (build-path dir "outcomes" (cadr parts)) read-json)) #t))
        (define supporting
          (if (>= (length parts) 3) (string-split (caddr parts) ",") '()))
-       (define ours? (and (our-error? js dups (load-profiles supporting)) #t))
+       (define ours? (and (our-error? js dups (load-supporting supporting)) #t))
        (cond [(and (not ref?) (not ours?)) (values (add1 agree) caught missed fp skip)]
              [(and (not ref?) ours?)       (values agree caught missed (add1 fp) skip)]
              [(and ref? ours?)             (values agree (add1 caught) missed fp skip)]

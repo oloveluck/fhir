@@ -635,7 +635,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | **IG server** | **a server generated from US Core 9.0.0: all 255 resources load through validation** | `tests/ig-server-r4-test.rkt` | **0 unmet requirements** (SHALL/SHOULD/MAY; auth aside) |
 | **IG FHIRPath** | **the same IGs: profile invariants on their examples + SearchParameter expressions** | `tests/ig-fhirpath-r4-test.rkt` | **6082 invariant checks, 0 fail** (2 dom-3 spec-conflict errors); **1330/1330 search** |
 | **snapshot** | **fhir-test-cases rX/snapshot-generation** | `conformance/tests/snapshot-conformance-test.rkt` | **paths 80/80, card 476/478, types 235/236** (id-matched) |
-| validator | fhir-test-cases validator + java outcomes | `tests/validate-diff-test.rkt` | **fp=0**, recall 18/26 (67 cases) |
+| validator | fhir-test-cases validator + java outcomes | `tests/validate-diff-test.rkt` | **fp=0**, recall 22/26 (67 cases) |
 | FSH | SUSHI golden corpus (hand-authored pairs) | `fsh/tests/golden-test.rkt` | 22/22 fwd + round-trip |
 | **FSH real IG** | **IPS 2.0.1's own FSH vs its published package** | `fsh/tests/ig-ips-test.rkt` (fsh repo) | **0 compile errors; 108/114 exact, 111/114 complete; 438/438 differential elements** |
 | **FSH -> package -> server** | **mCODE 4.0.0's FSH compiled and packed here, served by a generated server: its examples vs its profiles** | `tests/fsh-ig-server-r4-test.rkt` | **283/283 validate** (as the published package); 0 unmet requirements |
@@ -3389,6 +3389,33 @@ fhir-examples with the 741 HL7 verdicts and the reference comparisons), FHIRPath
 R4 932/934. Not done, named: tx.fhir.org's candidate `$compare` (61 tests), `$batch-validate`
 (2), `$translate` by source and target system without a ConceptMap url (2), `excludeNotForUI`,
 `exclude-system`, `limit`; LOINC, SNOMED CT, OMOP content (249 tests) is not shipped.
+
+## The validator's test cases: what the reference catches and this did not (2026-11-26)
+The eight invalid cases of fhir-test-cases' validator manifest this validator passed were read by
+cause (`tests/validate-diff-test.rkt`, the Java outcomes beside them). Four were decidable and are
+caught now; recall 18 -> **22 of 26**, false positives still 0. `conformance/resource-rules.rkt`
+(pure over the JSON, each rule fail-open; validate.rkt's `resource-rule-issues` makes Issues):
+- **dom-3** (`contained-reference-findings`): a contained resource with an id is unreferenced when no
+  string of the resource that holds it, outside it, is `#<id>` and none inside it is `#` — any
+  string counts, so it can only say less than the definition. FHIR writes dom-3 as FHIRPath calling
+  `as()` on several items, an error by FHIRPath's specification, which is why it stays out of the
+  FHIRPath invariants. Checked in a Bundle's entries too; under `#:invariants?`.
+- **A compose's system is an absolute URI** (`value-set-system-findings`; R4 and R5 define
+  include/exclude.system so): `#cs` is refused with how FHIR names a contained code system (its url
+  and the `valueset-system` extension).
+- **A Questionnaire derived from another** (`derived-questionnaire-findings`): with the
+  `questionnaire-derivationType` extension `extends` or `compliesWith` and the base found
+  (`questionnaire-at`: fhir/registry, then `current-data-source`), an item it shares by linkId keeps
+  the base's type, does not repeat where the base does not, is required where the base is, offers
+  only the base's answer options; `compliesWith` adds no item. Decided only when the base is found.
+The differential now gives a case's supporting resources other than StructureDefinitions as the
+data source (the context the reference resolves canonicals in). Left: the two ctm-1 cases (by
+design, above), a LOINC supplement (its codes and property codes need LOINC), and a case whose
+only reference error is that the reference could not load the R5 `valueset-system` extension.
+Gates unchanged: IG validation 330 clean, 0 over-reported, the R5 core's invariants 2957/2968
+(dom-3 reports nothing on it). A lesson of the same day: a change to a language's guide (the
+FHIRPath guide's reference link) broke fhir-mcp's workspace test, which checks each guide cites its
+specification — run fhir-mcp's tests after a guide changes.
 
 ## FHIRPath 3.0.0 (2026-11-26)
 hl7.org answered from the session, and FHIRPath 3.0.0 is the current release: its grammar is now

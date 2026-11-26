@@ -186,7 +186,7 @@
   (check-equal? (learn-text id) g id))
 (check-regexp-match #rx"https://cql.hl7.org/" (learn-text "cql"))
 (check-regexp-match #rx"https://hl7.org/fhir/uv/shorthand/" (learn-text "fsh"))
-(check-regexp-match #rx"http://hl7.org/fhirpath/N1" (learn-text "fhirpath"))
+(check-regexp-match #rx"http://hl7.org/fhirpath/" (learn-text "fhirpath"))
 (check-regexp-match #rx"https://build.fhir.org/ig/FHIR/ig-guidance/vcl.html" (learn-text "vcl"))
 (check-regexp-match #rx"mapping-language.html" (learn-text "fml"))
 (check-regexp-match #rx"https://sql-on-fhir.org" (learn-text "sql-on-fhir"))

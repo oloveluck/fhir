@@ -156,7 +156,13 @@ and not a string, an id only the characters an id may have;}
 element allows;}
 @item{that a code is in the value set where FHIR requires one (a @italic{required binding}:
 @tt{gender} must be female, male, other or unknown);}
-@item{the type's invariants;}
+@item{the type's invariants, and that a contained resource is referred to from the resource that
+holds it (or refers to it);}
+@item{a few rules about a whole resource: a value set's @tt{compose} names each code system by an
+absolute URI (a contained one by its url, with the @tt{valueset-system} extension), and a
+Questionnaire derived from another (@tt{derivedFrom}, with the derivation type @tt{extends} or
+@tt{compliesWith}) keeps what the other says of each item they share — its type, that it does not
+repeat, that it is required, its answer options — and, when it complies, adds no item;}
 @item{that the JSON itself is sound: no key written twice, nothing malformed.}]
 
 @bold{The rules of each profile it is held to.} A @italic{profile} narrows a type for one setting:
@@ -464,7 +470,7 @@ FHIR's rules for its type but not to the profiles its own @tt{meta.profile} clai
 it is well-formed XHTML is not checked.}
 @item{@bold{Some invariants.} The rules every element and every resource carries (@tt{ele-1}, the
 @tt{dom-} rules) are skipped, as is an invariant defined on a slice. (@tt{ext-1}, an extension has
-a value or extensions, is checked on the JSON; the invariants of datatypes, such as "a contact
+a value or extensions, and @tt{dom-3}, a contained resource is referred to, are checked on the JSON; the invariants of datatypes, such as "a contact
 point with a value has a system", are evaluated at every value of the type.) An invariant
 that depends on following a reference (@tt{resolve()}) finds nothing to follow, and one whose formula
 cannot be evaluated counts as held.}
@@ -524,9 +530,10 @@ way, through a server generated from the guide.}
 2,957 show no broken invariant; the other 11 are real faults in the package (ten logical models
 without a @tt{derivation}, and one code system against a profile it claims).}
 @item{@bold{Against HL7's validator test cases.} On 67 cases with the reference validator's
-recorded verdicts, it never calls a valid case invalid, and catches 18 of the 26 invalid ones. The
-eight it misses need what @secref["limits"] lists: following references, and details of choice
-types and decimal formats.}
+recorded verdicts, it never calls a valid case invalid, and catches 22 of the 26 invalid ones. Of
+the four it misses, two are a CareTeam invariant that holds as FHIRPath defines @tt{is} on nothing
+(the reference reads it otherwise), and two rest on content that is not here: LOINC's codes, and
+an extension definition the reference could not find.}
 @item{@bold{Against HL7's validator, resource by resource.} HL7's validator judged 741 resources:
 the 28 published examples of six US Core profiles, and 713 copies of them with one change each
 (an element removed, a code replaced, a list entry doubled, a value that is no value, an element
