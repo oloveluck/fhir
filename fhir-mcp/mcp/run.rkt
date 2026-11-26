@@ -11,11 +11,14 @@
          (only-in fhir/model/registry type-registered?) (only-in fhir/model/introspect full-field-specs)
          (only-in fhir/model/schema field-spec? field-spec-name)
          (only-in fhir/sd/sd-index current-sd-packages) (only-in fhir/operation apply-operation)
-         (only-in db sqlite3-connect disconnect query-value) (only-in file/sha1 sha1)
+         (only-in racket/lazy-require lazy-require) (only-in file/sha1 sha1)
          "search-index.rkt" "sql.rkt" "views.rkt" "view-cache.rkt" "results.rkt" "hub.rkt" "data.rkt" "digest.rkt"
          (only-in "dependencies.rkt" dependency-rows dependency-columns))
 
 ;; Contracted in workspace.rkt; describe and stage use the rest.
+;; the database library, loaded when a store is first read (sql.rkt says why)
+(lazy-require [db (sqlite3-connect disconnect query-value)])
+
 (provide execute hub-run hub-query current-extra-tables view-table element? hub-explain search-store)
 
 ;; ---- run, query --------------------------------------------------------------------------------

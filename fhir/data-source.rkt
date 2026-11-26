@@ -28,7 +28,12 @@
   [empty-data-source data-source?]
   [current-data-source (parameter/c data-source?)]
   [patient-reference-of (-> hash? (listof string?))]
-  [bundle-resources (-> hash? (listof hash?))]))
+  [bundle-resources (-> hash? (listof hash?))]
+  ;; rest-url? : string -> boolean   an http(s) url: data that is a FHIR server (fhir/rest-data-source
+  ;; makes its data source; asking whether a place is one needs no HTTP client loaded)
+  [rest-url? (-> string? boolean?)]))
+
+(define (rest-url? s) (regexp-match? #rx"^https?://" s))
 
 (struct data-source (all read of-patient search))
 

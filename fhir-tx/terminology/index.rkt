@@ -15,7 +15,8 @@
 ;;;   Coding must compare against it. (Represented as a vector; only the accessors read it.)
 
 (require racket/contract racket/list racket/string racket/promise
-         json file/gunzip file/untar
+         json
+         (only-in fhir/package-store package-entries package-entry-kind package-entry-url entry-bytes)
          (only-in fhir/serialize/fast-json fast-bytes->jsexpr)
          (only-in fhir/serialize/jsexpr-util jref jlist))
 
@@ -44,33 +45,32 @@
 ;; packages' indexes, an explicit list of resources, or both.
 (define resolver/c (->* (string?) ((or/c string? #f)) (or/c hash? #f)))
 
-;; a resource file we care about; the prefix filter skips the thousands of other files cheaply.
-(define tx-file-rx #px"^package/(CodeSystem|ValueSet|ConceptMap)-.*\\.json$")
-
-;; a core .tgz -> a VERSIONED index: url -> (listof jsexpr resource), so several versions of the
-;; same canonical coexist (streamed gunzip -> untar, no disk extract).
+;; A package's index is (pkg-index by-url code-systems):
+;;   by-url : url -> (listof Entry), the LAST in the archive first — several versions of one
+;;            canonical coexist;
+;;   code-systems : (listof Entry), in the archive's order.
+;; An Entry is a promise of the resource jsexpr (#f for a file that does not read as a JSON
+;; object): which resources a package has, and under which urls, comes from the package store
+;; (fhir/package-store — the archive is read once a machine, not once a process), and a resource
+;; is read and parsed when a lookup reaches it. (Parsing a core package's whole terminology was,
+;; with reading its archive, most of a process's first validation.)
+(struct pkg-index (by-url code-systems))
 (define (load-index tgz-path)
   (define table (make-hash))
-  (define-values (pin pout) (make-pipe (* 1024 1024)))
-  (define inflate
-    (thread (lambda ()
-              (call-with-input-file tgz-path (lambda (gz) (gunzip-through-ports gz pout)))
-              (close-output-port pout))))
-  (untar pin
-         #:handle-entry
-         (lambda (kind name content size attribs)
-           (when (eq? kind 'file)
-             (define bytes (if (= size 0) #"" (read-bytes size content)))  ; always consume `size`
-             (when (regexp-match? tx-file-rx (path->string name))
-               ;; (the scanner the store reads resources with: the same values as racket/json's,
-               ;; four times as fast — reading a core package's terminology is most of a process's
-               ;; first validation)
-               (define js (fast-bytes->jsexpr bytes))
-               (define url (and (hash? js) (hash-ref js 'url #f)))
-               (when (string? url) (hash-update! table url (lambda (l) (cons js l)) '()))))
-           '()))
-  (thread-wait inflate)
-  table)
+  (define-values (systems)
+    (for/fold ([systems '()])
+              ([e (in-list (package-entries tgz-path))]
+               #:when (member (package-entry-kind e) '("CodeSystem" "ValueSet" "ConceptMap"))
+               #:when (package-entry-url e))
+      (define entry (delay (let ([js (with-handlers ([exn:fail? (lambda (_) #f)]) (fast-bytes->jsexpr (entry-bytes e)))])
+                             (and (hash? js) js))))
+      (hash-update! table (package-entry-url e) (lambda (l) (cons entry l)) '())
+      (if (equal? (package-entry-kind e) "CodeSystem") (cons entry systems) systems)))
+  (pkg-index table (reverse systems)))
+
+;; resources-of : (listof (or/c Entry resource)) -> (listof resource)   the entries read
+(define (resources-of xs)
+  (for*/list ([x (in-list xs)] [r (in-value (if (promise? x) (force x) x))] #:when r) r))
 
 ;; A canonical may carry `|version`, and a request may pin one (systemVersion / valueSetVersion).
 ;; Resolution order: exact version, then a resource that states no version, then the LATEST
@@ -78,7 +78,7 @@
 (define (index-resolve table url [version #f])
   (define-values (base inline-version) (split-canonical url))
   (define v (or version inline-version))
-  (define candidates (hash-ref table base '()))
+  (define candidates (resources-of (hash-ref table base '())))
   (cond
     [(null? candidates) #f]
     ;; a pinned version may be a PATTERN with `x` wildcards ("1.x.x" matches 1.0.0 and 1.2.0)
@@ -196,13 +196,12 @@
 (define (packages->resolver tgzs)
   (define indexes (map index-of tgzs))
   (lambda (url [version #f])
-    (for/or ([ix (in-list indexes)]) (index-resolve (force ix) url version))))
+    (for/or ([ix (in-list indexes)]) (index-resolve (pkg-index-by-url (force ix)) url version))))
 
 ;; packages->code-systems : (listof tgz) -> (listof CodeSystem jsexpr)   every CodeSystem they hold
 (define (packages->code-systems tgzs)
   (for*/list ([t (in-list tgzs)]
-              [(url rs) (in-hash (force (index-of t)))]
-              [r (in-list rs)]
+              [r (in-list (resources-of (pkg-index-code-systems (force (index-of t)))))]
               #:when (equal? (jref r 'resourceType) "CodeSystem"))
     r))
 

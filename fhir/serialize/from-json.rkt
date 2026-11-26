@@ -150,10 +150,16 @@
                 #:unless (hash-ref ftindex k #f)
                 [d (in-list (cons (cons k v) (sibling-of k)))])
       d))
+  (define (any-unknown-key?)
+    (define ftindex (field-index type sch))
+    (for/or ([k (in-hash-keys js)])
+      (not (or (hash-ref ftindex k #f) (eq? k 'resourceType) (underscore-key? k)))))
   (make-reader (lambda () (lenient-fields type sch js seen))
                one
                (lambda () (for/hasheq ([(k v) (in-hash seen)] #:unless (eq? v no-field)) (values k v)))
-               (lambda () (if (zero? (hash-count seen))
+               ;; (nearly every object has only keys its type has and no value that failed: said
+               ;; without a list made — this is asked of every node a view read, after it ran)
+               (lambda () (if (or (zero? (hash-count seen)) (and (null? failed) (not (any-unknown-key?))))
                               '()
                               (filter (lambda (d) (not (eq? (cdr d) 'null))) (append (unknown-keys) failed))))))
 

@@ -104,6 +104,11 @@ only compile-time conformance. Reader is plain (profiles are definitions, not re
   `(lit date "1974-12-25")`.
 
 ## Snapshot generation + SD index (`sd/sd-index.rkt`, `sd/snapshot.rkt`, `sd/element-index.rkt`)
+`package-store.rkt` is how a package's conformance resources are read: once a machine, into
+the cache directory (the archive is a gzipped tar, and inflating the R4 core package took 0.7 s
+of every process that looked a definition up), then by position. `sd/sd-index` and fhir-tx's
+terminology index are built on its `package-entries`; the root CLAUDE.md, "The Python client,
+second pass", has the measurements and the two environment variables.
 Moved here from `conformance/` in the package split: they read only the vendored R5 core package
 (no FHIRPath), so they live with the StructureDefinition tooling and `fsh` can generate
 snapshots without depending on the validator. `conformance/validate.rkt` (main `fhir` package)

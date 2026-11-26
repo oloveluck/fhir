@@ -20,7 +20,8 @@
 ;;; after the tables IT names are there (a workspace's `<name>.sql` file: a join of views under the
 ;;; column names a schema asks for).
 
-(require racket/contract racket/list racket/string racket/file racket/match racket/promise json db (only-in fhir/suggest did-you-mean)
+(require racket/contract racket/list racket/string racket/file racket/match racket/promise json racket/lazy-require racket/runtime-path
+         (for-syntax racket/base) (only-in fhir/suggest did-you-mean)
          (only-in fhir/serialize/fast-json fast-string->jsexpr fast-bytes->jsexpr fast-read-json))
 
 (provide
@@ -41,6 +42,14 @@
   ;; history-resources : store-file type -> (listof jsexpr)   every version of every resource of the
   ;; type, oldest first (meta.versionId says which), read-only
   [history-resources (-> path-string? string? (listof hash?))]))
+
+;; The database library is loaded when a statement is first run: it is a quarter of what a process
+;; loads before its first answer, and a process that is asked FHIRPath or to validate never needs it.
+(lazy-require [db (sqlite3-connect disconnect query query-exec query-list query-rows query-value prepare
+                   rows-result-headers rows-result-rows sql-null? exn:fail:sql? exn:fail:sql-info)])
+(define-runtime-module-path-index db-module 'db)
+;; null-cell : -> sql-null   SQL's NULL (a value of the library's, so asked of it)
+(define (null-cell) (dynamic-require db-module 'sql-null))
 
 (define (history-resources store type)
   (define c (sqlite3-connect #:database store #:mode 'read-only))
@@ -289,7 +298,7 @@
 
 ;; cell-in : jsexpr -> sql value ; cell-out : sql value -> jsexpr
 (define (cell-in v)
-  (cond [(eq? v 'null) sql-null]
+  (cond [(eq? v 'null) (null-cell)]
         [(eq? v #t) 1] [(eq? v #f) 0]
         [(or (string? v) (exact-integer? v)) v]
         [(real? v) (exact->inexact v)]

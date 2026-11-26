@@ -308,6 +308,69 @@ Data(2 resources)
 ['Observation/a1']
 ```
 
+## Files, warnings, and calls that take too long
+
+A resource may be given as a dict, as JSON text, or as the path of a file that holds it:
+
+```python
+import json, pathlib, tempfile
+
+folder = pathlib.Path(tempfile.mkdtemp())
+(folder / "ann.json").write_text(json.dumps(patient))
+print(fhir.fhirpath("name.family", folder / "ann.json"))
+print(fhir.validate('{"resourceType": "Patient", "gender": "florp"}'))
+```
+
+```text
+['Lee']
+Patient.gender: error: code `florp` not in required value set http://hl7.org/fhir/ValueSet/administrative-gender; it holds female, male, other, unknown
+```
+
+When an answer was made without something in the data, the call says so with a `FhirWarning`,
+raised at your line like any Python warning. Here a time has no time zone, which FHIR requires,
+so the view has no value for it; the table keeps the sentence as its `notes`. A map says the same
+of a value in its source that it could not read.
+
+```python
+import warnings
+from fhir_toolkit import FhirWarning
+
+reading = {"resourceType": "Observation", "id": "w1", "status": "final", "code": {"text": "weight"},
+           "effectiveDateTime": "2025-03-01T08:00:00"}
+with warnings.catch_warnings(record=True) as said:
+    warnings.simplefilter("always")
+    table = fhir.view("SELECT id, effective.ofType(dateTime) AS at FROM Observation", [reading])
+print(table.rows)
+print(said[0].category.__name__ + ":", said[0].message)
+print(table.notes == [str(said[0].message)])
+```
+
+```text
+[{'at': None, 'id': 'w1'}]
+FhirWarning: 1 of 1 Observation resources holds a value at `effectiveDateTime` that is not valid FHIR and was not read (the first: Observation/w1: "2025-03-01T08:00:00" — a time needs a time zone, such as Z or +01:00)
+True
+```
+
+`warnings.simplefilter("error", FhirWarning)` makes such data an error, for a program that
+wants none of it.
+
+A table goes where tables go: `to_pandas()`, `to_polars()`, or CSV as text (or to a file, given
+a path):
+
+```python
+print(fhir.view("SELECT id, name.given AS given, birthDate AS born FROM Patient", [patient]).to_csv(), end="")
+```
+
+```text
+id,given,born
+ann,Ann,1980-02-28
+```
+
+`Toolkit(timeout=30)` gives every call 30 seconds. A call that takes longer, or that you
+interrupt (Ctrl-C, a notebook's stop button), stops the toolkit's process: the call raises, the
+next call starts a new process, and data you loaded is loaded again by itself. Nothing an
+interrupted call was computing is ever taken for a later call's answer.
+
 ## How fast it is
 
 The toolkit is a compiled program in a process of its own. Work done inside one call is quick;
@@ -319,14 +382,16 @@ written on (medians; 5,000 resources where it says many):
 
 | task | fhir-toolkit | fhirpathpy | fhir.resources |
 |---|---|---|---|
-| making a `Toolkit`; then its first answer | 0.9 ms; 0.7 s | no start | no start |
-| one FHIRPath expression, one Patient | 0.10 ms | 0.037 ms | — |
-| the same expression over 5,000 Patients | 84 ms (one call) | 189 ms (a loop) | — |
-| validate one Patient | 0.30 ms | — | 0.026 ms |
-| validate 5,000 Patients | 515 ms (one call) | — | 179 ms (a loop) |
-| one value from each of 5,000 Observations | 175 ms (a view) | 53 ms (a loop) | 299 ms (a loop) |
-| the same, the data loaded once | 77 ms (a view) | — | — |
-| a SQL aggregate over that view, data loaded | 28 ms | — | — |
+| making a `Toolkit`; then its first answer | 1.3 ms; 0.7 s | no start | no start |
+| a new `Toolkit`'s first validation | 0.9 s | no start | no start |
+| one FHIRPath expression, one Patient | 0.11 ms | 0.036 ms | — |
+| the same expression over 5,000 Patients | 48 ms (one call) | 191 ms (a loop) | — |
+| validate one Patient | 0.19 ms | — | 0.027 ms |
+| validate 5,000 Patients | 350 ms (one call) | — | 166 ms (a loop) |
+| one value from each of 5,000 Observations | 133 ms (a view) | 53 ms (a loop) | 322 ms (a loop) |
+| the same, the data loaded once | 75 ms (a view) | — | — |
+| that view asked again | 6 ms | — | — |
+| a SQL aggregate over that view, data loaded | 1.2 ms | — | — |
 
 Read a row as what the task costs each way, not as one engine against another: they do not do
 the same work. `fhirpathpy` is timed with its expression compiled once, walking Python dicts.
@@ -334,10 +399,24 @@ the same work. `fhirpathpy` is timed with its expression compiled once, walking 
 codes against their value sets and the rules of profiles (it refuses `"gender": "florp"`, which
 `fhir.resources` accepts).
 
-The first call of each kind loads what only it needs: about 0.3 s for a first FHIRPath answer,
-2 s for a first validation, 1 s for a first CQL run. The process does that loading by itself
-whenever nobody is asking, so after a few idle seconds (a notebook between cells, a program
-reading its input) each first call takes milliseconds.
+The first call of each kind loads what only it needs. Counted from the start of a new process,
+a first FHIRPath answer comes after about 0.7 s, a first validation after 0.9 s, a first view
+after 1.3 s and a first CQL run after 2 s. The process does that loading by itself whenever
+nobody is asking, so after a few idle seconds (a notebook between cells, a program reading its
+input) each first call takes milliseconds.
+
+Those starting times are from a source checkout. The executable a wheel carries reads all of
+its code when it starts, which adds about 0.6 s: built on the same machine it gave a first
+FHIRPath answer after 1.2 s and a first validation after 1.5 s. Everything after the start is
+the same.
+
+Validation reads FHIR's own definitions from the core package. The first time that happens on a
+machine the toolkit unpacks them into your cache directory (27 MB for FHIR R4, about a second
+more, once); later processes read from there. `FHIR_CACHE_DIR` names another directory, and
+`FHIR_PACKAGE_CACHE=0` keeps the definitions in memory and writes nothing.
+
+The real cost of validating is the resource, not the call: a small Patient takes 0.05 ms inside
+the toolkit, a US Core example with its narrative and profile about 0.6 ms.
 
 ## In a notebook
 
@@ -414,6 +493,10 @@ show themselves as HTML in a notebook, with or without pandas.
 | any FHIR operation | `operation("$expand", inputs={...})` |
 | resources to store | `write(resources, data=store, reason=…)`; `stage(…)` then `.commit(reason)` |
 | several files in several languages | `compile(project)`, `check(project)`, `run(path, project=…, data=…)`, `explain(…)` |
+
+A resource is a dict, an object of a model library, JSON text, or the path of a JSON file.
+A `Table` has `.rows`, `.columns`, `.notes`, `.column(name)`, `.to_pandas()`, `.to_polars()` and
+`.to_csv()`.
 
 `fhir.raw` has every function exactly as the toolkit defines it, answering plain JSON.
 

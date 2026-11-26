@@ -9,12 +9,15 @@
          (only-in fhir/suggest closest-names)
          (only-in fhir/registry registered-source registered-by)
          (only-in fhir/data-source current-data-source data-source-all data-source-read bundle-resources)
-         (only-in fhir/spec-package spec-package-path) (only-in fhir/rest-data-source rest-write! rest-url?)
+         (only-in fhir/spec-package spec-package-path) (only-in fhir/data-source rest-url?) racket/lazy-require
          (only-in fhir/sd/sd-index current-sd-packages resolve-sd-raw sd-index-available?) "artifacts.rkt"
          "trail.rkt" "fsh-source.rkt" "calls.rkt" "json-diff.rkt" "hub.rkt" "data.rkt" "run.rkt"
          "describe.rkt" "export.rkt")
 
 ;; Contracted in workspace.rkt.
+;; (writing to a FHIR server: its HTTP client is loaded when a commit goes to one)
+(lazy-require [fhir/rest-data-source (rest-write!)])
+
 (provide hub-stage! hub-commit!)
 
 ;; ---- what is staged ----------------------------------------------------------------------------

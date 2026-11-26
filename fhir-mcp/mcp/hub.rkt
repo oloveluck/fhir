@@ -27,15 +27,23 @@
                   diagnostic-message)
          (only-in fhir/registry register-resources! unregister-source! registered-source registered-by registry-generation)
          (only-in fhir/data-source current-data-source data-source data-source-all data-source-read data-source-search
-                  data-source-of-patient directory->data-source resources->data-source empty-data-source bundle-resources)
-         (only-in fhir/rest-data-source rest->data-source rest-url?)
+                  data-source-of-patient directory->data-source resources->data-source empty-data-source bundle-resources
+                  rest-url?)
+         racket/lazy-require
          (only-in fhir/model/registry pin-registered-types! unpin-registered-types!)
          (only-in fhir/sd/sd-index current-sd-packages)
          (only-in fhir/operation apply-operation add-operation-loader!) (only-in fhir/ig-config parse-ig-config ig-config-expansion-parameters)
-         (only-in db sqlite3-connect query-list disconnect) "artifacts.rkt" "search-index.rkt"
+         "artifacts.rkt" "search-index.rkt"
          "tools.rkt" "calls.rkt" "results.rkt")
 
+;; A FHIR server as the data needs an HTTP client (and TLS): loaded when a workspace's data IS a
+;; server, not with every hub (50 ms of every start).
+(lazy-require [fhir/rest-data-source (rest->data-source)])
+
 ;; For the verbs' modules; what other code calls is workspace.rkt, where the contracts are.
+;; the database library, loaded when a store is first read (sql.rkt says why)
+(lazy-require [db (sqlite3-connect query-list disconnect)])
+
 (provide (struct-out hub) (struct-out stored) (struct-out change) (struct-out staged) hub-root open-hub data-remote?
          configure! use-source! source-resources open-place store-file? data-store-path open-store with-hub guide-file? current-manifest current-repository hub-manifest path-string rel from-here at-root?
          inside argument-source shown-path path-from-here files-by-language refresh! settle! settled? refresh-unless-settled! problems-of problem-json count-severity

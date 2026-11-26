@@ -12,7 +12,7 @@
 
 (require racket/contract racket/string racket/port json
          net/url net/http-client net/uri-codec
-         (only-in "data-source.rkt" data-source data-source? patient-reference-of)
+         (only-in "data-source.rkt" data-source data-source? patient-reference-of rest-url?)
          (only-in "data-source.rkt" data-source-all data-source-read data-source-of-patient data-source-search))
 
 (provide
@@ -26,7 +26,6 @@
   [rest-url? (-> string? boolean?)]))
 
 
-(define (rest-url? s) (regexp-match? #rx"^https?://" s))
 
 ;; at most this many pages per search: a server that keeps answering `next` does not run forever
 (define max-pages 200)

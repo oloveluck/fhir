@@ -144,6 +144,29 @@ computed once for all the SQL you ask of it.
 
 @(example 11)
 
+@section{Files, warnings, and calls that take too long}
+
+A resource may be given as a dict, as JSON text, or as the path of a file that holds it.
+
+@(example 12)
+
+When an answer was made without something in the data, the call says so with a
+@tt{FhirWarning}, raised at your line like any Python warning. Here a time has no time zone,
+which FHIR requires, so the view has no value for it; the table keeps the sentence as its
+@tt{notes}. A map says the same of a value in its source that it could not read.
+@tt{warnings.simplefilter("error", FhirWarning)} makes such data an error.
+
+@(example 13)
+
+A table goes where tables go: @tt{to_pandas()}, @tt{to_polars()}, or CSV.
+
+@(example 14)
+
+@tt{Toolkit(timeout=30)} gives every call 30 seconds. A call that takes longer, or that you
+interrupt (Ctrl-C, a notebook's stop button), stops the toolkit's process: the call raises, the
+next call starts a new process, and data you loaded is loaded again by itself. Nothing an
+interrupted call was computing is ever taken for a later call's answer.
+
 @section{How fast it is}
 
 The toolkit is a compiled program, and it runs in a process of its own. That decides what is
@@ -157,15 +180,23 @@ task costs, not as one engine against another.
 @item{@bold{Starting.} Making a @tt{Toolkit} takes about a millisecond: the process starts
 behind it. While your program does something else, the process loads what first calls need
 (the FHIR types, the definitions, the view engine, CQL). Asked straight away instead, a first
-call waits for what it needs: about 0.7 s from making the @tt{Toolkit} to a first FHIRPath
-answer, about 2 s more for a first validation, 1 s for a first CQL run. Asked after a pause of a
-few seconds, each first call takes milliseconds.}
-@item{@bold{One call.} About 0.1 ms for a FHIRPath expression over one resource, 0.3 ms to
-validate a small Patient.}
+call waits for what it needs. Counted from making the @tt{Toolkit}: about 0.7 s to a first
+FHIRPath answer, 0.9 s to a first validation, 1.3 s to a first view, 2 s to a first CQL run.
+Asked after a pause of a few seconds, each first call takes milliseconds. (Those are from a
+source checkout; the executable a wheel carries reads all of its code when it starts, about
+0.6 s more: 1.2 s to a first FHIRPath answer, 1.5 s to a first validation.)}
+@item{@bold{The definitions, once a machine.} Validation reads FHIR's own definitions from the
+core package. The first time, the toolkit unpacks them into your cache directory (27 MB for
+FHIR R4, about a second more, once); later processes read from there. @tt{FHIR_CACHE_DIR}
+names another directory; @tt{FHIR_PACKAGE_CACHE=0} keeps them in memory and writes nothing.}
+@item{@bold{One call.} About 0.1 ms for a FHIRPath expression over one resource, 0.2 ms to
+validate a small Patient. The resource is what costs, not the call: a US Core example with its
+narrative and profile takes about 0.6 ms.}
 @item{@bold{Many resources.} One call for all of them: one expression over 5,000 Patients
-takes 84 ms, validating them 515 ms. A loop of single calls costs the crossing each time.}
-@item{@bold{The same data again.} @tt{load} it: a view over 5,000 Observations takes 175 ms
-with the resources sent in the call and 77 ms over loaded data, and SQL over that view 28 ms.}
+takes 48 ms, validating them 350 ms. A loop of single calls costs the crossing each time.}
+@item{@bold{The same data again.} @tt{load} it: a view over 5,000 Observations takes 133 ms
+with the resources sent in the call and 75 ms over loaded data; the same view asked again
+takes 6 ms (its rows are kept), and SQL over it about 1 ms.}
 @item{@bold{Beside pure Python.} Walking dicts in the same process, a compiled @tt{fhirpathpy}
 expression answers one resource in 0.04 ms and a model library checks a Patient's shape in
 0.03 ms: for one small in-memory thing at a time they are quicker, and they check less. The

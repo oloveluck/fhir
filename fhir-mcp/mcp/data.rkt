@@ -5,10 +5,13 @@
 
 (require racket/match (only-in fhir/registry registered-by) (only-in fhir/data-source data-source-read) racket/list json fhir/lang/workspace (only-in fhir/data-source data-source-all bundle-resources)
          (only-in fhir/serialize/fast-json fast-string->jsexpr fast-bytes->jsexpr fast-read-json)
-         (only-in fhir/rest-data-source rest-url?) (only-in db sqlite3-connect query-list disconnect)
+         (only-in fhir/data-source rest-url?) (only-in racket/lazy-require lazy-require)
          (only-in fhir/operation apply-operation exn:fail:operation?) "artifacts.rkt" "trail.rkt" "hub.rkt")
 
 ;; For the verbs' modules (workspace.rkt is the contracted interface).
+;; the database library, loaded when a store is first read (sql.rkt says why)
+(lazy-require [db (sqlite3-connect query-list disconnect)])
+
 (provide data-resources all-data stored-artifact with-manifest with-profiles validation-errors validation-issues
          write-trail! audited now-instant new-id)
 

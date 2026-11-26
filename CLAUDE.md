@@ -3138,6 +3138,112 @@ about a third of a view's time); SQL over a view of loaded data copies the rows 
 each statement (48 ms for 5,000); a `Data` whose process ends between two calls is given again
 at the next call, not in the middle of one.
 
+## The Python client, second pass (2026-11-26)
+The owner: "I want to do another pass" (on the Python library's speed and its use). Measured
+first, each time; `clients/python/bench/compare.py` is still the comparison as a program and its
+table is in the Python README and the manual. What was wrong, in the order found:
+- **A large request was read slowly** (fhir-api `api/server.rkt` `line-reader`, `next-line`):
+  Racket's `read-line` took 26 to 33 ms for a 700 KB line (5,000 resources in one call); the
+  server reads what is waiting into a 256 KB buffer and cuts lines itself (5 ms). The answer is
+  written by `fhir/serialize/fast-json`'s `fast-jsexpr->string` (racket/json's writer was 65% of
+  a call that does nothing; held to racket/json's text over the corpora and generated values,
+  an unwritable value left to it for its error). A `version` call 14.7 -> 8.4 µs in the server.
+- **Validating a REAL resource took 7 ms, not the 0.09 ms of the benchmark's small Patient**
+  (US Core's 230 examples: 7,446 -> 493 µs each; with the profiles they claim 9,883 -> 613).
+  Two things were nearly all of it: the base64Binary pattern (`^(?:(?:\s*[0-9a-zA-Z+/=]{4}\s*)+)?$`:
+  40 to 70 ms for one attachment, backtracking) is a one-pass state machine now
+  (`fhir/primitives/patterns` `base64-lexeme?`, held to the regexp on every string of up to nine
+  characters over an alphabet with a space and a newline: 2,441,406, none differ); and an element
+  NAMED like a FHIRPath keyword (`div`, every narrative) made the invariant's focus path fail to
+  parse, which `parse-fhirpath` does not remember, so it was parsed and refused again for every
+  resource (`focus-path`, validate.rkt: the failure is kept). Then the small things a profile
+  showed: tables found by the IDENTITY of the package context (`sd-index` `context-memo`: a
+  hash of the paths was computed at every datatype jump), an operation's input facts once an
+  operation (`fhir/operation` `input-facts`), an absent non-choice element decided without a
+  list made (`child-issues`), `meta.profile` read only when there. A small Patient: 80 -> 50 µs.
+  Held to a report of 8,623 validations (US Core, IPS, mCODE examples against their own and each
+  other's profiles): byte-identical; making that report went 117 s -> 14.7 s.
+- **A node reads one field when one is asked** (`fhir/model/node` `reader`, `fhir-ref`,
+  `fhir-has?`; `serialize/from-json` `lenient-reader`): the item named last time as not done.
+  A lenient node holds its JSON and a Reader (all | one | read | drops); `fhir-ref` reads the one
+  field (kept; `no-field` for a key that does not read), `fhir-fields` reads the rest and takes
+  what was read as it was. FHIRPath's navigation asks one field (fhirpath `navigate.rkt`
+  `field-values`). What a read left out is now said of the fields READ: SQL on FHIR's read log
+  reports a dropped value only when the view read its element (its test says so both ways).
+  `fhir/tests/lazy-read-test.rkt` holds field-at-a-time reading to whole reading over the corpora
+  (481,972 checks; a planted slip fails 130). A view of two columns over 5,000 Observations
+  64 -> 42 ms in the engine.
+- **A view over loaded data is computed once; SQL over it copies nothing** (fhir-mcp `run.rkt`
+  `kept-run`, `kept-view`; `sql.rkt` `lasting!`, `beside`): rows of a view asked without a file
+  are kept with the data source they were computed from, and its tables stay loaded in ONE
+  in-memory SQLite database for as long as the data lives (a will executor closes it). A view
+  that reads the clock (`now()`, `today()`, `timeOfDay()`: `reads-the-clock?`) is never kept. A
+  hub whose files cannot change (a project given as `files`) is not read again at every call
+  (`hub.rkt` `settle!`, `refresh-unless-settled!`, by the registry's generation). The same view
+  again: 73 -> 0 ms in the server; SQL over a loaded view 29 -> 1 ms.
+- **An interrupted call could answer the next one** (Python `_server.py` `_exchange`): Ctrl-C
+  while a call waited left its answer in the pipe, and the next call read it as its own — a
+  wrong answer, silently. Any exception while a call is out stops the process (the next call
+  starts one; loaded `Data` loads again by itself), and a reply's id is checked against the
+  call's. `Toolkit(timeout=…)` is a watchdog on the same path.
+- **What an answer was made without is a warning at the caller's line** (`errors.py`
+  `FhirWarning`, `warn`; `Table.notes`): a view's `unread` notes were in the answer's summary,
+  which `Table` did not show. And the server answers `warnings` beside `result`
+  (`api/functions.rkt` `with-warnings`, `warn!`, `unread-warning!`): `transform` over a source
+  with a value the lenient read left out (a date written `01/05/1950`) answered a Patient without
+  a birth date and said nothing. `drops-message` takes `#:fhir` (it said "FHIR R5" in an R4
+  process). A resource may be given as JSON text or a path (`_resource`); `Table.to_csv`,
+  `to_polars`.
+- **A process's first validation took 2.8 s; it is 0.9 s** (`fhir/package-store`, new). The time
+  was not parsing: inflating the R4 core package's 13 MB takes 0.7 s in Racket, and it was done
+  once for the definitions' index and once for the terminology's. A package's StructureDefinitions,
+  CodeSystems, ValueSets, StructureMaps and ConceptMaps are read from the archive ONCE A
+  MACHINE: their bytes one after another in `<cache>/packages/<key>.dat`, an index of kind, url,
+  name, id, offset and length in `.idx` (written last), keyed by the archive's path, size and
+  time. `sd/sd-index` and fhir-tx's `terminology/index` build on `package-entries`; the
+  terminology index no longer parses every resource up front (an Entry is a promise).
+  `FHIR_CACHE_DIR` moves the cache (it is the directory the search catalogue was already kept
+  in: `fhir-cache-directory`), `FHIR_PACKAGE_CACHE=0` keeps the bytes in memory, and a cache that
+  cannot be written or read is not used (a cache emptied under a running process: the archive
+  answers). 27 MB for R4, 57 MB for R5. The first validation EVER on a machine: 2.1 s.
+- **What a process loads before its first answer** (`version`: 497 -> 320 ms; a first FHIRPath
+  answer 849 -> 650-700 ms): modules that most processes never use are loaded when first called
+  (`racket/lazy-require`: the database library — a quarter of the load — in fhir-mcp's `sql.rkt`,
+  `view-cache.rkt`, `hub.rkt`, `run.rkt`, `data.rkt`, `describe.rkt`; staging in fhir-api's
+  `functions.rkt`; the REST data source and its HTTP client, with `rest-url?` moved to
+  `fhir/data-source`; `xml` in fhirpath's `ucum.rkt`; brag's grammar in fhirpath's
+  `parser/parse.rkt`, which descent reads past for every text without a mistake).
+  `lazy-require` declares its module as a runtime path, so a standalone build carries it.
+- **The standalone executable starts in 1.0 s, not 0.3** (built here and run with nothing else
+  on the PATH: all 52 Python tests pass against it; `version` 1.0 s, a first FHIRPath answer
+  1.2 s, a first validation 1.5 s). `raco exe` embeds 2,956 modules and reads every one when
+  the process starts (`PLT_LINKLET_TIMES`: read 314 ms + 152 of collection), so loading lazily
+  buys nothing there. Built with `--collects-dest` (the modules beside the executable, `raco
+  distribute ++collects-copy`) it answers in 0.4 s — and then fails at the first guide or model
+  file, because a module loaded from that directory looks for its runtime-path files beside
+  itself and the layout carries only compiled code (tried with the source trees and the
+  installation hidden: `unshare -m` and a tmpfs over them, which is how to test a build here).
+  What it takes: the data files of each collection copied into the collects tree at their
+  places (guides, ModelInfo `.rktd`, bundled CQL, the generated towers' data), fhir-spec found
+  as it is now, the wheel's builder and `tools-smoke-test.sh` over the new layout, and the
+  wheels workflow on all three systems. The README and the manual give both sets of numbers.
+Measured from Python, one machine, the committed benchmark before -> after: validate one Patient
+0.30 -> 0.19 ms; 5,000 in one call 515 -> 350 ms; one expression over 5,000 Patients 84 -> 48 ms;
+a view of 5,000 Observations sent in the call 175 -> 133 ms, over loaded data 77 -> 75 ms the
+first time and 6 ms asked again; SQL over a loaded view 28 -> 1.2 ms.
+Looked at and not done, with what was measured:
+- Garbage collection is 40% of a process's start (160 of 400 ms: loaded code is copied through
+  the generations). Chez's `collect-trip-bytes` at 256 MB (through `ffi/unsafe/vm`) takes 130 ms
+  off and peaks at 300 MB of memory instead of 140: not worth a notebook's memory.
+- fhir-api still loads the hub before a first FHIRPath answer (about 100 ms it does not need).
+- A view asked for the first time over loaded data is 75 ms from Python where the engine's rows
+  take 42: the rest is the view compiled and checked, the read log asked of every node, and
+  5,000 rows written and read back. A compiled fhirpathpy loop over dicts is 53 ms.
+- A first CQL run is 2 s from a new process (the translator, the ModelInfo, FHIRHelpers).
+A lesson of method, twice in this pass: a benchmark of a SMALL synthetic resource hid both the
+largest cost (a narrative, an attachment) and the largest first-call cost (the archive). Time a
+published example, and time a new process.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

@@ -4,7 +4,9 @@
 ;;;
 ;;; The protocol is JSON-RPC 2.0, one message to a line (as MCP's stdio transport frames it):
 ;;;   a Request  : {"jsonrpc": "2.0", "id": 1, "method": "fhirpath", "params": {"expression": …, "resource": …}}
-;;;   a Response : {"jsonrpc": "2.0", "id": 1, "result": …}
+;;;   a Response : {"jsonrpc": "2.0", "id": 1, "result": …}   — with "warnings": [sentence, …]
+;;;                beside the result when the call has something to say that is no error and no
+;;;                part of the answer (a value of the input it could not read)
 ;;;              | {"jsonrpc": "2.0", "id": 1, "error": {"code": c, "message": m, "data": {…}}}
 ;;; `method` is a function's name and `params` its arguments by name; `functions` (no parameters)
 ;;; answers the table itself. A request without an id is a notification and gets no answer.
@@ -72,8 +74,13 @@
             (if (pair? problems)
                 (failure id -32602 (string-join problems "; ") (hasheq 'problems problems))
                 (with-handlers ([exn:fail? (lambda (e) (failure-of id e))])
-                  ;; what a library prints is not part of the protocol: it goes to the error port
-                  (response id (parameterize ([current-output-port (current-error-port)]) ((fn-run f) s params))))))]
+                  ;; what a library prints is not part of the protocol: it goes to the error port.
+                  ;; What the call warned of comes beside the result, as `warnings`.
+                  (define-values (result warnings)
+                    (with-warnings (lambda () (parameterize ([current-output-port (current-error-port)]) ((fn-run f) s params)))))
+                  (if (null? warnings)
+                      (response id result)
+                      (hash-set (response id result) 'warnings warnings)))))]
       [else (failure id -32601 (format "no function ~a (the functions: ~a)" method (string-join (map fn-name functions) ", "))
                      (hasheq 'functions (map fn-name functions)))]))
   ;; a notification gets no answer
@@ -184,6 +191,20 @@
   ;; the table itself, and a function that needs no language
   (check-equal? (hash-ref (hash-ref (ask "{\"id\":3,\"method\":\"functions\"}") 'result) 'protocol) protocol-version)
   (check-equal? (hash-ref (hash-ref (ask "{\"id\":4,\"method\":\"version\"}") 'result) 'fhirVersion) "4.0.1")
+  ;; a warning comes beside the result: a map run over a source one of whose values does not read
+  (let* ([fml "/// url = 'http://x/StructureMap/m'\n/// name = 'm'\nuses \"http://hl7.org/fhir/StructureDefinition/QuestionnaireResponse\" alias QR as source\nuses \"http://hl7.org/fhir/StructureDefinition/Patient\" alias Patient as target\ngroup main(source src : QR, target tgt : Patient) {\n  src.item as i where (linkId = 'born') -> tgt.birthDate = (i.answer.value);\n}\n"]
+         [ask-map (lambda (date)
+                    (ask (jsexpr->string (hasheq 'id 9 'method "transform"
+                                                 'params (hasheq 'map fml
+                                                                 'source (hasheq 'resourceType "QuestionnaireResponse" 'status "completed"
+                                                                                 'item (list (hasheq 'linkId "born" 'answer (list (hasheq 'valueDate date))))))))))]
+         [good (ask-map "1950-05-01")]
+         [bad (ask-map "01/05/1950")])
+    (check-equal? (hash-ref (hash-ref good 'result) 'birthDate #f) "1950-05-01")
+    (check-false (hash-has-key? good 'warnings))
+    (check-false (hash-has-key? (hash-ref bad 'result) 'birthDate))
+    (check-equal? (length (hash-ref bad 'warnings)) 1)
+    (check-regexp-match #rx"^the source's item\\[0\\][.]answer\\[0\\][.]valueDate \\(\"01/05/1950\"\\)" (car (hash-ref bad 'warnings))))
   ;; a notification is not answered; a blank line is nothing
   (check-false (answer-line s "{\"method\":\"version\"}"))
   (define out (open-output-string))

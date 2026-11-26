@@ -28,12 +28,11 @@
 ;;; A Diagnostic is fhir/diagnostic's as JSON: {lang, phase, severity, message, source, line, column}
 ;;; (`source` a file of the project by its name).
 
-(require racket/contract racket/list racket/string racket/file racket/runtime-path json net/base64
+(require racket/contract racket/list racket/string racket/file racket/runtime-path racket/lazy-require json net/base64
          (for-syntax racket/base)
          "session.rkt"
          (only-in fhir/mcp/hub hub? hub-ws hub-root hub-diagnostics hub-warnings hub-defined with-hub inside)
          (only-in fhir/mcp/run execute hub-explain)
-         (only-in fhir/mcp/stage hub-stage! hub-commit!)
          (only-in fhir/mcp/tools apply-json)
          (only-in fhir/mcp/resources learn-topics learn-text)
          (only-in fhir/operation operation)
@@ -42,8 +41,12 @@
          (only-in fhir/lang/workspace run-result-kind run-result-columns run-result-rows run-result-summary
                   workspace-language-of workspace-support ws-support-artifacts)
          (only-in fhir/serialize/from-json from-json)
+         (only-in fhir/serialize/lenient lenient-drops drops-message)
          (only-in fhir/result/result ok? ok-value err-error)
          (only-in fhir/model/registry pin-registered-types!))
+;; staging and committing bring the trail, the artifacts' rules and the text export with them: a
+;; third of what the process loads, for two functions most sessions never call
+(lazy-require [fhir/mcp/stage (hub-stage! hub-commit!)])
 
 (provide
  (struct-out fn) (struct-out param) (struct-out exn:fail:problems)
@@ -58,6 +61,10 @@
   ;; warm-steps : session -> (listof (-> any))   what a process's first calls each wait for, as
   ;; steps a server takes while nobody is asking (server.rkt), most likely needed first
   [warm-steps (-> session? (listof (-> any)))]
+  ;; with-warnings : (-> X) -> (values X (listof string))   a call's answer with what it warned of:
+  ;; something the caller should know that is no error and no part of the answer (a value of the
+  ;; input that could not be read, so the answer was made without it)
+  [with-warnings (-> (-> any/c) (values any/c (listof string?)))]
   ;; functions-json-text : -> string   the table as the text kept in clients/functions.json: the
   ;; same for the same table (keys by name, a value to a line)
   [functions-json-text (-> string?)]
@@ -220,6 +227,31 @@
                (pin-registered-types!)
                #t))
   (void))
+
+;; ---- warnings -----------------------------------------------------------------------------------
+;; warned : (boxof (listof string)) | #f   where the call being answered collects its warnings
+(define warned (make-parameter #f))
+(define (with-warnings thunk)
+  (define box* (box '()))
+  (define v (parameterize ([warned box*]) (thunk)))
+  (values v (reverse (unbox box*))))
+;; warn! : string -> void
+(define (warn! message)
+  (define b (warned))
+  (when b (set-box! b (cons message (unbox b)))))
+
+;; unread-warning! : session jsexpr string -> void   warns of the values of a resource that a
+;; lenient read leaves out (a date that is no date, an element the FHIR version lacks): what is
+;; computed from the resource is computed without them, and says nothing of it by itself
+(define (unread-warning! s js what)
+  (when (and (hash? js) (string? (hash-ref js 'resourceType #f)))
+    (tower! s)
+    (define node (with-handlers ([exn:fail? (lambda (_) #f)]) (from-json js #:lenient? #t)))
+    (when (and node (ok? node))
+      (define drops (lenient-drops js (ok-value node)))
+      (when (pair? drops)
+        (warn! (format "~a ~a" what (drops-message drops (hash-ref js 'resourceType)
+                                                   #:fhir (if (equal? (session-fhir-version s) "4.0.1") "FHIR R4" "FHIR R5"))))))))
 
 ;; ---- the functions ------------------------------------------------------------------------------
 ;; the same resource is listed once: a map beside FSH is found by fsh's project and by fml's support
@@ -386,6 +418,7 @@
       (when (pair? errors)
         (raise (exn:fail:problems (string-join (map diagnostic-message errors) "; ") (current-continuation-marks)
                                   (for/list ([d (in-list errors)]) (diagnostic-json h d)))))
+      (unread-warning! s (arg a 'source) "the source's")
       (with-hub h (lambda () (apply-json (operation "StructureMap/$transform") (hasheq 'srcMap (arg a 'map)) (arg a 'source)))))))
 
 (define (run-operation s a)

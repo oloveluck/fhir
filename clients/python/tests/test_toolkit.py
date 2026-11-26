@@ -567,6 +567,31 @@ class TheToolkit(unittest.TestCase):
             with self.assertRaises(FhirWarning):
                 self.fhir.view(view, [zoneless])
 
+    def test_a_map_says_what_it_could_not_read_of_its_source(self):
+        fml = """/// url = 'http://example.org/StructureMap/born'
+/// name = 'born'
+uses "http://hl7.org/fhir/StructureDefinition/QuestionnaireResponse" alias QR as source
+uses "http://hl7.org/fhir/StructureDefinition/Patient" alias Patient as target
+group main(source src : QR, target tgt : Patient) {
+  src.item as i where (linkId = 'born') -> tgt.birthDate = (i.answer.value);
+}
+"""
+        def answers(date):
+            return {"resourceType": "QuestionnaireResponse", "status": "completed",
+                    "item": [{"linkId": "born", "answer": [{"valueDate": date}]}]}
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            good = self.fhir.transform(fml, answers("1950-05-01"))
+            bad = self.fhir.transform(fml, answers("01/05/1950"))
+        self.assertEqual(good, {"resourceType": "Patient", "birthDate": "1950-05-01"})
+        self.assertEqual(bad, {"resourceType": "Patient"})
+        self.assertEqual(len(caught), 1)
+        self.assertIs(caught[0].category, FhirWarning)
+        self.assertEqual(str(caught[0].message),
+                         'the source\'s item[0].answer[0].valueDate ("01/05/1950") not read: '
+                         'not a valid value, or not an element of QuestionnaireResponse in FHIR R4')
+        self.assertEqual(caught[0].filename, __file__)
+
     def test_a_table_as_csv(self):
         table = self.fhir.view("SELECT id, name.given AS given, birthDate AS born, name.family.first() AS family FROM Patient",
                                [PATIENT, {"resourceType": "Patient", "id": "bo", "name": [{"family": 'O"Hara, Bo'}]}])

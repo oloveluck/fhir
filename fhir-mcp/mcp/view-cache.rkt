@@ -17,7 +17,7 @@
 ;;;
 ;;; The file's catalogue: kept(name PRIMARY KEY, key, tbl, columns, rows, made).
 
-(require racket/contract racket/file racket/string racket/list json db file/sha1
+(require racket/contract racket/file racket/string racket/list json racket/lazy-require file/sha1
          (only-in "sql.rkt" table table? table-columns table-rows kept kept? cell-in))
 
 (provide
@@ -32,6 +32,10 @@
   [kept-select (-> path-string? string? string? (listof (cons/c string? string?)) string? kept?)]
   ;; key-of : any -> string   the SHA-1 of a datum's printed form: a Key from what the rows depend on
   [key-of (-> any/c string?)]))
+
+;; loaded when rows are first kept or read (sql.rkt says why)
+(lazy-require [db (sqlite3-connect disconnect call-with-transaction prepare query-exec query-list query-rows
+                   query-value query-maybe-row query-maybe-value)])
 
 (define (key-of v) (sha1 (open-input-string (format "~s" v))))
 

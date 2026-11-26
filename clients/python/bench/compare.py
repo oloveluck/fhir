@@ -72,6 +72,12 @@ def main(argv):
     fhir.fhirpath("name.family", patient(0))
     first = (time.perf_counter() - started) * 1000
     rows.append(("Toolkit() returns; then the first answer", "%s; %s" % (shown(made), shown(first)), "no start", "no start"))
+    fhir.close()
+    # a first validation reads the definitions too: asked of a new process, at once
+    started = time.perf_counter()
+    fhir = Toolkit()
+    assert fhir.validate(patient(0)).ok
+    rows.append(("A new Toolkit's first validation", shown((time.perf_counter() - started) * 1000), "no start", "no start"))
 
     expression = "name.given.first() + ' ' + name.family.first()"
     path = fhirpathpy.compile(expression) if fhirpathpy else None
@@ -107,9 +113,13 @@ def main(argv):
     started = time.perf_counter()
     loaded = fhir.load(observations)
     load_ms = (time.perf_counter() - started) * 1000
+    # a view over loaded data is computed once and kept, so each timing asks a view not asked before
+    fresh = ["SELECT id, value.ofType(Quantity).value AS percent%d FROM Observation" % i for i in range(5)]
     assert len(fhir.view(view, loaded)) == n
     rows.append(("…the same, the data loaded once (%s)" % shown(load_ms),
-                 shown(median_ms(lambda i: fhir.view(view, loaded), 5)) + " (a view)", None, None))
+                 shown(median_ms(lambda i: fhir.view(fresh[i], loaded), 5)) + " (a view)", None, None))
+    rows.append(("…and that view asked again",
+                 shown(median_ms(lambda i: fhir.view(view, loaded), 5)), None, None))
     count = "SELECT count(*) AS n, avg(percent) AS mean FROM results WHERE percent > 9"
     views = {"results.sof": "CREATE VIEW results WITH (status = 'active') AS " + view}
     assert fhir.sql(count, project=views, data=loaded).rows[0]["n"] > 0

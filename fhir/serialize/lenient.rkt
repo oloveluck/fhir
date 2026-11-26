@@ -32,7 +32,8 @@
   [drop->string (-> (list/c string? any/c) string?)]
   ;; drops-message : (listof Drop) type -> string   "<drops> not read: <why>" — the calendar's reason
   ;; for a date the month lacks, else "not a valid value, or not an element of <type> in FHIR R5"
-  [drops-message (-> (listof (list/c string? any/c)) string? string?)]))
+  ;; (`#:fhir` names the FHIR version the read was made in, as the message says it)
+  [drops-message (->* ((listof (list/c string? any/c)) string?) (#:fhir string?) string?)]))
 
 (define (lenient-drops js node)
   (missing js (with-handlers ([exn:fail? (lambda (_) (hasheq))]) (node->jsexpr node)) ""))
@@ -109,13 +110,13 @@
   (define v (cadr d))
   (and (string? v) (regexp-match? #px"^[0-9]{4}-[0-9]{2}-[0-9]{2}" v)
        (let ([p (calendar-problem (substring v 0 10))]) (and p (format "~a is no date: ~a" (drop->string d) p)))))
-(define (drops-message drops type)
+(define (drops-message drops type #:fhir [fhir "FHIR R5"])
   (define told (filter values (map drop-reason drops)))
   (define rest (filter (lambda (d) (not (drop-reason d))) drops))
   (string-join (append told
                        (if (null? rest) '()
-                           (list (format "~a not read: not a valid value, or not an element of ~a in FHIR R5"
-                                         (string-join (map drop->string rest) ", ") type))))
+                           (list (format "~a not read: not a valid value, or not an element of ~a in ~a"
+                                         (string-join (map drop->string rest) ", ") type fhir))))
                "; "))
 
 (module+ test
@@ -126,6 +127,8 @@
                 "item[2].answer[0].valueDate (\"1990-02-30\") is no date: February 1990 has 28 days")
   (check-equal? (drops-message (list (list "x" "01/05/1950")) "Patient")
                 "x (\"01/05/1950\") not read: not a valid value, or not an element of Patient in FHIR R5")
+  (check-equal? (drops-message (list (list "x" "01/05/1950")) "Patient" #:fhir "FHIR R4")
+                "x (\"01/05/1950\") not read: not a valid value, or not an element of Patient in FHIR R4")
   (define qr (hasheq 'resourceType "QuestionnaireResponse" 'status "completed"
                      'item (list (hasheq 'linkId "name" 'answer (list (hasheq 'valueString "Ann Ng")))
                                  (hasheq 'linkId "birthDate" 'answer (list (hasheq 'valueDate "01/05/1950"))))))

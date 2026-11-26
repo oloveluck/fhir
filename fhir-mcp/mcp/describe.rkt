@@ -8,7 +8,7 @@
          (only-in net/base64 base64-decode)
          (only-in fhir/registry registered-resource registered-resources registered-kinds)
          (only-in fhir/data-source current-data-source data-source-all data-source-read)
-         (only-in db sqlite3-connect query-value disconnect)
+         (only-in racket/lazy-require lazy-require)
          (only-in fhir/sd/sd-index resolve-canonical-raw sd-index-available?)
          (only-in fhir/operation operation operation-definition operation-code operation-url operation-levels
                   operation-resource-types)
@@ -17,6 +17,9 @@
          (only-in fhir/ig-config parse-ig-config ig-config-version ig-config-id))
 
 ;; Contracted in workspace.rkt; stage reads a history and the definition kinds.
+;; the database library, loaded when a store is first read (sql.rkt says why)
+(lazy-require [db (sqlite3-connect query-value disconnect)])
+
 (provide conformance-kinds (struct-out text-answer) hub-describe describe-history hub-edit!
          artifact-text as-source as-fsh)                       ; export.rkt writes definitions as their text
 
