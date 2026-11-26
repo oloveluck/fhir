@@ -239,18 +239,20 @@ Patient ann 1 intake desk - first load
 With a `project`, what is written is held to the project's profiles too: an FSH instance to the
 profile it is `InstanceOf`, any resource to the profiles it claims.
 
-## Objects of a model library
+## With pydantic, and other model libraries
 
-Values are FHIR JSON, and you can give objects instead: anything that writes itself as JSON
-(pydantic models, so `fhir.resources`; `fhirclient`'s models) goes in as it is. `model=` gives
-an answer back as an object.
+Values are FHIR JSON, and you can give objects instead. Anything that writes itself as JSON goes
+in as it is: a pydantic model (so `fhir.resources`, and models of your own), a dataclass,
+`fhirclient`'s models. `model=` gives an answer back as objects.
 
 ```python
+from fhir.resources.R4B.humanname import HumanName
 from fhir.resources.R4B.patient import Patient
 
 ann = Patient(id="ann", gender="female", birthDate="1980-02-28", name=[{"family": "Lee", "given": ["Ann"]}])
 print(fhir.fhirpath("name.given", ann))
 print(fhir.validate(ann).ok)
+print(fhir.fhirpath("name", ann, model=HumanName)[0].family)
 
 made = fhir.fsh("""
 Instance: bo
@@ -263,11 +265,77 @@ print(type(made[0]).__name__, made[0].birthDate.year)
 ```text
 ['Ann']
 True
+Lee
 Patient 1990
 ```
 
+`fhirpath`, `fhirpath_each`, `transform`, `operation` and `fsh` take `model=`. A table's rows
+become objects of a model whose fields are its columns, and a search's rows the resources
+behind them:
+
+```python
+import datetime
+from typing import Optional
+from pydantic import BaseModel
+
+class Born(BaseModel):
+    id: str
+    born: Optional[datetime.date] = None
+
+print(fhir.view("SELECT id, birthDate AS born FROM Patient", [patient]).to_models(Born))
+print(fhir.search("Patient?gender=female", [patient]).resources(model=Born)[0].id)
+```
+
+```text
+[Born(id='ann', born=datetime.date(1980, 2, 28))]
+ann
+```
+
+pydantic checks the shape a model declares. FHIR asks more: a code its value set holds, the
+rules of the base specification, whatever a profile adds. `fhir_toolkit.pydantic` runs the
+toolkit's validation, and FHIRPath, where pydantic runs its own, and what is wrong is a pydantic
+`ValidationError` whose `loc` is the element:
+
+```python
+from typing import Annotated
+from fhir.resources.R4B.patient import Patient
+from pydantic import ValidationError
+from fhir_toolkit.pydantic import Holds, Valid, checked, use
+
+use(fhir)                                   # the Toolkit these ask
+
+class Intake(BaseModel):
+    patient: Annotated[Patient, Valid(), Holds("birthDate.exists()", "a birth date is required")]
+    note: str = ""
+
+for given in ({"resourceType": "Patient", "gender": "florp", "birthDate": "1980-02-28"},
+              {"resourceType": "Patient", "gender": "female"}):
+    try:
+        Intake(patient=given)
+    except ValidationError as e:
+        print([(error["loc"], error["type"]) for error in e.errors()])
+
+# a class every object of which is held to a profile: here one written in FHIR Shorthand
+Adult = checked(Patient, "Adult", project={"adult.fsh": "Profile: Adult\nParent: Patient\n* birthDate 1..1\n* name 1..*\n"})
+try:
+    Adult(id="cy", gender="female")
+except ValidationError as e:
+    print(sorted((error["loc"], error["msg"]) for error in e.errors()))
+print(Adult(id="cy", birthDate="1990-01-01", name=[{"family": "Ito"}]).name[0].family)
+```
+
+```text
+[(('patient', 'gender'), 'fhir_code_invalid')]
+[(('patient',), 'fhir_invariant')]
+[(('birthDate',), 'minimum required = 1, but found 0'), (('name',), 'minimum required = 1, but found 0')]
+Ito
+```
+
+`Valid(profile)` and `checked(Model, profile)` take a canonical too, with the guide's package in
+context (`Toolkit(packages=[...])`). Each check is one call of the toolkit, so in a loop over
+thousands of objects use `validate_each`. An issue inside a datatype is located by the datatype
+(`HumanName.given`), so its `loc` is the value and the path is in its message.
 `fhir_toolkit.plain(obj)` and `fhir_toolkit.typed(Model, resource)` are the two conversions.
-`transform`, `operation` and `fsh` take `model=`.
 
 ## Many resources, and data you use more than once
 
@@ -287,6 +355,10 @@ for outcome in fhir.validate_each(patients):
 valid
 Patient.gender: error: code `florp` not in required value set http://hl7.org/fhir/ValueSet/administrative-gender; it holds female, male, other, unknown
 ```
+
+On a machine with several cores, `Toolkit(workers=4)` answers such a list with four processes at
+once, each taking a part, and puts the answers back in order: about three times quicker for
+validation, for four times the memory (some 150 MB a process).
 
 Data that several calls read is given once. `load` sends the resources (or reads the directory,
 or opens the store) and answers a handle that any call takes as its `data`. Nothing is sent or
@@ -443,22 +515,27 @@ written on (medians; 5,000 resources where it says many):
 
 | task | fhir-toolkit | fhirpathpy | fhir.resources |
 |---|---|---|---|
-| making a `Toolkit`; then its first answer | 1.0 ms; 0.75 s | no start | no start |
-| a new `Toolkit`'s first validation | 0.9 s | no start | no start |
-| one FHIRPath expression, one Patient | 0.10 ms | 0.036 ms | — |
-| the same expression over 5,000 Patients | 55 ms (one call) | 194 ms (a loop) | — |
-| validate one Patient | 0.20 ms | — | 0.026 ms |
-| validate 5,000 Patients | 388 ms (one call) | — | 168 ms (a loop) |
-| one value from each of 5,000 Observations | 157 ms (a view) | 56 ms (a loop) | 311 ms (a loop) |
-| the same, the data loaded once | 72 ms (a view) | — | — |
-| that view asked again | 6 ms | — | — |
-| a SQL aggregate over that view, data loaded | 1.2 ms | — | — |
+| making a `Toolkit`; then its first answer | 4 ms; 0.72 s | no start | no start |
+| a new `Toolkit`'s first validation | 1.1 s | no start | no start |
+| one FHIRPath expression, one Patient | 0.15 ms | 0.050 ms | — |
+| the same expression over 5,000 Patients | 68 ms (one call) | 227 ms (a loop) | — |
+| validate one Patient | 0.22 ms | — | 0.034 ms |
+| validate 5,000 Patients | 417 ms (one call) | — | 195 ms (a loop) |
+| …with `Toolkit(workers=4)` | 100 ms (one call) | — | — |
+| …the Patients given as `fhir.resources` objects | 673 ms (one call) | — | 266 ms (writing them as JSON) |
+| one value from each of 5,000 Observations | 152 ms (a view) | 54 ms (a loop) | 343 ms (a loop) |
+| the same, the data loaded once | 85 ms (a view) | — | — |
+| that view asked again | 7 ms | — | — |
+| a SQL aggregate over that view, data loaded | 1.4 ms | — | — |
 
 Read a row as what the task costs each way, not as one engine against another: they do not do
 the same work. `fhirpathpy` is timed with its expression compiled once, walking Python dicts.
 `fhir.resources` checks that the data has the right shape; the toolkit's validation also checks
 codes against their value sets and the rules of profiles (it refuses `"gender": "florp"`, which
-`fhir.resources` accepts).
+`fhir.resources` accepts). An object costs what its library takes to write it as JSON: about
+0.05 ms each for `fhir.resources`, which is most of that row; a plain pydantic model writes
+itself in a thousandth of a millisecond, and its text goes into the call as it is. The machine
+these were taken on varies by about a fifth from run to run.
 
 The first call of each kind loads what only it needs. Counted from the start of a new process,
 a first FHIRPath answer comes after about 0.7 s, a first validation after 0.9 s, a first view
@@ -553,18 +630,20 @@ show themselves as HTML in a notebook, with or without pandas.
 | a FHIR search | `search("Observation?code=4548-4", data)` |
 | any FHIR operation | `operation("$expand", inputs={...})` |
 | resources to store | `write(resources, data=store, reason=…)`; `stage(…)` then `.commit(reason)` |
+| pydantic models | give them as resources; `model=` for answers; `Valid`, `Holds`, `checked` from `fhir_toolkit.pydantic` |
 | several files in several languages | `compile(project)`, `check(project)`, `run(path, project=…, data=…)`, `explain(…)` |
 
 A resource is a dict, an object of a model library, JSON text, or the path of a JSON file.
-A `Table` has `.rows`, `.columns`, `.notes`, `.column(name)`, `.to_pandas()`, `.to_polars()` and
-`.to_csv()`.
+A `Table` has `.rows`, `.columns`, `.notes`, `.column(name)`, `.to_pandas()`, `.to_polars()`,
+`.to_csv()`, `.to_models(Model)` and, for a search, `.resources(model=None)`.
 
 `fhir.raw` has every function exactly as the toolkit defines it, answering plain JSON.
 
 ## Limits
 
 - The toolkit has no resource classes of its own: values are JSON, and objects of a model
-  library are converted at the edge (above).
+  library are converted at the edge (above). It does not generate pydantic classes from a
+  profile: a profile is enforced when an object is checked (`fhir_toolkit.pydantic`).
 - `write` and `stage` write to a SQLite store or a directory of FHIR JSON, not to a FHIR
   server.
 - A `Toolkit` reads one version of FHIR: `Toolkit("5.0.0")` is a second process for R5. R4

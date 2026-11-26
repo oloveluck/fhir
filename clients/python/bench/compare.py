@@ -13,6 +13,7 @@ Numbers move with the machine: compare runs made on one machine, one after
 the other.
 """
 import argparse
+import os
 import statistics
 import sys
 import time
@@ -100,6 +101,19 @@ def main(argv):
     rows.append(("Validate %d Patients" % n,
                  shown(median_ms(lambda i: fhir.validate_each(patients), 3)) + " (one call)", None,
                  shown(median_ms(lambda i: [Patient.model_validate(p) for p in patients], 3)) + " (a loop)" if Patient else None))
+
+    workers = os.cpu_count() or 1
+    if workers > 1:
+        shared = Toolkit(workers=min(workers, 4))
+        assert all(shared.validate_each(patients))          # (every worker has started and validated)
+        rows.append(("…with `Toolkit(workers=%d)`" % min(workers, 4),
+                     shown(median_ms(lambda i: shared.validate_each(patients), 3)) + " (one call)", None, None))
+        shared.close()
+    if Patient:
+        objects = [Patient.model_validate(p) for p in patients]
+        rows.append(("…the Patients given as `fhir.resources` objects",
+                     shown(median_ms(lambda i: fhir.validate_each(objects), 3)) + " (one call)", None,
+                     shown(median_ms(lambda i: [o.model_dump_json(exclude_none=True) for o in objects], 3)) + " (writing them as JSON)"))
 
     observations = [observation(i) for i in range(n)]
     view = "SELECT id, value.ofType(Quantity).value AS percent FROM Observation"

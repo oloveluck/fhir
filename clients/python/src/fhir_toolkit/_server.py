@@ -1,6 +1,8 @@
 """The toolkit's process: found, started, and spoken to a line at a time."""
 import json
 import os
+import re
+import secrets
 import shlex
 import shutil
 import subprocess
@@ -9,7 +11,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from ._functions import PROTOCOL
 from .errors import Diagnostic, FhirError, ToolkitNotFound, warn
-from .models import plain
+from .models import model_json, plain
 
 #: the environment variable that names the command to start, e.g. "raco fhir-api"
 COMMAND_VARIABLE = "FHIR_API_COMMAND"
@@ -52,6 +54,32 @@ def find_command(command: Optional[Sequence[str]] = None) -> List[str]:
     )
 
 
+# A model object among a call's arguments is written by its own library (pydantic writes JSON in
+# compiled code), and that text goes into the request as it is: a mark stands where it belongs
+# while the rest is encoded, and is replaced after. The mark holds a number nobody else knows, so
+# no text a caller gives can be taken for one.
+_NONCE = secrets.token_hex(8)
+_MARK = "\x00fhir:%s:%%d\x00" % _NONCE
+_MARKED = re.compile('"\\\\u0000fhir:%s:(\\d+)\\\\u0000"' % _NONCE)
+
+
+def encode(request: Any) -> bytes:
+    """A request as the line the server reads: JSON, UTF-8, a line feed after it."""
+    written: List[str] = []
+
+    def default(value: Any) -> Any:
+        text = model_json(value)
+        if text is None:
+            return plain(value)
+        written.append(text)
+        return _MARK % (len(written) - 1)
+
+    text = json.dumps(request, default=default, separators=(",", ":"))
+    if written:
+        text = _MARKED.sub(lambda found: written[int(found.group(1))], text)
+    return text.encode("utf-8") + b"\n"
+
+
 class Server:
     """One process of the function server.
 
@@ -92,7 +120,7 @@ class Server:
         for package in self.packages:
             arguments += ["--package", str(package)]
         try:
-            self._process = subprocess.Popen(arguments, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding="utf-8")
+            self._process = subprocess.Popen(arguments, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
         except OSError as e:
             raise ToolkitNotFound("could not start the FHIR toolkit (%s): %s" % (" ".join(arguments), e)) from e
         self._greeted = False
@@ -134,12 +162,13 @@ class Server:
         process = self._process
         assert process is not None and process.stdin is not None and process.stdout is not None
         self._id += 1
-        request = {"jsonrpc": "2.0", "id": self._id, "method": name, "params": arguments}
         # an object of a model library among the arguments goes as the JSON it writes
-        text = json.dumps(request, default=plain, separators=(",", ":"))
-        timed_out = threading.Event()
+        line_out = encode({"jsonrpc": "2.0", "id": self._id, "method": name, "params": arguments})
+        timed_out = None
         watchdog = None
         if timed and self.timeout is not None:
+            timed_out = threading.Event()
+
             def stop() -> None:
                 timed_out.set()
                 process.kill()
@@ -148,11 +177,11 @@ class Server:
             watchdog.start()
         try:
             try:
-                process.stdin.write(text + "\n")
+                process.stdin.write(line_out)
                 process.stdin.flush()
                 line = process.stdout.readline()
             except (BrokenPipeError, OSError, ValueError):
-                line = ""
+                line = b""
         except BaseException:
             # interrupted with the answer still on its way: it must not be the next call's
             self._abandon(process)
@@ -162,7 +191,7 @@ class Server:
                 watchdog.cancel()
         if not line:
             self.close()
-            if timed_out.is_set():
+            if timed_out is not None and timed_out.is_set():
                 raise FhirError("%s did not answer within %s s: the FHIR toolkit's process was stopped; it starts again at the "
                                 "next call" % (name, self.timeout))
             status = process.poll()

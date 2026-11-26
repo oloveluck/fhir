@@ -15,11 +15,12 @@ object is read by the method it has for writing itself as JSON (pydantic 2's
 built by the method it has for reading a dict (`model_validate`, `parse_obj`,
 else its constructor).
 """
+import dataclasses
 import datetime
 import decimal
 import json
 import os
-from typing import Any, Mapping
+from typing import Any, Mapping, Optional
 
 
 def _written(method, **options):
@@ -28,6 +29,18 @@ def _written(method, **options):
         return method(**options)
     except TypeError:
         return method()
+
+
+def model_json(value: Any) -> Optional[str]:
+    """The JSON text a model object writes of itself, on one line and without nulls; None for
+    anything that is no such object (or whose text is not one line)."""
+    if hasattr(value, "model_dump_json"):                                   # pydantic 2
+        text = _written(value.model_dump_json, exclude_none=True, by_alias=True)
+    elif callable(getattr(value, "json", None)) and hasattr(value, "dict"):  # pydantic 1
+        text = _written(value.json, exclude_none=True, by_alias=True)
+    else:
+        return None
+    return text if isinstance(text, str) and "\n" not in text else None
 
 
 def plain(value: Any) -> Any:
@@ -46,6 +59,8 @@ def plain(value: Any) -> Any:
         return json.loads(_written(value.model_dump_json, exclude_none=True, by_alias=True))
     if callable(getattr(value, "json", None)) and hasattr(value, "dict"):   # pydantic 1
         return json.loads(_written(value.json, exclude_none=True, by_alias=True))
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):     # a dataclass: its fields, None left out
+        return {f.name: plain(getattr(value, f.name)) for f in dataclasses.fields(value) if getattr(value, f.name) is not None}
     if callable(getattr(value, "as_json", None)):                           # fhirclient's models
         return plain(value.as_json())
     if isinstance(value, os.PathLike):
@@ -64,4 +79,7 @@ def typed(model: Any, resource: Any) -> Any:
     for reader in ("model_validate", "parse_obj"):
         if hasattr(model, reader):
             return getattr(model, reader)(resource)
+    if dataclasses.is_dataclass(model) and isinstance(resource, Mapping):   # a dataclass: its fields by name
+        names = {f.name for f in dataclasses.fields(model)}
+        return model(**{k: v for k, v in resource.items() if k in names})
     return model(resource)

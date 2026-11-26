@@ -19,6 +19,7 @@ classifiers = [
 
 [project.optional-dependencies]
 pandas = ["pandas"]
+pydantic = ["pydantic>=2"]
 
 [project.urls]
 Homepage = "https://github.com/oloveluck/fhir"

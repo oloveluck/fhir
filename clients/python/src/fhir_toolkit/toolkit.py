@@ -25,6 +25,7 @@ Data used by several calls is given once: `clinic = fhir.load(resources)`, then
 `validate_each`, or a view.
 """
 import atexit
+import threading
 import json
 import os
 import re
@@ -173,6 +174,11 @@ class Toolkit:
             making a Toolkit does not wait for it, and the first call waits
             only for what is left of its start (well under a second in all).
             False leaves it until the first call.
+        workers: how many processes answer `fhirpath_each` and `validate_each`
+            (1, the default: this one). With more, a list of resources is cut
+            into that many parts, each answered by its own process at the same
+            time: about that many times quicker on a machine with the cores,
+            for that many times the memory (some 150 MB a process).
         timeout: how many seconds a call may take; None (the default) lets
             it take as long as it takes. A call that runs out of time — or
             is interrupted, by Ctrl-C or a notebook's stop button — raises,
@@ -183,17 +189,52 @@ class Toolkit:
     """
 
     def __init__(self, fhir_version: str = "4.0.1", *, packages: Sequence[str] = (), command: Optional[Sequence[str]] = None,
-                 start: bool = True, timeout: Optional[float] = None):
+                 start: bool = True, timeout: Optional[float] = None, workers: int = 1):
+        if not isinstance(workers, int) or workers < 1:
+            raise ValueError("workers is how many processes answer a list of resources: 1 or more (got %r)" % (workers,))
         self._server = Server(fhir_version, packages, command, start=start, timeout=timeout)
         self.raw = _Raw(self._server)
+        # the processes a list of resources is shared between: this one first
+        self._servers = [self._server] + [Server(fhir_version, packages, command, start=start, timeout=timeout)
+                                          for _ in range(workers - 1)]
+        self._raws = [self.raw] + [_Raw(server) for server in self._servers[1:]]
         atexit.register(self.close)
 
     def __repr__(self) -> str:
-        return "Toolkit(FHIR %s, %s)" % (self._server.fhir_version, "running" if self._server.running else "not started")
+        return "Toolkit(FHIR %s, %s%s)" % (self._server.fhir_version, "running" if self._server.running else "not started",
+                                           ", %d workers" % len(self._servers) if len(self._servers) > 1 else "")
 
     def close(self) -> None:
-        """Stop the process. A call after this starts it again."""
-        self._server.close()
+        """Stop the process (and its workers). A call after this starts it again."""
+        for server in self._servers:
+            server.close()
+
+    def _each(self, call: Any, resources: Any, key: str) -> List[Any]:
+        """`call(raw, resources)[key]`, a list with an item for each resource: asked of this
+        process, or — a long list, and workers to share it — of each worker for its part, at
+        the same time, the answers put back in the order given."""
+        resources = _resources(resources)
+        if len(self._raws) == 1 or not isinstance(resources, list) or len(resources) < SHARED_FROM:
+            return call(self.raw, resources)[key]
+        parts = _parts(resources, len(self._raws))
+        answers: List[Any] = [None] * len(parts)
+        failures: List[BaseException] = []
+
+        def work(i: int) -> None:
+            try:
+                answers[i] = call(self._raws[i], parts[i])[key]
+            except BaseException as e:      # (an interrupt too: it is raised again below, once the others are in)
+                failures.append(e)
+
+        others = [threading.Thread(target=work, args=(i,), daemon=True) for i in range(1, len(parts))]
+        for thread in others:
+            thread.start()
+        work(0)
+        for thread in others:
+            thread.join()
+        if failures:
+            raise failures[0]
+        return [answer for part in answers for answer in part]
 
     def __enter__(self) -> "Toolkit":
         return self
@@ -212,22 +253,25 @@ class Toolkit:
         return answer["topics"] if topic is None else answer["text"]
 
     # ---- one resource ---------------------------------------------------------------------------
-    def fhirpath(self, expression: str, resource: Resource) -> List[Any]:
+    def fhirpath(self, expression: str, resource: Resource, *, model: Any = None) -> List[Any]:
         """A FHIRPath expression's values over one resource.
 
         An element comes back as its FHIR JSON, a System value as a number,
-        a boolean or a string (a date as FHIR writes it: "1980-02-28").
+        a boolean or a string (a date as FHIR writes it: "1980-02-28"). With
+        `model` (a class of a model library) each value is an object of it:
+        `fhir.fhirpath("name", patient, model=HumanName)`.
         """
-        return self.raw.fhirpath(expression, resource=_resource(resource))["values"]
+        return _as(model, self.raw.fhirpath(expression, resource=_resource(resource))["values"])
 
-    def fhirpath_each(self, expression: str, resources: Any) -> List[List[Any]]:
+    def fhirpath_each(self, expression: str, resources: Any, *, model: Any = None) -> List[List[Any]]:
         """A FHIRPath expression's values over each of several resources, in one call.
 
         `resources` is a list of resources (or a Bundle). The answer has one
         list of values for each, in the order given: far quicker than a call
-        for each resource.
+        for each resource. With `model`, each value is an object of it.
         """
-        return self.raw.fhirpath(expression, resources=_resources(resources))["results"]
+        results = self._each(lambda raw, part: raw.fhirpath(expression, resources=part), resources, "results")
+        return results if model is None else [typed(model, values) for values in results]
 
     # ---- data given once ------------------------------------------------------------------------
     def load(self, data: DataLike, *, project: ProjectLike = None) -> "Data":
@@ -258,8 +302,9 @@ class Toolkit:
 
     def validate_each(self, resources: Any, profile: Optional[str] = None, *, project: ProjectLike = None) -> List[Outcome]:
         """Each of several resources validated, in one call: an `Outcome` for each, in the order given."""
-        answer = self.raw.validate(resources=_resources(resources), profile=profile, **as_project(project).arguments())
-        return [Outcome(o) for o in answer["outcomes"]]
+        arguments = as_project(project).arguments()
+        outcomes = self._each(lambda raw, part: raw.validate(resources=part, profile=profile, **arguments), resources, "outcomes")
+        return [Outcome(o) for o in outcomes]
 
     def decompile(self, resource: Resource, as_: Optional[str] = None, *, project: ProjectLike = None) -> str:
         """A resource written as source text.
@@ -412,6 +457,22 @@ class Toolkit:
                 self.raw.stage(drop=staged.id, data=os.fspath(data), **as_project(project).arguments())
             staged.raise_for_errors()
         return staged.commit(reason, agent=agent) if staged.id else Commit({})
+
+
+#: a list of resources is shared between workers from this many on (a short list is quicker asked whole)
+SHARED_FROM = 64
+
+
+def _parts(items: List[Any], n: int) -> List[List[Any]]:
+    """A list cut into at most n runs of nearly one length, in order, none empty."""
+    n = max(1, min(n, len(items)))
+    size, more = divmod(len(items), n)
+    parts, at = [], 0
+    for i in range(n):
+        end = at + size + (1 if i < more else 0)
+        parts.append(items[at:end])
+        at = end
+    return parts
 
 
 def _as(model: Any, resource: Any) -> Any:

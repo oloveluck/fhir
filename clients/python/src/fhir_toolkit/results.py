@@ -37,6 +37,21 @@ class Table:
             raise KeyError("no column %r (the columns: %s)" % (name, ", ".join(self.columns)))
         return [row.get(name) for row in self.rows]
 
+    def to_models(self, model: Any) -> List[Any]:
+        """Each row as an object of `model`: a pydantic model (or a dataclass) whose fields are
+        the columns. pydantic reads the cells as its fields say (a date from its text)."""
+        from .models import typed
+        return [typed(model, row) for row in self.rows]
+
+    def resources(self, model: Any = None) -> List[Any]:
+        """The FHIR resources behind a search's rows, as FHIR JSON — or, with `model` (a class
+        of a model library), as objects of it."""
+        from .models import typed
+        if "json" not in self.columns and not any("json" in row for row in self.rows):
+            raise FhirError("these rows are no resources (a search's rows are; the columns here: %s)" % ", ".join(self.columns))
+        found = [row["json"] for row in self.rows if isinstance(row.get("json"), dict)]
+        return found if model is None else [typed(model, resource) for resource in found]
+
     @property
     def notes(self) -> List[str]:
         """What the toolkit says of the answer besides its rows: values of the data that were

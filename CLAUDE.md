@@ -3291,6 +3291,54 @@ the table of pieces are on the docs front page and in the Python README, where t
 were or were moved. A new finding goes to the site or a write-up, and the README gets at most
 a link.
 
+## The Python client with pydantic; a third pass on speed (2026-11-26)
+The owner: "I'm curious if I can easily use my FHIR tooling and python with pydantic? Besides
+this I'm interested in once again improving my performance and python integration." Tried as a
+newcomer first (a scratch script of every method over `fhir.resources` objects and a model of
+one's own): objects already went in everywhere and came back from three methods. What was
+missing, now there (`clients/python/tests/test_pydantic.py`; the README's examples are run):
+- **Answers as objects**: `model=` on `fhirpath` and `fhirpath_each` too; `Table.to_models(Model)`
+  (rows as a pydantic model or a dataclass whose fields are the columns);
+  `Table.resources(model=None)` (the resources behind a search's rows). A dataclass goes in as
+  its fields (`models.py` `plain`, `typed`).
+- **`fhir_toolkit.pydantic`** (needs pydantic 2; imported only when asked for): `Valid(profile)`
+  and `Holds(fhirpath, message)` are annotations (`Annotated[Patient, Valid(), Holds(…)]`: a
+  `__get_pydantic_core_schema__` that adds an after-validator), `checked(Model, profile)` a
+  subclass of a model with a `model_validator` (also a decorator), `use(toolkit)` the Toolkit
+  they ask. What is wrong is pydantic's own `ValidationError`, one error for each FHIR issue:
+  `loc` from the issue's path (`Patient.name[0].given` -> `("name", 0, "given")`, nested under
+  the field by pydantic), `type` `fhir_<issue code>`, `input` the value there (`errors_of`,
+  `location`). Not done, named: pydantic classes GENERATED from a profile (the profile is
+  enforced when an object is checked).
+- **Found by it, not fixed**: the validator says an issue inside a datatype by the DATATYPE
+  (`HumanName.given`, `Quantity.bogus`), not by the element that holds it, and without list
+  indexes (`walk` restarts the path at a datatype jump: validate.rkt `recurse-issues`). The
+  pydantic error for such an issue has `loc` () and the path in its message. What it takes: an
+  instance location threaded through `walk` beside the snapshot path; fsh's `trace-rule`,
+  fhir-mcp's `rule-line` and the tests that assert paths read the type-rooted form today.
+Speed, measured first each time (`bench/compare.py` has two new rows; its table is the README's):
+- **A model object's own JSON goes into the request as it is** (`_server.py` `encode`): a mark
+  holding a random number stands for it while the rest is encoded and is replaced after
+  (`models.py` `model_json`). It was written, read back into dicts and written again. A plain
+  pydantic model: 5,000 through `fhirpath_each` in 29 ms. `fhir.resources` objects are slow by
+  their own serializer (0.05 ms each, a Python function per element): 5,000 of them through
+  `validate_each` take 673 ms where dicts take 417, and nothing here can change that.
+- **`Toolkit(workers=n)`** (`toolkit.py` `_each`, `_parts`, `SHARED_FROM`): `fhirpath_each` and
+  `validate_each` cut a list of 64 or more into n runs, each answered by its own process at the
+  same time (threads that wait on pipes), the answers put back in order. Validating 5,000
+  Patients: 417 -> 100 ms with four on four cores; the same answers (tested). 150 MB a process.
+- **The pipes are binary** and a call without a `timeout` makes no Event: a call that does
+  nothing 0.096 -> 0.087 ms. Where a no-op call's time goes, measured (`version`, this machine):
+  the pipe round trip itself 28 µs (Python to `cat` and back), the server's loop 25 µs, the
+  client 35 µs. Looked for and NOT found: anything slow in how Racket waits on a pipe (an echo
+  in Racket is 30 µs with every module loaded, a thread sleeping, a will executor).
+- Not done, with what was measured: a first view from a new process is 1.6 s, of which the
+  loads are 0.19 s (the server), 0.29 s (the types, at the first FHIRPath), 0.15 s (the view
+  engine) and 0.37 s (the first view itself: over half of it garbage collection) — the knob
+  that trades memory for it was decided against in the second pass.
+A new container was started during this work: its first validation took 16 s (a cold disk),
+then 0.9 to 1.1 s. Time a second run before believing a first.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

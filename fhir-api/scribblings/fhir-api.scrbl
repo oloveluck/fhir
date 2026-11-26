@@ -122,33 +122,53 @@ stored resource. The trail is a table SQL reads.
 
 With a project, what is written is held to the project's profiles too.
 
-@section{Objects of a model library}
+@section{With pydantic, and other model libraries}
 
 Values are FHIR JSON, and you can give objects instead: anything that writes itself as JSON goes
-in as it is (pydantic models, so @tt{fhir.resources}; @tt{fhirclient}'s models). @tt{model=}
-gives an answer back as an object.
+in as it is (a pydantic model, so @tt{fhir.resources} and models of your own; a dataclass;
+@tt{fhirclient}'s models). @tt{model=} gives an answer back as objects.
 
 @(example 9)
+
+A table's rows become objects of a model whose fields are its columns, and a search's rows the
+resources behind them:
+
+@(example 10)
+
+pydantic checks the shape a model declares. FHIR asks more: a code its value set holds, the
+rules of the base specification, whatever a profile adds. @tt{fhir_toolkit.pydantic} runs the
+toolkit's validation, and FHIRPath, where pydantic runs its own. @tt{Valid()} and
+@tt{Holds(expression)} annotate a field of any model; @tt{checked(Model, profile)} answers a
+class every object of which is held to a profile. What is wrong is a pydantic
+@tt{ValidationError}, one error for each FHIR issue, its @tt{loc} the element:
+
+@(example 11)
+
+Each check is one call of the toolkit, so in a loop over thousands of objects use
+@tt{validate_each}. An issue inside a datatype is located by the datatype
+(@tt{HumanName.given}), so its @tt{loc} is the value and the path is in its message. The
+toolkit does not generate pydantic classes from a profile: the profile is enforced when an
+object is checked.
 
 @section{Many resources, and data you use more than once}
 
 A call crosses to the toolkit's process and back. So ask one question of many resources in one
 call: @tt{fhirpath_each} and @tt{validate_each} take a list and answer a list, in the same order.
 
-@(example 10)
+@(example 12)
 
 Data that several calls read is given once. @tt{load} sends the resources (or reads the
 directory, or opens the store) and answers a handle that any call takes as its @tt{data}.
 Nothing is sent or read again, a search's index over it is built once, and a view over it is
 computed once for all the SQL you ask of it.
 
-@(example 11)
+@(example 13)
 
 @section{Files, warnings, and calls that take too long}
 
 A resource may be given as a dict, as JSON text, or as the path of a file that holds it.
 
-@(example 12)
+@(example 14)
 
 When an answer was made without something in the data, the call says so with a
 @tt{FhirWarning}, raised at your line like any Python warning. Here a time has no time zone,
@@ -156,11 +176,11 @@ which FHIR requires, so the view has no value for it; the table keeps the senten
 @tt{notes}. A map says the same of a value in its source that it could not read.
 @tt{warnings.simplefilter("error", FhirWarning)} makes such data an error.
 
-@(example 13)
+@(example 15)
 
 A table goes where tables go: @tt{to_pandas()}, @tt{to_polars()}, or CSV.
 
-@(example 14)
+@(example 16)
 
 @tt{Toolkit(timeout=30)} gives every call 30 seconds. A call that takes longer, or that you
 interrupt (Ctrl-C, a notebook's stop button), stops the toolkit's process: the call raises, the
@@ -193,10 +213,15 @@ names another directory; @tt{FHIR_PACKAGE_CACHE=0} keeps them in memory and writ
 validate a small Patient. The resource is what costs, not the call: a US Core example with its
 narrative and profile takes about 0.6 ms.}
 @item{@bold{Many resources.} One call for all of them: one expression over 5,000 Patients
-takes 55 ms, validating them 388 ms. A loop of single calls costs the crossing each time.}
-@item{@bold{The same data again.} @tt{load} it: a view over 5,000 Observations takes 157 ms
-with the resources sent in the call and 72 ms over loaded data; the same view asked again
-takes 6 ms (its rows are kept), and SQL over it about 1 ms.}
+takes 68 ms, validating them 417 ms. A loop of single calls costs the crossing each time.
+@tt{Toolkit(workers=4)} shares such a list between four processes: 100 ms for that
+validation, for four times the memory.}
+@item{@bold{Objects.} An object costs what its library takes to write it as JSON: about
+0.05 ms each for @tt{fhir.resources}, a thousandth of a millisecond for a plain pydantic
+model, whose text goes into the call as it is.}
+@item{@bold{The same data again.} @tt{load} it: a view over 5,000 Observations takes 152 ms
+with the resources sent in the call and 85 ms over loaded data; the same view asked again
+takes 7 ms (its rows are kept), and SQL over it about 1 ms.}
 @item{@bold{Beside pure Python.} Walking dicts in the same process, a compiled @tt{fhirpathpy}
 expression answers one resource in 0.04 ms and a model library checks a Patient's shape in
 0.03 ms: for one small in-memory thing at a time they are quicker, and they check less.}]
