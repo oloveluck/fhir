@@ -3390,6 +3390,15 @@ R4 932/934. Not done, named: tx.fhir.org's candidate `$compare` (61 tests), `$ba
 (2), `$translate` by source and target system without a ConceptMap url (2), `excludeNotForUI`,
 `exclude-system`, `limit`; LOINC, SNOMED CT, OMOP content (249 tests) is not shipped.
 
+## FHIRPath 3.0.0 (2026-11-26)
+hl7.org answered from the session, and FHIRPath 3.0.0 is the current release: its grammar is now
+fhirpath's (Long literals, `sort()` keys with `asc`/`desc`, instance selectors, each ported to the
+brag grammar, the descent reader, the evaluator, the static pass and the printer; Long arithmetic
+stays Long). Its published test archive is a subset of the vendored suites and not well-formed,
+so the specification's own examples are the test (fhirpath `tests/fhirpath3-test.rkt`). fml walks
+the new nodes. Gates: R5 1044/1044, R4 932/934, every FHIRPath-reading package's suite, the
+HL7-engine comparisons. fhirpath/CLAUDE.md has the detail.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.
