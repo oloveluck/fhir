@@ -487,7 +487,7 @@ the expected ones whatever their type, gives 788; of the rest, 102 raise an erro
 | a code the profile fixes, changed (a blood pressure's `code`) | refused | accepted | refused |
 
 The toolkit decides as HL7's validator does on all eight. On a larger set — 741 changed copies of
-US Core examples, each judged by HL7's validator — the two agree on 736, and the toolkit refuses
+US Core examples, each judged by HL7's validator — the two agree on 740, and the toolkit refuses
 nothing that HL7's passes.
 
 **What a check costs.** The 230 examples US Core 9.0.0 publishes, each held to the profiles it

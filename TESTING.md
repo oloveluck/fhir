@@ -27,9 +27,15 @@ that only rises. The languages' own suites are in their repositories: [fsh](http
 
 ## The misses, named
 
-- **Validator, 8 invalid cases not caught**: choice-type narrowing, invariants, and decimal-format
-  edges. Two are the `ctm-1` CareTeam cases, which the Java validator flags only through a non-spec
-  reading of `is` on an empty collection; matching it would break FHIRPath conformance.
+- **Validator, 4 invalid cases not caught**: two are the `ctm-1` CareTeam cases, which the Java
+  validator flags only through a non-spec reading of `is` on an empty collection (matching it would
+  break FHIRPath conformance); one needs LOINC's codes and properties (a supplement); one's only
+  error is that the reference could not load an R5 extension definition.
+- **Validator against HL7's on changed examples, 1 of 741**: an NPI identifier with no value, where
+  the NPI rule comes out empty (held here, failed there). On the fresh set, 5 QuestionnaireResponses
+  are refused that HL7's validator passes: the next thing to open.
+- **Terminology, 320 skipped**: each with its reason under `raco fhir-tx tck -v` (content not
+  shipped: SNOMED CT, LOINC, OMOP, HGVS; candidate operations).
 - **Invariants, 11**: ten logical models in the core package with a baseDefinition and no
   `derivation` (sdf-27), and CodeSystem/fhir-types against the profile it claims (scs-1).
 - **Snapshots, 3**: version-induced. `prov-fi` is an R4 profile, and the resolver reads R5 bases.
