@@ -298,7 +298,19 @@
     (map value-json (eval-fhirpath ast (list (ok-value node)))))
   (if one
       (hasheq 'values (values-of one #f))
-      (hasheq 'results (for/list ([r (in-list (given-resources several))] [i (in-naturals)]) (values-of r i)))))
+      (hasheq 'results (for/list ([r (in-list (asked-resources several))] [i (in-naturals)]) (values-of r i)))))
+
+;; asked-resources : jsexpr -> (listof jsexpr)   the resources one question is asked of: a list's
+;; items as they are — a Bundle among them is a resource like the others, so the answers line up
+;; with the list — or, given a Bundle alone, the resources of its entries
+(define (asked-resources several)
+  (define resources
+    (cond [(list? several) several]
+          [(and (hash? several) (equal? (hash-ref several 'resourceType #f) "Bundle"))
+           (for/list ([e (in-list (hash-ref several 'entry '()))] #:when (hash? (hash-ref e 'resource #f))) (hash-ref e 'resource))]
+          [else (list several)]))
+  (unless (andmap hash? resources) (raise-user-error 'resources "resources are JSON objects"))
+  resources)
 
 ;; value-json : FHIRPath item -> jsexpr   as JSON holds it: FHIR JSON for an element, a number, a
 ;; boolean, a string — and a date, dateTime or time as FHIR JSON writes one (`1980-02-28`, not the
@@ -394,7 +406,7 @@
         (lambda ()
           (if one
               (apply-json validate inputs one)
-              (hasheq 'outcomes (for/list ([r (in-list (given-resources several))]) (apply-json validate inputs r)))))))))
+              (hasheq 'outcomes (for/list ([r (in-list (asked-resources several))]) (apply-json validate inputs r)))))))))
 
 ;; run-load : data opened once and kept: resources given (held in memory), or a place (a directory
 ;; or file is read now; a store or server is opened). A later call names it as {loaded: key}.

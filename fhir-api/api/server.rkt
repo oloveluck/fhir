@@ -205,6 +205,13 @@
     (check-false (hash-has-key? (hash-ref bad 'result) 'birthDate))
     (check-equal? (length (hash-ref bad 'warnings)) 1)
     (check-regexp-match #rx"^the source's item\\[0\\][.]answer\\[0\\][.]valueDate \\(\"01/05/1950\"\\)" (car (hash-ref bad 'warnings))))
+  ;; one answer a resource of a list, a Bundle among them included; a Bundle alone is its entries
+  (let* ([p (hasheq 'resourceType "Patient" 'id "a")]
+         [b (hasheq 'resourceType "Bundle" 'type "collection" 'entry (list (hasheq 'resource p) (hasheq 'resource p)))]
+         [count-of (lambda (several) (length (hash-ref (hash-ref (ask (jsexpr->string (hasheq 'id 1 'method "fhirpath" 'params (hasheq 'expression "id" 'resources several)))) 'result) 'results)))])
+    (check-equal? (count-of (list p b p)) 3)
+    (check-equal? (count-of b) 2)
+    (check-equal? (length (hash-ref (hash-ref (ask (jsexpr->string (hasheq 'id 1 'method "validate" 'params (hasheq 'resources (list p b))))) 'result) 'outcomes)) 2))
   ;; a notification is not answered; a blank line is nothing
   (check-false (answer-line s "{\"method\":\"version\"}"))
   (define out (open-output-string))

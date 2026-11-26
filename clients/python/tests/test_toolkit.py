@@ -592,6 +592,11 @@ group main(source src : QR, target tgt : Patient) {
                          'not a valid value, or not an element of QuestionnaireResponse in FHIR R4')
         self.assertEqual(caught[0].filename, __file__)
 
+    def test_one_answer_a_resource_of_a_list_a_bundle_among_them(self):
+        bundle = {"resourceType": "Bundle", "type": "collection", "entry": [{"resource": PATIENT}, {"resource": PATIENT}]}
+        self.assertEqual(len(self.fhir.validate_each([PATIENT, bundle, PATIENT])), 3)
+        self.assertEqual(len(self.fhir.fhirpath_each("id", [bundle, PATIENT])), 2)
+
     def test_a_table_as_csv(self):
         table = self.fhir.view("SELECT id, name.given AS given, birthDate AS born, name.family.first() AS family FROM Patient",
                                [PATIENT, {"resourceType": "Patient", "id": "bo", "name": [{"family": 'O"Hara, Bo'}]}])

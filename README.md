@@ -2,7 +2,9 @@
 
 [FHIR](https://hl7.org/fhir/) is the standard for health data. This is an implementation of it
 built for an AI agent to work in — read a patient's record, write data that is valid, say what
-valid means, compute over it — and for you to check what the agent did. Four ideas carry it:
+valid means, compute over it — and for you to check what the agent did. It is written in Racket
+and is used [from Racket](#in-racket), [from Python](#from-python), from a shell, or by an agent
+as an MCP server. Four ideas carry it:
 
 - **Languages, not JSON.** FHIR comes with small languages: one for what valid data looks like,
   one for clinical logic, one for converting data, one for sets of codes, one for questions of a
@@ -92,6 +94,45 @@ versionId,agent,reason,value,at
 A status FHIR does not have is refused before anything is written:
 ``bad2.fsh:2: Observation.status: code `finished` not in required value set … it holds amended, cancelled, corrected, …``.
 
+## In Racket
+
+The toolkit is written in [Racket](https://racket-lang.org), and it is a set of Racket packages
+before it is anything else: the command-line tools, the MCP server and the Python package are
+all built from them. Each language is a `#lang`. A `.fsh`, `.cql`, `.map`, `.vcl` or `.sof` file
+is a module, checked when it compiles, and a program requires it like any other module:
+
+```racket
+#lang racket/base
+(require json
+         (only-in "fsh/intake.fsh" canonical-of)     ; a profile, in FHIR Shorthand
+         (only-in "qr2patient.map" transform)        ; a map, in the FHIR Mapping Language
+         (only-in "Intake.cql" evaluate)             ; clinical logic, in CQL
+         (only-in cql/value render))
+
+(define answers (call-with-input-file "qr.json" read-json))
+(define patient (transform answers #:validate (canonical-of "IntakePatient")))   ; invalid: an error at the map's rule
+(printf "~a, 65 or older: ~a\n"
+        (hash-ref (car (hash-ref patient 'name)) 'text)
+        (render (evaluate (list patient) #:define "Is 65 Or Older")))
+```
+
+```
+$ racket main.rkt
+Ana Rivera, 65 or older: true
+```
+
+A mistake in one of those files stops the build, at its line:
+
+```
+qr2patient.map:14:49: fml check error: `gendr` is not an element of Patient (did you mean `gender`?)
+```
+
+`raco fhir new pipeline my-pipeline` writes that project (the profile, the map, the library, a
+form's answers and a test), and `fhir guide racket` is the Racket route on one page. Beside the
+`#lang`s there are the libraries (`fhirpath/eval`, `cql/run`, `fhir/operation`: a FHIR operation
+is a procedure, `(apply-operation "$validate" patient)`), a `raco` command for each language,
+and the conformance suites the engines are held to ([TESTING.md](TESTING.md)).
+
 ## From Python
 
 The same languages and checks as a Python package, [`fhir-toolkit`](clients/python/README.md),
@@ -111,8 +152,26 @@ It also writes to a store with a record of who and why (`fhir.write(...)`), take
 `fhir.resources` objects where it takes dicts, and adds a cell magic for each language to a
 notebook (`%load_ext fhir_toolkit.jupyter`). A call costs about a tenth of a millisecond beyond
 its work; many resources go in one call (`fhirpath_each`, `validate_each`, a view) and data used
-twice is loaded once (`fhir.load`). Its README has the timings beside two pure-Python libraries. It is not on the Python Package Index yet: the
-`wheels` workflow builds the files ([release/RELEASING.md](release/RELEASING.md) has the steps).
+twice is loaded once (`fhir.load`). It is not on the Python Package Index yet: the `wheels`
+workflow builds the files ([release/RELEASING.md](release/RELEASING.md) has the steps).
+
+Beside the Python libraries people use for FHIR today, measured by programs in
+[clients/python/bench](clients/python/bench) that you can run:
+
+| | fhir-toolkit | elsewhere |
+|---|---|---|
+| HL7's FHIRPath test suite, 934 expressions | 932 right | `fhirpathpy`: 788 |
+| eight kinds of mistake planted in a published example | all eight refused, as HL7's validator refuses them | `fhir.resources`: three of the eight |
+| US Core's 230 examples checked against the guide's profiles | 2.1 s | HL7's validator, a Java program run as a process: 49 s |
+| one expression over 5,000 Patients | 55 ms, in one call | `fhirpathpy`, in a loop: 194 ms |
+| one small expression, one Patient | 0.10 ms | `fhirpathpy`: 0.04 ms |
+
+It does more, and it is quicker where there is work to do: many resources, a real guide's
+profiles, SQL over views. For one small question of one small resource a pure-Python library is
+quicker, because nothing crosses between two processes. And where those libraries each do one
+thing, this is FHIRPath, validation against profiles, terminology, FHIR Shorthand, CQL, the
+mapping language, SQL on FHIR, search and a store, in one install with no Java and no Node.
+[Its README](clients/python/README.md) has every table and what each number leaves out.
 
 Under it is `fhir-api`, one process that answers function calls as JSON lines, with its
 functions described in one table ([clients/functions.json](clients/functions.json)) that a
@@ -136,8 +195,10 @@ whose every example the tests run.
 
 ## Install
 
-There are no downloads yet. Build the tools once on a machine with
-[Racket 9](https://racket-lang.org); the result runs without Racket on any machine of the same kind.
+There are no downloads yet. With [Racket 9](https://racket-lang.org), the second command below
+installs the packages: that is the whole Racket install (`#lang fsh`, `(require cql/run)` and
+every `raco` command work after it). The third builds the tools as programs that run without
+Racket on any machine of the same kind.
 
 ```sh
 for r in fhir fhirpath vcl cql fml fsh sql-on-fhir; do git clone https://github.com/oloveluck/$r.git; done

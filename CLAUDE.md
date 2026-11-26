@@ -3252,6 +3252,38 @@ A lesson of method, twice in this pass: a benchmark of a SMALL synthetic resourc
 largest cost (a narrative, an attachment) and the largest first-call cost (the archive). Time a
 published example, and time a new process.
 
+## Said plainly: in Racket, in Python, and beside the other libraries (2026-11-26)
+The owner: "The FHIR toolkit should be advertised as available in racket and I want to show
+that it performs well compared to other python FHIR libraries as well as being more complete
+and powerful." So the README and the docs front page say where it runs (a Racket section with
+the pipeline of three `#lang` files and its real output and build error; Python; a shell; an
+agent), and the comparison is three programs in `clients/python/bench`, each printing the table
+the documents quote:
+- `fhirpath-suite.rkt` (+ `fhirpathpy_bridge.py`, which only evaluates and prints): HL7's
+  FHIRPath suite for R4 asked of fhirpathpy and decided in Racket, by the KINDER comparison (a
+  value right when it equals the expected one as a number, a moment or text, whatever its type;
+  any error passes a test marked invalid). fhirpathpy 2.2.4: 788 of 934 (102 raise:
+  lowBoundary, highBoundary, sort, matchesFull, precision are not implemented there). This
+  engine, compared with types: 932.
+- `validation.py [--hl7-validator validator_cli.jar]`: US Core 9.0.0's 230 published examples.
+  Eight kinds of mistake planted in one of them: the toolkit refuses all eight, as HL7's Java
+  validator does; fhir.resources 8.3.0 (the shape of the base specification) three. The 230
+  against the profiles they claim, from nothing: 2.1 s (1.2 ms a resource once running); HL7's
+  validator as a process 49 s (35 ms a resource by its own account; 79 s the first time, which
+  fills its package cache); every one passes all three.
+- `compare.py` (as before): one expression over 5,000 Patients 55 ms in one call against a
+  fhirpathpy loop's 194; one small expression of one Patient 0.10 ms against 0.036.
+What the documents say and do not: more of the standard, and quicker where there is work to do
+(many resources, a guide's profiles, SQL over views); NOT quicker for one small question of one
+small resource, which they say in the same table. What other tools exist is said as what they
+are (HL7's validator: Java; SUSHI, GoFSH: Node; the CQL translator and engines: Java and
+JavaScript), not as what Python lacks.
+Found by the comparison: `fhirpath`/`validate` given a LIST of resources unpacked a Bundle among
+them, so 230 examples gave 236 answers that no longer lined up with the list (fhir-api
+`functions.rkt` `asked-resources`: a list's items as they are; a Bundle given alone is its
+entries). Data given to a call still unpacks Bundles (`given-resources`): there a Bundle is a
+container.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

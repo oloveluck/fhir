@@ -134,6 +134,36 @@ page starts from an empty folder.
 Worked examples that use several of these together are in
 @hyperlink["https://oloveluck.github.io/fhir-examples/"]{fhir-examples}.
 
+@section{In Racket, and in Python}
+
+The toolkit is written in @hyperlink["https://racket-lang.org"]{Racket}, and it is a set of Racket
+packages before it is anything else: the command-line tools, the agent's workspace and the
+Python package are built from them. Each language is a @tt{#lang}, so a @tt{.fsh}, @tt{.cql},
+@tt{.map}, @tt{.vcl} or @tt{.sof} file is a module that is checked when it compiles and that a
+program requires like any other; beside them are the libraries (@tt{fhirpath/eval},
+@tt{cql/run}, @tt{fhir/operation}) and a @tt{raco} command for each language.
+@tt{raco fhir new pipeline my-pipeline} writes a small project of three languages and a test,
+and @tt{raco fhir guide racket} is the Racket route on one page.
+
+From Python it is one package, @hyperlink["fhir-api/index.html"]{fhir-toolkit}, with nothing
+else to install. Beside the Python libraries people use for FHIR today, each measured by a
+program you can run:
+
+@itemlist[
+@item{@bold{More of the standard.} Of the 934 expressions in HL7's FHIRPath test suite it
+answers 932 as the suite requires; @tt{fhirpathpy} answers 788. And where a Python library does
+one thing (FHIRPath, or a class for each resource), this is FHIRPath, validation against an
+implementation guide's profiles, terminology, FHIR Shorthand, CQL, the mapping language, SQL on
+FHIR, search and a store. The usual tools for the rest are Java and Node programs.}
+@item{@bold{Checks that catch what a validator catches.} Eight kinds of mistake planted in a
+published example: it refuses all eight, as HL7's validator does; @tt{fhir.resources}, which
+checks a resource's shape, refuses three.}
+@item{@bold{Quick where there is work to do.} US Core's 230 published examples against the
+guide's profiles: 2.1 s, where HL7's Java validator run as a process takes 49 s. One
+expression over 5,000 Patients in one call: 55 ms, where a @tt{fhirpathpy} loop takes 194 ms.
+For one small question of one small resource a pure-Python library is quicker (0.04 ms against
+0.10 ms): nothing crosses between two processes there.}]
+
 @section{Install}
 
 There are no downloads yet, so you build the tools once. You need

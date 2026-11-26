@@ -371,6 +371,67 @@ interrupt (Ctrl-C, a notebook's stop button), stops the toolkit's process: the c
 next call starts a new process, and data you loaded is loaded again by itself. Nothing an
 interrupted call was computing is ever taken for a later call's answer.
 
+## Beside other FHIR libraries for Python
+
+Most Python libraries for FHIR do one thing: `fhirpathpy` evaluates FHIRPath, `fhir.resources`
+gives each resource a class and checks its shape. The other standard tools are programs in other
+runtimes that a Python program starts as a process: HL7's validator (Java), SUSHI and GoFSH for
+FHIR Shorthand (Node), the CQL translator and engines (Java, JavaScript), the mapping engine
+(Java). This package is one install, and each row below is a method on one object:
+
+| | fhir-toolkit | fhirpathpy | fhir.resources |
+|---|---|---|---|
+| FHIRPath | yes | yes | — |
+| check a resource against the base specification | yes: shape, codes, rules | — | shape |
+| check it against the profiles of an implementation guide | yes | — | — |
+| value sets: expand, check a code, look one up | yes | — | — |
+| FHIR Shorthand: profiles and data from text, and back | yes | — | — |
+| CQL: translate to ELM, and run over patients | yes | — | — |
+| mapping language: convert one shape to another | yes | — | — |
+| SQL on FHIR views, and SQL over them | yes | — | — |
+| FHIR search over data in memory, a folder or a store | yes | — | — |
+| a store that records who wrote what, and why | yes | — | — |
+| a class for each resource type | no: values are JSON; it takes theirs | — | yes |
+
+**How much of FHIRPath.** HL7 publishes a test suite for FHIRPath: 934 expressions over
+resources, each with the answer it must give. This toolkit gives 932 of them, compared with their
+types. `fhirpathpy` 2.2.4, asked the same expressions and counted right whenever its values equal
+the expected ones whatever their type, gives 788; of the rest, 102 raise an error (`lowBoundary`,
+`highBoundary`, `sort`, `matchesFull`, `precision` are not implemented there).
+`racket bench/fhirpath-suite.rkt` is that count as a program.
+
+**What a check catches.** One published US Core example, changed in one way, eight ways
+(`python bench/validation.py`):
+
+| one published example, with | fhir-toolkit | fhir.resources | HL7's validator (Java) |
+|---|---|---|---|
+| a code its required value set does not hold (`gender: florp`) | refused | accepted | refused |
+| a day the calendar lacks (`birthDate: 1980-02-30`) | refused | refused | refused |
+| an element the type does not have (`nmae`) | refused | refused | refused |
+| a value of another type (`active: "yes"`) | refused | accepted | refused |
+| an element the base type requires, left out (an Observation's `status`) | refused | refused | refused |
+| a rule of the base specification broken (a contact with no name, address or telecom) | refused | accepted | refused |
+| an element the profile requires, left out (a US Core Patient's `name`) | refused | accepted | refused |
+| a code the profile fixes, changed (a blood pressure's `code`) | refused | accepted | refused |
+
+The toolkit decides as HL7's validator does on all eight. On a larger set — 741 changed copies of
+US Core examples, each judged by HL7's validator — the two agree on 736, and the toolkit refuses
+nothing that HL7's passes.
+
+**What a check costs.** The 230 examples US Core 9.0.0 publishes, each held to the profiles it
+claims, from nothing to an answer for every one:
+
+| checked by | against | the whole run | a resource, once running | passed |
+|---|---|---|---|---|
+| fhir-toolkit | the base specification and US Core's profiles | 2.1 s | 1.2 ms | 230 of 230 |
+| HL7's validator (Java), as a process | the same | 49 s | 35 ms | 230 of 230 |
+| fhir.resources | the base specification's shape | 0.4 s | 1.8 ms | 230 of 230 |
+
+(HL7's validator spends most of its run loading the guide; the time for a resource is its own
+account of validating. Its first run on a machine, which fills its package cache, took 79 s
+here. Versions: fhirpathpy 2.2.4, fhir.resources 8.3.0, HL7's validator_cli as downloaded in
+November 2026, with its terminology server off, as the toolkit's checks are offline.)
+
 ## How fast it is
 
 The toolkit is a compiled program in a process of its own. Work done inside one call is quick;
@@ -382,14 +443,14 @@ written on (medians; 5,000 resources where it says many):
 
 | task | fhir-toolkit | fhirpathpy | fhir.resources |
 |---|---|---|---|
-| making a `Toolkit`; then its first answer | 1.3 ms; 0.7 s | no start | no start |
+| making a `Toolkit`; then its first answer | 1.0 ms; 0.75 s | no start | no start |
 | a new `Toolkit`'s first validation | 0.9 s | no start | no start |
-| one FHIRPath expression, one Patient | 0.11 ms | 0.036 ms | — |
-| the same expression over 5,000 Patients | 48 ms (one call) | 191 ms (a loop) | — |
-| validate one Patient | 0.19 ms | — | 0.027 ms |
-| validate 5,000 Patients | 350 ms (one call) | — | 166 ms (a loop) |
-| one value from each of 5,000 Observations | 133 ms (a view) | 53 ms (a loop) | 322 ms (a loop) |
-| the same, the data loaded once | 75 ms (a view) | — | — |
+| one FHIRPath expression, one Patient | 0.10 ms | 0.036 ms | — |
+| the same expression over 5,000 Patients | 55 ms (one call) | 194 ms (a loop) | — |
+| validate one Patient | 0.20 ms | — | 0.026 ms |
+| validate 5,000 Patients | 388 ms (one call) | — | 168 ms (a loop) |
+| one value from each of 5,000 Observations | 157 ms (a view) | 56 ms (a loop) | 311 ms (a loop) |
+| the same, the data loaded once | 72 ms (a view) | — | — |
 | that view asked again | 6 ms | — | — |
 | a SQL aggregate over that view, data loaded | 1.2 ms | — | — |
 

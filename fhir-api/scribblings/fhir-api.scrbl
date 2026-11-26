@@ -193,14 +193,41 @@ names another directory; @tt{FHIR_PACKAGE_CACHE=0} keeps them in memory and writ
 validate a small Patient. The resource is what costs, not the call: a US Core example with its
 narrative and profile takes about 0.6 ms.}
 @item{@bold{Many resources.} One call for all of them: one expression over 5,000 Patients
-takes 48 ms, validating them 350 ms. A loop of single calls costs the crossing each time.}
-@item{@bold{The same data again.} @tt{load} it: a view over 5,000 Observations takes 133 ms
-with the resources sent in the call and 75 ms over loaded data; the same view asked again
+takes 55 ms, validating them 388 ms. A loop of single calls costs the crossing each time.}
+@item{@bold{The same data again.} @tt{load} it: a view over 5,000 Observations takes 157 ms
+with the resources sent in the call and 72 ms over loaded data; the same view asked again
 takes 6 ms (its rows are kept), and SQL over it about 1 ms.}
 @item{@bold{Beside pure Python.} Walking dicts in the same process, a compiled @tt{fhirpathpy}
 expression answers one resource in 0.04 ms and a model library checks a Patient's shape in
-0.03 ms: for one small in-memory thing at a time they are quicker, and they check less. The
-Python package's README has the whole table.}]
+0.03 ms: for one small in-memory thing at a time they are quicker, and they check less.}]
+
+@section{Beside other FHIR libraries for Python}
+
+Most Python libraries for FHIR do one thing: @tt{fhirpathpy} evaluates FHIRPath,
+@tt{fhir.resources} gives each resource a class and checks its shape. The other standard tools
+are programs in other runtimes that a Python program starts as a process: HL7's validator
+(Java), SUSHI and GoFSH for FHIR Shorthand (Node), the CQL translator and engines (Java,
+JavaScript), the mapping engine (Java). This package is one install: FHIRPath, validation
+against an implementation guide's profiles, terminology, FHIR Shorthand, CQL, the mapping
+language, SQL on FHIR views, search and a store. Three measurements, each a program in
+@tt{clients/python/bench} that you can run:
+
+@itemlist[
+@item{@bold{How much of FHIRPath.} HL7's test suite for FHIRPath has 934 expressions with the
+answers they must give. The toolkit gives 932, compared with their types. @tt{fhirpathpy} 2.2.4,
+counted right whenever its values equal the expected ones whatever their type, gives 788
+(@tt{racket bench/fhirpath-suite.rkt}).}
+@item{@bold{What a check catches.} A published US Core example with one mistake planted in it,
+eight kinds of mistake: a code outside its value set, an impossible date, an unknown element, a
+value of the wrong type, a required element missing, a rule of the base specification broken, an
+element the profile requires missing, a code the profile fixes changed. The toolkit refuses all
+eight, as HL7's validator does; @tt{fhir.resources} refuses three
+(@tt{python bench/validation.py}).}
+@item{@bold{What a check costs.} US Core's 230 published examples, each held to the profiles it
+claims, from nothing to an answer for every one: 2.1 s. HL7's validator, a Java program run as a
+process: 49 s (35 ms a resource once it has loaded the guide; the toolkit: 1.2 ms).}]
+
+The Python package's README has the tables.
 
 @section{In a notebook}
 
