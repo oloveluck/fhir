@@ -53,6 +53,10 @@ jobs:
           - os: macos-15
             racket: arm64
     runs-on: ${{ matrix.os }}
+    env:
+      # the oldest macOS the SQLite built here (the one binary compiled in this job) is made for;
+      # the wheel's tag is the oldest system every binary it carries runs on (build_wheel.py)
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
     steps:
       - uses: actions/checkout@v4
       - uses: Bogdanp/setup-racket@v1.11

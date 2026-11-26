@@ -13,6 +13,7 @@ A package the wheel does not carry is given to `Toolkit(packages=[…])` as a .t
 import argparse
 import pathlib
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -34,6 +35,33 @@ def executable_machine(executable):
     return archs[0] if len(archs) == 1 else None
 
 
+def macos_minimum(folder):
+    """The newest of the minimum macOS versions the Mach-O files under `folder` name, as
+    (major, minor); None when none names one (or `otool` is not there)."""
+    found = []
+    for path in sorted(folder.rglob("*")):
+        if not path.is_file() or path.is_symlink():
+            continue
+        with open(path, "rb") as f:
+            magic = f.read(4)
+        if magic not in (b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe", b"\xca\xfe\xba\xbe"):   # Mach-O, 64/32-bit, universal
+            continue
+        try:
+            listing = subprocess.run(["otool", "-l", str(path)], check=True, capture_output=True, text=True).stdout
+        except (OSError, subprocess.CalledProcessError):
+            return None
+        # LC_BUILD_VERSION gives `minos 11.0`; the older LC_VERSION_MIN_MACOSX gives `version 10.9`
+        for version in re.findall(r"cmd LC_BUILD_VERSION.*?\n\s*minos (\d+(?:\.\d+)?)", listing, re.S) + \
+                       re.findall(r"cmd LC_VERSION_MIN_MACOSX.*?\n\s*version (\d+(?:\.\d+)?)", listing, re.S):
+            parts = [int(x) for x in version.split(".")] + [0]
+            found.append((parts[0], parts[1]))
+    if not found:
+        return None
+    major, minor = max(found)
+    # from macOS 11 on, a wheel's tag names the major version alone (pip reads 11_0 as "11 or later")
+    return (major, 0) if major >= 11 else (major, minor)
+
+
 def platform_tag(executable=None):
     """The wheel's platform tag for the machine the executable was built on."""
     system = platform.system()
@@ -48,7 +76,10 @@ def platform_tag(executable=None):
         # the system it was built on, and anything newer, for the processor the EXECUTABLE is for:
         # Python's own tag would name what the interpreter was built for (often every processor,
         # and an older system), and an Intel Racket builds an Intel executable on Apple silicon
-        return "macosx_%s_0_%s" % (platform.mac_ver()[0].split(".")[0], executable_machine(executable) or machine)
+        # The oldest macOS it runs on is what its own binaries say (each Mach-O file names the
+        # system it needs: LC_BUILD_VERSION's minos); the system it was built on, when none says.
+        oldest = macos_minimum(BUNDLE) or (int(platform.mac_ver()[0].split(".")[0]), 0)
+        return "macosx_%d_%d_%s" % (oldest[0], oldest[1], executable_machine(executable) or machine)
     # Windows ("win-amd64") as sysconfig names it
     return sysconfig.get_platform().replace("-", "_").replace(".", "_")
 

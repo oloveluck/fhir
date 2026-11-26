@@ -1,20 +1,26 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "fhir-toolkit"
 version = "0.1.0"
-description = "FHIR and its languages from Python: FSH, CQL, FHIRPath, the mapping language, VCL and SQL on FHIR views compiled, checked, run and validated"
+description = "FHIR for Python: validation against profiles, FHIRPath, terminology, FHIR Shorthand, CQL, the mapping language and SQL on FHIR views, in one package"
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "MIT" }
+license = "MIT"
 authors = [{ name = "oloveluck" }]
-keywords = ["fhir", "fsh", "cql", "fhirpath", "sql-on-fhir", "healthcare"]
+keywords = ["fhir", "hl7", "healthcare", "validation", "fhirpath", "fsh", "cql", "sql-on-fhir", "terminology", "pydantic"]
 classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Healthcare Industry",
+    "Intended Audience :: Science/Research",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
     "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "Typing :: Typed",
 ]
 
 [project.optional-dependencies]
@@ -23,7 +29,9 @@ pydantic = ["pydantic>=2"]
 
 [project.urls]
 Homepage = "https://github.com/oloveluck/fhir"
-Documentation = "https://oloveluck.github.io/fhir/"
+Documentation = "https://oloveluck.github.io/fhir/fhir-api/index.html"
+Source = "https://github.com/oloveluck/fhir/tree/main/clients/python"
+Issues = "https://github.com/oloveluck/fhir/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
