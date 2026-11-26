@@ -62,8 +62,9 @@
     (define now (call "describe" (hasheq 'ref "Observation/a1")))
     (check-equal? (hash-ref now 'status) "amended")
     (check-equal? (map (lambda (n) (hash-ref n 'text)) (hash-ref now 'note)) '("at rest" "checked again"))
+    ;; (written by an FSH rule: the UCUM code names the unit, as SUSHI writes it, with no `unit`)
     (check-equal? (hash-ref (car (hash-ref now 'component)) 'valueQuantity)
-                  (hasheq 'value 61 'unit "/min" 'system "http://unitsofmeasure.org" 'code "/min"))
+                  (hasheq 'value 61 'system "http://unitsofmeasure.org" 'code "/min"))
     ;; the Provenance holds what was written: the rules
     (check-equal? (string-trim (call "describe" (hasheq 'ref "Observation/a1" 'as "source"))) change)
 
