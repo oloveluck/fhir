@@ -18,7 +18,7 @@
 ;;; an expression ran over a resource, what it could not read on the way.
 
 (require racket/contract racket/list racket/string
-         (only-in "../model/node.rkt" fhir? fhir-fields fhir-drops fhir-read?)
+         (only-in "../model/node.rkt" fhir? fhir-fields fhir-drops fhir-fields-read fhir-drops-read)
          (only-in "to-json.rkt" node->jsexpr)
          (only-in "../primitives/temporal.rkt" calendar-problem))
 
@@ -44,21 +44,24 @@
   ;; been read, with read-only?). Nearly every node records none, and saying so needs no key
   ;; sorted and no path written: asked first, of thousands of resources after a view has run.
   (define (any-drops? n)
-    (and (or (not read-only?) (fhir-read? n))
-         (or (pair? (fhir-drops n))
-             (for/or ([v (in-hash-values (fhir-fields n))])
-               (cond [(fhir? v) (any-drops? v)]
-                     [(list? v) (for/or ([x (in-list v)]) (and (fhir? x) (any-drops? x)))]
-                     [else #f])))))
+    (or (pair? (drops-of n read-only?))
+        (for/or ([v (in-hash-values (fields-of n read-only?))])
+          (cond [(fhir? v) (any-drops? v)]
+                [(list? v) (for/or ([x (in-list v)]) (and (fhir? x) (any-drops? x)))]
+                [else #f]))))
   (if (any-drops? n) (node-drops* n read-only?) '()))
+;; fields-of, drops-of : node read-only? -> the node's fields and what reading them left out — all
+;; of them, or (read-only?) those read so far: a node may have been read whole, a field at a time
+;; (the fields a path asked for), or not at all
+(define (fields-of n read-only?) (if read-only? (fhir-fields-read n) (fhir-fields n)))
+(define (drops-of n read-only?) (if read-only? (fhir-drops-read n) (fhir-drops n)))
 (define (node-drops* n read-only?)
   (let walk ([n n] [path ""])
     (define (at k) (if (string=? path "") (format "~a" k) (format "~a.~a" path k)))
     (cond
-      [(and read-only? (not (fhir-read? n))) '()]
       [else
-       (define fields (fhir-fields n))
-       (define own (for/hasheq ([d (in-list (fhir-drops n))]) (values (car d) (cdr d))))
+       (define fields (fields-of n read-only?))
+       (define own (for/hasheq ([d (in-list (drops-of n read-only?))]) (values (car d) (cdr d))))
        (append*
         (for/list ([k (in-list (sort (remove-duplicates (append (hash-keys own) (hash-keys fields))) symbol<?))])
           (cond

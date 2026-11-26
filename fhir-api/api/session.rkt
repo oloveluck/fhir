@@ -26,8 +26,7 @@
 (require racket/contract racket/file racket/list racket/path racket/string json file/sha1
          (only-in fhir/lang/workspace open-workspace workspace-config ws-config-fhir-version)
          (only-in fhir/data-source resources->data-source bundle-resources)
-         (only-in fhir/registry registry-generation)
-         (only-in fhir/mcp/hub hub? open-hub refresh! hub-root use-source! open-place))
+         (only-in fhir/mcp/hub hub? open-hub refresh! settle! settled? hub-root use-source! open-place))
 
 (provide
  (struct-out session)
@@ -54,10 +53,7 @@
   ;; file-name? : string -> boolean   a relative name inside the project: no `..`, not absolute
   [file-name? (-> string? boolean?)]))
 
-;; `fresh` is (cons hub generation) | #f: the project refreshed last, and fhir/registry's
-;; generation when it had been — while both stand, what that project's files define is what is
-;; registered, and a project given as files (which never changes) need not be refreshed again.
-(struct session (dir fhir-version packages hubs [recent #:mutable] loaded [loads #:mutable] [fresh #:mutable]))
+(struct session (dir fhir-version packages hubs [recent #:mutable] loaded [loads #:mutable]))
 (struct loaded (source label place resources))
 
 (define fhir-versions '("4.0.1" "5.0.0"))
@@ -69,7 +65,7 @@
 (define (open-session #:fhir-version [v "4.0.1"] #:packages [packages '()])
   (unless (member v fhir-versions)
     (raise-user-error 'fhir-api "FHIR version ~a is not one this toolkit reads (~a)" v (string-join fhir-versions ", ")))
-  (session (make-temporary-file "fhir-api-~a" 'directory) v packages (make-hash) '() (make-hash) 0 #f))
+  (session (make-temporary-file "fhir-api-~a" 'directory) v packages (make-hash) '() (make-hash) 0))
 
 (define (close-session! s)
   (delete-directory/files (session-dir s) #:must-exist? #f)
@@ -139,12 +135,12 @@
   (unless directory (remember! s key))
   ;; Refreshing reads the project's files and registers what they define (fhir/registry is one
   ;; table a process: the project asked last holds it). A project given as files is what it was
-  ;; when it was written, so while it is still the one registered — nothing has registered or
-  ;; unregistered since — there is nothing to do: a fifth of a small call's time.
-  (define fresh (session-fresh s))
-  (unless (and (not directory) fresh (eq? (car fresh) h) (= (cdr fresh) (registry-generation)))
+  ;; when it was written, so it is SETTLED once refreshed (fhir-mcp's hub): while it is still the
+  ;; one registered there is nothing to do, here or in the hub's own verbs. A directory is read
+  ;; again at every call.
+  (unless (and (not directory) (settled? h))
     (refresh! h)
-    (set-session-fresh! s (cons h (registry-generation))))
+    (unless directory (settle! h)))
   h)
 
 ;; remember! : session key -> void   the key is the most recently used; past `kept-projects` the

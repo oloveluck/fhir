@@ -8,7 +8,7 @@ import threading
 from typing import Any, Dict, List, Optional, Sequence
 
 from ._functions import PROTOCOL
-from .errors import Diagnostic, FhirError, ToolkitNotFound
+from .errors import Diagnostic, FhirError, ToolkitNotFound, warn
 from .models import plain
 
 #: the environment variable that names the command to start, e.g. "raco fhir-api"
@@ -60,12 +60,19 @@ class Server:
     all). `start=False` leaves it until the first call. A process reads one
     version of FHIR; calls are answered one at a time (a lock makes it safe
     to share between threads).
+
+    `timeout` is how many seconds a call may take (None: as long as it
+    takes). A call that takes longer, or that is interrupted (Ctrl-C, a
+    notebook's stop button), ends the process: its answer would otherwise
+    still be on its way, to be read as the NEXT call's. The process starts
+    again at the next call (data loaded into it is loaded again by itself).
     """
 
     def __init__(self, fhir_version: str = "4.0.1", packages: Sequence[str] = (), command: Optional[Sequence[str]] = None,
-                 start: bool = True):
+                 start: bool = True, timeout: Optional[float] = None):
         self.fhir_version = fhir_version
         self.packages = list(packages)
+        self.timeout = timeout
         self._command = command
         self._process: Optional[subprocess.Popen] = None
         self._greeted = False
@@ -92,7 +99,8 @@ class Server:
         self.generation += 1
 
     def _greet(self) -> None:
-        version = self._exchange("version", {})
+        # (not held to `timeout`: this is where a call waits for the process to have started)
+        version = self._exchange("version", {}, timed=False)
         if version.get("protocol") != PROTOCOL:
             self.close()
             raise FhirError(
@@ -122,25 +130,52 @@ class Server:
                 process.stdout.close()
 
     # ---- a call ---------------------------------------------------------------------------------
-    def _exchange(self, name: str, arguments: Dict[str, Any]) -> Any:
+    def _exchange(self, name: str, arguments: Dict[str, Any], timed: bool = True) -> Any:
         process = self._process
         assert process is not None and process.stdin is not None and process.stdout is not None
         self._id += 1
         request = {"jsonrpc": "2.0", "id": self._id, "method": name, "params": arguments}
         # an object of a model library among the arguments goes as the JSON it writes
         text = json.dumps(request, default=plain, separators=(",", ":"))
+        timed_out = threading.Event()
+        watchdog = None
+        if timed and self.timeout is not None:
+            def stop() -> None:
+                timed_out.set()
+                process.kill()
+            watchdog = threading.Timer(self.timeout, stop)
+            watchdog.daemon = True
+            watchdog.start()
         try:
-            process.stdin.write(text + "\n")
-            process.stdin.flush()
-            line = process.stdout.readline()
-        except (BrokenPipeError, OSError, ValueError):
-            line = ""
+            try:
+                process.stdin.write(text + "\n")
+                process.stdin.flush()
+                line = process.stdout.readline()
+            except (BrokenPipeError, OSError, ValueError):
+                line = ""
+        except BaseException:
+            # interrupted with the answer still on its way: it must not be the next call's
+            self._abandon(process)
+            raise
+        finally:
+            if watchdog is not None:
+                watchdog.cancel()
         if not line:
             self.close()
+            if timed_out.is_set():
+                raise FhirError("%s did not answer within %s s: the FHIR toolkit's process was stopped; it starts again at the "
+                                "next call" % (name, self.timeout))
             status = process.poll()
             raise FhirError("the FHIR toolkit's process ended%s while answering %s; it starts again at the next call"
                             % ("" if status is None else " (exit status %s)" % status, name))
         reply = json.loads(line)
+        if reply.get("id") != self._id:
+            self.close()
+            raise FhirError("the FHIR toolkit answered another call than %s (answer %r to call %r): its process was stopped; "
+                            "it starts again at the next call" % (name, reply.get("id"), self._id))
+        said = reply.get("warnings")
+        if said:
+            warn(said)
         error = reply.get("error")
         if error:
             data = error.get("data") or {}
@@ -151,6 +186,21 @@ class Server:
                 code=error.get("code"),
             )
         return reply.get("result")
+
+    def _abandon(self, process: "subprocess.Popen") -> None:
+        """Stop a process in the middle of a call, without waiting on what it was doing."""
+        self._process = None
+        try:
+            process.kill()
+            process.wait(timeout=10)
+        except Exception:
+            pass
+        for pipe in (process.stdin, process.stdout):
+            try:
+                if pipe and not pipe.closed:
+                    pipe.close()
+            except Exception:
+                pass
 
     def call(self, name: str, arguments: Dict[str, Any]) -> Any:
         """One function called by name: its answer as JSON values, or FhirError."""

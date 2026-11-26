@@ -15,8 +15,8 @@
 
 (require racket/contract
          racket/string
-         (except-in fhir/model/node lazy-fhir)
-         (only-in (submod fhir/model/node unchecked) lazy-fhir)   ; made for every node read: see node.rkt
+         (except-in fhir/model/node lazy-fhir make-reader)
+         (only-in (submod fhir/model/node unchecked) lazy-fhir make-reader)   ; made for every node read: see node.rkt
          fhir/result/result
          "read-json.rkt"                             ; jnum (precision-preserving numbers) + strip-jnum
          (only-in fhir/model/schema
@@ -63,7 +63,7 @@
     ;; a nested value whose JSON shape isn't an object (e.g. an R4-style string where R5 expects a
     ;; complex type) is a type mismatch, not a crash — return err so lenient parsing drops it.
     [(not (hash? js)) (err (invalid-encoding type "https://build.fhir.org/json.html" js))]
-    [lenient? (ok (lazy-fhir type (lambda () (lenient-fields type sch js))))]
+    [lenient? (ok (lazy-fhir type (lenient-reader type sch js)))]
     [else
      (define pairs (field-pairs type sch js #f))
      (result-map
@@ -105,14 +105,73 @@
                   #t)))
   (append value-pairs absent-pairs))
 
+;; ---- a node read a field at a time ----------------------------------------------------------------
+;; lenient-reader : type schema object -> Reader (model/node.rkt)   how a lenient node's fields are
+;; read: one alone when one is asked for (`fhir-ref`: a path's step), all when all are (`fhir-fields`).
+;;   seen   : what `one` has answered — name -> value | no-field — so a field is read once, and
+;;            `all` hands on the very values `one` answered (lenient-fields takes them)
+;;   failed : the Drops of the asked fields that did not read
+;; What reading those left out is `failed` and the keys the type does not have at all (asked for
+;; or not: a path cannot name them) — once any field has been asked of the node; a node nothing
+;; was asked of has read nothing and left nothing out.
+(define unasked (string->uninterned-symbol "unasked"))
+(define (lenient-reader type sch js)
+  (define seen (make-hasheq))
+  (define failed '())
+  (define (sibling-of k) (let ([u (underscore-of k)]) (if (hash-has-key? js u) (list (cons u (hash-ref js u))) '())))
+  ;; read : name -> value | no-field   the field read from the object, as lenient-fields reads it
+  (define (read name)
+    (define v (hash-ref js name unasked))
+    (cond
+      [(eq? name 'resourceType) no-field]
+      [(not (eq? v unasked))
+       (define spec (hash-ref (field-index type sch) name #f))
+       (define r (and spec (parse-field (car spec) (cdr spec) v (hash-ref js (underscore-of name) #f) #t)))
+       (cond [(not spec) no-field]                 ; a key the type lacks: among `left-out`
+             [(ok? r) (ok-value r)]
+             [else (set! failed (append failed (cons (cons name v) (sibling-of name)))) no-field])]
+      ;; a value-less primitive: a `_name` sibling with no `name`
+      [(hash-has-key? js (underscore-of name))
+       (define spec (hash-ref (field-index type sch) name #f))
+       (define r (and spec (parse-absent (car spec) (cdr spec) (hash-ref js (underscore-of name)) #t)))
+       (cond [(and r (ok? r)) (ok-value r)]
+             [else (set! failed (append failed (list (cons (underscore-of name) (hash-ref js (underscore-of name)))))) no-field])]
+      [else no-field]))
+  (define (one name)
+    (define kept (hash-ref seen name unasked))
+    (cond [(not (eq? kept unasked)) kept]
+          [else (define v (read name)) (hash-set! seen name v) v]))
+  ;; the keys the type does not have, each with its `_key` sibling
+  (define (unknown-keys)
+    (define ftindex (field-index type sch))
+    (for*/list ([(k v) (in-hash js)]
+                #:unless (eq? k 'resourceType)
+                #:unless (underscore-key? k)
+                #:unless (hash-ref ftindex k #f)
+                [d (in-list (cons (cons k v) (sibling-of k)))])
+      d))
+  (make-reader (lambda () (lenient-fields type sch js seen))
+               one
+               (lambda () (for/hasheq ([(k v) (in-hash seen)] #:unless (eq? v no-field)) (values k v)))
+               (lambda () (if (zero? (hash-count seen))
+                              '()
+                              (filter (lambda (d) (not (eq? (cdr d) 'null))) (append (unknown-keys) failed))))))
+
 ;; lenient-fields : type schema object -> (values fields Drops)   the fields that read, and the keys
 ;; of the object left out with their JSON (a key the type does not have, a value that does not
 ;; read, with its `_key` sibling; a value-less `_key` that does not read). A JSON null is not data.
 ;; One pass over the object (it is what every lenient read of every node runs): what `field-pairs`
 ;; answers leniently, sorted as it is read into the fields, the keys the type lacks and the values
 ;; that failed — in the order the passes over its pairs gave them (`lenient-fields/pairs`, kept
-;; below as the definition; the test holds the two equal).
-(define (lenient-fields type sch js)
+;; below as the definition; the test holds the two equal). `seen` holds the fields a Reader has read
+;; alone (name -> value | no-field, for one that did not read): they are taken as they were read.
+(define (lenient-fields type sch js [seen #f])
+  ;; read-as : name (-> Result) -> Result | 'failed   the field as it was read alone, else read now
+  (define (read-as name read)
+    (define kept (if seen (hash-ref seen name unasked) unasked))
+    (cond [(eq? kept unasked) (read)]
+          [(eq? kept no-field) 'failed]
+          [else (ok kept)]))
   (define ftindex (field-index type sch))
   (define unders (underscore-map js))
   (define (sibling-of k) (let ([u (underscore-of k)]) (if (hash-has-key? js u) (list (cons u (hash-ref js u))) '())))
@@ -126,8 +185,8 @@
       (cond
         [(not spec) (values fields (append (reverse (cons (cons k v) (sibling-of k))) unknown) failed)]
         [else
-         (define r (parse-field (car spec) (cdr spec) v (hash-ref unders k #f) #t))
-         (if (ok? r)
+         (define r (read-as k (lambda () (parse-field (car spec) (cdr spec) v (hash-ref unders k #f) #t))))
+         (if (and (not (eq? r 'failed)) (ok? r))
              (values (hash-set fields k (ok-value r)) unknown failed)
              (values fields unknown (append (reverse (cons (cons k v) (sibling-of k))) failed)))])))
   ;; value-less primitives: a `_field` sibling whose base name has NO matching value key
@@ -136,8 +195,8 @@
               ([(base sibval) (in-hash unders)]
                #:unless (hash-has-key? js base))
       (define spec (hash-ref ftindex base #f))
-      (define r (and spec (parse-absent (car spec) (cdr spec) sibval #t)))
-      (if (and r (ok? r))
+      (define r (and spec (read-as base (lambda () (parse-absent (car spec) (cdr spec) sibval #t)))))
+      (if (and r (not (eq? r 'failed)) (ok? r))
           (values (hash-set fields base (ok-value r)) failed)
           (values fields (cons (cons (underscore-of base) (hash-ref js (underscore-of base))) failed)))))
   (values fields* (filter (lambda (d) (not (eq? (cdr d) 'null))) (append (reverse unknown) (reverse failed*)))))

@@ -25,7 +25,7 @@
          (only-in fhir/serialize/json-position json-path-location)
          (only-in fhir/diagnostic diagnostic loc loc-source loc-line loc-column diagnostic-loc diagnostic-severity
                   diagnostic-message)
-         (only-in fhir/registry register-resources! unregister-source! registered-source registered-by)
+         (only-in fhir/registry register-resources! unregister-source! registered-source registered-by registry-generation)
          (only-in fhir/data-source current-data-source data-source data-source-all data-source-read data-source-search
                   data-source-of-patient directory->data-source resources->data-source empty-data-source bundle-resources)
          (only-in fhir/rest-data-source rest->data-source rest-url?)
@@ -38,7 +38,7 @@
 ;; For the verbs' modules; what other code calls is workspace.rkt, where the contracts are.
 (provide (struct-out hub) (struct-out stored) (struct-out change) (struct-out staged) hub-root open-hub data-remote?
          configure! use-source! source-resources open-place store-file? data-store-path open-store with-hub guide-file? current-manifest current-repository hub-manifest path-string rel from-here at-root?
-         inside argument-source shown-path path-from-here files-by-language refresh! problems-of problem-json count-severity
+         inside argument-source shown-path path-from-here files-by-language refresh! settle! settled? refresh-unless-settled! problems-of problem-json count-severity
          state-dir saved-names next-number save-state! staged->jsexpr store! result-of result-of* stage-of
          result-uri result-listing hub-result-uris hub-read-result pending-stage-ids
          use-data! hub-defined)
@@ -437,6 +437,18 @@
                '()))
            (append ds conflict))))))
   (set-hub-diagnostics! h (remove-duplicates diags)))
+
+;; A SETTLED hub is one whose files will not change (a caller that wrote them says so: `settle!`)
+;; and whose artifacts are what is registered: it was refreshed, and nothing has been registered
+;; or unregistered since (fhir/registry's generation is what it was). Refreshing it again would
+;; read the same files and register the same things — a fifth of a small call's time — so the
+;; verbs that only read ask `refresh-unless-settled!`. A hub nobody settles is refreshed as ever.
+(define settled-at (make-weak-hasheq))            ; hub -> the registry's generation when it was settled
+;; settle! : hub -> void   said right after a refresh, of a hub whose files are fixed
+(define (settle! h) (hash-set! settled-at h (registry-generation)))
+;; settled? : hub -> boolean
+(define (settled? h) (eqv? (hash-ref settled-at h #f) (registry-generation)))
+(define (refresh-unless-settled! h) (unless (settled? h) (refresh! h)))
 
 ;; hub-defined : hub -> (listof resource)   what the workspace's files define, as of the last
 ;; refresh: FHIR JSON first, then each language's in the order they are computed

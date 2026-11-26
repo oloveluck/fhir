@@ -1,6 +1,9 @@
 """What the toolkit says when something is wrong."""
+import os
+import sys
+import warnings
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 
 @dataclass(frozen=True)
@@ -63,5 +66,28 @@ class FhirError(Exception):
         self.result = result
 
 
+class FhirWarning(UserWarning):
+    """Something the toolkit did that a caller should know, though the call was answered.
+
+    A value of the data that is not valid FHIR and was not read (a date its
+    month lacks, a time without a time zone), an element the FHIR version
+    read does not have. Python shows each once per place by default; see the
+    `warnings` module to make them errors (`warnings.simplefilter("error",
+    FhirWarning)`) or to silence them.
+    """
+
+
 class ToolkitNotFound(FhirError):
     """No toolkit to start: neither bundled with this package, nor on the PATH."""
+
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def warn(messages: Iterable[str]) -> None:
+    """Each message as a FhirWarning at the caller's own line (the first frame outside this package)."""
+    depth, frame = 1, sys._getframe(1)
+    while frame is not None and os.path.dirname(os.path.abspath(frame.f_code.co_filename)) == _HERE:
+        depth, frame = depth + 1, frame.f_back
+    for message in messages:
+        warnings.warn(message, FhirWarning, stacklevel=depth + 1)

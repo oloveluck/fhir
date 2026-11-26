@@ -13,21 +13,26 @@ in FSH, CQL libraries, maps, value sets in VCL, views, FHIR JSON definitions —
 given as a dict of file name -> text, as a directory, or as a `Project`. DATA
 is the FHIR a call reads: resources (a list, one resource, a Bundle), or the
 path of a directory of FHIR JSON, a JSON file or a SQLite FHIR store, or a FHIR
-server's base url. A resource is FHIR JSON (a dict), or an object of a model
-library that writes itself as JSON (`fhir_toolkit.models`).
+server's base url. A resource is FHIR JSON (a dict), an object of a model
+library that writes itself as JSON (`fhir_toolkit.models`), JSON text, or a
+`pathlib.Path` to a JSON file.
+
+What the toolkit could not read of the data (a date its month lacks, a time
+without a zone) it says as a `FhirWarning`, and a table keeps under `.notes`.
 
 Data used by several calls is given once: `clinic = fhir.load(resources)`, then
 `data=clinic`. One question of many resources is one call: `fhirpath_each`,
 `validate_each`, or a view.
 """
 import atexit
+import json
 import os
 import re
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
 
 from ._functions import Functions
 from ._server import Server
-from .errors import Diagnostic, FhirError
+from .errors import Diagnostic, FhirError, warn
 from .models import typed
 from .results import Commit, Compiled, Outcome, Stage, Table
 
@@ -168,14 +173,18 @@ class Toolkit:
             making a Toolkit does not wait for it, and the first call waits
             only for what is left of its start (well under a second in all).
             False leaves it until the first call.
+        timeout: how many seconds a call may take; None (the default) lets
+            it take as long as it takes. A call that runs out of time — or
+            is interrupted, by Ctrl-C or a notebook's stop button — raises,
+            and the process is started afresh for the next call.
 
     `raw` has every function of the toolkit exactly as the server defines it
     (plain JSON values); the methods here are the convenient forms.
     """
 
     def __init__(self, fhir_version: str = "4.0.1", *, packages: Sequence[str] = (), command: Optional[Sequence[str]] = None,
-                 start: bool = True):
-        self._server = Server(fhir_version, packages, command, start=start)
+                 start: bool = True, timeout: Optional[float] = None):
+        self._server = Server(fhir_version, packages, command, start=start, timeout=timeout)
         self.raw = _Raw(self._server)
         atexit.register(self.close)
 
@@ -209,7 +218,7 @@ class Toolkit:
         An element comes back as its FHIR JSON, a System value as a number,
         a boolean or a string (a date as FHIR writes it: "1980-02-28").
         """
-        return self.raw.fhirpath(expression, resource=resource)["values"]
+        return self.raw.fhirpath(expression, resource=_resource(resource))["values"]
 
     def fhirpath_each(self, expression: str, resources: Any) -> List[List[Any]]:
         """A FHIRPath expression's values over each of several resources, in one call.
@@ -245,7 +254,7 @@ class Toolkit:
         defines. The answer is an `Outcome`: `.ok`, `.errors`, `.messages()`,
         `.raise_for_errors()`.
         """
-        return Outcome(self.raw.validate(resource=resource, profile=profile, **as_project(project).arguments()))
+        return Outcome(self.raw.validate(resource=_resource(resource), profile=profile, **as_project(project).arguments()))
 
     def validate_each(self, resources: Any, profile: Optional[str] = None, *, project: ProjectLike = None) -> List[Outcome]:
         """Each of several resources validated, in one call: an `Outcome` for each, in the order given."""
@@ -260,19 +269,19 @@ class Toolkit:
         a Library that carries it. `as_` picks one: "fsh", "fml", "sof", "vcl"
         (a ValueSet's compose), "cql".
         """
-        return self.raw.decompile(resource, as_=as_, **as_project(project).arguments())["text"]
+        return self.raw.decompile(_resource(resource), as_=as_, **as_project(project).arguments())["text"]
 
     def transform(self, map: str, source: Resource, *, project: ProjectLike = None, model: Any = None) -> Any:
         """A resource converted by a map written in the FHIR Mapping Language.
 
         With `model` (a class of a model library) the result is an object of it.
         """
-        return _as(model, self.raw.transform(map, source, **as_project(project).arguments()))
+        return _as(model, self.raw.transform(map, _resource(source), **as_project(project).arguments()))
 
     def operation(self, operation: str, resource: Optional[Resource] = None, *, inputs: Optional[Dict[str, Any]] = None,
                   project: ProjectLike = None, data: DataLike = None, model: Any = None) -> Any:
         """Any FHIR operation the toolkit implements: "$expand", "$validate-code", "$lookup", …"""
-        return _as(model, self.raw.operation(operation, resource=resource, inputs=inputs, data=as_data(data),
+        return _as(model, self.raw.operation(operation, resource=_resource(resource), inputs=inputs, data=as_data(data),
                                              **as_project(project).arguments()))
 
     # ---- a project ------------------------------------------------------------------------------
@@ -306,15 +315,15 @@ class Toolkit:
     def run(self, path: str, *, project: ProjectLike, data: DataLike = None, entry: Optional[str] = None,
             over: Optional[str] = None, parameters: Optional[Mapping[str, str]] = None) -> Table:
         """One file of the project run over the data."""
-        return Table(self.raw.run(path, entry=entry, over=over, parameters=_parameters(parameters), data=as_data(data),
-                                  **as_project(project).arguments()))
+        return _table(self.raw.run(path, entry=entry, over=over, parameters=_parameters(parameters), data=as_data(data),
+                                   **as_project(project).arguments()))
 
     def query(self, language: str, text: str, *, project: ProjectLike = None, data: DataLike = None,
               entry: Optional[str] = None, over: Optional[str] = None, parameters: Optional[Mapping[str, str]] = None,
               strict: Optional[bool] = None) -> Table:
         """A text asked of the data: "fhirpath", "cql", "vcl", "search", "find", "view" or "sql"."""
-        return Table(self.raw.query(language, text, entry=entry, over=over, parameters=_parameters(parameters), strict=strict,
-                                    data=as_data(data), **as_project(project).arguments()))
+        return _table(self.raw.query(language, text, entry=entry, over=over, parameters=_parameters(parameters), strict=strict,
+                                     data=as_data(data), **as_project(project).arguments()))
 
     def explain(self, path: str, subject: str, *, project: ProjectLike, data: DataLike = None, entry: Optional[str] = None,
                 over: Optional[str] = None, parameters: Optional[Mapping[str, str]] = None) -> Dict[str, Any]:
@@ -409,13 +418,41 @@ def _as(model: Any, resource: Any) -> Any:
     return resource if model is None else typed(model, resource)
 
 
+def _table(answer: Dict[str, Any]) -> Table:
+    """A function's answer as a Table; what it notes besides its rows is warned of, at the caller's line."""
+    table = Table(answer)
+    warn(table.notes)
+    return table
+
+
+def _resource(resource: Any) -> Any:
+    """One resource as the functions take it.
+
+    FHIR JSON (a dict) and an object of a model library go as they are; JSON
+    text is read, and so is the JSON file a `pathlib.Path` names.
+    """
+    if isinstance(resource, os.PathLike):
+        with open(resource, encoding="utf-8") as f:
+            return json.load(f)
+    if isinstance(resource, (str, bytes)):
+        text = resource.decode("utf-8") if isinstance(resource, bytes) else resource
+        if text.lstrip().startswith("{"):
+            try:
+                return json.loads(text)
+            except ValueError as e:
+                raise FhirError("the resource is not JSON: %s" % e) from e
+        raise FhirError("a resource is FHIR JSON (a dict), an object of a model library, JSON text, or a pathlib.Path to a "
+                        "JSON file — not the text %r" % (text if len(text) <= 40 else text[:39] + "…"))
+    return resource
+
+
 def _resources(resources: Any) -> Any:
-    """What is to be written, as the function takes it: a list or one resource."""
-    if resources is None or isinstance(resources, (dict, list)):
+    """Several resources as the functions take them: a list (each as `_resource` takes one), or one resource (a Bundle)."""
+    if resources is None or isinstance(resources, dict):
         return resources
-    if isinstance(resources, (tuple, set, frozenset)) or hasattr(resources, "__next__"):
-        return list(resources)
-    return resources
+    if isinstance(resources, (list, tuple, set, frozenset)) or hasattr(resources, "__next__"):
+        return [_resource(r) if isinstance(r, (str, bytes, os.PathLike)) else r for r in resources]
+    return _resource(resources)
 
 
 def _parameters(parameters: Optional[Mapping[str, str]]) -> Optional[Dict[str, str]]:

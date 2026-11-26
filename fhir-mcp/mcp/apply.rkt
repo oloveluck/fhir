@@ -10,7 +10,7 @@
 (provide hub-apply)
 
 (define (hub-apply h ref inputs resource [url #f])
-  (refresh! h)
+  (refresh-unless-settled! h)
   (with-hub h
     (lambda ()
       (define o (if url #f (with-handlers ([exn:fail? (lambda (e) e)]) (operation ref))))

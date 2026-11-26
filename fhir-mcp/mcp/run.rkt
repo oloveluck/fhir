@@ -40,13 +40,13 @@
         [(equal? lang "find") (run-find h text)]
         [else (define sup (support-for lang))
               (unless (ws-support-run sup) (error 'run (format "~a files do not run" lang)))
-              ((ws-support-run sup) (hub-ws h) path text opts)]))))
+              (kept-run h lang text opts (lambda () ((ws-support-run sup) (hub-ws h) path text opts)))]))))
 
 (define (hub-run h p args)
   (define full (inside h p))
   (unless (file-exists? full) (error 'run (format "no file ~a in the workspace" p)))
   (define lang (or (workspace-language-of full) (error 'run (format "~a is not a file of the workspace's languages" p))))
-  (refresh! h)
+  (refresh-unless-settled! h)
   (define text (file->string full))
   (define opts (named (options args) (file-result-name full)))
   (define r (audited h "run" (hasheq 'kind "file" 'path (rel h full) 'language lang 'text text)
@@ -57,7 +57,7 @@
 (define (hub-query h language text args)
   (define lang (or (hash-ref query-languages language #f)
                    (error 'query (format "query takes fhirpath, cql, vcl, search, find, view or sql (got ~a)" language))))
-  (refresh! h)
+  (refresh-unless-settled! h)
   ;; what the result came from besides its text: the file it was read from (`text=@table.sql`) and,
   ;; for SQL, the earlier results it reads (`r1`), so a derived table's trail is complete too
   (define opts
@@ -147,13 +147,15 @@
 (define (kept-view h f kind compute [definitions (lambda () (definitions-stamp h))] [stamp-of (lambda (type) (data-stamp h type))])
   (define stamp (stamp-of (view-resource f)))
   (cond
+    ;; a view that reads the clock has other rows tomorrow: never kept
+    [(reads-the-clock? (file->string f)) (compute)]
     ;; resources given in memory (use-source!) never change: a view's rows over them are kept with
     ;; the data source for as long as it lives — a caller that loaded its data once and asks
-    ;; several statements of a view computes the view once
+    ;; several statements of a view computes the view once (and SQL keeps the table loaded)
     [(and (not stamp) (source-resources h))
      (hash-ref! (hash-ref! rows-in-memory (hub-data h) make-hash)
                 (list kind (file->string f) (ws-config-fhir-version (workspace-config (hub-ws h))) (hub-packages h) (definitions))
-                compute)]
+                (lambda () (let ([t (compute)]) (if (table? t) (lasting! t) t))))]
     [(not stamp) (compute)]
     [else
       (kept-rows (build-path (hub-root h) ".fhir-mcp" "views.db")
@@ -164,7 +166,24 @@
                                (ws-config-fhir-version (workspace-config (hub-ws h))) (hub-packages h)
                                stamp (definitions) (engine-stamp)))
                  compute)]))
-(define rows-in-memory (make-weak-hasheq))        ; data source -> (hash key -> table)
+(define rows-in-memory (make-weak-hasheq))        ; data source -> (hash key -> table | run-result)
+
+;; reads-the-clock? : string -> boolean   does the text call now(), today() or timeOfDay() — a view
+;; whose rows depend on when it is run (an age, "in the last year")
+(define (reads-the-clock? text) (regexp-match? #px"\\b(?:now|today|timeOfDay)\\s*[(]" text))
+
+;; kept-run : hub language text options (-> run-result) -> run-result   a view run over data given
+;; in memory: the same text over the same data is the same rows, so they are kept with the data
+;; source, as SQL keeps a view file's (a notebook asks the view it is working on again and
+;; again). Only a view, only with no option but its name, and not one that reads the clock.
+(define (kept-run h lang text opts compute)
+  (cond
+    [(and (equal? lang "sql-on-fhir") (source-resources h) (not (reads-the-clock? text))
+          (for/and ([k (in-hash-keys opts)]) (memq k '(name textFile))))
+     (hash-ref! (hash-ref! rows-in-memory (hub-data h) make-hash)
+                (list 'query text (ws-config-fhir-version (workspace-config (hub-ws h))) (hub-packages h) (definitions-stamp h))
+                compute)]
+    [else (compute)]))
 
 ;; view-resource : view-file -> type   the resource type a ViewDefinition reads
 (define (view-resource f) (cdr (view-facts f)))
@@ -312,7 +331,9 @@
                              (defined body)))))))
   (define t (with-handlers ([exn:fail:user? (lambda (e) (error 'sql (regexp-replace #rx"^sql: " (exn-message e) "")))])
               (sql-query text (for/hash ([(n th) (in-hash tables)]) (values n th))
-                         #:database (data-store-path h))))
+                         #:database (data-store-path h)
+                         ;; tables that last as long as data given in memory are kept loaded for it
+                         #:beside (and (source-resources h) (hub-data h)))))
   (run-result "table" (table-columns t) (table-rows t) (hasheq 'rows (length (table-rows t)))))
 
 ;; ---- search ------------------------------------------------------------------------------------
@@ -539,7 +560,7 @@
 
 ;; ---- explain -----------------------------------------------------------------------------------
 (define (hub-explain h ref subject args)
-  (refresh! h)
+  (refresh-unless-settled! h)
   (define-values (lang path text opts)
     (cond
       [(result-of h ref)

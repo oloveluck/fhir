@@ -1,5 +1,7 @@
 """What the toolkit's functions answer, as Python values."""
+import csv
 import html
+import io
 import json
 from typing import Callable, Any, Dict, Iterator, List, Optional
 
@@ -35,6 +37,17 @@ class Table:
             raise KeyError("no column %r (the columns: %s)" % (name, ", ".join(self.columns)))
         return [row.get(name) for row in self.rows]
 
+    @property
+    def notes(self) -> List[str]:
+        """What the toolkit says of the answer besides its rows: values of the data that were
+        not read (and why), a define that is null for every patient. Each is also a FhirWarning
+        when the table is made."""
+        said = []
+        for key in ("unread", "notes"):
+            value = self.summary.get(key)
+            said += [value] if isinstance(value, str) else [v for v in (value or []) if isinstance(v, str)]
+        return said
+
     def to_pandas(self):
         """The rows as a pandas DataFrame, columns in the table's order."""
         try:
@@ -42,6 +55,35 @@ class Table:
         except ImportError as e:  # pragma: no cover - said when pandas is absent
             raise ImportError("Table.to_pandas() needs pandas: pip install pandas") from e
         return pandas.DataFrame(self.rows, columns=self.columns)
+
+    def to_polars(self):
+        """The rows as a polars DataFrame, columns in the table's order."""
+        try:
+            import polars
+        except ImportError as e:  # pragma: no cover - said when polars is absent
+            raise ImportError("Table.to_polars() needs polars: pip install polars") from e
+        return polars.DataFrame({c: self.column(c) for c in self.columns})
+
+    def to_csv(self, path: Any = None) -> Optional[str]:
+        """The rows as CSV, a header line first: written to `path`, or answered as text without one.
+
+        A cell that is a list or an object is its JSON text; a missing value is empty.
+        """
+        def cell(value: Any) -> Any:
+            return "" if value is None else json.dumps(value, ensure_ascii=False) if isinstance(value, (list, dict)) else value
+
+        def write(out: Any) -> None:
+            writer = csv.writer(out, lineterminator="\n")
+            writer.writerow(self.columns)
+            writer.writerows([cell(row.get(c)) for c in self.columns] for row in self.rows)
+
+        if path is None:
+            out = io.StringIO()
+            write(out)
+            return out.getvalue()
+        with open(path, "w", newline="", encoding="utf-8") as out:
+            write(out)
+        return None
 
     def __repr__(self) -> str:
         return "Table(kind=%r, columns=%r, rows=%d)" % (self.kind, self.columns, len(self.rows))

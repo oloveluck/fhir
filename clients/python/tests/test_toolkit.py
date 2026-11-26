@@ -8,11 +8,13 @@ import inspect
 import json
 import os
 import pathlib
+import signal
 import subprocess
 import sys
 import tempfile
 import threading
 import unittest
+import warnings
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -21,7 +23,7 @@ if not os.environ.get("FHIR_TOOLKIT_TEST_INSTALLED"):
     sys.path.insert(0, str(ROOT / "src"))
 
 import fhir_toolkit  # noqa: E402
-from fhir_toolkit import Commit, Compiled, Data, Diagnostic, FhirError, Outcome, Project, Stage, Table, Toolkit, ToolkitNotFound, plain, typed  # noqa: E402
+from fhir_toolkit import Commit, Compiled, Data, Diagnostic, FhirError, FhirWarning, Outcome, Project, Stage, Table, Toolkit, ToolkitNotFound, plain, typed  # noqa: E402
 from fhir_toolkit._functions import Functions  # noqa: E402
 
 TABLE = ROOT.parent / "functions.json"
@@ -528,6 +530,59 @@ class TheToolkit(unittest.TestCase):
         self.assertRegex(repr(self.fhir), r"Toolkit\(FHIR 4\.0\.1, running\)")
 
     # ---- the plain functions, and calls from several threads ------------------------------------
+    def test_a_resource_as_json_text_or_a_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            file = pathlib.Path(d) / "ann.json"
+            file.write_text(json.dumps(PATIENT), encoding="utf-8")
+            self.assertEqual(self.fhir.fhirpath("name.family", json.dumps(PATIENT)), ["Lee"])
+            self.assertEqual(self.fhir.fhirpath("name.family", file), ["Lee"])
+            self.assertTrue(self.fhir.validate(file).ok)
+            self.assertTrue(self.fhir.validate(json.dumps(PATIENT).encode("utf-8")).ok)
+            self.assertEqual(self.fhir.fhirpath_each("id", [PATIENT, json.dumps(OBSERVATION), file]), [["ann"], ["a1"], ["ann"]])
+            self.assertEqual([o.ok for o in self.fhir.validate_each((file, PATIENT))], [True, True])
+            self.assertIn("Instance:", self.fhir.decompile(file))
+        with self.assertRaisesRegex(FhirError, "a resource is FHIR JSON .* not the text 'ann.json'"):
+            self.fhir.validate("ann.json")
+        with self.assertRaisesRegex(FhirError, "the resource is not JSON"):
+            self.fhir.validate('{"resourceType": ')
+
+    def test_what_was_not_read_is_a_warning_at_the_caller_s_line(self):
+        zoneless = dict(OBSERVATION, effectiveDateTime="2025-03-01T08:00:00")
+        view = "SELECT id, effective.ofType(dateTime) AS at FROM Observation"
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            table = self.fhir.view(view, [zoneless])
+            self.fhir.view("SELECT id FROM Observation", [zoneless])       # a view that does not read it says nothing
+            self.fhir.view(view, [OBSERVATION])
+        self.assertEqual(table.rows, [{"id": "a1", "at": None}])
+        self.assertEqual(len(caught), 1)
+        self.assertIs(caught[0].category, FhirWarning)
+        self.assertRegex(str(caught[0].message), "1 of 1 Observation resources holds a value at `effectiveDateTime` .* a time needs a time zone")
+        self.assertEqual(caught[0].filename, __file__)
+        self.assertEqual(table.notes, [str(caught[0].message)])
+        self.assertEqual(self.fhir.view(view, [OBSERVATION]).notes, [])
+        # made an error by whoever wants no such data
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", FhirWarning)
+            with self.assertRaises(FhirWarning):
+                self.fhir.view(view, [zoneless])
+
+    def test_a_table_as_csv(self):
+        table = self.fhir.view("SELECT id, name.given AS given, birthDate AS born, name.family.first() AS family FROM Patient",
+                               [PATIENT, {"resourceType": "Patient", "id": "bo", "name": [{"family": 'O"Hara, Bo'}]}])
+        self.assertEqual(table.to_csv(), 'id,given,born,family\nann,Ann,1980-02-28,Lee\nbo,,,"O""Hara, Bo"\n')
+        # a cell that is a list or an object is its JSON text
+        nested = Table({"columns": ["id", "codes", "q"], "rows": [{"id": "a", "codes": ["x", "y"], "q": {"value": 1}}, {"id": "b"}]})
+        self.assertEqual(nested.to_csv(), 'id,codes,q\na,"[""x"", ""y""]","{""value"": 1}"\nb,,\n')
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIsNone(table.to_csv(pathlib.Path(d) / "t.csv"))
+            self.assertEqual((pathlib.Path(d) / "t.csv").read_text(encoding="utf-8"), table.to_csv())
+        try:
+            import polars  # noqa: F401
+        except ImportError:
+            return
+        self.assertEqual(table.to_polars().columns, ["id", "given", "born", "family"])
+
     def test_raw_is_the_table_as_it_is(self):
         self.assertEqual(self.fhir.raw.fhirpath("name.family", resource=PATIENT), {"values": ["Lee"]})
         answer = self.fhir.raw.compile(files={"p.fsh": PROFILE})
@@ -583,6 +638,58 @@ class TheProcess(unittest.TestCase):
             with self.assertRaisesRegex(FhirError, "process ended .* it starts again at the next call"):
                 fhir.version()
             self.assertEqual(fhir.fhirpath("gender", PATIENT), ["female"])
+
+    def test_a_call_that_is_interrupted_is_not_the_next_call_s_answer(self):
+        # Ctrl-C (a notebook's stop button) while the toolkit is answering: its answer, still on
+        # its way, was read as the answer to the NEXT call
+        many = [dict(PATIENT, id="p%d" % i) for i in range(60000)]
+        with Toolkit() as fhir:
+            fhir.version()
+            before = fhir._server.generation
+            timer = threading.Timer(0.2, lambda: os.kill(os.getpid(), signal.SIGINT))
+            timer.start()
+            try:
+                with self.assertRaises(KeyboardInterrupt):
+                    fhir.validate_each(many)
+            finally:
+                timer.cancel()
+            self.assertFalse(fhir._server.running)
+            self.assertEqual(fhir.fhirpath("name.family", PATIENT), ["Lee"])
+            self.assertEqual(fhir._server.generation, before + 1)
+
+    def test_a_call_may_be_given_so_long(self):
+        many = [dict(PATIENT, id="p%d" % i) for i in range(60000)]
+        with Toolkit(timeout=120) as fhir:
+            self.assertEqual(fhir._server.timeout, 120)
+            fhir.version()
+            fhir._server.timeout = 0.2
+            with self.assertRaisesRegex(FhirError, "validate did not answer within 0.2 s: .* starts again at the next call"):
+                fhir.validate_each(many)
+            fhir._server.timeout = 120
+            self.assertEqual(fhir.fhirpath("name.family", PATIENT), ["Lee"])
+        # the wait for the process to start is not a call's time
+        with Toolkit(timeout=0.001, start=False) as quick:
+            with self.assertRaisesRegex(FhirError, "did not answer within 0.001 s"):
+                quick.validate_each(many)
+
+    def test_an_answer_to_another_call_is_refused_and_warnings_are_said(self):
+        fake = ("import sys, json\nfor line in sys.stdin:\n    r = json.loads(line)\n"
+                "    late = 7 if r['method'] == 'validate' else 0\n"
+                "    print(json.dumps({'jsonrpc': '2.0', 'id': r['id'] + late, 'result': {'protocol': %d, 'values': [1]},"
+                " 'warnings': ['careful'] if r['method'] == 'fhirpath' else []}), flush=True)\n" % fhir_toolkit.PROTOCOL)
+        with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as script:
+            script.write(fake)
+        try:
+            with Toolkit(command=[sys.executable, script.name]) as stub:
+                with warnings.catch_warnings(record=True) as caught:
+                    warnings.simplefilter("always")
+                    self.assertEqual(stub.fhirpath("x", PATIENT), [1])
+                self.assertEqual([(str(w.message), w.category, w.filename) for w in caught], [("careful", FhirWarning, __file__)])
+                with self.assertRaisesRegex(FhirError, "answered another call than validate"):
+                    stub.validate(PATIENT)
+                self.assertEqual(stub.fhirpath("x", PATIENT), [1])
+        finally:
+            os.unlink(script.name)
 
     def test_fhir_r5_is_another_process(self):
         encounter = {"resourceType": "Encounter", "status": "completed", "actualPeriod": {"start": "2025-01-01"}}

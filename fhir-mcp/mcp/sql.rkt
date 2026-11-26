@@ -29,8 +29,13 @@
  (contract-out
   ;; cell-in : jsexpr -> sql value   how a cell is written (a collection as its JSON text, a boolean 1/0)
   [cell-in (-> any/c any/c)]
-  ;; sql-query : sql (hash name -> (-> table)) [#:database store-file] -> table   the statement's answer
-  [sql-query (->* (string? (hash/c string? procedure?)) (#:database (or/c path-string? #f)) table?)]
+  ;; sql-query : sql (hash name -> (-> table)) [#:database store-file] [#:beside owner] -> table
+  ;; the statement's answer. `owner` (a value that lives as long as the tables' data: a data
+  ;; source) keeps the tables marked lasting in one database for it, between statements.
+  [sql-query (->* (string? (hash/c string? procedure?)) (#:database (or/c path-string? #f) #:beside any/c) table?)]
+  ;; lasting! : table -> table   the table will not change while its data lives (a view's rows over
+  ;; data given in memory): SQL may keep it loaded
+  [lasting! (-> table? table?)]
   ;; tables-named : sql (listof name) -> (listof name)   the names the statement mentions
   [tables-named (-> string? (listof string?) (listof string?))]
   ;; history-resources : store-file type -> (listof jsexpr)   every version of every resource of the
@@ -81,9 +86,66 @@
   (and (regexp-match? #px"(?i:^(select|with|values)\\b)" s)
        (not (regexp-match? #px";" (regexp-replace* #px"'(?:[^']|'')*'" s "")))))
 
-(define (sql-query sql tables #:database [store #f])
+;; ---- tables kept loaded --------------------------------------------------------------------
+;; A statement's tables live in a database made for it: 5,000 rows are written to it in 25 ms, for
+;; a statement SQLite then answers in one. Data given in memory does not change, and neither do a
+;; view's rows over it (a Lasting table): for an owner — the data source — such tables are loaded
+;; once into a database that lives as long as it, and a statement that reads nothing but them is
+;; run there. A table of the same name that is another table (a view's text changed) replaces it.
+(define lasting (make-weak-hasheq))               ; table -> #t
+(define (lasting! t) (hash-set! lasting t #t) t)
+(define (lasting? t) (and (table? t) (hash-ref lasting t #f)))
+;; A Beside is (beside connection loaded): the database kept for an owner, and what it holds
+;; (name in lower case -> the table loaded under it)
+(struct beside (connection loaded))
+(define besides (make-weak-hasheq))               ; owner -> Beside
+(define wills (make-will-executor))
+(define (beside-of owner)
+  (let loop () (when (will-try-execute wills) (loop)))    ; the databases of owners that are gone
+  (or (hash-ref besides owner #f)
+      (let ([b (beside (sqlite3-connect #:database 'memory) (make-hash))])
+        (hash-set! besides owner b)
+        (will-register wills owner (let ([c (beside-connection b)]) (lambda (_) (disconnect c))))
+        b)))
+
+;; lasting-answer : sql (hash name -> (-> table)) owner -> table | #f   the statement run in the
+;; owner's database, when every table it names is a lasting one (else #f: the usual way)
+(define (lasting-answer sql tables owner)
+  (define names (tables-named sql (hash-keys tables)))
+  (define read (for/list ([n (in-list names)]) (cons n ((hash-ref tables n)))))
+  (cond
+    [(or (null? read) (not (andmap (lambda (r) (lasting? (cdr r))) read))) #f]
+    [else
+     (define b (beside-of owner))
+     (define c (beside-connection b))
+     (for ([r (in-list read)])
+       (define key (string-downcase (car r)))
+       (define held (hash-ref (beside-loaded b) key #f))
+       (unless (and held (eq? (cdr held) (cdr r)))
+         (when held (query-exec c (format "DROP TABLE ~a" (q (car held)))))
+         (hash-remove! (beside-loaded b) key)
+         (load-table! c (car r) (cdr r))
+         (hash-set! (beside-loaded b) key r)))
+     (answer-of c sql (tables-read sql names))]))
+
+;; answer-of : connection sql (listof name) -> table   the statement's rows, a failure said with
+;; the columns of the tables it reads
+(define (answer-of c sql named)
+  (define r (with-handlers ([exn:fail:sql? (lambda (e) (raise-user-error 'sql (with-columns (sql-message e) c named)))])
+              (query c (statement sql))))
+  (define cols (for/list ([h (in-list (rows-result-headers r))]) (cdr (assq 'name h))))
+  (table cols
+         (for/list ([v (in-list (rows-result-rows r))])
+           (for/hasheq ([col (in-list cols)] [x (in-vector v)]) (values (string->symbol col) (cell-out x c))))))
+
+(define (sql-query sql tables #:database [store #f] #:beside [owner #f])
   (unless (reading? sql)
     (raise-user-error 'sql "one SELECT (or WITH … SELECT) statement over the views' tables"))
+  (or (and owner (not store) (lasting-answer sql tables owner))
+      (sql-query/fresh sql tables store)))
+
+;; sql-query/fresh : sql tables store|#f -> table   in a database made for the statement
+(define (sql-query/fresh sql tables store)
   (define c (if store (sqlite3-connect #:database store #:mode 'read-only) (sqlite3-connect #:database 'memory)))
   (dynamic-wind
    void
@@ -122,12 +184,7 @@
      ;; the tables the statement reads (after FROM or JOIN): a column named `patient` is not the
      ;; `Patient` table (SQL names ignore case), so a column hint listed a table never named
      (define named (tables-read sql (remove-duplicates (append names (tables-named sql types)))))
-     (define r (with-handlers ([exn:fail:sql? (lambda (e) (raise-user-error 'sql (with-columns (sql-message e) c named)))])
-                 (query c (statement sql))))
-     (define cols (for/list ([h (in-list (rows-result-headers r))]) (cdr (assq 'name h))))
-     (table cols
-            (for/list ([v (in-list (rows-result-rows r))])
-              (for/hasheq ([col (in-list cols)] [x (in-vector v)]) (values (string->symbol col) (cell-out x c))))))
+     (answer-of c sql named))
    (lambda () (disconnect c))))
 
 ;; with-columns : message connection tables -> message   a column SQLite does not know is said with
@@ -281,6 +338,31 @@
   (check-exn #rx"one SELECT" (lambda () (sql-query "ATTACH DATABASE 'x.db' AS x" tables)))
   (check-exn #rx"no such column: gendr [(]did you mean `gender`[?][)] [(]patients: [^)]*gender" (lambda () (sql-query "SELECT gendr FROM patients" tables)))
   (check-exn #rx"names none of the tables: a1c, patients, unused" (lambda () (sql-query "SELECT 1" tables)))
+  ;; tables that last are kept loaded beside their owner: the same answers, each table written once
+  (let ()
+    (define owner (list 'data))
+    (define loads 0)
+    (define people (lasting! (table '("id" "gender") (list (hasheq 'id "a" 'gender "female") (hasheq 'id "b" 'gender "male")))))
+    (define (kept-tables) (hash "people" (lambda () (set! loads (add1 loads)) people) "a1c" (lambda () a1c)))
+    (define count "SELECT gender, count(*) AS n FROM people GROUP BY gender ORDER BY gender")
+    (define plain (sql-query count (kept-tables)))
+    (check-equal? (sql-query count (kept-tables) #:beside owner) plain)
+    (check-equal? (sql-query count (kept-tables) #:beside owner) plain)
+    (check-equal? (hash-count (beside-loaded (hash-ref besides owner))) 1)
+    ;; in any case, and under an alias
+    (check-equal? (table-rows (sql-query "select count(*) as n from PEOPLE p where p.gender = 'male'" (kept-tables) #:beside owner)) (list (hasheq 'n 1)))
+    ;; a statement that reads another table too is answered the usual way (and the same)
+    (check-equal? (table-rows (sql-query "SELECT count(*) AS n FROM people p JOIN a1c v ON v.patient = p.id" (kept-tables) #:beside owner)) (list (hasheq 'n 3)))
+    ;; another table under the name (a view whose text changed) replaces the one loaded
+    (define fewer (lasting! (table '("id" "gender") (list (hasheq 'id "z" 'gender "female")))))
+    (check-equal? (table-rows (sql-query count (hash "people" (lambda () fewer)) #:beside owner)) (list (hasheq 'gender "female" 'n 1)))
+    (check-equal? (sql-query count (kept-tables) #:beside owner) plain)
+    ;; a mistake is said as ever, and the database goes on
+    (check-exn #rx"no such column: gendr [(]did you mean `gender`[?][)] [(]people: id, gender" (lambda () (sql-query "SELECT gendr FROM people" (kept-tables) #:beside owner)))
+    (check-equal? (sql-query count (kept-tables) #:beside owner) plain)
+    ;; an owner has its own tables
+    (check-equal? (table-rows (sql-query count (hash "people" (lambda () fewer)) #:beside (list 'other))) (list (hasheq 'gender "female" 'n 1)))
+    (check-equal? (sql-query count (kept-tables) #:beside owner) plain))
   (check-equal? (tables-named "select * from \"a1c\" join patients" '("a1c" "patients" "pat")) '("a1c" "patients"))
   ;; over a store: a view per resource type, the resource as JSONB read in place; tables beside it;
   ;; the store is never written
