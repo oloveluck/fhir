@@ -683,8 +683,31 @@ class TheProcess(unittest.TestCase):
                     fhir.validate_each(many)
             finally:
                 timer.cancel()
-            self.assertFalse(fhir._server.running)
+            # (where the interrupt lands is the machine's: while the request is still being
+            # written out nothing is on its way and the process is kept; while it is answering,
+            # the process is stopped. Either way the next answer is the next call's.)
             self.assertEqual(fhir.fhirpath("name.family", PATIENT), ["Lee"])
+            self.assertIn(fhir._server.generation, (before, before + 1))
+
+    def test_a_call_interrupted_while_it_waits_stops_the_process(self):
+        # the same, with the interrupt exactly where it matters: the request sent, the answer awaited
+        with Toolkit() as fhir:
+            fhir.version()
+            before = fhir._server.generation
+            process = fhir._server._process
+            awaited = process.stdout
+
+            class Interrupted:
+                def readline(self):
+                    raise KeyboardInterrupt()
+
+                def __getattr__(self, name):
+                    return getattr(awaited, name)
+            process.stdout = Interrupted()
+            with self.assertRaises(KeyboardInterrupt):
+                fhir.fhirpath("gender", PATIENT)
+            self.assertFalse(fhir._server.running)
+            self.assertEqual(fhir.fhirpath("name.family", PATIENT), ["Lee"])       # not "female": that answer is gone
             self.assertEqual(fhir._server.generation, before + 1)
 
     def test_a_call_may_be_given_so_long(self):
