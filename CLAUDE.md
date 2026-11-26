@@ -3240,6 +3240,14 @@ Looked at and not done, with what was measured:
   take 42: the rest is the view compiled and checked, the read log asked of every node, and
   5,000 rows written and read back. A compiled fhirpathpy loop over dicts is 53 ms.
 - A first CQL run is 2 s from a new process (the translator, the ModelInfo, FHIRHelpers).
+A lesson the push taught, once more ("After a push to `main`, LOOK at the run"): moving
+`rest-url?` to `fhir/data-source` while `fhir/rest-data-source` still exported it under a
+contract of its own made two bindings of one name, and the foundation's manual requires both
+modules for its labels — "identifier already required for label", in the workflow alone. Every
+suite and every `raco scribble` here passed, because a manual built before is loaded from its
+compiled copy, which does not look at what its for-label modules export now. The module
+re-exports the foundation's binding (`(provide rest-url?)`), and `fhir/tests/manuals-test.rkt`
+expands every manual the workflow builds from its SOURCE (it fails without the fix).
 A lesson of method, twice in this pass: a benchmark of a SMALL synthetic resource hid both the
 largest cost (a narrative, an attachment) and the largest first-call cost (the archive). Time a
 published example, and time a new process.

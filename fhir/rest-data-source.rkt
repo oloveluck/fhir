@@ -21,9 +21,10 @@
   [rest->data-source (->* (string?) (#:headers (listof string?) #:page-size exact-positive-integer?) data-source?)]
   ;; rest-write! : base-url resource [#:headers] -> (values status resource-or-outcome|#f)
   ;; PUT [base]/Type/id when the resource has an id, POST [base]/Type when it has none
-  [rest-write! (->* (string? hash?) (#:headers (listof string?)) (values exact-integer? (or/c hash? #f)))]
-  ;; rest-url? : string -> boolean   an http(s) url
-  [rest-url? (-> string? boolean?)]))
+  [rest-write! (->* (string? hash?) (#:headers (listof string?)) (values exact-integer? (or/c hash? #f)))]))
+;; rest-url? is fhir/data-source's (the same binding: a program that requires both, as the manual
+;; does for its labels, sees one)
+(provide rest-url?)
 
 
 
