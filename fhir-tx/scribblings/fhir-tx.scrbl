@@ -480,10 +480,21 @@ command's usage.
 @item{@bold{External code systems.} SNOMED CT, LOINC, RxNorm and the like are not shipped and not
 fetched. What follows from that, and how the answers are marked, is in @secref["offline"].}
 @item{@bold{@tt{$expand}} takes @tt{filter}, @tt{count}, @tt{offset}, @tt{activeOnly},
-@tt{excludeNested}, @tt{displayLanguage}, @tt{includeDesignations}, @tt{property} and
-@tt{useSupplement}. It does not take @tt{includeDefinition}, @tt{excludeNotForUI} or @tt{limit},
-and does not flag members as @tt{abstract} or @tt{inactive}. @tt{displayLanguage} matches a
-language tag exactly.}
+@tt{excludeNested}, @tt{displayLanguage}, @tt{includeDesignations}, @tt{designation},
+@tt{includeDefinition}, @tt{property}, @tt{useSupplement} and the version parameters. It does not
+take @tt{excludeNotForUI}, @tt{exclude-system} or @tt{limit}, and does not flag members as
+@tt{abstract} or @tt{inactive}. A language tag in @tt{displayLanguage} also serves its regional
+forms (@tt{en} for @tt{en-AU} and the reverse).}
+@item{@bold{Refusals.} Through the operations and the command line, a request that cannot be
+answered as asked is an OperationOutcome: a value set or supplement nothing defines, a code system
+version a definition pins and nothing holds, a version @tt{check-system-version} forbids, a filter
+with no value, a value set that includes itself, a display language that is no tag. Called from a
+program (@racket[expand/json] and the others) with @racket[current-terminology-strict?] off, the
+default, the same request is answered with what can be said without it (no codes, the supplement
+left out): that is how the validator and FHIRPath ask, since they must not fail on what they
+cannot decide.}
+@item{@bold{Regular expressions} in a filter are matched with a time limit (0.2 s a code): a
+pattern that backtracks without end takes nothing, as the reference server does.}
 @item{@bold{@tt{$translate}} goes forward only, from a source code and system. It does not
 translate towards a given target, and ignores a map's @tt{dependsOn} and @tt{unmapped} parts and
 its version.}
@@ -491,14 +502,19 @@ its version.}
 from @tt{parent} or @tt{subsumedBy} properties.}
 @item{@bold{Versions.} When several versions of a code system or value set are at hand and none is
 asked for, the highest is taken, comparing the version texts as strings.}
-@item{@bold{Supplements} to a code system apply only when a request names them with
-@tt{useSupplement}; none is found by itself.}
+@item{@bold{Supplements} to a code system apply when a request names them with
+@tt{useSupplement} or the value set names them (the @tt{valueset-supplement} extension); one that
+is not here is a refusal. None is found by itself.}
+@item{@bold{UCUM} has no list of codes: a value set that takes it by rule holds every valid unit,
+narrowed by a @tt{canonical =} filter to the units that measure what that unit measures. Such a
+value set is validated against but not expanded.}
 @item{@bold{@tt{$find-matches}} matches properties exactly or by substring; it has no grammar for
 composed expressions.}
 @item{@bold{@tt{$closure}} tables live in the running process and are gone when it stops.}
 @item{@bold{FHIRPath's @tt{%terminologies}} offers @tt{expand()} (with a Parameters argument),
-@tt{validateVS()} and @tt{translate()} (a code, a Coding or a CodeableConcept, and a system). It has
-no @tt{lookup()}, @tt{subsumes()} or @tt{validateCS()}.}]
+@tt{validateVS()} and @tt{translate()} (a code, a Coding or a CodeableConcept, and a system), and answers FHIR's
+@tt{memberOf()}, @tt{subsumes()} and @tt{subsumedBy()}. It has no @tt{lookup()} or
+@tt{validateCS()}.}]
 
 @section[#:tag "words"]{Words used here}
 
@@ -537,14 +553,19 @@ gives. @tt{raco fhir-tx tck} runs it:
 
 @verbatim{
 $ raco fhir-tx tck
-terminology conformance: 473/553  (skipped 367: external terminologies, value sets
-  resting on code systems we cannot see, operations and parameters not implemented)
+terminology conformance: 600/600  (skipped 320: suites for content not here, such as SNOMED CT,
+  LOINC and OMOP; candidate operations; -v says why each)
 }
 
-473 of the 553 cases it attempts give the expected response. The 367 skipped are the ones no
-offline service can answer (they need SNOMED CT, LOINC and other systems that are not shipped) and
-operations and parameters that are not implemented (@secref["limits"]); they are counted, not hidden. The
-number is a floor: the command fails if it drops. @litchar{-v} lists each failing case. The
+Every one of the 600 cases it attempts gives the expected response: the codes of an expansion,
+the verdict of a validation, the display of a lookup, and a refusal (an OperationOutcome) where
+one is expected. The 320 skipped are counted, not hidden, and @litchar{-v} gives the reason for
+each: 249 belong to suites written for a server that holds SNOMED CT, LOINC, OMOP, HGVS or
+ICD-11, or are one server's own regression tests, and that content is not shipped; 61 ask a
+candidate operation that compares two value sets, and 2 a batch of validations, neither of them
+FHIR's; 3 expand UCUM by rule, which no list of codes answers; 3 ask for a server's metadata; 2
+translate by code system rather than by ConceptMap (@secref["limits"]). The number is a floor: the command fails if it drops. @litchar{-v} also
+lists each failing case. The
 repository's @hyperlink["https://github.com/oloveluck/fhir/blob/main/TESTING.md"]{@tt{TESTING.md}}
 has the other suites.
 
@@ -581,14 +602,29 @@ A resolver over packages, searched in order, or over resources in hand.}
 @defproc[(validate-code/json [resolver procedure?] [url string?] [code (or/c string? #f) #f] [system (or/c string? #f) #f]
                              [#:coding coding any/c #f] [#:codeable-concept concept any/c #f] [#:display display any/c #f]
                              [#:lenient-display? lenient? boolean? #f] [#:system-version system-version any/c #f]
-                             [#:valueset-version valueset-version any/c #f] [#:policy policy version-policy? no-version-policy]) hash?]
+                             [#:valueset-version valueset-version any/c #f] [#:policy policy version-policy? no-version-policy]
+                             [#:active-only? active-only? boolean? #f] [#:abstract? abstract? boolean? #t]
+                             [#:display-language display-language (or/c string? #f) #f] [#:infer-system? infer-system? boolean? #f]
+                             [#:supplements supplements (listof string?) '()]) hash?]
 @defproc[(lookup/json [resolver procedure?] [system string?] [code string?] [version (or/c string? #f) #f]) hash?]
 @defproc[(translate/json [resolver procedure?] [url string?] [code string?] [system (or/c string? #f) #f]) hash?])]{
 The operations over a resolver, answering a ValueSet or Parameters jsexpr; they need no tower.
 @racket[params] keys are the expansion parameter names as strings. A url the resolver does not have
-expands to no members.}
-@defstruct*[version-policy ([default hash?] [force hash?] [check hash?])]{The server-level @tt{system-version}, @tt{force-system-version} and @tt{check-system-version} parameters, each system to version.}
-@deftogether[(@defthing[no-version-policy version-policy?] @defproc[(policy-of [default any/c] [force any/c] [check any/c]) version-policy?])]
+expands to no members (or is refused, with @racket[current-terminology-strict?] on). The keywords of
+@racket[validate-code/json] are @tt{$validate-code}'s inputs: @tt{activeOnly}, @tt{abstract} (false:
+a code its system marks @tt{notSelectable} is not acceptable), @tt{displayLanguage} (also an
+@tt{Accept-Language} header's text), @tt{inferSystem} (a bare code's system must be the only one the
+value set has it in) and @tt{useSupplement}.}
+@defstruct*[version-policy ([default hash?] [force hash?] [check hash?] [valuesets hash?])]{The server-level @tt{system-version}, @tt{force-system-version} and @tt{check-system-version} parameters, each system to version, and @tt{default-valueset-version}, each value set to the version an import that names none means.}
+@deftogether[(@defthing[no-version-policy version-policy?] @defproc[(policy-of [default any/c] [force any/c] [check any/c] [valuesets any/c '()]) version-policy?])]
+@defparam[current-terminology-strict? strict? boolean? #:value #f]{When true, a request the
+service cannot answer as asked raises @racket[exn:fail:terminology] instead of being answered
+around (@secref["limits"]). The operations set it.}
+@defstruct*[(exn:fail:terminology exn:fail) ([kind symbol?] [code string?])]{A refusal:
+@racket[kind] names the rule (@racket['valueset], @racket['import], @racket['system-version],
+@racket['version-check], @racket['supplement], @racket['filter], @racket['circular],
+@racket['language], @racket['too-costly]), @racket[code] the OperationOutcome issue code a server
+answers it with.}
 @deftogether[(
 @defproc[(cs-validate-code/json [resolver procedure?] [system string?] [code string?] [version (or/c string? #f) #f] [#:display display any/c #f]) hash?]
 @defproc[(subsumes/json [resolver procedure?] [system string?] [code-a string?] [code-b string?] [version (or/c string? #f) #f]) hash?]

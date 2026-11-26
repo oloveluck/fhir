@@ -653,7 +653,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | **CQL over QI-Core** | **cqframework/ecqm-content-qicore-2024: 98 libraries vs the reference ELM (3.25.0); 4 eCQMs over 190 MADiE test cases vs their MeasureReports** | `cql/tests/qicore-elm-corpus-test.rkt`, `qicore-measure-test.rkt` (cql repo) | **98/98 compile, 1932/2144 defs ELM-equal; 188/190 cases** (2 named) |
 | **CQL over QDM** | **cqm-execution's fixtures: 42 QDM libraries vs their ELM; 19 measures over 33 cqm-models patients vs cqm-execution's own assertions and the stored expected values** | `cql/tests/qdm-elm-corpus-test.rkt`, `qdm-measure-test.rkt` (cql repo) | **41/42 compile, 559/723 defs ELM-equal; 31/31 assertions, 16/26 stored** (10 named) |
 | **SQL on FHIR** | **the shared suite from FHIR/sql-on-fhir.js, over the model generated from the 3.0.0-ballot package** | `raco sql-on-fhir tck` (sql-on-fhir repo) | **144/144** |
-| **terminology** | **hl7.fhir.uv.tx-ecosystem 1.9.3** | **`raco fhir-tx tck`** (fhir-tx) | **473/553** |
+| **terminology** | **hl7.fhir.uv.tx-ecosystem 1.9.3** | **`raco fhir-tx tck`** (fhir-tx) | **600/600** (320 skipped, each with its reason) |
 | **FHIRPath vs HL7's Java engine** | **172,527 pairs: R4 core and US Core search parameters and invariants over US Core's examples, each search expression continued in 116 ways, changed copies; a fifth of the expressions read, the rest held out** | fhir-examples `value-experiment/reference/fhirpath-reference.rkt` (its test, over the kept reference answers) | **129,564/145,371 held-out pairs the same answer (89.1%); 144,123 (99.1%) apart from the reference's departures from the specification. A fresh set (IPS, mCODE: 142,488 pairs, none read): 127,795 (89.7%); 141,834 (99.5%); 66 under no class** |
 | **FML vs the validator's StructureMap engine** | **the mapping tutorial's 25 maps over its 18 sources, and both changed in one way: 887 pairs; a third of the maps read** | fhir-examples `value-experiment/reference/map-reference.rkt` (its test); fml `tests/reference-test.rkt` | **544/606 held-out pairs the same result (89.8%); 271/281 read (96.4%). Matchbox's own maps over FHIR resources, both engines as R4 (667 pairs, all read by the fourth pass): 561 the same, every difference classed, none this engine's. HL7's structure-mapping tests under the same changes (199 pairs, none read): 183** |
 | **FSH vs SUSHI, text by text** | **SUSHI 3.21.1 as a library and this compiler over 2,802 whole FSH texts: SUSHI's 515 importer test inputs, the golden texts and the guide's blocks, each also changed in one rule line; a third of the published texts read** | fhir-examples `value-experiment/reference/fsh-reference.rkt` (its test, over SUSHI's kept answers); fsh `tests/sushi-reference-test.rkt` | **the same answer on 2,355 texts (84.0%; 57.6% as first measured), the same verdict on 2,453 (87.5%; 75.5%); this compiler alone reports an error on none; 183 of the 1,985 unread texts differ under no class** |
@@ -3338,6 +3338,57 @@ Speed, measured first each time (`bench/compare.py` has two new rows; its table 
   that trades memory for it was decided against in the second pass.
 A new container was started during this work: its first validation took 16 s (a cold disk),
 then 0.9 to 1.1 s. Time a second run before believing a first.
+
+## Terminology held to HL7's suite (2026-11-26)
+The owner: "I'm interested in closing parity for the validation, fsh compiler, and fhirpath …
+Also validation and terminology." Terminology first, by the tx-ecosystem suite (1.9.3): 473/553
+with 367 skipped -> **600/600 with 320 skipped**, every skip with its reason (`raco fhir-tx tck
+-v`, `tx-results-skips`). Read by cause, the measure itself was wrong in two ways before the
+service was: 54 of the suite's files begin with a byte-order mark, which the harness read as no
+JSON and skipped silently (52 tests); and in the suites written for SNOMED CT, LOINC and OMOP
+servers some "passes" were a "no" answered for lack of content. Now: a general suite runs
+everything it sets up (with the R5 core behind it, as the suite's servers hold it); a suite of
+another mode is held only where its test names no content that is not here
+(`names-absent-content?`). The harness calls the service's JSON functions, and a test that
+expects an OperationOutcome passes only when the service refuses (`answered`).
+What the service gained (service.rkt, index.rkt; each in its tests):
+- **Refusals** (`exn:fail:terminology`: kind and OperationOutcome code; raised where
+  `current-terminology-strict?` is set — the operations through `told`, the command line, the
+  suite — and answered around elsewhere, so the validator and FHIRPath still never fail on what
+  they cannot decide): a value set or import nothing defines, a required supplement not here
+  (the value set's `valueset-supplement` extension or `useSupplement`), a pinned code system
+  version nothing holds, a version `check-system-version` forbids, a filter without a value, a
+  value set that includes itself, a display language that is no tag, an expansion over the
+  server's `too-costly` threshold. A validation answers the first three as "no" with the reason.
+- **Versions**: an include of several versions of one system keeps members by version, else (or
+  with the `versionsMatch` expansion parameter true) one member per code, the newest, and an
+  exclude of any version removes it; `default-valueset-version` (the policy's fourth table) pins
+  imports; check-system-version is a default for the definition's unpinned includes and is
+  held coding by coding; a wildcard pin resolves to its newest version; a display is matched
+  against the version it belongs to.
+- **Validation** (`check-coding` over an `asked` record): a Coding with no system cannot be
+  validated; `activeOnly`, `abstract` false (the `notSelectable` property), `inferSystem`;
+  `displayLanguage` (and an Accept-Language header's text, the value set's own expansion
+  parameter or language) choosing which displays count, with a code that has none in those
+  languages taking any; supplements' designations; a code system with `caseSensitive: false`
+  takes a code in any case and answers `normalized-code`; a fragment cannot call a code it
+  lacks invalid; UCUM by rule (every valid unit, narrowed by a `canonical =` filter through
+  fhirpath/ucum's `ucum-commensurable?`); a supplement is no system a code can be in
+  (CodeSystem-level validation).
+- **Expansion**: a deprecated code is active (retired and inactive are not); a value set
+  contained in the definition is imported by `#id`; `includeDefinition`; `designation`; a
+  filter's regular expression is matched with a time limit (`bounded-match?`, 0.2 s), so `(a+)+`
+  over "aaa…X" takes nothing instead of never finishing.
+- **The operations** ($expand, $validate-code, $lookup) answer a refusal as their
+  OperationOutcome with the service's code and forward the new inputs.
+- **FHIRPath's `subsumes()`/`subsumedBy()`** (fhirpath/CLAUDE.md): the service gives
+  `tx-service` a fourth closure (optional, so fhirpath's three-argument constructor still works).
+Gates held: every package's suite (fhir-tx, fhir-validation — IG validation 330 clean, fp 0 /
+recall 18, 0 over-reported, 2957/2968 —, fml, vcl, fhir-server, fhir-mcp, fhir-api,
+fhir-examples with the 741 HL7 verdicts and the reference comparisons), FHIRPath R5 1044/1044 and
+R4 932/934. Not done, named: tx.fhir.org's candidate `$compare` (61 tests), `$batch-validate`
+(2), `$translate` by source and target system without a ConceptMap url (2), `excludeNotForUI`,
+`exclude-system`, `limit`; LOINC, SNOMED CT, OMOP content (249 tests) is not shipped.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

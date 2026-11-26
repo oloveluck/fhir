@@ -21,7 +21,8 @@
          (only-in "service.rkt" packages->resolver resources->resolver packages->code-systems
                   expand/json validate-code/json cs-validate-code/json lookup/json translate/json
                   subsumes/json find-matches/json closure-relation terminology-capabilities policy-of
-                  implicit-vcl-valueset))
+                  implicit-vcl-valueset current-terminology-strict? exn:fail:terminology?
+                  exn:fail:terminology-code))
 
 (provide
  (contract-out
@@ -40,6 +41,14 @@
 (define (packages-resolver)
   (define pkgs (sd-context))
   (hash-ref! package-resolvers pkgs (lambda () (packages->resolver pkgs))))
+
+;; told : (-> X) -> X   a request the service refuses (a value set nothing defines, a supplement
+;; that is not here, a version the server's check forbids …) is the operation's error, with the
+;; issue code the service gives it
+(define (told thunk)
+  (with-handlers ([exn:fail:terminology?
+                   (lambda (e) (operation-error (exn:fail:terminology-code e) "~a" (exn-message e)))])
+    (parameterize ([current-terminology-strict? #t]) (thunk))))
 
 ;; current-terminology-resolver : [extra-resources] -> (url [version] -> resource|#f)
 ;; For a data source that is read whole (resources in memory, a directory read once), with nothing
@@ -106,25 +115,37 @@
      (define params
        (for/hash ([k (in-list '("filter" "count" "offset" "activeOnly" "excludeNested" "displayLanguage"
                                 "includeDesignations"))]
-                  #:when (input in k))
+                  #:when (hash-has-key? in k))
          (values k (input in k))))
      (define params*                       ; the repeatable ones, as lists
-       (for/fold ([h params]) ([k (in-list '("property" "useSupplement"))])
+       (for/fold ([h params]) ([k (in-list '("property" "useSupplement" "designation"))])
          (define vs (hash-ref in k '()))
          (if (pair? vs) (hash-set h k vs) h)))
-     (define policy (policy-of (hash-ref in "system-version" '()) (hash-ref in "force-system-version" '())
-                               (hash-ref in "check-system-version" '())))
-     (expand/json resolver url (input in "valueSetVersion") params* policy))))
+     (told (lambda () (expand/json resolver url (input in "valueSetVersion") params* (request-policy in)))))))
+
+;; the server-level version parameters a request carries
+(define (request-policy in)
+  (policy-of (hash-ref in "system-version" '()) (hash-ref in "force-system-version" '())
+             (hash-ref in "check-system-version" '()) (hash-ref in "default-valueset-version" '())))
 
 (define $validate-code
   (make-operation
    ValueSet-validate-code-definition
    (lambda (in subject)
      (define-values (url resolver) (target-valueset in subject "$validate-code"))
-     (validate-code/json resolver url (input in "code") (input in "system")
-                         #:coding (input in "coding") #:codeable-concept (input in "codeableConcept")
-                         #:display (input in "display") #:valueset-version (input in "valueSetVersion")
-                         #:system-version (input in "systemVersion")))))
+     (told
+      (lambda ()
+        (validate-code/json resolver url (input in "code") (input in "system")
+                            #:coding (input in "coding") #:codeable-concept (input in "codeableConcept")
+                            #:display (input in "display") #:valueset-version (input in "valueSetVersion")
+                            #:system-version (input in "systemVersion")
+                            #:lenient-display? (eq? (input in "lenient-display-validation") #t)
+                            #:policy (request-policy in)
+                            #:active-only? (eq? (input in "activeOnly") #t)
+                            #:abstract? (not (eq? (input in "abstract") #f))
+                            #:display-language (input in "displayLanguage")
+                            #:infer-system? (eq? (input in "inferSystem") #t)
+                            #:supplements (hash-ref in "useSupplement" '())))))))
 
 ;; CodeSystem/$validate-code: the code system is the subject, `codeSystem`, `url`, or the coding's
 (define $cs-validate-code
@@ -222,8 +243,9 @@
      (define system (or (input in "system") (and coding (hash-ref coding 'system #f)) (and subject (hash-ref subject 'url #f))))
      (define code (or (input in "code") (and coding (hash-ref coding 'code #f))))
      (unless (and system code) (operation-error "required" "$lookup needs a code and a system (or a coding)"))
-     (lookup/json (current-terminology-resolver (if subject (list subject) '())) system code (input in "version")
-                  #:supplements (hash-ref in "useSupplement" '())))))
+     (told (lambda ()
+             (lookup/json (current-terminology-resolver (if subject (list subject) '())) system code (input in "version")
+                          #:supplements (hash-ref in "useSupplement" '())))))))
 
 (define $translate
   (make-operation

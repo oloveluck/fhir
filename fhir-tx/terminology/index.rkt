@@ -83,7 +83,9 @@
     [(null? candidates) #f]
     ;; a pinned version may be a PATTERN with `x` wildcards ("1.x.x" matches 1.0.0 and 1.2.0)
     [v (or (for/or ([r (in-list candidates)]) (and (equal? (jref r 'version) v) r))
-           (for/or ([r (in-list candidates)]) (and (version-matches? (jref r 'version) v) r)))]
+           ;; of the versions a pattern takes, the newest
+           (for/or ([r (in-list (sort candidates string>? #:key (lambda (r) (or (jref r 'version) ""))))])
+             (and (version-matches? (jref r 'version) v) r)))]
     [else (or (for/or ([r (in-list candidates)]) (and (not (jref r 'version)) r))
               (car (sort candidates string>? #:key (lambda (r) (or (jref r 'version) "")))))]))
 (define (wildcard-version? v)
@@ -119,7 +121,7 @@
 ;; A CsIndex is (csix by-code parent children): code -> concept, code -> parent code (#f at a
 ;; root), code -> (listof child code) in tree order. Built once per CodeSystem resource and kept
 ;; on it weakly, so a lookup or a hierarchy test is O(1) instead of a walk of the whole tree.
-(struct csix (by-code parent children))
+(struct csix (by-code parent children folded))
 (define cs-indexes (make-weak-hasheq))
 (define (cs-index cs)
   (hash-ref! cs-indexes cs
@@ -135,11 +137,21 @@
                      (hash-set! parent code par))
                    (when par (hash-update! children par (lambda (l) (append l (list code))) '()))
                    (walk (jlist c 'concept) code)))
-               (csix by-code parent children))))
+               ;; a code system that says its codes are NOT case sensitive is also read by the
+               ;; code in lower case
+               (define folded
+                 (and (eq? (jref cs 'caseSensitive 'unsaid) #f)
+                      (for/hash ([(code concept) (in-hash by-code)] #:when (string? code))
+                        (values (string-downcase code) concept))))
+               (csix by-code parent children folded))))
 
 ;; the concept with `code` anywhere in a CodeSystem's (nested) concept tree
 (define (find-concept cs code)
-  (and cs (hash-ref (csix-by-code (cs-index cs)) code #f)))
+  (and cs
+       (let ([ix (cs-index cs)])
+         (or (hash-ref (csix-by-code ix) code #f)
+             (and (csix-folded ix) (string? code)
+                  (hash-ref (csix-folded ix) (string-downcase code) #f))))))
 
 ;; is `code` a DIRECT child of `parent`?
 (define (child-of? cs code parent)
@@ -158,13 +170,14 @@
 (define (leaf-concept? cs code)
   (and cs (null? (hash-ref (csix-children (cs-index cs)) code '()))))
 
-;; a concept the CodeSystem marks not-active (property `status` retired/deprecated/inactive, or
+;; a concept the CodeSystem marks not-active (property `status` retired/inactive, or
 ;; a boolean `inactive` property)
 (define (inactive-concept? cs code)
   (define c (find-concept cs code))
   (and c (for/or ([p (in-list (jlist c 'property))])
            (case (jref p 'code)
-             [("status") (member (jref p 'valueCode) '("retired" "deprecated" "inactive"))]
+             ;; a deprecated code is still one to use (it is on its way out, not out)
+             [("status") (member (jref p 'valueCode) '("retired" "inactive"))]
              [("inactive") (eq? (jref p 'valueBoolean) #t)]
              [else #f]))
        #t))

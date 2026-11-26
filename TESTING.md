@@ -18,7 +18,7 @@ that only rises. The languages' own suites are in their repositories: [fsh](http
 | Invariants over the R5 core package | no error-level invariant violation on a valid resource | 2957/2968; the 11 are the package's own (sdf-27, scs-1) |
 | IG FHIRPath (US Core, IPS) | profile invariants on their examples; SearchParameter expressions | 6082 invariant checks pass and none fail (3 warnings; 2 dom-3 errors, from a multi-item `as()` the FHIRPath spec makes an error); 1330/1330 search expressions |
 | Snapshot generation (fhir-test-cases) | generated snapshots against the expected ones, element by element | paths 80/80, cardinality 476/478, types 235/236 |
-| Terminology (hl7.fhir.uv.tx-ecosystem 1.9.3) | `$expand`, `$validate-code`, `$lookup` and others against the suite's expected responses | 473/553 (367 more skipped: external terminologies and code systems not available offline) |
+| Terminology (hl7.fhir.uv.tx-ecosystem 1.9.3) | `$expand`, `$validate-code`, `$lookup` and others against the suite's expected responses, refusals (an OperationOutcome where one is expected) included | 600/600 (320 more skipped, each with its reason under `-v`: the suites written for SNOMED CT, LOINC, OMOP and HGVS content, which is not shipped; tx.fhir.org's `$related` and `$batch-validate`; three expansions of UCUM by rule) |
 | IG search (US Core 9.0.0) | each example found by searching on its own values | 2468/2468 probes |
 | IG server (US Core 9.0.0) | a server generated from the IG meets its CapabilityStatement | 0 unmet requirements |
 | FSH → package → server (mCODE 4.0.0) | mCODE compiled from its FSH, packed, served; its examples against its profiles | 283/283 validate; 0 unmet requirements |

@@ -26,7 +26,7 @@ are defined in `fhir/codegen/target.rkt` (an IG can be a target too: whitelist +
 | command | what it does |
 |---|---|
 | `raco fhir-validate <resource.json> [profile.json…] [--package <name\|file.tgz>]… [--format outcome\|text\|json] [--fhir-version 4.0.1\|5.0.0\|6.0.0]` | validate against the base type, the supplied profiles and those in `meta.profile` → OperationOutcome (exit 1 on error). `--package hl7.fhir.us.core-6.1.0` puts a guide and what it depends on in context, so a claimed profile is found; one found nowhere is a WARNING saying the resource was not checked against it (read the warnings before trusting a clean answer). The version: the one asked for, else the resource's own (`fhirVersion`), else the first package's, else R5 |
-| `raco fhir-tx tck` | the hl7.fhir.uv.tx-ecosystem terminology suite (473/553) |
+| `raco fhir-tx tck` | the hl7.fhir.uv.tx-ecosystem terminology suite (600/600; `-v` says why each skipped case is skipped) |
 
 For a whole FSH project use `raco fsh check <dir>` (fhir-authoring skill): it validates every example
 against the project's own profiles and positions each problem in the FSH.
@@ -39,7 +39,7 @@ against the project's own profiles and positions each problem in the FSH.
 | `raco fhirpath --ucum-tck` | UCUM functional tests | 573/573 |
 | `raco cql --tck` | cqframework/cql-tests | 1820/1823 |
 | `raco fml --tck` | fhir-test-cases structure-mapping | 6/6 exec, 15/15 parse |
-| `raco fhir-tx tck` | hl7.fhir.uv.tx-ecosystem | 473/553 |
+| `raco fhir-tx tck` | hl7.fhir.uv.tx-ecosystem | 600/600 |
 | `raco fhir roundtrip-tck r5\|r4` | HL7 examples + core packages | R5 2968+77, R4 4581+72 |
 
 ## Standalone executables (`build-tools.sh`, repo root)
