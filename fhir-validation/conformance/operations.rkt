@@ -48,9 +48,12 @@
      ;; packages' resolve by themselves)
      (define claimed
        (let ([urls (let ([m (hash-ref r 'meta #f)]) (if (hash? m) (hash-ref m 'profile '()) '()))])
-         (filter (lambda (sd) (member (hash-ref sd 'url #f) urls))
-                 (append ((data-source-all (current-data-source)) "StructureDefinition")
-                         (registered-resources "StructureDefinition")))))
+         ;; (a resource that claims nothing asks nothing of the data source and the registry)
+         (if (pair? urls)
+             (filter (lambda (sd) (member (hash-ref sd 'url #f) urls))
+                     (append ((data-source-all (current-data-source)) "StructureDefinition")
+                             (registered-resources "StructureDefinition")))
+             '())))
      (issues->outcome (validate-issues (strip-jnum r) #:profiles (remove-duplicates (append (if profile (list profile) '()) claimed))
                                        ;; the resolver itself: asked as JSON, so a required code is
                                        ;; checked whether or not the caller loaded a FHIR version
@@ -83,7 +86,13 @@
 ;; package of current-sd-packages, else R5 (sd-index's default)
 (define (validated-in)
   (define pkgs (or (current-sd-packages) '()))
-  (hash-ref! versions-read pkgs (lambda () (version-read pkgs))))
+  ;; the same list is asked about for every resource validated: found by identity first
+  (define kept (hash-ref versions-of-lists pkgs #f))
+  (cond [kept (unbox kept)]
+        [else (define v (hash-ref! versions-read pkgs (lambda () (version-read pkgs))))
+              (hash-set! versions-of-lists pkgs (box v))
+              v]))
+(define versions-of-lists (make-weak-hasheq))     ; the package list itself -> (box answer)
 (define versions-read (make-weak-hash))           ; package list -> what validated-in answers for it
 (define (version-read pkgs)
   (define core (for/last ([p (in-list pkgs)]

@@ -129,28 +129,42 @@
       result
       (outputs->parameters o result)))
 
+;; An InputFact is (input-fact name min max max-text type): one `in` parameter of a definition as
+;; applying it needs it — its least count (0 when the definition states none), its greatest as a
+;; number (#f: any), that as written, and its type. Read from the definition once an operation:
+;; they were read out of it (the parameters filtered by use, each maximum's text parsed) at every
+;; application.
+(struct input-fact (name min max max-text type))
+(define facts-of-inputs (make-weak-hasheq))
+;; input-facts : operation -> (listof InputFact)
+(define (input-facts o)
+  (or (hash-ref facts-of-inputs o #f)
+      (let ([facts (for/list ([p (in-list (parameters-of o "in"))])
+                     (define mn (hash-ref p 'min 0))
+                     (define mx (hash-ref p 'max "*"))
+                     (input-fact (hash-ref p 'name) (if (exact-integer? mn) mn 0) (string->number mx) mx (hash-ref p 'type #f)))])
+        (hash-set! facts-of-inputs o facts)
+        facts)))
+
 ;; check-inputs : operation Inputs -> void   names the definition knows, cardinality it allows
 (define (check-inputs o inputs)
-  (define ins (parameters-of o "in"))
-  (define known (map (lambda (p) (hash-ref p 'name)) ins))
-  (for ([name (in-hash-keys inputs)] #:unless (member name known))
+  (define ins (input-facts o))
+  (for ([name (in-hash-keys inputs)] #:unless (for/or ([f (in-list ins)]) (equal? name (input-fact-name f))))
     (operation-error "invalid" "$~a has no input parameter '~a' (it takes: ~a)"
-                     (operation-code o) name (string-join known ", ")))
-  (for ([p (in-list ins)])
-    (define n (length (hash-ref inputs (hash-ref p 'name) '())))
-    (define mn (hash-ref p 'min 0))
-    (define mx (hash-ref p 'max "*"))
-    (when (and (exact-integer? mn) (< n mn))
-      (operation-error "required" "$~a needs input '~a' (at least ~a, got ~a)" (operation-code o) (hash-ref p 'name) mn n))
-    (when (and (string->number mx) (> n (string->number mx)))
-      (operation-error "invalid" "$~a takes at most ~a '~a' (got ~a)" (operation-code o) mx (hash-ref p 'name) n))))
+                     (operation-code o) name (string-join (map input-fact-name ins) ", ")))
+  (for ([f (in-list ins)])
+    (define n (length (hash-ref inputs (input-fact-name f) '())))
+    (when (< n (input-fact-min f))
+      (operation-error "required" "$~a needs input '~a' (at least ~a, got ~a)" (operation-code o) (input-fact-name f) (input-fact-min f) n))
+    (when (and (input-fact-max f) (> n (input-fact-max f)))
+      (operation-error "invalid" "$~a takes at most ~a '~a' (got ~a)" (operation-code o) (input-fact-max-text f) (input-fact-name f) n))))
 
 ;; coerce-inputs : operation Inputs -> Inputs   a string given for an integer / decimal / boolean
 ;; parameter (an HTTP query value, a command-line argument) becomes that type
 (define (coerce-inputs o inputs)
-  (define types (for/hash ([p (in-list (parameters-of o "in"))]) (values (hash-ref p 'name) (hash-ref p 'type #f))))
+  (define ins (input-facts o))
   (for/hash ([(name vs) (in-hash inputs)])
-    (define t (hash-ref types name #f))
+    (define t (for/first ([f (in-list ins)] #:when (equal? name (input-fact-name f))) (input-fact-type f)))
     (values name
             (for/list ([v (in-list vs)])
               (cond [(not (string? v)) v]

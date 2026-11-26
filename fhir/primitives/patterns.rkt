@@ -34,12 +34,41 @@
 ;; The patterns that say "no white space" (uri, url, canonical) or "words with single spaces
 ;; between" (code) are decided by one pass over the characters: the regexp matcher took 1.5 µs for
 ;; a 60-character system url where the pass takes 0.2, and a resource holds a dozen (11% of
-;; reading one). Every other pattern is the regexp's.
+;; reading one). base64Binary is decided by a pass too: its regexp (groups of four, white space
+;; around any) took 40 to 70 MILLISECONDS for an attachment of a few hundred kilobytes — every
+;; time such a resource was read or validated (US Core's 230 examples: 7 ms a resource to
+;; validate, nearly all of it 16 attachments). Every other pattern is the regexp's.
 (define (pattern-matches? pat s)
   (cond [(or (eq? pat px:uri) (eq? pat px:url) (eq? pat px:canonical)) (no-space? s)]
         [(eq? pat px:code) (code-lexeme? s)]
+        [(eq? pat px:base64Binary) (base64-lexeme? s)]
         [else (regexp-match? pat s)]))
 
+;; base64-lexeme? : string -> boolean   ^((\s*[0-9a-zA-Z+/=]{4}\s*)+)?$ — nothing, or base64
+;; characters and white space alone, with at least one character and every unbroken run of
+;; characters a whole number of fours (a group of four is not split by white space)
+(define (base64-lexeme? s)
+  (define n (string-length s))
+  (or (zero? n)
+      ;; the value just found to be one (the validator checks a value, then reads the resource,
+      ;; which checks it again: an attachment of megabytes, twice)
+      (let ([last (weak-box-value last-base64 #f)]) (eq? s last))
+      (let loop ([i 0] [run 0] [any? #f])           ; run: the length, modulo 4, of the run so far
+        (cond [(= i n) (and any? (zero? run) (begin (set! last-base64 (make-weak-box s)) #t))]
+              [else
+               (define k (char->integer (string-ref s i)))
+               (define kind (if (< k 128) (bytes-ref base64-kinds k) 0))
+               (cond [(eq? kind 1) (loop (add1 i) (if (eq? run 3) 0 (add1 run)) #t)]
+                     [(eq? kind 2) (and (eq? run 0) (loop (add1 i) 0 any?))]
+                     [else #f])]))))
+(define last-base64 (make-weak-box #f))
+;; base64-kinds : the kind of each ASCII character — 1 a base64 character [0-9a-zA-Z+/=], 2 white
+;; space (what `\s` matches), 0 neither
+(define base64-kinds
+  (let ([kinds (make-bytes 128 0)])
+    (for ([c (in-string "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ+/=")]) (bytes-set! kinds (char->integer c) 1))
+    (for ([c (in-list (list #\space #\tab #\newline #\page #\return))]) (bytes-set! kinds (char->integer c) 2))
+    kinds))
 ;; space? : char -> boolean   what `\s` matches: ASCII white space
 (define (space? c) (or (eqv? c #\space) (eqv? c #\tab) (eqv? c #\newline) (eqv? c #\page) (eqv? c #\return)))
 ;; no-space? : string -> boolean   ^\S*$
@@ -95,6 +124,20 @@
   (for* ([n (in-range 0 6)] [s (in-list (strings n))] [px (in-list (list px:uri px:url px:canonical px:code))])
     (unless (eq? (pattern-matches? px s) (regexp-match? px s))
       (fail (format "~s: the pass says ~a, ~a says ~a" s (pattern-matches? px s) px (regexp-match? px s)))))
+  ;; base64: every string of up to nine characters (two groups and what may stand around them)
+  ;; over base64 characters, white space and what is neither
+  (let ([alphabet (list #\A #\= #\space #\newline #\!)])
+    (define (each n proc [s ""]) (if (zero? n) (proc s) (for ([c (in-list alphabet)]) (each (sub1 n) proc (string-append s (string c))))))
+    (for ([n (in-range 0 10)])
+      (each n (lambda (s)
+                (unless (eq? (pattern-matches? px:base64Binary s) (regexp-match? px:base64Binary s))
+                  (fail (format "~s: the pass says ~a, the regexp ~a" s (pattern-matches? px:base64Binary s) (regexp-match? px:base64Binary s))))))))
+  (for ([s (list "QUJD" "QUJDREVG" " QUJD\nREVG " "QUJD\tREVG\r\n" "+/+/" "a0Z9")]) (check-true (pattern-matches? px:base64Binary s) s))
+  (for ([s (list "QUJ" "QUJDR" "QUJ DREVG" " " "QUJD-" "QUJD\u00A0" "QUJD\vREVG")]) (check-false (pattern-matches? px:base64Binary s) s))
+  ;; a large attachment is decided in a moment (the regexp took tens of milliseconds)
+  (let ([big (make-string 400000 #\Q)] [t (current-inexact-milliseconds)])
+    (check-true (pattern-matches? px:base64Binary big))
+    (check-true (< (- (current-inexact-milliseconds) t) 50)))
   (check-true (pattern-matches? px:uri "http://loinc.org"))
   (check-false (pattern-matches? px:uri "http://loinc.org "))
   (check-true (pattern-matches? px:code "final"))

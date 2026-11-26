@@ -32,6 +32,9 @@
           [current-sd-packages (parameter/c (or/c #f (listof path-string?)))]
           ;; the effective package list — a cache key for anything derived from the index
           [sd-context (-> (listof path?))]
+          ;; context-memo : (-> X) -> (-> X)   a value made once per package context and answered
+          ;; for the current one (a table of what is derived from the packages)
+          [context-memo (-> (-> any/c) (-> any/c))]
           ;; can snapshots be generated at all (is a core package available)?
           [sd-index-available? (-> boolean?)]))
 
@@ -52,6 +55,21 @@
                   (normalise (let ([core (spec-package-path "hl7.fhir.r5.core.tgz" #:optional? #t)]) (if core (list core) '())))))
           default-context]))
 (define (normalise pkgs) (map (lambda (p) (simplify-path (path->complete-path p))) pkgs))
+
+;; What is derived from the packages is kept per context. A table keyed by the context itself
+;; hashes the whole list of paths at every lookup (a datatype jump, a constraint site, a binding:
+;; several a resource validated); `context-memo` finds the current context's value by IDENTITY
+;; — `sd-context` answers one list for as long as the packages are the same — and by its paths
+;; only when the list is a new one (a relative path, normalised afresh each time).
+(define (context-memo make)
+  (define by-identity (make-weak-hasheq))
+  (define by-paths (make-hash))
+  (lambda ()
+    (define context (sd-context))
+    (or (hash-ref by-identity context #f)
+        (let ([v (hash-ref! by-paths context make)])
+          (hash-set! by-identity context v)
+          v))))
 (define (sd-index-available?) (pair? (sd-context)))
 
 ;; indexed resource kinds: file-name prefix in a package -> table key
@@ -171,7 +189,22 @@
   (for/or ([tgz (in-list (sd-context))])
     (entry-resource (hash-ref (hash-ref (package-index tgz) kind (hash)) key #f))))
 
+;; resolve-sd-raw : string -> StructureDefinition | #f   by canonical, type code, name or id
+;; The answer for a name is the same for as long as the context is (the packages do not change),
+;; and the same names are asked over and over (a resource's type, the profiles it claims, each
+;; extension's url — for every resource validated): kept per context, emptied at `kept-names`.
+(define kept-names 20000)
+(define resolved (context-memo make-hash))          ; per context: name -> StructureDefinition | #f
 (define (resolve-sd-raw name-or-url)
+  (define table (resolved))
+  (define kept (hash-ref table name-or-url 'none))
+  (cond [(not (eq? kept 'none)) kept]
+        [else
+         (define sd (resolve-sd-raw* name-or-url))
+         (when (>= (hash-count table) kept-names) (hash-clear! table))
+         (hash-set! table name-or-url sd)
+         sd]))
+(define (resolve-sd-raw* name-or-url)
   (define key (canonical-url name-or-url))        ; drop a |version suffix
   (define tables (map (lambda (t) (hash-ref (package-index t) "StructureDefinition")) (sd-context)))
   (define (lookup k) (for/or ([t (in-list tables)]) (entry-resource (hash-ref t k #f))))
@@ -186,6 +219,18 @@
 
 (module+ test
   (require rackunit)
+  ;; one value a context, whichever way the context is found
+  (let ([made 0])
+    (define table (context-memo (lambda () (set! made (add1 made)) (make-hash))))
+    (define here (list (path->complete-path "a.tgz")))
+    (parameterize ([current-sd-packages here])
+      (check-eq? (table) (table))
+      (parameterize ([current-sd-packages (list (path->complete-path "b.tgz"))]) (check-not-eq? (table) (hash)))
+      (define first (table))
+      ;; the same packages as a new list, and as a relative path
+      (parameterize ([current-sd-packages (list (path->complete-path "a.tgz"))]) (check-eq? (table) first))
+      (parameterize ([current-sd-packages (list "a.tgz")]) (check-eq? (table) first) (check-eq? (table) first)))
+    (check-equal? made 2))
   (define (skim s) (skim-keys (string->bytes/utf-8 s)))
   ;; the top level only: a nested url (an extension's) or name (a contact's) is not the resource's
   (check-equal? (skim "{\"resourceType\":\"StructureDefinition\",\"extension\":[{\"url\":\"http://x/e\"}],\"url\":\"http://x/sd\",\"contact\":[{\"name\":\"c\"}],\"name\":\"N\",\"id\":\"i\"}")

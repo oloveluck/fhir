@@ -16,8 +16,8 @@
          racket/contract (only-in json jsexpr->string string->jsexpr)
          racket/string
          racket/list
-         (only-in fhir/sd/sd-index resolve-sd-raw current-sd-packages sd-context)
-         (only-in fhir/sd/element-index
+         (only-in fhir/sd/sd-index resolve-sd-raw current-sd-packages sd-context context-memo)
+         (only-in (submod fhir/sd/element-index unchecked)
                   make-element-index index-elements index-root child-elements slices-of
                   index-by-id type-index extension-index opaque-type?)
          (only-in fhir/model/leaf listify)
@@ -34,7 +34,8 @@
                   fp-call-name fp-call-args fp-binop? fp-binop-op fp-binop-lhs fp-binop-rhs fp-unop? fp-unop-operand
                   fp-typeop? fp-typeop-operand fp-index? fp-index-target fp-var?)
          (only-in fhirpath/print fhirpath->string)
-         (only-in fhir/model/node fhir? fhir-type fhir-fields)
+         (only-in fhir/model/node fhir? fhir-type)
+         (only-in (submod fhir/model/node unchecked) fhir-fields)
          (only-in fhirpath/value item->system)
          (only-in fhirpath/ucum ucum-valid? ucum-suggestion ucum-convert)
          (only-in racket/format ~r)
@@ -169,10 +170,9 @@
 ;; undefined. An index whose root has no children is unusable — discard it.
 ;; idx-of : SD -> element-index | #f   memoised per SD (by identity) and package context: a profile
 ;; that many resources claim had its snapshot generated again for every one of them
-(define profile-indexes (make-weak-hasheq))
+(define profile-indexes (context-memo make-weak-hasheq))   ; per package context: SD -> Index | #f
 (define (idx-of sd)
-  (define by-context (hash-ref! profile-indexes sd make-hash))
-  (hash-ref! by-context (sd-context) (lambda () (build-idx sd))))
+  (hash-ref! (profile-indexes) sd (lambda () (build-idx sd))))
 ;; build-idx : SD -> Index | #f
 (define (build-idx sd)
   (define snap (or (shipped-snapshot sd) (and (hash-ref sd 'differential #f) (generate-snapshot sd))))
@@ -199,7 +199,11 @@
           (append (resource-id-issues path obj) (contained-id-issues path obj))
           '())
       (unknown-element-issues path obj children)
-      (append-map (lambda (ce) (child-issues idx path ce obj tx)) children))]))
+      ;; most children are not in the object and have nothing to say: only what was said is joined
+      (let each ([children children])
+        (cond [(null? children) '()]
+              [else (define said (child-issues idx path (car children) obj tx))
+                    (if (null? said) (each (cdr children)) (append said (each (cdr children))))])))]))
 
 (define id-rx #px"^[A-Za-z0-9.-]{1,64}$")
 ;; resource-id-issues : path jsexpr -> (listof Issue)   a resource id must match the FHIR id grammar
@@ -231,6 +235,20 @@
   (define facts (leaf-facts ce path))
   (define leaf (vector-ref facts 1))
   (define key (vector-ref facts 2))               ; the one key of a leaf that is no choice
+  (cond
+    ;; the element is not there (most of a type's elements, for most objects): only its minimum
+    ;; and its slices' minima can say anything — what the general case below comes to for it
+    [(and key (not (hash-has-key? obj key)) (not (hash-has-key? obj (vector-ref facts 3))))
+     (define missing (if (> (vector-ref facts 4) 0) (cardinality-issues ce path leaf 0) '()))
+     (define sliced (slice-issues idx path ce obj tx))
+     (if (null? missing) sliced (append missing sliced))]
+    [else (present-child-issues idx path ce obj tx facts)]))
+
+;; present-child-issues : Index path ElementDef jsexpr tx LeafFacts -> (listof Issue)   the general
+;; case of child-issues
+(define (present-child-issues idx path ce obj tx facts)
+  (define leaf (vector-ref facts 1))
+  (define key (vector-ref facts 2))
   ;; keys aimed at this element with an ALLOWED variant (a disallowed choice variant is left for
   ;; unknown-element-issues and is not counted toward cardinality). A leaf that is no choice has
   ;; one key, looked up; a choice's keys are found among the object's.
@@ -315,8 +333,9 @@
 (define quantity-types '("Quantity" "SimpleQuantity" "Age" "Duration" "Distance" "Count" "MoneyQuantity"))
 (define (ucum-issues tc loc v)
   (cond
-    [(and (member tc quantity-types) (hash? v)
+    [(and (hash? v)
           (equal? (hash-ref v 'system #f) "http://unitsofmeasure.org")
+          (member tc quantity-types)
           (string? (hash-ref v 'code #f))
           (not (ucum-valid? (hash-ref v 'code))))
      (define code (hash-ref v 'code))
@@ -394,36 +413,55 @@
         [else (list (issue "error" "invariant" loc "an extension has a value or extensions: this one has neither (ext-1)"))]))
 
 ;; ---- rule functions --------------------------------------------------------------------------
-;; cardinality-issues : ElementDef path leaf count -> (listof Issue)
+;; cardinality-issues : ElementDef path leaf count -> (listof Issue)   fewer than the element's
+;; minimum, or more than its maximum
 (define (cardinality-issues ce path leaf count)
-  (define minv (hash-ref ce 'min 0))
-  (define maxv (hash-ref ce 'max "*"))
-  (append
-   (if (and (integer? minv) (> minv 0) (< count minv))
-       (list (issue "error" "required" (child-loc path leaf)
-                    (format "minimum required = ~a, but found ~a" minv count))) '())
-   (if (and (not (equal? maxv "*")) (string->number maxv) (> count (string->number maxv)))
-       (list (issue "error" "structure" (child-loc path leaf)
-                    (format "maximum allowed = ~a, but found ~a" maxv count))) '())))
+  (define b (bounds ce))
+  (define minv (car b))
+  (define maxv (cdr b))
+  (cond
+    [(< count minv)
+     (list (issue "error" "required" (child-loc path leaf)
+                  (format "minimum required = ~a, but found ~a" minv count)))]
+    [(and maxv (> count maxv))
+     (list (issue "error" "structure" (child-loc path leaf)
+                  (format "maximum allowed = ~a, but found ~a" (hash-ref ce 'max) count)))]
+    [else '()]))
 
 ;; unknown-element-issues : path jsexpr (listof ElementDef) -> (listof Issue)   keys no child
 ;; element (nor a `_` sibling of one) accounts for
 (define (unknown-element-issues path obj children)
+  (define known (known-keys children path))
   (for/list ([k (in-list (hash-keys obj))]
              #:unless (or (eq? k 'resourceType)
                           (char=? (string-ref (symbol->string k) 0) #\_)   ; primitive _field sibling
                           ;; the key of a child that is no choice
-                          (for/or ([ce (in-list children)]) (eq? k (leaf-key ce path)))
+                          (hash-ref (car known) k #f)
                           ;; a disallowed choice variant (allowed-key? #f) is NOT known -> flagged here
-                          (for/or ([ce (in-list children)]) (allowed-key? (elem-leaf ce path) ce k))))
+                          (for/or ([ce (in-list (cdr known))]) (allowed-key? (elem-leaf ce path) ce k))))
     (issue "error" "structure" (string-append path "." (symbol->string k))
            (format "element '~a' is not defined at ~a~a" k path
                    (did-you-mean (symbol->string k)
                                  (for/list ([ce (in-list children)]) (regexp-replace #rx"\\[x\\]$" (elem-leaf ce path) "")))))))
 
+;; known-keys : (listof ElementDef) path -> (cons (hasheq key -> #t) (listof ElementDef))   the keys
+;; of the children that are no choice, and the children that are one. Kept with the list of
+;; children (an index answers the same list for a path): each key of each object was looked for
+;; among the children one by one.
+(define keys-of-children (make-weak-hasheq))
+(define (known-keys children path)
+  (or (hash-ref keys-of-children children #f)
+      (let ([known (cons (for/hasheq ([ce (in-list children)] #:when (leaf-key ce path)) (values (leaf-key ce path) #t))
+                         (for/list ([ce (in-list children)] #:unless (leaf-key ce path)) ce))])
+        (unless (null? children) (hash-set! keys-of-children children known))
+        known)))
+
 ;; fixed[x] must equal; pattern[x] must be contained (recursive subset)
 ;; fixed-pattern-issues : ElementDef loc value -> (listof Issue)
 (define (fixed-pattern-issues ce loc v)
+  (define fp (fixed+pattern ce))
+  (if (or (car fp) (cdr fp)) (fixed-pattern-issues* ce loc v) '()))
+(define (fixed-pattern-issues* ce loc v)
   (append
    (cond [(choice-value ce "fixed") => (lambda (fx) (if (equal? (prune fx) (prune v)) '()
                                                         (list (issue "error" "value" loc (format "value does not match fixed value ~a" (compact fx))))))]
@@ -494,10 +532,14 @@
 ;; primitive-constructor : type-code -> constructor|#f   by code string (interned once per code;
 ;; only a found constructor is kept, so a lookup made before a tower registers stays open)
 (define primitive-ctors (make-hash))
+(define ctors-of-codes (make-weak-hasheq))        ; the code string itself (an element's own) -> constructor
 (define (primitive-constructor tc)
-  (or (hash-ref primitive-ctors tc #f)
-      (let ([c (constructor-of (string->symbol tc))])
-        (when c (hash-set! primitive-ctors tc c))
+  (or (hash-ref ctors-of-codes tc #f)
+      (let ([c (or (hash-ref primitive-ctors tc #f)
+                   (let ([c (constructor-of (string->symbol tc))])
+                     (when c (hash-set! primitive-ctors tc c))
+                     c))])
+        (when c (hash-set! ctors-of-codes tc c))
         c)))
 
 ;; required binding: a bound `code`/coded value must be a member of the ValueSet. Membership comes
@@ -557,10 +599,11 @@
 
 ;; context-terminology : -> resolver | #f   the terminology of the packages in context, one resolver
 ;; per package list (its package indexes and expansions are kept with it)
-(define context-resolvers (make-weak-hash))
+(define context-resolver
+  (context-memo (lambda () (let ([pkgs (sd-context)]) (and (pair? pkgs) (box (packages->resolver pkgs)))))))
 (define (context-terminology)
-  (define pkgs (sd-context))
-  (and (pair? pkgs) (hash-ref! context-resolvers pkgs (lambda () (packages->resolver pkgs)))))
+  (define kept (context-resolver))
+  (and kept (unbox kept)))
 
 ;; context-codes : value-set-url -> (listof string) | #f   the codes of a value set the packages in
 ;; context define, for the hint (#f when it does not expand there)
@@ -577,8 +620,8 @@
 ;; slice whose pinned value can't be resolved, or an undecidable per-instance match -> skip.
 ;; slice-issues : Index path ElementDef jsexpr [tx] -> (listof Issue)
 (define (slice-issues idx path ce obj [tx #f])
-  (define slices (slices-of idx (hash-ref ce 'path)))
-  (define discs (discriminator-paths ce))
+  (define slices (element-slices idx ce))
+  (define discs (and (pair? slices) (discriminator-paths ce)))
   (cond
     [(or (null? slices) (not discs)) '()]
     [else
@@ -833,7 +876,7 @@
       (define here (if (equal? rel "") loc (string-append loc "." rel)))
       (append-map (lambda (c) (append-map (lambda (f) (check-constraint c f here root)) (focus-items rel n)))
                   (site-constraints st)))
-    (datatype-sites (symbol->string (fhir-type n))))
+    (datatype-sites (fhir-type n)))
    (append-map (lambda (c) (below (cdr c) (string-append loc "." (car c)) root)) (node-children n))))
 
 ;; node-children : node -> (listof (cons step node))   the nodes directly below a node, each with
@@ -848,13 +891,14 @@
                                 [else '()]))])
     c))
 
-;; datatype-sites : type-name -> (listof InvariantSite)   the constraint sites of a complex
+;; datatype-sites : symbol -> (listof InvariantSite)   the constraint sites of a complex
 ;; datatype's own definition; none for a resource, a backbone element, an abstract type or a
 ;; name nothing defines. Once per package context and type.
-(define sites-of-datatypes (make-hash))
-(define (datatype-sites type)
-  (hash-ref! sites-of-datatypes (cons (sd-context) type)
+(define sites-of-datatypes (context-memo make-hasheq))   ; per package context: type symbol -> sites
+(define (datatype-sites type-name)
+  (hash-ref! (sites-of-datatypes) type-name
              (lambda ()
+               (define type (symbol->string type-name))
                (define sd (and (not (opaque-type? type)) (resolve-sd-raw type)))
                (define idx (and (hash? sd) (equal? (hash-ref sd 'kind #f) "complex-type") (type-index type)))
                (if idx (invariant-sites idx) '()))))
@@ -1105,7 +1149,21 @@
 ;; focus-items : relative-path node -> (listof node)
 (define (focus-items rel node)
   (cond [(equal? rel "") (list node)]
-        [else (with-handlers ([exn:fail? (lambda (_) '())]) (eval-fhirpath (parse-fhirpath rel) (list node)))]))
+        [else
+         (define path (focus-path rel))
+         (if path (with-handlers ([exn:fail? (lambda (_) '())]) (eval-fhirpath path (list node))) '())]))
+
+;; focus-path : relative-path -> AST | #f   the path as FHIRPath, #f when it is none. Kept: a path
+;; that does not parse is not kept by the parser, and an element named as FHIRPath names an
+;; operator is such a path — `div`, a Narrative's, which every resource with a narrative has: it
+;; was parsed, and refused, again for every resource (half of validating a published example).
+(define focus-paths (make-hash))
+(define (focus-path rel)
+  (define kept (hash-ref focus-paths rel 'none))
+  (cond [(not (eq? kept 'none)) kept]
+        [else (define path (with-handlers ([exn:fail? (lambda (_) #f)]) (parse-fhirpath rel)))
+              (hash-set! focus-paths rel path)
+              path]))
 
 ;; ---- terminology helper ----------------------------------------------------------------------
 ;; -> 'yes | 'no | 'unknown. Fail-open: return 'no ONLY when the ValueSet demonstrably expands to a
@@ -1189,7 +1247,18 @@
 ;; leaf-key : ElementDef parent-path -> symbol | #f   the JSON key of a leaf that is no choice
 ;; (`birthDate`), #f for a choice (`value[x]`: its keys are the base and a type)
 (define (leaf-key ce parent) (vector-ref (leaf-facts ce parent) 2))
-;; leaf-facts : ElementDef parent-path -> (vector parent leaf key|#f underscore-key|#f)
+;; leaf-facts : ElementDef parent-path -> (vector parent leaf key|#f underscore-key|#f min max)
+;; (min and max as `bounds` reads them)
+;; element-slices : Index ElementDef -> (listof ElementDef)   the slices declared at the element's
+;; path in this index, kept with the element for the index last asked (an element is nearly always
+;; walked under one index; a base element a profile's snapshot shares is asked again for each)
+(define slices-kept (make-weak-hasheq))
+(define (element-slices idx ce)
+  (define kept (hash-ref slices-kept ce #f))
+  (cond [(and kept (eq? (car kept) idx)) (cdr kept)]
+        [else (define slices (slices-of idx (hash-ref ce 'path)))
+              (hash-set! slices-kept ce (cons idx slices))
+              slices]))
 (define leaves (make-weak-hasheq))
 (define (leaf-facts ce parent)
   (define kept (hash-ref leaves ce #f))
@@ -1200,9 +1269,20 @@
      (define leaf (if (string-prefix? p (string-append parent ".")) (substring p (add1 (string-length parent))) p))
      (define facts (vector parent leaf
                            (and (not (choice-leaf? leaf)) (string->symbol leaf))
-                           (and (not (choice-leaf? leaf)) (string->symbol (string-append "_" leaf)))))
+                           (and (not (choice-leaf? leaf)) (string->symbol (string-append "_" leaf)))
+                           (car (bounds ce)) (cdr (bounds ce))))
      (hash-set! leaves ce facts)
      facts]))
+;; bounds : ElementDef -> (cons min max)   the element's minimum when it is a whole number above 0
+;; (else 0), and its maximum as a number, #f when unbounded (`*`) or no number. Kept with the
+;; element: the maximum's text was read as a number twice for every element of every object walked.
+(define element-bounds (make-weak-hasheq))
+(define (bounds ce)
+  (or (hash-ref element-bounds ce #f)
+      (let ([b (cons (let ([m (hash-ref ce 'min 0)]) (if (and (integer? m) (> m 0)) m 0))
+                     (let ([m (hash-ref ce 'max "*")]) (and (not (equal? m "*")) (string->number m))))])
+        (hash-set! element-bounds ce b)
+        b)))
 ;; child-loc : path leaf -> path
 (define (child-loc path leaf) (string-append path "." leaf))
 ;; choice-leaf? : leaf -> boolean

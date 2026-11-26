@@ -7,11 +7,14 @@
 ;;; `opaque-types` (Resource/Element/…) are not descended into.
 
 (require racket/contract
-         (only-in "sd-index.rkt" resolve-sd-raw sd-context)
+         (only-in "sd-index.rkt" resolve-sd-raw context-memo)
          (only-in "snapshot.rkt" generate-snapshot shipped-snapshot opaque-type?))
 
 (provide
+ ;; `unchecked`: the same exports without their contracts, for the validator's walk, which asks
+ ;; `child-elements` once an object and `type-index` once a complex value
  (contract-out
+  #:unprotected-submodule unchecked
   [make-element-index (-> (listof hash?) element-index?)]
   [element-index?     (-> any/c boolean?)]
   [index-elements     (-> element-index? (listof hash?))]
@@ -77,7 +80,7 @@
 
 ;; ---- type -> element-index (datatype jump), cached ------------------------------------------
 
-(define type-index-cache (make-hash))
+(define type-indexes (context-memo make-hash))      ; per package context: type code -> index
 ;; type-index : type-code -> ElementIndex | #f   per package context
 (define (type-index code)
   (and (not (opaque-type? code)) (index-of-type code)))
@@ -89,7 +92,7 @@
 
 ;; index-of-type : type-code -> ElementIndex | #f   the type's snapshot as an index, once a context
 (define (index-of-type code)
-  (hash-ref! type-index-cache (cons (sd-context) code)   ; R4 and R5 snapshots never mix
+  (hash-ref! (type-indexes) code                         ; R4 and R5 snapshots never mix
              (lambda ()
                (define sd (resolve-sd-raw code))
                (cond

@@ -1,6 +1,6 @@
 #lang racket/base
 
-;;; fast-json.rkt — JSON text to a jsexpr, quickly, answering exactly what racket/json answers.
+;;; fast-json.rkt — JSON text to a jsexpr and back, quickly, answering exactly what racket/json answers.
 ;;;
 ;;; Reading a resource's JSON was the largest cost of reading from a store once the typed read was
 ;;; lazy (a view over 17,552 MedicationRequests: ~1.3 s in racket/json's `string->jsexpr`, which reads
@@ -12,8 +12,16 @@
 ;;; answer, or whose error, is the one returned (a text with two values, an unknown escape, a lone
 ;;; surrogate, other whitespace, a literal run into a name, a malformed number).
 ;;; tests/fast-json-test.rkt holds the two to the same answer.
+;;;
+;;; Writing: `fast-jsexpr->string` is racket/json's `jsexpr->string`, character for character (an
+;;; object's keys in the same sorted order, the same escapes, numbers as `write` prints them).
+;;; racket/json writes each string through a regular expression and each piece through a port; this
+;;; copies a string that needs no escape whole into one growing buffer. It too only ACCEPTS: a value
+;;; that is no jsexpr (a key that is no symbol, an infinity, an improper list) is racket/json's, whose
+;;; error is the one raised. A function server's answer of 5,000 OperationOutcomes: 23 ms -> 6 ms.
 
-(require racket/contract (only-in json string->jsexpr bytes->jsexpr read-json json-null) racket/port)
+(require racket/contract (only-in json string->jsexpr bytes->jsexpr read-json json-null jsexpr->string) racket/port
+         (only-in racket/symbol symbol->immutable-string))
 
 (provide
  (contract-out
@@ -24,7 +32,9 @@
   [fast-bytes->jsexpr (-> bytes? any/c)]
   ;; fast-read-json : input-port -> jsexpr   a port's whole text as one value (a file of FHIR JSON):
   ;; racket/json's `read-json` when the text is one value and nothing after it
-  [fast-read-json (-> input-port? any/c)]))
+  [fast-read-json (-> input-port? any/c)]
+  ;; fast-jsexpr->string : jsexpr -> string   racket/json's `jsexpr->string` (its defaults), faster
+  [fast-jsexpr->string (-> any/c string?)]))
 
 ;; refusal: the escape a scan takes when it meets what it does not read
 (struct refusal ())
@@ -200,6 +210,79 @@
     [(> result-exp 400) (cond [(= n 0) 0.0] [(> n 0) +inf.0] [else -inf.0])]
     [else (exact->inexact (* n (expt 10 exp)))]))
 
+;; ---- writing ------------------------------------------------------------------------------------
+(define (fast-jsexpr->string x)
+  (define text (emit x (json-null)))
+  (if (eq? text refused) (jsexpr->string x) text))
+
+;; plain? : string -> boolean   does the string hold no character JSON escapes (a control character,
+;; a quote, a backslash, or 127: racket/json's `control` encoding)
+(define (plain? s)
+  (let loop ([i (sub1 (string-length s))])
+    (or (< i 0)
+        (let ([c (string-ref s i)])
+          (and (char>=? c #\space) (not (eq? c #\")) (not (eq? c #\\)) (not (eq? c #\rubout))
+               (loop (sub1 i)))))))
+
+;; escape-of : char -> string | #f   how racket/json writes a character it escapes
+(define (escape-of c)
+  (case c
+    [(#\backspace) "\\b"] [(#\newline) "\\n"] [(#\return) "\\r"] [(#\page) "\\f"] [(#\tab) "\\t"]
+    [(#\\) "\\\\"] [(#\") "\\\""]
+    [else (and (or (char<? c #\space) (eq? c #\rubout))
+               (let ([hex (number->string (char->integer c) 16)])
+                 (string-append "\\u" (make-string (- 4 (string-length hex)) #\0) hex)))]))
+
+;; emit : any jsnull -> string | refused   the value as JSON text, when it is a jsexpr
+(define (emit x jsnull)
+  (let/ec escape
+    (define buffer (make-string 256))
+    (define at 0)
+    (define (room! n)
+      (when (> (+ at n) (string-length buffer))
+        (define bigger (make-string (max (* 2 (string-length buffer)) (+ at n))))
+        (string-copy! bigger 0 buffer 0 at)
+        (set! buffer bigger)))
+    (define (put-char! c) (room! 1) (string-set! buffer at c) (set! at (add1 at)))
+    (define (put! s)
+      (define n (string-length s))
+      (room! n) (string-copy! buffer at s) (set! at (+ at n)))
+    (define (put-string! s)
+      (put-char! #\")
+      (if (plain? s)
+          (put! s)
+          (for ([c (in-string s)])
+            (define e (escape-of c))
+            (if e (put! e) (put-char! c))))
+      (put-char! #\"))
+    (let write ([x x])
+      (cond
+        [(or (exact-integer? x) (and (inexact-real? x) (rational? x))) (put! (number->string x))]
+        [(eq? x #f) (put! "false")]
+        [(eq? x #t) (put! "true")]
+        [(eq? x jsnull) (put! "null")]
+        [(string? x) (put-string! x)]
+        [(list? x)
+         (put-char! #\[)
+         (when (pair? x)
+           (write (car x))
+           (for ([v (in-list (cdr x))]) (put-char! #\,) (write v)))
+         (put-char! #\])]
+        [(hash? x)
+         (put-char! #\{)
+         (define first? #t)
+         (hash-for-each x
+                        (lambda (k v)
+                          (unless (symbol? k) (escape refused))
+                          (if first? (set! first? #f) (put-char! #\,))
+                          (put-string! (symbol->immutable-string k))
+                          (put-char! #\:)
+                          (write v))
+                        #t)
+         (put-char! #\})]
+        [else (escape refused)]))
+    (substring buffer 0 at)))
+
 (module+ scan (provide scan refused))   ; for tests/fast-json-test.rkt: what the scan reads itself
 
 (module+ test
@@ -215,4 +298,16 @@
   (for ([bad '("truex" "nul" "[1," "{\"a\" 1}" "\"\\ud800\"" "01" "1." "\"\\x\"" "[1 2]")])
     (check-equal? (with-handlers ([exn:fail? exn-message]) (fast-string->jsexpr bad))
                   (with-handlers ([exn:fail? exn-message]) (string->jsexpr bad))
-                  bad)))
+                  bad))
+  ;; writing: the text racket/json writes, or its error
+  (define (written x)
+    (check-equal? (with-handlers ([exn:fail? exn-message]) (fast-jsexpr->string x))
+                  (with-handlers ([exn:fail? exn-message]) (jsexpr->string x))
+                  (format "~s" x)))
+  (for-each written
+            (list 1 -0 0.1 -0.0 1e21 1.5e-7 123456789012345678901234567890 "a" "" "é😀" "a\nb\t\"q\"\\\r\f\b\u7F\u1\u1F/"
+                  #t #f 'null '() (hasheq) (list 1 (list) (hasheq 'b (list #t 'null) 'a "x" 'é 2.5))
+                  (hash 'a 1) (make-hasheq (list (cons 'k "v")))
+                  (hasheq (string->symbol "a\"b") 1)))
+  ;; what is no jsexpr is racket/json's to refuse
+  (for-each written (list +inf.0 +nan.0 1/2 'x (hash "a" 1) (cons 1 2) (list 1 (hasheq 'a (void))) #\a (vector 1))))

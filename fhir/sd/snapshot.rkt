@@ -147,7 +147,13 @@
 
 ;; opaque-type? : type-code -> boolean   a framework type: a jump into it finds nothing to check
 (define opaque-types '("Resource" "DomainResource" "Element" "BackboneElement" "Extension"))
-(define (opaque-type? code) (and (member code opaque-types) #t))
+;; (asked for every complex value a validation walks: the lengths differ, so the length decides
+;; nearly every "no" before a name is compared)
+(define (opaque-type? code)
+  (define n (string-length code))
+  (and (or (= n 8) (= n 14) (= n 7) (= n 15) (= n 9))
+       (member code opaque-types)
+       #t))
 
 ;; shipped-snapshot : SD -> (listof Element) | #f   the snapshot the SD carries, when it has elements
 (define (shipped-snapshot sd)

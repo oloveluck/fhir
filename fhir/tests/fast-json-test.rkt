@@ -1,6 +1,6 @@
 #lang racket/base
 
-;;; fast-json-test.rkt — the fast JSON reader answers what racket/json answers.
+;;; fast-json-test.rkt — the fast JSON reader and writer answer what racket/json answers.
 ;;;
 ;;; `fast-string->jsexpr` (serialize/fast-json.rkt) scans a string and gives anything it does not read
 ;;; plainly to racket/json. Held here to racket/json's own answer — the same value, or the same error
@@ -8,10 +8,12 @@
 ;;; (every escape, numbers of every shape, nesting, repeated keys) and those texts mutated (a character
 ;;; dropped, doubled or replaced: mostly not JSON, where a reader that accepts too much would show).
 ;;; It also counts how many texts the scan read itself: a scan that refused everything would agree.
+;;; `fast-jsexpr->string` is held to `jsexpr->string` the same way: every value those texts read as
+;;; is written as the same text, character for character.
 
 (require rackunit racket/list racket/string racket/file json file/gunzip
          (only-in fhir/spec-package spec-package-path)
-         (only-in fhir/serialize/fast-json fast-string->jsexpr fast-bytes->jsexpr)
+         (only-in fhir/serialize/fast-json fast-string->jsexpr fast-bytes->jsexpr fast-jsexpr->string)
          (only-in fhir/package read-package)
          (only-in (submod fhir/serialize/fast-json scan) scan refused))
 
@@ -78,3 +80,18 @@
 ;; the bytes reader too
 (for ([s (in-list (take generated 500))])
   (check-equal? (outcome fast-bytes->jsexpr (string->bytes/utf-8 s)) (outcome bytes->jsexpr (string->bytes/utf-8 s)) s))
+
+;; the writer: every value the corpus and the generated texts read as is written as racket/json
+;; writes it (keys in its order, its escapes, its numbers)
+(define (written-alike? s)
+  (define v (with-handlers ([exn:fail? (lambda (_) (void))]) (string->jsexpr s)))
+  ;; a text may read as what cannot be written (1e400 is an infinity): then the same refusal
+  (or (void? v) (eof-object? v) (equal? (outcome fast-jsexpr->string v) (outcome jsexpr->string v))))
+(check-equal? (for/list ([s (in-list corpus)] #:unless (written-alike? s)) (substring s 0 (min 200 (string-length s)))) '())
+(check-equal? (for/list ([s (in-list generated)] #:unless (written-alike? s)) s) '())
+;; and what it wrote reads back as the value
+(for ([s (in-list (take corpus (min 300 (length corpus))))])
+  (define v (string->jsexpr s))
+  (check-equal? (fast-string->jsexpr (fast-jsexpr->string v)) v))
+;; (planted: an object's keys written in the table's own order fails the corpus check and the
+;; generated one)
