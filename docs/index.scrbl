@@ -142,8 +142,36 @@ Python package are built from them. Each language is a @tt{#lang}, so a @tt{.fsh
 @tt{.map}, @tt{.vcl} or @tt{.sof} file is a module that is checked when it compiles and that a
 program requires like any other; beside them are the libraries (@tt{fhirpath/eval},
 @tt{cql/run}, @tt{fhir/operation}) and a @tt{raco} command for each language.
-@tt{raco fhir new pipeline my-pipeline} writes a small project of three languages and a test,
-and @tt{raco fhir guide racket} is the Racket route on one page.
+A profile, a map and a library of logic, used by one program:
+
+@verbatim|{
+#lang racket/base
+(require json
+         (only-in "fsh/intake.fsh" canonical-of)     ; a profile, in FHIR Shorthand
+         (only-in "qr2patient.map" transform)        ; a map, in the FHIR Mapping Language
+         (only-in "Intake.cql" evaluate)             ; clinical logic, in CQL
+         (only-in cql/value render))
+
+(define answers (call-with-input-file "qr.json" read-json))
+(define patient (transform answers #:validate (canonical-of "IntakePatient")))
+(printf "~a, 65 or older: ~a\n"
+        (hash-ref (car (hash-ref patient 'name)) 'text)
+        (render (evaluate (list patient) #:define "Is 65 Or Older")))
+}|
+
+@verbatim|{
+$ racket main.rkt
+Ana Rivera, 65 or older: true
+}|
+
+A mistake in one of those files stops the build, at its line:
+
+@verbatim|{
+qr2patient.map:14:49: fml check error: `gendr` is not an element of Patient (did you mean `gender`?)
+}|
+
+@tt{raco fhir new pipeline my-pipeline} writes that project (the profile, the map, the library,
+a form's answers and a test), and @tt{raco fhir guide racket} is the Racket route on one page.
 
 From Python it is one package, @hyperlink["fhir-api/index.html"]{fhir-toolkit}, with nothing
 else to install. Beside the Python libraries people use for FHIR today, each measured by a

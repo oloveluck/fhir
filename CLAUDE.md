@@ -3255,9 +3255,9 @@ published example, and time a new process.
 ## Said plainly: in Racket, in Python, and beside the other libraries (2026-11-26)
 The owner: "The FHIR toolkit should be advertised as available in racket and I want to show
 that it performs well compared to other python FHIR libraries as well as being more complete
-and powerful." So the README and the docs front page say where it runs (a Racket section with
-the pipeline of three `#lang` files and its real output and build error; Python; a shell; an
-agent), and the comparison is three programs in `clients/python/bench`, each printing the table
+and powerful." So the README says where it runs in one sentence and the docs front page shows it (a Racket
+section with the pipeline of three `#lang` files and its real output and build error; Python; a
+shell; an agent), and the comparison is three programs in `clients/python/bench`, each printing the table
 the documents quote:
 - `fhirpath-suite.rkt` (+ `fhirpathpy_bridge.py`, which only evaluates and prints): HL7's
   FHIRPath suite for R4 asked of fhirpathpy and decided in Racket, by the KINDER comparison (a
@@ -3283,6 +3283,13 @@ them, so 230 examples gave 236 answers that no longer lined up with the list (fh
 `functions.rkt` `asked-resources`: a list's items as they are; a Bundle given alone is its
 entries). Data given to a call still unpacks Bundles (`given-resources`): there a Bundle is a
 container.
+**The README is short, and stays short** (the owner, the same day: "my readme for the fhir repo
+is already too verbose"). It had grown to 226 lines against this file's own rule (under about
+forty: what it is, one example with its real output, the install, links). It is 58 now: the
+four ideas, the measurements and their caveats, the Racket example, the Python comparison and
+the table of pieces are on the docs front page and in the Python README, where they already
+were or were moved. A new finding goes to the site or a write-up, and the README gets at most
+a link.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
