@@ -47,6 +47,11 @@ python3 clients/python/build_wheel.py dist --out wheels
 python3 clients/python/test_wheel.py wheels --with pandas
 ```
 
+`--with` adds a library to the clean environment the wheel is tested in, and may be given
+several times. The tests and README examples that need a library that is not there are skipped:
+the workflow gives `pandas`, `ipython` and `fhir.resources` (which brings pydantic, so the
+pydantic tests run there too).
+
 ## Not done
 
 - A wheel for Windows. It is not built or tested (the owner's decision, 2026-11-25). A trial
