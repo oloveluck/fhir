@@ -14,8 +14,11 @@ step (PyPI) is yours.
 - the FHIR R4 and R5 core packages;
 - the Python client (`clients/python`).
 
-One wheel per platform: Linux (built on Ubuntu 22.04, so it installs there and on anything
-newer), macOS on Apple silicon, macOS on Intel. There is no wheel for Windows.
+One wheel per platform: Linux (built on Ubuntu 22.04, so it installs where the C library is
+glibc 2.35 or newer: Ubuntu 22.04+, Debian 12+, Fedora 36+, but not RHEL 8 or 9, Amazon Linux
+2023 or Debian 11), macOS on Apple silicon, macOS on Intel. A macOS wheel is tagged with the
+oldest system its binaries name (`build_wheel.py` `macos_minimum`); the SQLite built in the job
+targets macOS 11. There is no wheel for Windows, nor for Linux on ARM.
 
 ## Steps
 
