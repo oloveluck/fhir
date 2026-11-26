@@ -657,7 +657,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | **FHIRPath vs HL7's Java engine** | **172,527 pairs: R4 core and US Core search parameters and invariants over US Core's examples, each search expression continued in 116 ways, changed copies; a fifth of the expressions read, the rest held out** | fhir-examples `value-experiment/reference/fhirpath-reference.rkt` (its test, over the kept reference answers) | **129,564/145,371 held-out pairs the same answer (89.1%); 144,123 (99.1%) apart from the reference's departures from the specification. A fresh set (IPS, mCODE: 142,488 pairs, none read): 127,795 (89.7%); 141,834 (99.5%); 66 under no class** |
 | **FML vs the validator's StructureMap engine** | **the mapping tutorial's 25 maps over its 18 sources, and both changed in one way: 887 pairs; a third of the maps read** | fhir-examples `value-experiment/reference/map-reference.rkt` (its test); fml `tests/reference-test.rkt` | **544/606 held-out pairs the same result (89.8%); 271/281 read (96.4%). Matchbox's own maps over FHIR resources, both engines as R4 (667 pairs, all read by the fourth pass): 561 the same, every difference classed, none this engine's. HL7's structure-mapping tests under the same changes (199 pairs, none read): 183** |
 | **FSH vs SUSHI, text by text** | **SUSHI 3.21.1 as a library and this compiler over 2,802 whole FSH texts: SUSHI's 515 importer test inputs, the golden texts and the guide's blocks, each also changed in one rule line; a third of the published texts read** | fhir-examples `value-experiment/reference/fsh-reference.rkt` (its test, over SUSHI's kept answers); fsh `tests/sushi-reference-test.rkt` | **the same answer on 2,355 texts (84.0%; 57.6% as first measured), the same verdict on 2,453 (87.5%; 75.5%); this compiler alone reports an error on none; 183 of the 1,985 unread texts differ under no class** |
-| **validator vs HL7's, on changed examples** | **six US Core 9.0.0 profiles: their 28 published examples and 713 single changes to them (an element removed, a code or its system changed, a list entry doubled, a value that is no value, an element the type lacks), each judged by HL7's Java validator** | fhir-examples `value-experiment/verify/profile-cases.rkt` (`ceiling`; its test) | **736/741 verdicts agree (578/583 held out); 0 refused that HL7's passes** |
+| **validator vs HL7's, on changed examples** | **six US Core 9.0.0 profiles: their 28 published examples and 713 single changes to them (an element removed, a code or its system changed, a list entry doubled, a value that is no value, an element the type lacks), each judged by HL7's Java validator** | fhir-examples `value-experiment/verify/profile-cases.rkt` (`ceiling`; its test) | **740/741 verdicts agree (582/583 held out); 0 refused that HL7's passes. The next six profiles (3,145 cases, none read): 3,111 agree, 5 refused that HL7's passes** |
 
 A later pass closed every remaining gap that needs no external terminology — the corpora drove
 these fixes, each one a real defect:
@@ -3416,6 +3416,21 @@ Gates unchanged: IG validation 330 clean, 0 over-reported, the R5 core's invaria
 (dom-3 reports nothing on it). A lesson of the same day: a change to a language's guide (the
 FHIRPath guide's reference link) broke fhir-mcp's workspace test, which checks each guide cites its
 specification — run fhir-mcp's tests after a guide changes.
+
+## The validator held to HL7's, second pass (2026-11-26)
+fhir-examples' protocol entry "V-profile's validator, second pass", stated first. The four
+held-out cases it passed and HL7's refused were read: (1) a coding that names no system is in no
+value set (validate.rkt `coding-system` gives 'none, `member?` says 'no — but only where the value
+set's members can be known: `member/system?` of the code alone, or `context-codes`; a VSAC set
+offline decides nothing, as HL7's does — the first cut refused a race coding HL7's passes and
+was narrowed before commit); it also decides a slice told by a value set; (2) a CodeableConcept
+under a required binding holds a code (`binding-issues`: text alone, or codings without codes,
+is `code-invalid`); (3) named, not changed: an NPI identifier with no value, where `value.matches`
+is empty — this validator counts an empty invariant as held, HL7's as failed. 737 -> **740 of
+741** (582 of 583), none refused that HL7's passes; every gate as it was. A fresh set — the next
+six US Core profiles by the same rule, 3,145 cases judged once by HL7's validator, none read —
+agrees on **3,111** both before and after (98.9%), with 5 QuestionnaireResponses refused that
+HL7's passes: the next to open, with a protocol entry first.
 
 ## FHIRPath 3.0.0 (2026-11-26)
 hl7.org answered from the session, and FHIRPath 3.0.0 is the current release: its grammar is now

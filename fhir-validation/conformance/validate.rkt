@@ -579,12 +579,20 @@
      (define vs (let ([u (hash-ref b 'valueSet #f)]) (and (string? u) (canonical-url u))))
      (define codes (coded-values ce v))               ; (listof (cons system code))
      (cond
-       [(or (not vs) (null? codes)) '()]
+       [(not vs) '()]
+       ;; a CodeableConcept that holds no code (its text alone, or codings without one): the
+       ;; binding asks for a code from the value set, and there is none to be one
+       [(and (null? (filter cdr codes)) (equal? (single-type-code ce) "CodeableConcept") (hash? v))
+        (list (issue "error" "code-invalid" loc
+                     (format "no code given, and a code from the required value set ~a is needed (a CodeableConcept's text is not one)" vs)))]
+       [(null? codes) '()]
        [(for/and ([c (in-list codes)]) (eq? (member? tx vs (cdr c) (car c)) 'no))
         ;; the code found, quoted (`femme`): the message named the value set, never the value
         (list (issue "error" "code-invalid" loc (format "code ~a not in required value set ~a~a"
                                                         (string-join (map (lambda (c) (format "`~a`" (cdr c))) codes) ", ")
-                                                        vs (code-hint vs codes))))]
+                                                        vs (if (for/and ([c (in-list codes)]) (eq? (car c) 'none))
+                                                               " (a coding that names no system is in no value set: give its system)"
+                                                               (code-hint vs codes)))))]
        [else '()])]))                                  ; any yes/unknown -> fail-open
 
 ;; code-hint : value-set-url (listof (cons system code)) -> string   what the value set does hold, from
@@ -605,6 +613,15 @@
 ;; supplied no terminology had such a binding decide nothing.
 ;; member? : tx|#f value-set-url code system|#f -> Membership
 (define (member? tx vs code system)
+  (if (eq? system 'none)
+      (if (and (eq? (member/system? tx vs code #f) 'unknown) (not (context-codes vs))) 'unknown 'no)
+      (member/system? tx vs code system)))
+;; a Coding that names no system has no defined meaning, and every member of a value set has its
+;; system: it is in none — where the value set's members can be known at all (`codes-of` and
+;; `coded-values` say 'none for it; a bare `code` is #f). One whose value set does not expand here
+;; (a VSAC set offline) decides nothing, as before; one that expands in context, or whose code the
+;; tower's expansion holds or lacks, is decided.
+(define (member/system? tx vs code system)
   (define via-tx (if tx (tx-member? tx vs code system) 'unknown))
   ;; a coding names its system, and the tower's expansion holds codes alone (`active` of some
   ;; other system read as Condition's): the packages in context, which know the systems, are asked
@@ -826,9 +843,13 @@
   (cond [(string? v) (list (cons #f v))]
         [(and (hash? v) (list? (hash-ref v 'coding #f)))
          (for/list ([c (in-list (hash-ref v 'coding))] #:when (and (hash? c) (string? (hash-ref c 'code #f))))
-           (cons (hash-ref c 'system #f) (hash-ref c 'code)))]
-        [(and (hash? v) (string? (hash-ref v 'code #f))) (list (cons (hash-ref v 'system #f) (hash-ref v 'code)))]
+           (cons (coding-system c) (hash-ref c 'code)))]
+        [(and (hash? v) (string? (hash-ref v 'code #f))) (list (cons (coding-system v) (hash-ref v 'code)))]
         [else '()]))
+
+;; coding-system : Coding -> string | 'none   its system, or 'none when it names none
+(define (coding-system c)
+  (let ([s (hash-ref c 'system #f)]) (if (string? s) s 'none)))
 
 ;; all values at a dotted path within a raw jsexpr (lists fan out — also at the END of the path: a
 ;; discriminator on a repeating element, `category.coding`, matches when ANY coding does; returning the
@@ -1373,15 +1394,16 @@
   (hash-ref! fixed+patterns ce (lambda () (cons (choice-value* ce "fixed") (choice-value* ce "pattern")))))
 
 ;; coded values for binding: 'code scalar -> (#f . code); Coding -> (system . code); CodeableConcept -> its codings
-;; coded-values : ElementDef value -> (listof (cons system|#f code))
+;; coded-values : ElementDef value -> (listof (cons system|#f|'none code))   #f for a bare code,
+;; 'none for a Coding that names no system
 (define (coded-values ce v)
   (define tc (single-type-code ce))
   (cond
     [(and (equal? tc "code") (string? v)) (list (cons #f v))]
     [(and (hash? v) (list? (hash-ref v 'coding #f)))       ; CodeableConcept
-     (for/list ([c (in-list (hash-ref v 'coding))] #:when (hash? c)) (cons (hash-ref c 'system #f) (hash-ref c 'code #f)))]
+     (for/list ([c (in-list (hash-ref v 'coding))] #:when (hash? c)) (cons (coding-system c) (hash-ref c 'code #f)))]
     [(and (hash? v) (hash-ref v 'code #f))                 ; Coding
-     (list (cons (hash-ref v 'system #f) (hash-ref v 'code)))]
+     (list (cons (coding-system v) (hash-ref v 'code)))]
     [else '()]))
 
 ;; an element path relative to its resource root ("" = the root itself)

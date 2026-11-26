@@ -344,3 +344,25 @@
               '(("invariant" . "Patient.telecom[1]")))
 (check-regexp-match #rx"cpt-2"
                     (issue-msg (car (validate-issues (hasheq 'resourceType "Patient" 'telecom (list (hasheq 'value "556")))))))
+
+;; ---- a coding that names no system is in no value set the validator can decide; a required
+;; CodeableConcept holds a code (its text is not one) ----------------------------------------------
+(let* ([profile (hasheq 'resourceType "StructureDefinition" 'id "rq" 'url "http://ex/rq" 'name "RQ"
+                        'type "Observation" 'baseDefinition "http://hl7.org/fhir/StructureDefinition/Observation"
+                        'derivation "constraint"
+                        'differential
+                        (hasheq 'element
+                                (list (hasheq 'id "Observation.code" 'path "Observation.code"
+                                              'binding (hasheq 'strength "required" 'valueSet "http://hl7.org/fhir/ValueSet/administrative-gender")))))]
+       [observation (lambda (code) (hasheq 'resourceType "Observation" 'status "final" 'code code))])
+  (check-equal? (errs (observation (hasheq 'coding (list (hasheq 'system "http://hl7.org/fhir/administrative-gender" 'code "female"))))
+                      #:profiles (list profile))
+                '())
+  (check-equal? (errs (observation (hasheq 'coding (list (hasheq 'code "female")))) #:profiles (list profile))
+                '(("code-invalid" . "Observation.code")) "a coding with no system")
+  (check-equal? (errs (observation (hasheq 'text "female")) #:profiles (list profile))
+                '(("code-invalid" . "Observation.code")) "text alone under a required binding"))
+;; a value set whose code systems are not here decides nothing, with or without a system
+(check-equal? (errs (hasheq 'resourceType "Condition" 'subject (hasheq 'reference "Patient/x")
+                            'clinicalStatus (hasheq 'coding (list (hasheq 'code "active")))))
+              '())

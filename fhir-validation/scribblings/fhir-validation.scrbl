@@ -537,8 +537,10 @@ an extension definition the reference could not find.}
 @item{@bold{Against HL7's validator, resource by resource.} HL7's validator judged 741 resources:
 the 28 published examples of six US Core profiles, and 713 copies of them with one change each
 (an element removed, a code replaced, a list entry doubled, a value that is no value, an element
-the type does not have). This validator gives the same verdict on 736. It refuses none that
-HL7's passes; it passes five that HL7's refuses.}]
+the type does not have). This validator gives the same verdict on 740. It refuses none that
+HL7's passes; it passes one that HL7's refuses (an NPI identifier with no value: the NPI rule
+comes out empty there, which this validator counts as held). On the next six US Core profiles
+(3,145 cases, none read when the validator was changed) the verdict is the same on 3,111.}]
 
 The repository's @hyperlink["https://github.com/oloveluck/fhir/blob/main/TESTING.md"]{@tt{TESTING.md}}
 has every suite and names the misses.
