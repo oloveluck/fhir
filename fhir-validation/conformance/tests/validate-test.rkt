@@ -409,3 +409,35 @@
                        (issue-severity i)))])
   (check-equal? (severities #f) '("error"))
   (check-equal? (severities #t) '("warning")))
+
+;; ---- a constraint on a choice element; nested items; a primitive's `_` object ---------------
+(let ([located (lambda (js #:profiles [ps '()])
+                 (sort (for/list ([i (in-list (validate-issues js #:profiles ps #:invariants? #t))] #:when (equal? (issue-severity i) "error"))
+                         (issue-location i))
+                       string<?))])
+  ;; a constraint on value[x] is evaluated on the value (it found nothing: `value[x]` as FHIRPath)
+  (let ([rule (hasheq 'resourceType "StructureDefinition" 'url "http://example.org/ucum-obs"
+                      'type "Observation" 'derivation "constraint" 'kind "resource" 'abstract #f
+                      'baseDefinition "http://hl7.org/fhir/StructureDefinition/Observation"
+                      'differential (hasheq 'element (list (hasheq 'id "Observation.value[x]" 'path "Observation.value[x]"
+                                                                   'constraint (list (hasheq 'key "u-1" 'severity "error" 'human "UCUM"
+                                                                                             'expression "ofType(Quantity).system.empty() or ofType(Quantity).system = 'http://unitsofmeasure.org'"))))))]
+        [obs (lambda (system) (hasheq 'resourceType "Observation" 'status "final" 'code (hasheq 'text "x")
+                                      'valueQuantity (hasheq 'value 1 'system system 'code "ms")))])
+    (check-equal? (located (obs "http://unitsofmeasure.org") #:profiles (list rule)) '())
+    (check-equal? (length (located (obs "http://example.org/other") #:profiles (list rule))) 1))
+  ;; a QuestionnaireResponse's nested items are items (contentReference)
+  (check-equal? (located (hasheq 'resourceType "QuestionnaireResponse" 'status "completed" 'questionnaire "http://example.org/Questionnaire/q"
+                                 'item (list (hasheq 'linkId "a" 'item (list (hasheq 'linkId "b" 'item (list (hasheq 'text "no linkId") (hasheq 'linkId "c" 'nope 1))))))))
+                '("QuestionnaireResponse.item[0].item[0].item[0].linkId" "QuestionnaireResponse.item[0].item[0].item[1].nope"))
+  ;; a primitive's `_` object holds an id and extensions, each checked
+  (check-equal? (located (hasheq 'resourceType "Patient" '_birthDate (hasheq)))
+                '("Patient.birthDate"))
+  (check-equal? (located (hasheq 'resourceType "Patient" '_birthDate (hasheq 'nope 1)))
+                '("Patient.birthDate.nope"))
+  (check-equal? (located (hasheq 'resourceType "Patient" 'birthDate "1990-01-01"
+                                 '_birthDate (hasheq 'extension (list (hasheq 'url "http://x" 'valueString "a" 'nope 1)))))
+                '("Patient.birthDate.extension[0].nope"))
+  (check-equal? (located (hasheq 'resourceType "Patient" 'birthDate "1990-01-01"
+                                 '_birthDate (hasheq 'id "b" 'extension (list (hasheq 'url "http://x" 'valueString "a")))))
+                '()))

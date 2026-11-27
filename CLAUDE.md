@@ -657,7 +657,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | **FHIRPath vs HL7's Java engine** | **172,527 pairs: R4 core and US Core search parameters and invariants over US Core's examples, each search expression continued in 116 ways, changed copies; a fifth of the expressions read, the rest held out** | fhir-examples `value-experiment/reference/fhirpath-reference.rkt` (its test, over the kept reference answers) | **129,564/145,371 held-out pairs the same answer (89.1%); 144,123 (99.1%) apart from the reference's departures from the specification. A fresh set (IPS, mCODE: 142,488 pairs, none read): 127,795 (89.7%); 141,834 (99.5%); 66 under no class** |
 | **FML vs the validator's StructureMap engine** | **the mapping tutorial's 25 maps over its 18 sources, and both changed in one way: 887 pairs; a third of the maps read** | fhir-examples `value-experiment/reference/map-reference.rkt` (its test); fml `tests/reference-test.rkt` | **544/606 held-out pairs the same result (89.8%); 271/281 read (96.4%). Matchbox's own maps over FHIR resources, both engines as R4 (667 pairs, all read by the fourth pass): 561 the same, every difference classed, none this engine's. HL7's structure-mapping tests under the same changes (199 pairs, none read): 183** |
 | **FSH vs SUSHI, text by text** | **SUSHI 3.21.1 as a library and this compiler over 2,802 whole FSH texts: SUSHI's 515 importer test inputs, the golden texts and the guide's blocks, each also changed in one rule line; a third of the published texts read** | fhir-examples `value-experiment/reference/fsh-reference.rkt` (its test, over SUSHI's kept answers); fsh `tests/sushi-reference-test.rkt` | **the same answer on 2,799 texts (99.9%; 98.8% after the second pass, 84.0% after the first, 57.6% as first measured), the same verdict on 2,799; this compiler alone reports an error on none; the 3 left are SUSHI's own failures (2) and one SUSHI quirk** |
-| **validator vs HL7's, on changed examples** | **six US Core 9.0.0 profiles: their 28 published examples and 713 single changes to them (an element removed, a code or its system changed, a list entry doubled, a value that is no value, an element the type lacks), each judged by HL7's Java validator** | fhir-examples `value-experiment/verify/profile-cases.rkt` (`ceiling`; its test) | **740/741 verdicts agree (582/583 held out); 0 refused that HL7's passes. The next six profiles (3,145 cases, the refusals read): 3,116 agree, 0 refused that HL7's passes** |
+| **validator vs HL7's, on changed examples** | **six US Core 9.0.0 profiles: their 28 published examples and 713 single changes to them (an element removed, a code or its system changed, a list entry doubled, a value that is no value, an element the type lacks), each judged by HL7's Java validator** | fhir-examples `value-experiment/verify/profile-cases.rkt` (`ceiling`; its test) | **740/741 verdicts agree (582/583 held out); 0 refused that HL7's passes. The next six profiles (3,145 cases, all read since): 3,145 agree** |
 
 A later pass closed every remaining gap that needs no external terminology — the corpora drove
 these fixes, each one a real defect:
@@ -3458,6 +3458,15 @@ the `elementdefinition-bestpractice` extension (a rule "implementers may choose 
 error level"), broken by both validators' reading and reported as a warning by HL7's
 (`constraint-severity`, `best-practice?`). The fresh set 3,111 -> 3,116 of 3,145, none refused
 that HL7's passes; the first set 740 of 741 as before.
+**Where the walk did not go** (2026-11-27; the protocol entry "fourth pass"): the fresh set's 29
+cases this validator passed and HL7's refuses were three causes, all this validator's. A
+constraint on a choice element (US Core's us-core-3 on `Observation.value[x]`) was evaluated at
+the FHIRPath `value[x]`, which finds nothing (`rel-path` drops the `[x]`), so no constraint on a
+choice element was ever checked; a nested QuestionnaireResponse item is a `contentReference` to
+`#QuestionnaireResponse.item`, which the walk did not follow (`referenced-path`); a primitive's
+`_` object was not checked at all (`primitive-element-issues`: `{}`, the element's own children
+when a profile describes them, else an id and extensions). The fresh set 3,116 -> 3,145 of 3,145;
+the first set 740 of 741; every gate as it was.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

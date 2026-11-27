@@ -542,7 +542,9 @@ HL7's passes; it passes one that HL7's refuses (an NPI identifier with no value:
 comes out empty there, which this validator counts as held). On the next six US Core profiles
 (3,145 cases, none read when the validator was changed) the verdict was the same on 3,111;
 reading the five it refused and HL7's passes found one cause (a best practice rule reported as an
-error), and after it the same on 3,116, refusing none HL7's passes.}]
+error), and after it the same on 3,116, refusing none HL7's passes; reading the 29 it passed and HL7's
+refuses found three places it did not look (a constraint on a choice element, nested
+Questionnaire items, a primitive's extensions), and after them the same on all 3,145.}]
 
 The repository's @hyperlink["https://github.com/oloveluck/fhir/blob/main/TESTING.md"]{@tt{TESTING.md}}
 has every suite and names the misses.

@@ -345,7 +345,50 @@
                        (append (reverse (placed x i)) out))
                      (placed v #f)))
                matched)
+   (primitive-element-issues idx ce path leaf (vector-ref facts 3) matched obj tx)
    (slice-issues idx path ce obj tx)))
+
+;; primitive-element-issues : Index ElementDef path leaf key|#f (listof key) jsexpr tx -> (listof Issue)
+;; A primitive's `_key` object (FHIR JSON's place for its id and extensions) held to the element:
+;; `{}` holds nothing; its children are the element's in the snapshot when a profile describes them
+;; (US Core's `QuestionnaireResponse.questionnaire.extension:url`, at most one), else an id and
+;; extensions, each extension walked as any extension is. Nothing in it was checked.
+(define (primitive-element-issues idx ce path leaf under matched obj tx)
+  (define keys
+    (remove-duplicates
+     (append (if under (list under) '())
+             (for/list ([k (in-list matched)]) (string->symbol (string-append "_" (symbol->string k)))))))
+  (define loc (child-loc path leaf))
+  (define at (here))
+  (append*
+   (for/list ([u-key (in-list keys)] #:when (hash-has-key? obj u-key))
+     (define name (substring (symbol->string u-key) 1))
+     (define v (hash-ref obj u-key))
+     (define (one x i)
+       (define (go)
+         (cond [(not (hash? x)) '()]
+               [(zero? (hash-count x)) (empty-object-issues loc x)]
+               [(pair? (child-elements idx loc)) (walk idx loc x tx)]
+               [else (element-content-issues loc x tx)]))
+       (if at (at-place loc (if i (format "~a.~a[~a]" at name i) (format "~a.~a" at name)) go) (go)))
+     (if (list? v)
+         (append* (for/list ([x (in-list v)] [i (in-naturals)]) (one x i)))
+         (one v #f)))))
+
+;; element-content-issues : path jsexpr tx -> (listof Issue)   what an Element holds with no
+;; definition of its own: an id and extensions
+(define (element-content-issues loc x tx)
+  (append
+   (for/list ([k (in-list (hash-keys x))] #:unless (memq k '(id extension)))
+     (issue "error" "structure" (child-loc loc (symbol->string k))
+            (format "element '~a' is not defined at ~a" k loc)))
+   (let ([e (hash-ref x 'extension '())])
+     (if (list? e)
+         (append* (for/list ([x (in-list e)] [i (in-naturals)])
+                    (define at (here))
+                    (define (go) (if (hash? x) (extension-issues (child-loc loc "extension") x tx) '()))
+                    (if at (at-place (child-loc loc "extension") (format "~a.extension[~a]" at i) go) (go))))
+         '()))))
 
 ;; per-instance value checks, against the element's concrete (narrowed) type `tc`
 ;; value-issues : Index ElementDef type-code loc value tx -> (listof Issue)
@@ -420,6 +463,11 @@
        (if ti (re-rooted (hash-ref v 'resourceType) (lambda () (walk ti (hash-ref v 'resourceType) v tx))) '()))]
     [(pair? (child-elements idx (hash-ref ce 'path)))  ; a backbone element (inline children)
      (walk idx (hash-ref ce 'path) v tx)]
+    ;; an element defined as another of the same definition (`contentReference`: a
+    ;; QuestionnaireResponse's `item.item` is `#QuestionnaireResponse.item`) is walked against it;
+    ;; nested items, answers and their items were never checked
+    [(referenced-path idx ce)
+     => (lambda (target) (re-rooted target (lambda () (walk idx target v tx))))]
     [else                                               ; a complex datatype -> jump to its own SD
      ;; An Extension is walked against the Extension datatype (its url, its one value of a FHIR
      ;; type, its own extensions): it was skipped as opaque, so nothing inside an extension was
@@ -432,6 +480,13 @@
            [(opaque-type? tc) '()]
            [(type-index tc) => (lambda (ti) (re-rooted tc (lambda () (walk ti tc v tx))))]
            [else '()])]))
+
+;; referenced-path : Index ElementDef -> path | #f   the element a `contentReference` names
+;; (`#QuestionnaireResponse.item`, or `<url>#Type.element`), when the index has children there
+(define (referenced-path idx ce)
+  (define r (hash-ref ce 'contentReference #f))
+  (define m (and (string? r) (regexp-match #rx"#(.+)$" r)))
+  (and m (pair? (child-elements idx (cadr m))) (cadr m)))
 
 ;; re-rooted : path (-> X) -> X   the walk continues against another definition (a datatype's, a
 ;; contained resource's) at the same place in the instance
@@ -1472,7 +1527,10 @@
 ;; an element path relative to its resource root ("" = the root itself)
 ;; rel-path : path -> path
 (define (rel-path p)
-  (define segs (string-split p "."))
+  ;; a choice element is named `value[x]` in a definition and `value` in FHIRPath (as FHIRPath,
+  ;; `value[x]` indexes `value` by a name, which finds nothing: every constraint on a choice
+  ;; element — US Core's us-core-3 on Observation.value[x] — went unchecked)
+  (define segs (map (lambda (s) (regexp-replace #rx"\\[x\\]$" s "")) (string-split p ".")))
   (if (> (length segs) 1) (string-join (cdr segs) ".") ""))
 
 ;; strip JSON nulls and empty arrays (and unwrap jnum -> its number) for fixed/pattern comparison.
