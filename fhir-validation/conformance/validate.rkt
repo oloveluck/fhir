@@ -50,7 +50,7 @@
          "resource-rules.rkt")
 
 (provide
- (struct-out issue)
+ issue issue? issue-severity issue-code issue-path issue-msg issue-location
  (contract-out
   [validate-issues (->* (hash?) (#:profiles (listof hash?) #:terminology any/c #:invariants? boolean? #:duplicates (listof string?)) (listof issue?))]
   [validate-json   (->* (hash?) (#:profiles (listof hash?) #:terminology any/c #:invariants? boolean? #:duplicates (listof string?)) any/c)]
@@ -68,7 +68,38 @@
 ;; A Pin is (list disc-path kind value): a slice's pinned value for one discriminator, kind 'fixed
 ;; or 'pattern (see slice-pins). A Membership is 'yes | 'no | 'unknown (a code in a value set;
 ;; 'unknown is fail-open).
-(struct issue (severity code path msg) #:transparent)
+;; An issue's `location` is where it is in the INSTANCE, by the JSON's own names and every list
+;; entry's index ("Patient.name[0].given[1]", "Observation.valueQuantity.code"), or #f when the
+;; walk does not know it (an invariant, a slice's own rule); its `path` is the definition's, which
+;; tracing to the rule that constrains an element reads. The OperationOutcome's expression is the
+;; location when there is one.
+(struct issue (severity code path msg location) #:transparent #:constructor-name make-issue #:name issue-info)
+
+;; A Place is (cons definition-path instance-location): where the walk is, both ways. It is kept
+;; in a thread cell (a validation is one thread's; a parameterize per value was measured too dear).
+(define current-place (make-thread-cell #f))
+;; issue : severity code path msg -> Issue   an issue at `path`, placed in the instance when the
+;; path is at or below the place the walk is at
+(define (issue severity code path msg)
+  (make-issue severity code path msg (instance-location path)))
+;; instance-location : path|#f -> string|#f
+(define (instance-location path)
+  (define place (thread-cell-ref current-place))
+  (and place (string? path)
+       (let ([d (car place)])
+         (cond [(string=? path d) (cdr place)]
+               [(and (> (string-length path) (string-length d))
+                     (string-prefix? path d)
+                     (char=? (string-ref path (string-length d)) #\.))
+                (string-append (cdr place) (substring path (string-length d)))]
+               [else #f]))))
+;; at-place : path location (-> X) -> X   run `thunk` with the walk at this place
+(define (at-place path location thunk)
+  (define saved (thread-cell-ref current-place))
+  (thread-cell-set! current-place (cons path location))
+  (begin0 (thunk) (thread-cell-set! current-place saved)))
+;; here : -> location|#f   the instance location the walk is at
+(define (here) (let ([p (thread-cell-ref current-place)]) (and p (cdr p))))
 
 ;; write-errors/rows : (list json-text (listof package-path)) -> (listof (list severity code path msg))
 ;; the issues a write must refuse on (error or fatal), each as a row; the packages are the
@@ -118,9 +149,10 @@
         (for/fold ([acc (reverse (append dup-issues (unchecked-profile-issues rt json profiles) of-datatypes
                                          (resource-rule-issues json inv?)))] #:result (reverse acc))
                   ([i (in-list indexes)] #:when i)
-          (define issues (append (walk i rt json tx) (if inv? (invariant-issues i rt node) '())))
+          (define issues (append (at-place rt rt (lambda () (walk i rt json tx)))
+                                 (if inv? (invariant-issues i rt node) '())))
           (for/fold ([acc acc]) ([is (in-list issues)])
-            (define k (list (issue-code is) (issue-path is) (issue-msg is)))
+            (define k (list (issue-code is) (or (issue-location is) (issue-path is)) (issue-msg is)))
             (if (hash-ref seen k #f) acc (begin (hash-set! seen k #t) (cons is acc)))))])]))
 
 ;; resource-rule-issues : jsexpr boolean -> (listof Issue)
@@ -300,8 +332,19 @@
    (cardinality-issues ce path leaf present)
    (append-map (lambda (k)
                  (define tc (matched-type leaf ce k))     ; the concrete (narrowed) type of this variant
-                 (append-map (lambda (v) (value-issues idx ce tc (child-loc path leaf) v tx))
-                             (instances-of (hash-ref obj k)))) matched)
+                 (define v (hash-ref obj k))
+                 (define at (here))
+                 (define loc (child-loc path leaf))
+                 (define (placed x i)
+                   (if at
+                       (at-place loc (if i (format "~a.~a[~a]" at k i) (format "~a.~a" at k))
+                                 (lambda () (value-issues idx ce tc loc x tx)))
+                       (value-issues idx ce tc loc x tx)))
+                 (if (list? v)
+                     (for/fold ([out '()] #:result (reverse out)) ([x (in-list v)] [i (in-naturals)])
+                       (append (reverse (placed x i)) out))
+                     (placed v #f)))
+               matched)
    (slice-issues idx path ce obj tx)))
 
 ;; per-instance value checks, against the element's concrete (narrowed) type `tc`
@@ -374,7 +417,7 @@
     [(not (hash? v)) '()]
     [(string? (hash-ref v 'resourceType #f))          ; an inlined independent resource
      (let ([ti (type-index (hash-ref v 'resourceType))])
-       (if ti (walk ti (hash-ref v 'resourceType) v tx) '()))]
+       (if ti (re-rooted (hash-ref v 'resourceType) (lambda () (walk ti (hash-ref v 'resourceType) v tx))) '()))]
     [(pair? (child-elements idx (hash-ref ce 'path)))  ; a backbone element (inline children)
      (walk idx (hash-ref ce 'path) v tx)]
     [else                                               ; a complex datatype -> jump to its own SD
@@ -387,8 +430,14 @@
      (cond [(not tc) '()]
            [(equal? tc "Extension") (extension-issues loc v tx)]
            [(opaque-type? tc) '()]
-           [(type-index tc) => (lambda (ti) (walk ti tc v tx))]
+           [(type-index tc) => (lambda (ti) (re-rooted tc (lambda () (walk ti tc v tx))))]
            [else '()])]))
+
+;; re-rooted : path (-> X) -> X   the walk continues against another definition (a datatype's, a
+;; contained resource's) at the same place in the instance
+(define (re-rooted root thunk)
+  (define at (here))
+  (if at (at-place root at thunk) (thunk)))
 
 ;; extension-issues : loc jsexpr tx -> (listof Issue)   one extension: what every extension must be
 ;; (ext-1), then its elements against its own definition — the StructureDefinition its url names,
@@ -399,8 +448,8 @@
   (define idx (or (and sd (idx-of sd)) (extension-index)))
   (append (extension-content-issues loc v)
           (cond [(not idx) '()]
-                [(and sd (core-copy? sd)) (parameterize ([bindings-decided? #f]) (walk idx "Extension" v tx))]
-                [else (walk idx "Extension" v tx)])))
+                [(and sd (core-copy? sd)) (parameterize ([bindings-decided? #f]) (re-rooted "Extension" (lambda () (walk idx "Extension" v tx))))]
+                [else (re-rooted "Extension" (lambda () (walk idx "Extension" v tx)))])))
 
 ;; extension-definition : jsexpr -> StructureDefinition | #f   the definition an extension's url names
 (define (extension-definition v)
@@ -754,7 +803,7 @@
      (define here (string-append loc "." leaf))
      (append
       (for/list ([i (in-list (cardinality-issues ce loc leaf (for/sum ([k (in-list matched)]) (length (instances-of (hash-ref inst k))))))])
-        (issue (issue-severity i) (issue-code i) (issue-path i) (format "~a (slice '~a')" (issue-msg i) name)))
+        (struct-copy issue-info i [msg (format "~a (slice '~a')" (issue-msg i) name)]))
       (for/list ([k (in-list stray)])
         (issue "error" "structure" here
                (format "~a is not allowed in slice '~a' (~a: ~a)" k name leaf (string-join (elem-type-codes ce) " | "))))
@@ -973,11 +1022,25 @@
      ;; `provider.all(resolve() is Practitioner)` is false of a reference to a Practitioner. Asked
      ;; again only for a false of an expression that resolves, with the misses recorded.
      (if (and (equal? result (list #f)) (not (rests-on-unresolved? expr evaluated)))
-         (list (issue (if (equal? (hash-ref c 'severity #f) "warning") "warning" "error")
+         (list (issue (constraint-severity c)
                       "invariant" path
-                      (format "~a: ~a~a" (hash-ref c 'key "?") (hash-ref c 'human "")
-                              (found-text expr focus root))))
+                      (format "~a: ~a~a~a" (hash-ref c 'key "?") (hash-ref c 'human "")
+                              (found-text expr focus root)
+                              (if (best-practice? c) " (a best practice rule: reported as a warning)" ""))))
          '())]))
+
+;; constraint-severity : constraint -> "error" | "warning"   a constraint's own severity, except that
+;; one marked best practice (the `elementdefinition-bestpractice` extension: "a rule that
+;; implementers may choose to enforce at error level in some or all circumstances") is a warning,
+;; as HL7's validator reports it unless told otherwise. SDC's sdcqr-2, which US Core's
+;; QuestionnaireResponse profile carries at severity error, is one.
+(define (constraint-severity c)
+  (if (or (equal? (hash-ref c 'severity #f) "warning") (best-practice? c)) "warning" "error"))
+(define best-practice-url "http://hl7.org/fhir/StructureDefinition/elementdefinition-bestpractice")
+;; best-practice? : constraint -> boolean
+(define (best-practice? c)
+  (for/or ([x (in-list (let ([e (hash-ref c 'extension '())]) (if (list? e) e '())))])
+    (and (hash? x) (equal? (hash-ref x 'url #f) best-practice-url) (eq? (hash-ref x 'valueBoolean #f) #t))))
 
 ;; rests-on-unresolved? : string (-> any) -> boolean   does the expression call resolve(), and did
 ;; evaluating it (again, `evaluate`) look for a reference it could not find?
@@ -1441,7 +1504,7 @@
                        (for/list ([i (in-list issues)])
                          (drop-false (hasheq 'severity (issue-severity i) 'code (issue-code i)
                                              'diagnostics (issue-msg i)
-                                             'expression (and (issue-path i) (list (issue-path i)))))))))))
+                                             'expression (let ([e (or (issue-location i) (issue-path i))]) (and e (list e)))))))))))
 
 ;; ── living examples: the pure rule helpers + slicing on a synthetic snapshot ─────────────────
 (module+ test

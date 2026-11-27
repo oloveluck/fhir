@@ -69,9 +69,9 @@ def location(expression: str, root: Optional[str] = None) -> Optional[Tuple[Any,
     """Where a FHIR issue is, as pydantic says where: `Patient.name[0].given` is
     ("name", 0, "given"). The resource's own type at the front is left out.
 
-    None for a path that starts at a datatype (`HumanName.given`): the toolkit says an issue
-    inside a datatype by the datatype, not by the element that holds it, so where in the
-    resource it is cannot be said from the path.
+    None for a path rooted elsewhere than the resource (`HumanName.given`): the toolkit says
+    where an issue is in the instance (`Patient.name[0].given[1]`); a path of the definition is
+    left for the rare issue the walk cannot place (an invariant, a slice's own rule).
     """
     steps = [s for s in expression.split(".") if s]
     if steps and steps[0][:1].isupper():

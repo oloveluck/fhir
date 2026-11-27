@@ -540,7 +540,9 @@ the 28 published examples of six US Core profiles, and 713 copies of them with o
 the type does not have). This validator gives the same verdict on 740. It refuses none that
 HL7's passes; it passes one that HL7's refuses (an NPI identifier with no value: the NPI rule
 comes out empty there, which this validator counts as held). On the next six US Core profiles
-(3,145 cases, none read when the validator was changed) the verdict is the same on 3,111.}]
+(3,145 cases, none read when the validator was changed) the verdict was the same on 3,111;
+reading the five it refused and HL7's passes found one cause (a best practice rule reported as an
+error), and after it the same on 3,116, refusing none HL7's passes.}]
 
 The repository's @hyperlink["https://github.com/oloveluck/fhir/blob/main/TESTING.md"]{@tt{TESTING.md}}
 has every suite and names the misses.

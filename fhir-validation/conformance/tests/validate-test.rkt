@@ -11,7 +11,7 @@
          (only-in fhir/sd/sd-index current-sd-packages)
          (only-in fhir/spec-package spec-package-path)
          (only-in fhir/conformance/validate
-                  validate-issues issue-severity issue-code issue-path issue-msg))
+                  validate-issues issue-severity issue-code issue-path issue-msg issue-location))
 
 ;; the set of (code . path) for ERROR-severity issues
 (define (errs js #:profiles [ps '()] #:terminology [tx #f] #:invariants? [inv? #f] #:duplicates [dups '()])
@@ -366,3 +366,46 @@
 (check-equal? (errs (hasheq 'resourceType "Condition" 'subject (hasheq 'reference "Patient/x")
                             'clinicalStatus (hasheq 'coding (list (hasheq 'code "active")))))
               '())
+
+;; ---- where an issue is in the instance -------------------------------------------------------
+;; the definition's path is what tracing to a rule reads; the location names the JSON's own keys
+;; and each list entry's index, inside a datatype too, and is the OperationOutcome's expression
+(let ([located (lambda (js)
+                 (sort (for/list ([i (in-list (validate-issues js #:invariants? #f))] #:when (equal? (issue-severity i) "error"))
+                         (list (issue-path i) (issue-location i)))
+                       string<? #:key cadr))])
+  (check-equal? (located (hasheq 'resourceType "Patient"
+                                 'name (list (hasheq 'family "A") (hasheq 'given (list "x" 1) 'nmae 1))
+                                 'contact (list (hasheq 'name (hasheq 'family "B" 'nope #t)))))
+                '(("HumanName.nope" "Patient.contact[0].name.nope")
+                  ("HumanName.given" "Patient.name[1].given[1]")
+                  ("HumanName.nmae" "Patient.name[1].nmae")))
+  ;; two entries with the same mistake are two issues
+  (check-equal? (length (located (hasheq 'resourceType "Patient" 'name (list (hasheq 'nmae 1) (hasheq 'nmae 1))))) 2)
+  ;; a choice element by the key the JSON writes
+  (check-equal? (located (hasheq 'resourceType "Observation" 'status "final" 'code (hasheq 'text "x")
+                                 'valueQuantity (hasheq 'value "5")))
+                '(("Quantity.value" "Observation.valueQuantity.value"))))
+
+;; ---- a best practice rule is a warning -------------------------------------------------------
+;; a constraint with the elementdefinition-bestpractice extension, whatever its own severity, is
+;; reported as a warning (SDC's sdcqr-2 in US Core's QuestionnaireResponse profile is one)
+(let* ([rule (lambda (best?)
+               (hasheq 'resourceType "StructureDefinition" 'url (if best? "http://example.org/bp" "http://example.org/strict")
+                       'type "Patient" 'derivation "constraint" 'kind "resource" 'abstract #f
+                       'baseDefinition "http://hl7.org/fhir/StructureDefinition/Patient"
+                       'differential
+                       (hasheq 'element
+                               (list (hasheq 'id "Patient" 'path "Patient"
+                                             'constraint
+                                             (list (let ([c (hasheq 'key "bp-1" 'severity "error" 'human "a name"
+                                                                    'expression "name.exists()")])
+                                                     (if best?
+                                                         (hash-set c 'extension (list (hasheq 'url "http://hl7.org/fhir/StructureDefinition/elementdefinition-bestpractice" 'valueBoolean #t)))
+                                                         c))))))))]
+       [severities (lambda (best?)
+                     (for/list ([i (in-list (validate-issues (hasheq 'resourceType "Patient") #:profiles (list (rule best?)) #:invariants? #t))]
+                                #:when (regexp-match? #rx"^bp-1" (issue-msg i)))
+                       (issue-severity i)))])
+  (check-equal? (severities #f) '("error"))
+  (check-equal? (severities #t) '("warning")))

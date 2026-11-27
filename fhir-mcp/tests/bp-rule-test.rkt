@@ -91,7 +91,7 @@
                      (member "create Observation/kpa3" (hash-ref st 'resources)))))
     ;; `'mmHg'` is not UCUM: a warning at its line (it was refused by the rule alone, unexplained)
     (check-equal? (car (hash-ref (car (hash-ref (call "stage" (hasheq 'fsh (bp "mmhg" #:sys "130 'mmHg'"))) 'changes)) 'warnings))
-                  "fsh:7: Observation.component.value[x].code: `mmHg` is not a UCUM unit (mercury is written mm[Hg])")
+                  "fsh:7: Observation.component[0].valueQuantity.code: `mmHg` is not a UCUM unit (mercury is written mm[Hg])")
     ;; EVERY systolic in mm[Hg]: a second one in kPa beside a good one is refused (a rerun found the gap)
     (check-equal? (errors-of (string-append (bp "mixed") "* component[2].code = http://loinc.org#8480-6\n* component[2].valueQuantity = 20 'kPa'\n"))
                   '("fsh:11: Observation: bp-systolic: A blood pressure (LOINC 85354-9) has a systolic component (LOINC 8480-6), a number in mm[Hg] (found component[2].valueQuantity = 20 'kPa' (= 150 'mm[Hg]'))"))

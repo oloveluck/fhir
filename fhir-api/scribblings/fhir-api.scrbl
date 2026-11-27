@@ -145,8 +145,8 @@ class every object of which is held to a profile. What is wrong is a pydantic
 @(example 11)
 
 Each check is one call of the toolkit, so in a loop over thousands of objects use
-@tt{validate_each}. An issue inside a datatype is located by the datatype
-(@tt{HumanName.given}), so its @tt{loc} is the value and the path is in its message. The
+@tt{validate_each}. An error's @tt{loc} is where it is in the resource, inside a datatype too
+(@tt{Patient.name[0].given[1]} is @tt{("name", 0, "given", 1)}). The
 toolkit does not generate pydantic classes from a profile: the profile is enforced when an
 object is checked.
 

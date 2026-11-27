@@ -333,8 +333,8 @@ Ito
 
 `Valid(profile)` and `checked(Model, profile)` take a canonical too, with the guide's package in
 context (`Toolkit(packages=[...])`). Each check is one call of the toolkit, so in a loop over
-thousands of objects use `validate_each`. An issue inside a datatype is located by the datatype
-(`HumanName.given`), so its `loc` is the value and the path is in its message.
+thousands of objects use `validate_each`. An error's `loc` is where it is in the resource, inside a
+datatype too (`Patient.name[0].given[1]` is `("name", 0, "given", 1)`).
 `fhir_toolkit.plain(obj)` and `fhir_toolkit.typed(Model, resource)` are the two conversions.
 
 ## Many resources, and data you use more than once

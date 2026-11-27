@@ -19,7 +19,7 @@
          (only-in fhir/sd/sd-index current-sd-packages)
          (only-in fhir/registry registered-resources)
          (only-in fhir/serialize/read-json strip-jnum)
-         (only-in fhir/conformance/validate validate-issues issue-severity issue-code issue-path issue-msg)
+         (only-in fhir/conformance/validate validate-issues issue-severity issue-code issue-path issue-msg issue-location)
          (only-in fhir/terminology/operations current-terminology-resolver))
 
 (provide $validate ensure-valid)
@@ -31,9 +31,11 @@
                      (list (hasheq 'severity "information" 'code "informational"
                                   ;; which FHIR it was held to (an R6 server's "All OK" for data written as R4)
                                   'diagnostics (let ([v (validated-in)]) (if v (format "All OK (FHIR ~a)" v) "All OK"))))
+                     ;; the expression is where the issue is in the instance, else in the definition
                      (for/list ([i (in-list issues)])
-                       (hasheq 'severity (issue-severity i) 'code (issue-code i)
-                               'diagnostics (issue-msg i) 'expression (list (issue-path i)))))))
+                       (define where (or (issue-location i) (issue-path i)))
+                       (define base (hasheq 'severity (issue-severity i) 'code (issue-code i) 'diagnostics (issue-msg i)))
+                       (if where (hash-set base 'expression (list where)) base)))))
 
 (define $validate
   (make-operation

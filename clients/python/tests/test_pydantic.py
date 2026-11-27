@@ -121,12 +121,11 @@ class WithPydantic(unittest.TestCase):
             Intake(patient={"resourceType": "Patient", "gender": "female"})
         (error,) = caught.exception.errors()
         self.assertEqual((error["type"], error["loc"], error["msg"]), ("fhir_invariant", ("patient",), "a birth date is required"))
-        # an issue inside a datatype is said with its path, at the value
+        # an issue inside a datatype is where it is in the resource
         with self.assertRaises(ValidationError) as caught:
-            TypeAdapter(Annotated[dict, Valid()]).validate_python(dict(ANN, name=[{"family": "Lee", "nmae": 1}]))
+            TypeAdapter(Annotated[dict, Valid()]).validate_python(dict(ANN, name=[{"family": "Lee"}, {"family": "Lee", "nmae": 1}]))
         (error,) = caught.exception.errors()
-        self.assertEqual(error["loc"], ())
-        self.assertTrue(error["msg"].startswith("HumanName.nmae: "), error["msg"])
+        self.assertEqual((error["loc"], error["input"]), (("name", 1, "nmae"), 1))
         self.assertEqual(self.held.location("Patient.name[0].given[1]", "Patient"), ("name", 0, "given", 1))
         self.assertEqual(self.held.location("contact.name", "Patient"), ("contact", "name"))
         self.assertIsNone(self.held.location("HumanName.given", "Patient"))

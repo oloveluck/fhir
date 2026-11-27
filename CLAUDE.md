@@ -657,7 +657,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | **FHIRPath vs HL7's Java engine** | **172,527 pairs: R4 core and US Core search parameters and invariants over US Core's examples, each search expression continued in 116 ways, changed copies; a fifth of the expressions read, the rest held out** | fhir-examples `value-experiment/reference/fhirpath-reference.rkt` (its test, over the kept reference answers) | **129,564/145,371 held-out pairs the same answer (89.1%); 144,123 (99.1%) apart from the reference's departures from the specification. A fresh set (IPS, mCODE: 142,488 pairs, none read): 127,795 (89.7%); 141,834 (99.5%); 66 under no class** |
 | **FML vs the validator's StructureMap engine** | **the mapping tutorial's 25 maps over its 18 sources, and both changed in one way: 887 pairs; a third of the maps read** | fhir-examples `value-experiment/reference/map-reference.rkt` (its test); fml `tests/reference-test.rkt` | **544/606 held-out pairs the same result (89.8%); 271/281 read (96.4%). Matchbox's own maps over FHIR resources, both engines as R4 (667 pairs, all read by the fourth pass): 561 the same, every difference classed, none this engine's. HL7's structure-mapping tests under the same changes (199 pairs, none read): 183** |
 | **FSH vs SUSHI, text by text** | **SUSHI 3.21.1 as a library and this compiler over 2,802 whole FSH texts: SUSHI's 515 importer test inputs, the golden texts and the guide's blocks, each also changed in one rule line; a third of the published texts read** | fhir-examples `value-experiment/reference/fsh-reference.rkt` (its test, over SUSHI's kept answers); fsh `tests/sushi-reference-test.rkt` | **the same answer on 2,799 texts (99.9%; 98.8% after the second pass, 84.0% after the first, 57.6% as first measured), the same verdict on 2,799; this compiler alone reports an error on none; the 3 left are SUSHI's own failures (2) and one SUSHI quirk** |
-| **validator vs HL7's, on changed examples** | **six US Core 9.0.0 profiles: their 28 published examples and 713 single changes to them (an element removed, a code or its system changed, a list entry doubled, a value that is no value, an element the type lacks), each judged by HL7's Java validator** | fhir-examples `value-experiment/verify/profile-cases.rkt` (`ceiling`; its test) | **740/741 verdicts agree (582/583 held out); 0 refused that HL7's passes. The next six profiles (3,145 cases, none read): 3,111 agree, 5 refused that HL7's passes** |
+| **validator vs HL7's, on changed examples** | **six US Core 9.0.0 profiles: their 28 published examples and 713 single changes to them (an element removed, a code or its system changed, a list entry doubled, a value that is no value, an element the type lacks), each judged by HL7's Java validator** | fhir-examples `value-experiment/verify/profile-cases.rkt` (`ceiling`; its test) | **740/741 verdicts agree (582/583 held out); 0 refused that HL7's passes. The next six profiles (3,145 cases, the refusals read): 3,116 agree, 0 refused that HL7's passes** |
 
 A later pass closed every remaining gap that needs no external terminology — the corpora drove
 these fixes, each one a real defect:
@@ -3310,12 +3310,8 @@ missing, now there (`clients/python/tests/test_pydantic.py`; the README's exampl
   the field by pydantic), `type` `fhir_<issue code>`, `input` the value there (`errors_of`,
   `location`). Not done, named: pydantic classes GENERATED from a profile (the profile is
   enforced when an object is checked).
-- **Found by it, not fixed**: the validator says an issue inside a datatype by the DATATYPE
-  (`HumanName.given`, `Quantity.bogus`), not by the element that holds it, and without list
-  indexes (`walk` restarts the path at a datatype jump: validate.rkt `recurse-issues`). The
-  pydantic error for such an issue has `loc` () and the path in its message. What it takes: an
-  instance location threaded through `walk` beside the snapshot path; fsh's `trace-rule`,
-  fhir-mcp's `rule-line` and the tests that assert paths read the type-rooted form today.
+- **Found by it, fixed after** (next section, "Where an issue is"): the validator said an issue
+  inside a datatype by the DATATYPE (`HumanName.given`), so its pydantic `loc` was ().
 Speed, measured first each time (`bench/compare.py` has two new rows; its table is the README's):
 - **A model object's own JSON goes into the request as it is** (`_server.py` `encode`): a mark
   holding a random number stands for it while the rest is encoded and is replaced after
@@ -3440,6 +3436,28 @@ stays Long). Its published test archive is a subset of the vendored suites and n
 so the specification's own examples are the test (fhirpath `tests/fhirpath3-test.rkt`). fml walks
 the new nodes. Gates: R5 1044/1044, R4 932/934, every FHIRPath-reading package's suite, the
 HL7-engine comparisons. fhirpath/CLAUDE.md has the detail.
+
+## Where an issue is (2026-11-26)
+The validator says each issue where it is in the INSTANCE as well as in the definition
+(fhir-validation `validate.rkt`: an Issue's `location`, `Patient.name[1].given[1]`,
+`Observation.valueQuantity.value`: the JSON's own keys, every list entry by its index, through
+datatype jumps, contained resources and extensions). It said an issue inside a datatype by the
+datatype alone (`HumanName.given`), so a person, the Python client's pydantic errors and an agent
+could not tell which name. The walk's place (definition path, instance location) is kept in a
+thread cell (`current-place`, `at-place`, `re-rooted`; a parameterize per value would cost what
+the validation passes saved), and `issue` places what it makes below that path. The `path` stays
+the definition's (what fsh's `trace-rule` and fml's `trace-target` read); the OperationOutcome's
+`expression` is the location when there is one (fhir-mcp's `rule-line` and the Python client
+read it), else the path. Two entries with the same mistake are two issues now (they were merged
+by path and message). An issue the walk cannot place (an invariant, a slice's own rule) keeps the
+definition path. Every gate as it was (IG validation 330 clean, fp 0 / recall 22/26, 2957/2968).
+**A best practice rule is a warning** (the same day; fhir-examples' protocol entry "V-profile's
+validator, third pass"): the five fresh-set QuestionnaireResponses this validator refused and
+HL7's passes were one cause. SDC's sdcqr-2, which US Core's profile carries at severity error with
+the `elementdefinition-bestpractice` extension (a rule "implementers may choose to enforce at
+error level"), broken by both validators' reading and reported as a warning by HL7's
+(`constraint-severity`, `best-practice?`). The fresh set 3,111 -> 3,116 of 3,145, none refused
+that HL7's passes; the first set 740 of 741 as before.
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
