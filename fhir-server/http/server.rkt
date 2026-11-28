@@ -15,7 +15,9 @@
          (only-in fhir/serialize/fhir-json fhir-json->string)
          (only-in fhir/capability/runtime app? current-search-strict?)
          (only-in "router.rkt" handle/raw parse-query)
-         (only-in "conditional.rkt" resource-version version-headers not-modified? match-failure))
+         (only-in "conditional.rkt" resource-version version-headers not-modified? match-failure)
+         (only-in "conditional-writes.rkt" conditional-step answered? answered-status answered-js
+                  rewritten? rewritten-method rewritten-path rewritten-body))
 
 (provide
  bundle-with-urls
@@ -86,9 +88,25 @@
 ;; what only HTTP knows — the base url (the Host header: absolute links, `fullUrl`s, `Location`),
 ;; the client's preference for strict search, and the resource's version (http/conditional): its
 ;; ETag and Last-Modified, a conditional read answered 304, a write refused 412 when `If-Match`
-;; names another version than the current one.
+;; names another version than the current one. A write conditional on a search (If-None-Exist,
+;; PUT or DELETE on /{Type}?…: http/conditional-writes) is answered there, or becomes the plain
+;; write it is.
 (define (answer app method target headers body)
   (define-values (path query) (split-target target))
+  (define step (conditional-step app method path query headers body))
+  (cond
+    [(answered? step)
+     (define js (answered-js step))
+     (define v (and (= (answered-status step) 200) (resource-version js)))
+     (response (answered-status step) (if js (json-bytes js) #"") fhir-json (if v (version-headers v) '()))]
+    [(rewritten? step)
+     (answer app (rewritten-method step) (rewritten-path step)
+             (filter (lambda (h) (not (equal? (car h) "if-none-exist"))) headers)
+             (rewritten-body step))]
+    [else (answer/plain app method target path query headers body)]))
+
+;; answer/plain : the request as it is
+(define (answer/plain app method target path query headers body)
   (define base (base-of headers))
   (define refusal (and (member method '("PUT" "PATCH" "DELETE")) (assoc "if-match" headers)
                        (match-failure headers (current-version app path))))

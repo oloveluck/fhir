@@ -532,7 +532,19 @@ Read the resource again, apply your change to what you get, and send it with the
 
 @bold{A deleted resource is gone, not unknown.} Reading it answers 410 Gone and says where its
 earlier versions are; an id that was never used answers 404. (A server you declare can tell the
-two apart when it serves @tt{history-instance}; without it both are 404.)
+two apart when it serves @tt{history-instance}; without it both are 404.) The delete is a version
+of its own: the history lists it first, as a @tt{DELETE} with no resource, reading that version
+answers 410 too, and a resource made again under the same id is the version after it (a create:
+201).
+
+@bold{A write can depend on a search.} A create sent with @tt{If-None-Exist: identifier=urn:mrn|1}
+is made only when that search finds nothing; when it finds one resource, that resource is the
+answer (200) and nothing is written, so a client that retries a create makes no second copy.
+@tt{PUT /Patient?identifier=urn:mrn|1} updates the one patient the search finds, or creates it when
+there is none, and @tt{DELETE /Patient?identifier=urn:mrn|1} deletes the one it finds. A search
+that finds several is refused with 412 and nothing is written, and a parameter the server does
+not search on is a 400: ignored, it would let the write fall on resources the criteria do not
+name.
 
 @section[#:tag "store"]{The store}
 
@@ -798,14 +810,12 @@ two requests can shift what the next page holds. There are @tt{next} and @tt{pre
 @tt{first} or @tt{last}. A history is not paged.}
 @item{@bold{@tt{raco fhir-server load} validates only when asked.} Without @litchar{--validate} it
 stores and indexes what it reads.}
-@item{@bold{Conditional writes by search.} No conditional create, update or delete
-(@tt{If-None-Exist}, @tt{PUT /Type?param}, @tt{DELETE /Type?param}). @tt{If-Match} is checked just
-before the write, not in one step with it: two writers a few milliseconds apart can both pass. A
-PUT that creates a resource answers 201, except when it re-creates one that was deleted (200: the
-resource already has earlier versions).}
+@item{@bold{Conditional writes} (@tt{If-None-Exist}, @tt{PUT /Type?param}, @tt{DELETE /Type?param})
+act on one match at most: a search that finds several is refused (412), and a conditional delete
+never deletes several. @tt{If-Match} and a conditional write's search are checked just before the
+write, not in one step with it: two writers a few milliseconds apart can both pass.}
 @item{@bold{History.} Of one resource and of one type, with @litchar{_since} and @litchar{_count};
-not of the whole server, no @litchar{_at}, no paging. A delete removes the current resource and
-leaves its versions, but is not itself recorded as an entry.}
+not of the whole server, no @litchar{_at}, no paging.}
 @item{@bold{Transactions.} A server generated from a guide (and @racket[make-store-app]) accepts
 transaction and batch Bundles at @tt{POST /}: a transaction is all or nothing, and temporary
 @tt{urn:} references between its entries are resolved. Its entries may be POST, PUT and DELETE; no
@@ -823,8 +833,8 @@ transform, measure evaluation, US Core's @tt{$docref}) and the ones you declare.
 JSON is accepted where the two versions agree (the capability guide lists where they differ). A
 generated server has its guide's version.}
 @item{@bold{A generated server's CapabilityStatement} keeps some of the guide's flags as written
-(@tt{conditionalCreate}, @tt{conditionalUpdate}, @tt{versioning}, @tt{updateCreate}) although
-conditional requests are not done, and always lists transaction and batch.}
+(@tt{conditionalCreate}, @tt{conditionalUpdate}, @tt{versioning}, @tt{updateCreate}) as written,
+and always lists transaction and batch.}
 @item{@bold{Measures.} Proportion measures counted per patient; see the limits of
 @hyperlink["https://oloveluck.github.io/cql/"]{cql}.}]
 

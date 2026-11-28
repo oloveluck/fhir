@@ -279,7 +279,21 @@
   (check-equal? (errs (married "http://hl7.org/fhir/administrative-gender" "florp")) '(("code-invalid" . "CodeableConcept.coding.code")))
   (check-regexp-match #rx"`florp` is not a code of http://hl7.org/fhir/administrative-gender"
                       (issue-msg (car (validate-issues (married "http://hl7.org/fhir/administrative-gender" "florp")))))
-  (check-equal? (errs (married "http://example.org/nobody-knows" "florp")) '()))
+  (check-equal? (errs (married "http://example.org/nobody-knows" "florp")) '())
+  ;; … but a code is checked against its system as part of the binding in force, and under one
+  ;; whose value set cannot say (nothing here defines it — a VSAC set offline) nothing is said of
+  ;; the code: HL7's validator does the same. With a profile walked, its binding is the one in
+  ;; force (the base's, extensible to marital-status here, is not asked again)
+  (define vsac (hasheq 'resourceType "StructureDefinition" 'id "vsac" 'url "http://ex/vsac" 'name "VSAC"
+                       'type "Patient" 'baseDefinition "http://hl7.org/fhir/StructureDefinition/Patient"
+                       'derivation "constraint"
+                       'differential (hasheq 'element (list (hasheq 'id "Patient.maritalStatus" 'path "Patient.maritalStatus"
+                                                                    'binding (hasheq 'strength "extensible" 'valueSet "http://cts.nlm.nih.gov/fhir/ValueSet/nowhere"))))))
+  (check-equal? (errs (married "http://hl7.org/fhir/administrative-gender" "florp") #:profiles (list vsac)) '())
+  (define known (hash-set vsac 'differential (hasheq 'element (list (hasheq 'id "Patient.maritalStatus" 'path "Patient.maritalStatus"
+                                                                           'binding (hasheq 'strength "extensible" 'valueSet "http://hl7.org/fhir/ValueSet/marital-status"))))))
+  (check-equal? (errs (married "http://hl7.org/fhir/administrative-gender" "florp") #:profiles (list (hash-set known 'url "http://ex/known")))
+                '(("code-invalid" . "CodeableConcept.coding.code")) "a binding that can be decided decides the code"))
 
 ;; ---- a required binding on a coded value counts the coding's SYSTEM: `female` of some other
 ;; system is not a code of the value set (membership was asked by the code alone) -----------------

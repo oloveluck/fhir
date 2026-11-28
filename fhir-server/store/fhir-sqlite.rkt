@@ -10,7 +10,9 @@
 ;;;                          version_id, last_updated (ISO-8601 UTC), resource (SQLite JSONB: written
 ;;;                          with jsonb(?), read with json(resource); SQL reads it in place with
 ;;;                          `resource ->> '$.gender'`, json_extract, json_each)
-;;;   fhir_history         — immutable version history: + content_hash (SHA-1 of the JSON text)
+;;;   fhir_history         — immutable version history: + content_hash (SHA-1 of the JSON text) and
+;;;                          `deleted`: a delete is a version of its own (1), whose resource is the
+;;;                          type, id and meta alone (https://hl7.org/fhir/http.html#delete)
 ;;; A store written before JSONB (a `raw_resource` TEXT column) is migrated when it opens.
 ;;;   fhir_token_index     — search-param token index: param_name, system, code
 ;;;   fhir_reference_index — search-param reference index: param_name, target_type, target_id
@@ -135,6 +137,7 @@
       last_updated  TEXT NOT NULL,
       content_hash  TEXT NOT NULL,
       resource      BLOB NOT NULL,
+      deleted       INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (resource_type, id, version_id))"
    "CREATE TABLE IF NOT EXISTS fhir_token_index (
       resource_type TEXT NOT NULL,
@@ -207,7 +210,17 @@
   (add-written-dates! c)
   (for ([stmt (in-list schema-statements)]) (query-exec c stmt))
   (cover-written-dates! c)
-  (migrate-to-jsonb! c))
+  (migrate-to-jsonb! c)
+  (add-deleted-column! c))
+
+;; add-deleted-column! : connection -> void   a history made before deletes were versions gets the
+;; `deleted` column, 0 for every row it holds (each was a resource written)
+(define (add-deleted-column! c)
+  (once c
+        (lambda ()
+          (define cols (query-list c "SELECT name FROM pragma_table_info('fhir_history')"))
+          (and (pair? cols) (not (member "deleted" cols))))
+        (lambda () (query-exec c "ALTER TABLE fhir_history ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0"))))
 
 ;; once : connection (-> boolean) (-> void) -> void   a change to an older store's schema, made
 ;; once whoever opens the store first: `needed?` is asked again inside a write transaction, so a

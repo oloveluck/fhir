@@ -10,7 +10,7 @@
 ;;; a request is plain data, so an HTTP front end can be attached later without touching this core.
 
 (require racket/contract
-         racket/match
+         racket/match (only-in racket/set for/set set-member?)
          (only-in net/uri-codec uri-unreserved-encode)
          racket/list (only-in racket/string string-join string-append*) (only-in net/uri-codec uri-decode)
          (only-in fhir/suggest did-you-mean)
@@ -42,6 +42,7 @@
  (struct-out search-result)
  (struct-out search-result/ignored)
  (struct-out search-page)
+ (struct-out deleted-version)
  search-facts with-ignored
  current-app
  strict-search-app?
@@ -102,10 +103,16 @@
 ;; each field is a closure or #f (#f => that interaction is not supported)
 ;; patch   : (or #f (cons read update)) — the read/update pair PATCH uses (separate from the read and
 ;;           update interactions, which a server may declare independently)
-;; history : (or #f (-> (or/c string? #f) (listof (cons/c string? string?)) (or/c (listof fhir?) #f)))
-;;   instance history when given an id, type history when given #f; newest version first;
-;;   #f = this level is not supported
+;; history : (or #f (-> (or/c string? #f) (listof (cons/c string? string?))
+;;                        (or/c (listof (or/c fhir? deleted-version?)) #f)))
+;;   instance history when given an id, type history when given #f; newest version first, the
+;;   versions deletes made among them; #f = this level is not supported
+;; vread : id vid -> fhir | deleted-version | #f   (a deleted-version: that version is a delete, Gone)
 (struct repository (read vread create update delete search history patch) #:transparent)
+
+;; A DeletedVersion is (deleted-version type id version-id last-updated): the version of a resource
+;; a delete made — FHIR keeps it in the history, with no resource (https://hl7.org/fhir/http.html#delete)
+(struct deleted-version (type id version-id last-updated) #:transparent)
 
 (define (make-repository #:read [read #f] #:vread [vread #f] #:create [create #f]
                          #:update [update #f] #:delete [delete #f] #:search [search #f]
@@ -373,8 +380,14 @@
                                          (format "~a/~a was deleted; its versions remain at ~a/~a/_history"
                                                  (request-type req) (request-id req) (request-type req) (request-id req)))
                       (operation-outcome "error" "not-found" "resource not found")))]
-    [(vread)  (or (fn (request-id req) (request-vid req))
-                  (operation-outcome "error" "not-found" "version not found"))]
+    [(vread)  (match (fn (request-id req) (request-vid req))
+                [(? deleted-version? d)
+                 ;; the version a delete made is Gone (https://hl7.org/fhir/http.html#vread)
+                 (operation-outcome "error" "deleted"
+                                    (format "~a/~a was deleted at version ~a; the versions before it remain"
+                                            (request-type req) (request-id req) (deleted-version-version-id d)))]
+                [#f (operation-outcome "error" "not-found" "version not found")]
+                [node node])]
     [(create) (fn (request-body req))]
     [(update) (fn (request-id req) (request-body req))]
     [(delete) (begin (fn (request-id req))
@@ -431,24 +444,39 @@
 (define (stringify-params ps)
   (for/list ([p (in-list ps)]) (cons (format "~a" (car p)) (format "~a" (cdr p)))))
 
-;; make-history-bundle : (listof fhir) -> Bundle node   (type history, newest first)
-;; Each entry carries the version and what produced it: version 1 a create (POST, 201), later ones
-;; updates (PUT, 200) — https://hl7.org/fhir/http.html#history
+;; make-history-bundle : (listof (or/c fhir deleted-version)) -> Bundle node   (newest first)
+;; Each entry carries the version and what produced it: a create (POST, 201) for version 1 and for
+;; the version after a delete, an update (PUT, 200) for the others, and a delete (DELETE, 204) for
+;; the version a delete made, which has no resource — https://hl7.org/fhir/http.html#history
 (define (make-history-bundle versions)
+  ;; the versions that follow a delete: (type id version-id) of each delete, plus one
+  (define after-delete
+    (for/set ([v (in-list versions)] #:when (deleted-version? v))
+      (list (deleted-version-type v) (deleted-version-id v) (add1 (deleted-version-version-id v)))))
   (define entries
     (for/list ([n (in-list versions)])
-      (define js (node->jsexpr n))
-      (define meta (hash-ref js 'meta (hasheq)))
-      (define vid (hash-ref meta 'versionId "1"))
-      (define t (hash-ref js 'resourceType)) (define id (hash-ref js 'id ""))
-      (define first? (equal? vid "1"))
-      (hasheq 'fullUrl (format "~a/~a" t id)
-              'resource js
-              'request (hasheq 'method (if first? "POST" "PUT") 'url (if first? t (format "~a/~a" t id)))
-              'response (drop-false-hash
-                         (hasheq 'status (if first? "201 Created" "200 OK")
-                                 'etag (format "W/\"~a\"" vid)
-                                 'lastModified (hash-ref meta 'lastUpdated #f))))))
+      (cond
+        [(deleted-version? n)
+         (define t (deleted-version-type n)) (define id (deleted-version-id n))
+         (hasheq 'fullUrl (format "~a/~a" t id)
+                 'request (hasheq 'method "DELETE" 'url (format "~a/~a" t id))
+                 'response (hasheq 'status "204 No Content"
+                                   'etag (format "W/\"~a\"" (deleted-version-version-id n))
+                                   'lastModified (deleted-version-last-updated n)))]
+        [else
+         (define js (node->jsexpr n))
+         (define meta (hash-ref js 'meta (hasheq)))
+         (define vid (hash-ref meta 'versionId "1"))
+         (define t (hash-ref js 'resourceType)) (define id (hash-ref js 'id ""))
+         (define first? (or (equal? vid "1")
+                            (set-member? after-delete (list t id (or (string->number vid) 0)))))
+         (hasheq 'fullUrl (format "~a/~a" t id)
+                 'resource js
+                 'request (hasheq 'method (if first? "POST" "PUT") 'url (if first? t (format "~a/~a" t id)))
+                 'response (drop-false-hash
+                            (hasheq 'status (if first? "201 Created" "200 OK")
+                                    'etag (format "W/\"~a\"" vid)
+                                    'lastModified (hash-ref meta 'lastUpdated #f))))])))
   (ok-or-raise
    (from-json (hasheq 'resourceType "Bundle" 'type "history" 'total (length entries) 'entry entries))))
 

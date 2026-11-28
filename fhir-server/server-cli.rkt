@@ -305,7 +305,9 @@
     (query-exec c (format "CREATE TEMP VIEW ~a AS SELECT id, version_id AS versionId, last_updated AS lastUpdated, json(resource) AS resource FROM main.fhir_resources WHERE resource_type = '~a'"
                           (q t) (regexp-replace* #rx"'" t "''"))))
   (query-exec c "CREATE TEMP VIEW resources AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, json(resource) AS resource FROM main.fhir_resources")
-  (query-exec c "CREATE TEMP VIEW history AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, json(resource) AS resource FROM main.fhir_history")
+  ;; every version written (a delete is a version too, with no resource: left out here)
+  (query-exec c (string-append "CREATE TEMP VIEW history AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, json(resource) AS resource FROM main.fhir_history"
+                               (if (member "deleted" (query-list c "SELECT name FROM pragma_table_info('fhir_history')")) " WHERE deleted = 0" "")))
   (define r (with-handlers ([exn:fail? (lambda (e) (eprintf "fhir-server: sql: ~a\n" (exn-message e)) (exit 1))]) (query c sql)))
   (define (cell v)
     (define t (cond [(sql-null? v) ""] [(bytes? v) (bytes->string/utf-8 v #\?)] [else (format "~a" v)]))

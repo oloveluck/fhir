@@ -43,6 +43,7 @@
 
 (provide
  (struct-out search-param)
+ (struct-out deletion)
  (contract-out
   [default-search-params (hash/c symbol? (listof search-param?))]
   [fhir-create!  (->* (fhir-store? jsexpr?) (#:search-params hash?)
@@ -54,6 +55,11 @@
   [fhir-history-type (->* (fhir-store? string?) (#:since (or/c string? #f) #:count (or/c exact-nonnegative-integer? #f))
                           (listof jsexpr?))]
   [fhir-vread    (-> fhir-store? string? string? exact-positive-integer? (or/c jsexpr? #f))]
+  ;; the versions with the deletes among them (a delete is a version: https://hl7.org/fhir/http.html#history)
+  [fhir-history-entries (->* (fhir-store? string? (or/c string? #f))
+                             (#:since (or/c string? #f) #:count (or/c exact-nonnegative-integer? #f))
+                             (listof (or/c jsexpr? deletion?)))]
+  [fhir-version-deleted? (-> fhir-store? string? string? exact-positive-integer? boolean?)]
   [fhir-delete!  (-> fhir-store? string? string? boolean?)]
   [fhir-search   (->* (fhir-store? string? (listof (cons/c string? string?)))
                       (#:search-params hash?) (listof jsexpr?))]
@@ -139,42 +145,75 @@
   (write-index! c rtype id (or rows (index-rows stored (indexed-entries sps rtype))))
   vid)
 
-;; fhir-history : every version, NEWEST first
+;; A Deletion is (deletion type id version-id last-updated): the version a delete made — a version
+;; of its own, with no resource (https://hl7.org/fhir/http.html#delete)
+(struct deletion (type id version-id last-updated) #:transparent)
+
+;; fhir-history : every version written (deletes left out), NEWEST first
 (define (fhir-history store rtype id #:since [since #f] #:count [count #f])
-  (history-query store "resource_type=? AND id=?" (list rtype id) since count))
+  (history-query store "resource_type=? AND id=?" (list rtype id) since count #f))
 
 ;; fhir-history-type : every version of every resource of a type, newest first (type-level history)
 (define (fhir-history-type store rtype #:since [since #f] #:count [count #f])
-  (history-query store "resource_type=?" (list rtype) since count))
+  (history-query store "resource_type=?" (list rtype) since count #f))
 
-;; since : an instant (versions changed AT OR AFTER it; compared to the second) ; count : page size
-(define (history-query store where args since count)
+;; fhir-history-entries : store type id-or-#f -> (listof (or/c jsexpr deletion))   the versions of one
+;; resource (or of every resource of a type), the deletes among them, newest first
+(define (fhir-history-entries store rtype id #:since [since #f] #:count [count #f])
+  (if id
+      (history-query store "resource_type=? AND id=?" (list rtype id) since count #t)
+      (history-query store "resource_type=?" (list rtype) since count #t)))
+
+;; since : an instant (versions changed AT OR AFTER it; compared to the second) ; count : page size;
+;; deletes? : whether the versions deletes made are answered, as Deletions
+(define (history-query store where args since count deletes?)
   (call-with-store-connection store
     (lambda (c)
-      (define sql (string-append "SELECT json(resource) FROM fhir_history WHERE " where
+      (define sql (string-append "SELECT json(resource), deleted, resource_type, id, version_id, last_updated FROM fhir_history WHERE " where
+                                 (if deletes? "" " AND deleted = 0")
                                  (if since " AND substr(last_updated,1,19) >= ?" "")
                                  " ORDER BY last_updated DESC, version_id DESC"
                                  (if (exact-nonnegative-integer? count) (format " LIMIT ~a" count) "")))
       (define since-key (and since (let ([r (date-range since)]) (and r (substring (car r) 0 19)))))
-      (for/list ([raw (in-list (apply query-list c sql (append args (if since (list (or since-key since)) '()))))])
-        (fast-string->jsexpr raw)))))
+      (for/list ([row (in-list (apply query-rows c sql (append args (if since (list (or since-key since)) '()))))])
+        (if (eqv? (vector-ref row 1) 1)
+            (deletion (vector-ref row 2) (vector-ref row 3) (vector-ref row 4) (vector-ref row 5))
+            (fast-string->jsexpr (vector-ref row 0)))))))
 
-;; fhir-vread : one specific version from the immutable history
+;; fhir-vread : one specific version from the immutable history (#f for the version a delete made)
 (define (fhir-vread store rtype id vid)
   (define raw (call-with-store-connection store
                 (lambda (c) (query-maybe-value c "SELECT json(resource) FROM fhir_history
-                                                  WHERE resource_type=? AND id=? AND version_id=?"
+                                                  WHERE resource_type=? AND id=? AND version_id=? AND deleted = 0"
                                                rtype id vid))))
   (and raw (fast-string->jsexpr raw)))
 
-;; fhir-delete! : remove the CURRENT resource + its indexes (history is immutable and remains);
-;; -> #t when something was deleted
+;; fhir-version-deleted? : whether that version is the one a delete made (a vread of it is Gone)
+(define (fhir-version-deleted? store rtype id vid)
+  (call-with-store-connection store
+    (lambda (c) (eqv? 1 (query-maybe-value c "SELECT deleted FROM fhir_history WHERE resource_type=? AND id=? AND version_id=?"
+                                           rtype id vid)))))
+
+;; fhir-delete! : remove the CURRENT resource + its indexes, and keep the delete as a version of
+;; its own (history is immutable and remains); -> #t when something was deleted
 (define (fhir-delete! store rtype id)
   (call-with-store-transaction store (lambda (c) (delete-in! c rtype id))))
 
 (define (delete-in! c rtype id)
   (define existed? (and (query-maybe-value c "SELECT 1 FROM fhir_resources WHERE resource_type=? AND id=?"
                                            rtype id) #t))
+  ;; the delete is the next version: kept in the history with the type, id and meta alone, so the
+  ;; history says when the resource went, a vread of that version is Gone, and a resource made
+  ;; again continues the chain after it
+  (when existed?
+    (define prev (query-maybe-value c "SELECT MAX(version_id) FROM fhir_history WHERE resource_type=? AND id=?" rtype id))
+    (define vid (add1 (if (exact-integer? prev) prev 0)))
+    (define now (now-iso))
+    (define text (jsexpr->string (hasheq 'resourceType rtype 'id id
+                                         'meta (hasheq 'versionId (number->string vid) 'lastUpdated now))))
+    (query-exec c "INSERT INTO fhir_history (resource_type,id,version_id,last_updated,content_hash,resource,deleted)
+                   VALUES (?,?,?,?,?,jsonb(?),1)"
+                rtype id vid now (sha1 (open-input-bytes (string->bytes/utf-8 text))) text))
   (query-exec c "DELETE FROM fhir_resources WHERE resource_type=? AND id=?" rtype id)
   (for ([t (in-list index-tables)])                       ; every index of it, not only tokens and references
     (query-exec c (format "DELETE FROM ~a WHERE resource_type=? AND resource_id=?" (car t)) rtype id))
@@ -585,6 +624,21 @@
   (check-equal? (length (fhir-search store "Patient" (list (cons "identifier" "urn:mrn|123")))) 0)
   (check-equal? (length (fhir-history store "Patient" id)) 2)  ; history survives delete
   (check-false (fhir-delete! store "Patient" id))              ; second delete -> nothing to do
+  ;; the delete is version 3 of its own: in the history's entries (not among the versions
+  ;; written), its vread nothing, and a resource made again continues the chain after it
+  (define entries (fhir-history-entries store "Patient" id))
+  (check-equal? (length entries) 3)
+  (check-true (deletion? (car entries)))
+  (check-equal? (deletion-version-id (car entries)) 3)
+  (check-equal? (deletion-type (car entries)) "Patient")
+  (check-false (fhir-vread store "Patient" id 3))
+  (check-true (fhir-version-deleted? store "Patient" id 3))
+  (check-false (fhir-version-deleted? store "Patient" id 2))
+  (check-equal? (fhir-update! store (hasheq 'resourceType "Patient" 'id id 'gender "other")) 4)
+  (check-equal? (map (lambda (e) (if (deletion? e) 'deleted (hash-ref e 'gender))) (fhir-history-entries store "Patient" id))
+                '("other" deleted "male" "female"))
+  (check-equal? (length (fhir-history-entries store "Patient" #f)) (add1 (length (fhir-history-type store "Patient"))))
+  (check-true (fhir-delete! store "Patient" id))   ; the tests below count what is stored
 
   ;; ---- type-driven search semantics: what must NOT match matters as much as what must ----
   (define cat

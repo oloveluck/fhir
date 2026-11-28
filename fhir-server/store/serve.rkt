@@ -18,7 +18,7 @@
          "fhir-sqlite.rkt" "fhir-engine.rkt" "ig-params.rkt" "bundle.rkt"
          (only-in "search-index.rkt" indexed-kind?)
          (only-in fhir/capability/derive derive-capability-statement rc-server rc-resource)
-         (only-in fhir/capability/runtime make-repository build-app app? search-page)
+         (only-in fhir/capability/runtime make-repository build-app app? search-page deleted-version)
          (only-in fhir/serialize/from-json from-json)
          (only-in fhir/serialize/to-json node->jsexpr)
          (only-in fhir/result/result ok? ok-value ok-or-raise)
@@ -50,8 +50,12 @@
   (make-repository
    #:read   (lambda (id) (let ([js (fhir-read store rtype id)]) (and js (js->node js))))
    #:vread  (lambda (id vid)
-              (let ([js (fhir-vread store rtype id (or (string->number vid) 0))])
-                (and js (js->node js))))
+              (define n (or (string->number vid) 0))
+              (define js (and (exact-positive-integer? n) (fhir-vread store rtype id n)))
+              (cond [js (js->node js)]
+                    [(and (exact-positive-integer? n) (fhir-version-deleted? store rtype id n))
+                     (deleted-version rtype id n #f)]
+                    [else #f]))
    #:create (lambda (node)
               (define js (node->jsexpr node))
               (define-values (_t id _v) (fhir-create! store js #:search-params catalog))
@@ -71,9 +75,11 @@
    #:history (lambda (id params)
                (define since (let ([p (assoc "_since" params)]) (and p (cdr p))))
                (define count (let ([p (assoc "_count" params)]) (and p (string->number (cdr p)))))
-               (map js->node (if id
-                                 (fhir-history store rtype id #:since since #:count count)
-                                 (fhir-history-type store rtype #:since since #:count count))))
+               ;; the versions with the deletes among them, each delete a version of its own
+               (for/list ([e (in-list (fhir-history-entries store rtype id #:since since #:count count))])
+                 (if (deletion? e)
+                     (deleted-version (deletion-type e) (deletion-id e) (deletion-version-id e) (deletion-last-updated e))
+                     (js->node e))))
    #:search (lambda (params)
               (define qps (for/list ([p (in-list params)]) (cons (symbol->string (car p)) (cdr p))))
               (define-values (matches ignored total) (fhir-search/page store rtype qps #:search-params catalog))

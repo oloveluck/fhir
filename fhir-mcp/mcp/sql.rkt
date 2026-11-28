@@ -51,10 +51,18 @@
 ;; null-cell : -> sql-null   SQL's NULL (a value of the library's, so asked of it)
 (define (null-cell) (dynamic-require db-module 'sql-null))
 
+;; written-only : connection keyword-text -> string   the condition that leaves out the versions
+;; deletes made (fhir-server keeps a delete as a version of its own, with no resource), for a store
+;; whose history has that column
+(define (written-only c joiner)
+  (if (member "deleted" (query-list c "SELECT name FROM pragma_table_info('fhir_history')"))
+      (string-append joiner " deleted = 0")
+      ""))
+
 (define (history-resources store type)
   (define c (sqlite3-connect #:database store #:mode 'read-only))
   (dynamic-wind void
-                (lambda () (for/list ([t (in-list (query-list c "SELECT json(resource) FROM fhir_history WHERE resource_type = ? ORDER BY id, version_id" type))])
+                (lambda () (for/list ([t (in-list (query-list c (format "SELECT json(resource) FROM fhir_history WHERE resource_type = ?~a ORDER BY id, version_id" (written-only c " AND")) type))])
                              (fast-string->jsexpr t)))
                 (lambda () (disconnect c))))
 
@@ -233,7 +241,7 @@
                                        (q t) (string-replace t "'" "''"))))
                      (list (cons "resources" "CREATE TEMP VIEW resources AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_resources")
                            ;; every version of every resource, the current one included: what changed, when
-                           (cons "history" "CREATE TEMP VIEW history AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_history"))
+                           (cons "history" (format "CREATE TEMP VIEW history AS SELECT resource_type AS type, id, version_id AS versionId, last_updated AS lastUpdated, resource FROM main.fhir_history~a" (written-only c " WHERE"))))
                      ;; the search indexes (index-views): a row per resource and value of a search parameter
                      (for/list ([v (in-list index-views)] #:when (member (cadr v) stored))
                        (cons (car v) (format "CREATE TEMP VIEW ~a AS SELECT ~a FROM main.~a" (car v) (caddr v) (cadr v))))))]
@@ -392,6 +400,17 @@
   (check-equal? (table-rows (sql-query "SELECT resource FROM Patient WHERE id = 'b'" (hash) #:database db))
                 (list (hasheq 'resource (hasheq 'resourceType "Patient" 'id "b" 'gender "male"))))
   (check-exn #rx"names none of the tables: Patient, history, resources" (lambda () (sql-query "SELECT 1" (hash) #:database db)))
+  ;; a store whose history keeps deletes as versions: `history` is the versions written
+  (define db2 (make-temporary-file "sql-store-~a.db"))
+  (let ([w (sqlite3-connect #:database db2)])
+    (query-exec w "CREATE TABLE fhir_resources (resource_type TEXT, id TEXT, version_id INTEGER, last_updated TEXT, resource BLOB)")
+    (query-exec w "CREATE TABLE fhir_history (resource_type TEXT, id TEXT, version_id INTEGER, last_updated TEXT, resource BLOB, deleted INTEGER NOT NULL DEFAULT 0)")
+    (query-exec w "INSERT INTO fhir_history VALUES ('Patient', 'a', 1, '2025-01-01', jsonb('{\"resourceType\":\"Patient\",\"id\":\"a\",\"gender\":\"female\"}'), 0)")
+    (query-exec w "INSERT INTO fhir_history VALUES ('Patient', 'a', 2, '2025-01-02', jsonb('{\"resourceType\":\"Patient\",\"id\":\"a\"}'), 1)")
+    (disconnect w))
+  (check-equal? (table-rows (sql-query "SELECT versionId FROM history" (hash) #:database db2)) (list (hasheq 'versionId 1)))
+  (check-equal? (length (history-resources db2 "Patient")) 1)
+  (delete-file db2)
   ;; the store's views are made when a statement names them: by the statement, or by the statement
   ;; of a table it reads; a table of a store view's name (any case) stands in its place
   (check-equal? (table-rows (sql-query "SELECT n FROM women" (hash "women" (lambda () (defined "SELECT count(*) AS n FROM patient WHERE resource ->> '$.gender' = 'female'")))

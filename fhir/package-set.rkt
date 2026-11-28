@@ -14,8 +14,10 @@
 ;;;   A PackageSet is a (listof path): the package, its dependencies nearest first, each once, then
 ;;;     the core package — the order `current-sd-packages` reads them in.
 
-(require racket/contract racket/list racket/string
+(require racket/contract racket/list racket/string racket/port json
+         racket/file file/gunzip file/untar file/sha1
          (only-in "package.rkt" read-package)
+         (only-in "package-store.rkt" fhir-cache-directory)
          (only-in "spec-package.rkt" spec-package-path current-package-directories))
 
 (provide
@@ -30,8 +32,60 @@
   [core-package-name?   (-> string? boolean?)]
   [version-matches?     (-> string? string? boolean?)]))
 
-;; package-manifest : path -> jsexpr | #f   the package's package.json
-(define (package-manifest tgz) (let-values ([(m _r _e) (read-package tgz #:select (lambda (_) #f))]) m))
+;; package-manifest : path -> jsexpr | #f   the package's package.json, remembered for as long as
+;; the file is what it was (its size and time of writing). A guide's dependencies are found by
+;; reading the manifests of many packages, several times each; read-package inflated the whole
+;; archive for each one (US Core with what it depends on: 0.6 s for its set)
+(define manifests (make-hash))
+(define (package-manifest tgz)
+  (define p (path->complete-path (if (path? tgz) tgz (string->path tgz))))
+  (define key (and (file-exists? p) (list p (file-size p) (file-or-directory-modify-seconds p))))
+  (if key
+      (hash-ref! manifests key (lambda () (kept-manifest p key)))
+      (read-manifest p)))
+
+;; kept-manifest : path key -> jsexpr | #f   the manifest kept for this file in the machine's
+;; package cache (package-store's directory, <sha1>.manifest.json), else read and kept there. A
+;; core package writes package.json as its LAST entry: reading up to it inflates the whole
+;; archive (R4 0.9 s, R5 1.4 s), once a machine now. FHIR_PACKAGE_CACHE=0, or a cache that cannot
+;; be read or written, reads the archive
+(define (kept-manifest p key)
+  (define file (and (not (equal? (getenv "FHIR_PACKAGE_CACHE") "0"))
+                    (build-path (fhir-cache-directory) "packages"
+                                (string-append (sha1 (open-input-string (format "manifest|~s" (map (lambda (x) (if (path? x) (path->string x) x)) key))))
+                                               ".manifest.json"))))
+  (define kept (and file (file-exists? file)
+                    (with-handlers ([exn:fail? (lambda (_) #f)]) (call-with-input-file file read-json))))
+  (cond [(hash? kept) kept]
+        [else (define m (read-manifest p))
+              (when (and file m)
+                (with-handlers ([exn:fail? void])
+                  (make-directory* (let-values ([(d _n _x) (split-path file)]) d))
+                  (call-with-atomic-output-file file (lambda (o _tmp) (write-json m o)))))
+              m]))
+
+;; read-manifest : path -> jsexpr | #f   package/package.json, read up to that entry and no further
+;; (a guide's archive holds it first; a core package's last). A file that is no package: #f
+(define (read-manifest tgz)
+  (with-handlers ([exn:fail? (lambda (_) #f)])
+    (define-values (pin pout) (make-pipe (* 1024 1024)))
+    (define inflate (thread (lambda ()
+                              (with-handlers ([exn:fail? void])
+                                (call-with-input-file tgz (lambda (gz) (gunzip-through-ports gz pout))))
+                              (close-output-port pout))))
+    (define found
+      (let/ec return
+        (untar pin #:handle-entry
+               (lambda (kind name content size attribs)
+                 (define bs (if (and (eq? kind 'file) (> size 0)) (read-bytes size content) #""))   ; untar reads on from where this stops
+                 (when (and (eq? kind 'file) (equal? (path->string name) "package/package.json"))
+                   (return bs))
+                 '()))
+        #f))
+    (kill-thread inflate)
+    (close-input-port pin)
+    (define m (and (bytes? found) (with-handlers ([exn:fail? (lambda (_) #f)]) (bytes->jsexpr found))))
+    (and (hash? m) m)))
 
 ;; package-file : PackageRef -> path | #f   the package's file, #f when nothing has that name
 (define (package-file s)
@@ -127,6 +181,14 @@
   (check-equal? (core-package-file "6.0.0-ballot4") "hl7.fhir.r6.core.tgz")
   (check-false (core-package-file "3.0.2"))
   (check-false (package-file "no.such.package"))
+  ;; a manifest read up to its entry, kept or not, is the one read-package reads whole
+  (for ([n (in-list '("hl7.fhir.uv.ips" "hl7.fhir.r4.core"))])
+    (define f (package-file n))
+    (when f
+      (define-values (whole _r _e) (read-package f #:select (lambda (_) #f)))
+      (check-equal? (read-manifest f) whole)
+      (check-equal? (package-manifest f) whole)))
+  (check-false (read-manifest (string->path "/no/such/file.tgz")))
   ;; over the family's packages, when they are installed: mCODE builds on US Core and Genomics
   ;; Reporting, and is written for R4
   (define mcode (package-file "hl7.fhir.us.mcode-4.0.0"))

@@ -657,7 +657,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | **FHIRPath vs HL7's Java engine** | **172,527 pairs: R4 core and US Core search parameters and invariants over US Core's examples, each search expression continued in 116 ways, changed copies; a fifth of the expressions read, the rest held out** | fhir-examples `value-experiment/reference/fhirpath-reference.rkt` (its test, over the kept reference answers) | **129,564/145,371 held-out pairs the same answer (89.1%); 144,123 (99.1%) apart from the reference's departures from the specification. A fresh set (IPS, mCODE: 142,488 pairs, none read): 127,795 (89.7%); 141,834 (99.5%); 66 under no class** |
 | **FML vs the validator's StructureMap engine** | **the mapping tutorial's 25 maps over its 18 sources, and both changed in one way: 887 pairs; a third of the maps read** | fhir-examples `value-experiment/reference/map-reference.rkt` (its test); fml `tests/reference-test.rkt` | **544/606 held-out pairs the same result (89.8%); 271/281 read (96.4%). Matchbox's own maps over FHIR resources, both engines as R4 (667 pairs, all read by the fourth pass): 561 the same, every difference classed, none this engine's. HL7's structure-mapping tests under the same changes (199 pairs, none read): 183** |
 | **FSH vs SUSHI, text by text** | **SUSHI 3.21.1 as a library and this compiler over 2,802 whole FSH texts: SUSHI's 515 importer test inputs, the golden texts and the guide's blocks, each also changed in one rule line; a third of the published texts read** | fhir-examples `value-experiment/reference/fsh-reference.rkt` (its test, over SUSHI's kept answers); fsh `tests/sushi-reference-test.rkt` | **the same answer on 2,799 texts (99.9%; 98.8% after the second pass, 84.0% after the first, 57.6% as first measured), the same verdict on 2,799; this compiler alone reports an error on none; the 3 left are SUSHI's own failures (2) and one SUSHI quirk** |
-| **validator vs HL7's, on changed examples** | **six US Core 9.0.0 profiles: their 28 published examples and 713 single changes to them (an element removed, a code or its system changed, a list entry doubled, a value that is no value, an element the type lacks), each judged by HL7's Java validator** | fhir-examples `value-experiment/verify/profile-cases.rkt` (`ceiling`; its test) | **740/741 verdicts agree (582/583 held out); 0 refused that HL7's passes. The next six profiles (3,145 cases, all read since): 3,145 agree** |
+| **validator vs HL7's, on changed examples** | **six US Core 9.0.0 profiles: their 28 published examples and 713 single changes to them (an element removed, a code or its system changed, a list entry doubled, a value that is no value, an element the type lacks), each judged by HL7's Java validator** | fhir-examples `value-experiment/verify/profile-cases.rkt` (`ceiling`; its test) | **740/741 verdicts agree (582/583 held out); 0 refused that HL7's passes. The next six profiles (3,145 cases, all read since): 3,145 agree. A third set (20 profiles, 1,118 cases; 1,095 unread): 1,100, one refused by decision** |
 
 A later pass closed every remaining gap that needs no external terminology — the corpora drove
 these fixes, each one a real defect:
@@ -2138,9 +2138,7 @@ resources, 813,540 of them Observations, a 4.5 GB store — to run an agent benc
   it — it probes with the values the INDEX holds — and now makes 2468 probes (2446).
   `tests/period-search-test.rkt` (an open period, a zone, both sort orders).
 
-Left, named: a delete is not a history entry (it needs a tombstone row in `fhir_history`, vread of
-it answering 410, and fhir-mcp's `history`/`trail` views taught to show or skip it); conditional
-create/update/delete by search; `If-Match` is checked just before the write, not atomically with
+Left, named: `If-Match` is checked just before the write, not atomically with
 it; `first`/`last` paging links; `_summary` other than `count`, `_elements`.
 
 ## Speed, measured on a benchmark (2026-11-13)
@@ -3467,6 +3465,48 @@ choice element was ever checked; a nested QuestionnaireResponse item is a `conte
 `_` object was not checked at all (`primitive-element-issues`: `{}`, the element's own children
 when a profile describes them, else an id and extensions). The fresh set 3,116 -> 3,145 of 3,145;
 the first set 740 of 741; every gate as it was.
+
+## Faster to start, deletes as versions, writes on a condition (2026-11-27)
+The owner: "continue improving the performance and correctness of the fhir library". Measured
+first, each time.
+- **A package's manifest is read up to its entry, once a machine** (`fhir/package-set`
+  `package-manifest`, `read-manifest`, `kept-manifest`): it inflated the whole archive to read
+  `package.json`, several times per package, so `raco fhir-validate --package hl7.fhir.us.core`
+  spent 578 ms finding US Core's dependencies (2 ms now). A guide's archive holds `package.json`
+  first; a core package's holds it LAST (R4 0.9 s, R5 1.4 s to reach it), so the manifest is kept
+  in the machine's package cache (`<cache>/packages/<sha1>.manifest.json`, keyed like the package
+  store; `FHIR_PACKAGE_CACHE=0` reads the archive) and remembered per file in a process. One US
+  Core validation from the shell: 1.65 -> 0.61 s (mCODE's whole set: 0.47 s). And UCUM's tables are
+  built from a literal made when fhirpath compiles (fhirpath/CLAUDE.md): the first Quantity checked
+  cost 90 ms.
+- **A delete is a version of its own** (fhir-server `store/fhir-engine.rkt` `delete-in!`,
+  `deletion`, `fhir-history-entries`, `fhir-version-deleted?`; `fhir-sqlite.rkt` `deleted` column,
+  `add-deleted-column!` for an older store): the next version number, kept in `fhir_history` with
+  the type, id and meta alone. The history Bundle lists it as `DELETE` with no resource (and the
+  version after it as a create), a vread of it is 410, a resource made again continues after it
+  (https://hl7.org/fhir/http.html#delete). `fhir-history` and `fhir-vread` still answer the
+  versions WRITTEN, as their readers expect (fhir-mcp's history, staging, views over versions; the
+  SQL `history` views leave deletes out on a store that has the column). capability/runtime's
+  `deleted-version` is what a repository's history and vread answer for one.
+  `tests/conditional-http-test.rkt`.
+- **Writes conditional on a search** (fhir-server `http/conditional-writes.rkt`, consulted first by
+  `http/server.rkt`'s `answer`): a create with `If-None-Exist` is made only when its search finds
+  nothing (one found: 200 and that resource, nothing written); `PUT /Type?search` updates the one
+  match or creates; `DELETE /Type?search` deletes the one match; several matches are 412. The
+  search is held strictly: a parameter the server does not search on is the client's 400, never
+  ignored. `tests/conditional-writes-test.rkt`.
+- **The binding in force decides a code** (fhir-validation `validate.rkt` `within-binding`,
+  `undecided-binding?`, `partial-value-set?`, `codes-left-to-profiles`; fhir-examples' V-profile
+  sixth pass): a coding's code is checked against its code system as part of the binding in force,
+  and is left undecided under one whose value set cannot say (nothing here defines it — a VSAC set
+  offline — or it imports one nothing defines), as HL7's validator leaves it; with a profile
+  walked, the base type's walk leaves codes to the profile, whose snapshot holds the bindings in
+  force (US Core's Specimen.type was held to the base's example binding). fhir-tx's
+  `missing-imports`: an expansion of a value set with such an import is marked
+  `valueset-unclosed`, and `$validate-code` answers "cannot be decided", naming the import. A third
+  set of US Core cases (20 profiles, 1,118 cases judged by HL7's validator, measured unread first:
+  1,095): 1,100 now, one refused that HL7's passes and kept by decision (text alone under a
+  required binding, which FHIR's `required` refuses).
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

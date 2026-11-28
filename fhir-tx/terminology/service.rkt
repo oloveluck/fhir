@@ -29,6 +29,7 @@
          (only-in fhir/serialize/jsexpr-util drop-false)
          (only-in fhir/serialize/from-json from-json)
          (only-in fhir/result/result ok? ok-value)
+         (only-in fhir/canonical canonical-url canonical-version)
          "index.rkt")
 (provide
  resolver/c
@@ -65,7 +66,8 @@
   [implicit-vcl-valueset (-> string? (or/c hash? #f))]
   ;; the code systems a value set selects from by rule whose content is not here: its expansion
   ;; is short of them (marked valueset-unclosed) and membership of their codes is undecided
-  [rule-systems-without-content (->* (resolver/c string?) ((or/c string? #f) (listof string?)) (listof string?))])
+  [rule-systems-without-content (->* (resolver/c string?) ((or/c string? #f) (listof string?)) (listof string?))]
+  [missing-imports (->* (resolver/c string?) ((or/c string? #f) (listof string?)) (listof string?))])
  (struct-out version-policy)
  (struct-out exn:fail:terminology)
  ;; the index layer (index.rkt): resolvers over packages or resources, and what they hold
@@ -400,6 +402,20 @@
                           s)))])
      found)))
 
+;; missing-imports : resolver url [version] [visited] -> (listof url)   the value sets this one imports
+;; (`compose.include.valueSet`, transitively) that nothing here defines. Expanded without them (not
+;; strict: the validator, FHIRPath) the expansion is short of whatever they hold, so "not in the
+;; expansion" says nothing of a code — US Core's location types import a VSAC set
+(define (missing-imports resource url [version #f] [visited '()])
+  (define vs (and (not (member url visited)) (or (resource url version) (implicit-vcl-valueset url))))
+  (remove-duplicates
+   (for*/list ([inc (in-list (if vs (jlist (jref vs 'compose) 'include) '()))]
+               [v (in-list (jlist inc 'valueSet))] #:when (string? v)
+               [m (in-list (if (or (resource (canonical-url v) (canonical-version v)) (implicit-vcl-valueset v))
+                               (missing-imports resource (canonical-url v) (canonical-version v) (cons url visited))
+                               (list v)))])
+     m)))
+
 ;; the standard marker of an expansion that is not every code of the value set
 (define unclosed-extension
   (hasheq 'url "http://hl7.org/fhir/StructureDefinition/valueset-unclosed" 'valueBoolean #t))
@@ -446,7 +462,8 @@
            'compose definition
            'expansion
            (drop-false
-            (hasheq 'extension (and (pair? (rule-systems-without-content resource url vs-version))
+            (hasheq 'extension (and (or (pair? (rule-systems-without-content resource url vs-version))
+                                        (pair? (missing-imports resource url vs-version)))
                                     (list unclosed-extension))
                     'total total
                     'offset (and (> offset 0) offset)
@@ -661,17 +678,25 @@
     (and (not (hash-ref outcome 'ok #f)) (not (hash-ref outcome 'error? #f)) (hash-ref outcome 'code #f)
          (not soft)
          (let ([absent (remove ucum-system (rule-systems-without-content resource url vs-version))]
+               [missing (missing-imports resource url vs-version)]
                [system (hash-ref outcome 'system #f)])
-           (cond [(null? absent) #f]
+           (cond [(pair? missing) (car missing)]       ; an import not here may hold any code
+                 [(null? absent) #f]
                  [(not system) (car absent)]
                  [(member system absent) system]
                  [else #f]))))
+  (define missing-import? (and undecided (member undecided (missing-imports resource url vs-version)) #t))
   (define verdict
-    (if undecided
-        (hash-set outcome 'message
-                  (format "Whether '~a' is in the value set cannot be decided here: the value set selects from ~a by rule, and that code system's content is not in the packages"
-                          (hash-ref outcome 'code) undecided))
-        outcome))
+    (cond
+      [missing-import?
+       (hash-set outcome 'message
+                 (format "Whether '~a' is in the value set cannot be decided here: the value set imports ~a, which is not in the packages"
+                         (hash-ref outcome 'code) undecided))]
+      [undecided
+       (hash-set outcome 'message
+                 (format "Whether '~a' is in the value set cannot be decided here: the value set selects from ~a by rule, and that code system's content is not in the packages"
+                         (hash-ref outcome 'code) undecided))]
+      [else outcome]))
   (values
    (hasheq 'resourceType "Parameters"
            'parameter
@@ -1236,6 +1261,24 @@
     (check-true (hash-ref (param (tx-validate r "http://x/by-rule" "a" "http://x/cs") "result") 'valueBoolean))
     (check-false (param (tx-validate r "http://x/by-rule" "b" "http://x/cs") "x-caused-by-unknown-system"))
     (check-false (param (tx-validate r "http://x/listed" "2" absent) "x-caused-by-unknown-system")))
+  ;; a value set that imports one nothing here defines (a VSAC set offline) is short of what the
+  ;; import holds: its expansion is marked, and a code not in it is "cannot say", naming the import
+  (let* ([gone "http://absent.example/ValueSet/vsac"]
+         [r (resources->resolver
+             (list cs
+                   (vs "http://x/half" 'include (list (inc 'system "http://x/cs" 'concept (list (hasheq 'code "a")))
+                                                      (inc 'valueSet (list gone))))
+                   (vs "http://x/whole" 'include (list (inc 'valueSet (list "http://x/half"))))))]
+         [param (lambda (ps name) (for/or ([q (in-list (hash-ref ps 'parameter))]) (and (equal? (hash-ref q 'name) name) q)))])
+    (check-equal? (missing-imports r "http://x/half") (list gone))
+    (check-equal? (missing-imports r "http://x/whole") (list gone))
+    (check-equal? (missing-imports r "http://x/ab") '())
+    (check-equal? (hash-ref (hash-ref (tx-expand r "http://x/half") 'expansion) 'extension) (list unclosed-extension))
+    (define undecided (tx-validate r "http://x/whole" "b" "http://x/cs"))
+    (check-false (hash-ref (param undecided "result") 'valueBoolean))
+    (check-equal? (hash-ref (param undecided "x-caused-by-unknown-system") 'valueCanonical) gone)
+    (check-regexp-match #rx"imports http://absent.example/ValueSet/vsac" (hash-ref (param undecided "message") 'valueString))
+    (check-true (hash-ref (param (tx-validate r "http://x/whole" "a" "http://x/cs") "result") 'valueBoolean)))
   (check-equal? (codes "http://x/leaf") '("c"))
   (check-equal? (codes "http://x/gen") '("a" "b" "c"))
   (check-equal? (codes "http://x/both") '("b"))

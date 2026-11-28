@@ -42,7 +42,7 @@
          (only-in fhir/serialize/jsexpr-util drop-false)
          (only-in fhir/primitives/temporal calendar-problem)
          (only-in fhirpath/terminology tx-service-validate tx-service-expand)
-         (only-in fhir/terminology/service expand/json validate-code/json packages->resolver)
+         (only-in fhir/terminology/service expand/json validate-code/json packages->resolver missing-imports)
          (only-in fhir/terminology/index find-concept cs-index csix-by-code)
          (only-in fhir/registry registered-resource)
          (only-in fhir/data-source current-data-source data-source-all)
@@ -148,8 +148,11 @@
         (define of-datatypes (if inv? (datatype-invariant-issues rt node) '()))
         (for/fold ([acc (reverse (append dup-issues (unchecked-profile-issues rt json profiles) of-datatypes
                                          (resource-rule-issues json inv?)))] #:result (reverse acc))
-                  ([i (in-list indexes)] #:when i)
-          (define issues (append (at-place rt rt (lambda () (walk i rt json tx)))
+                  ([i (in-list indexes)] [n (in-naturals)] #:when i)
+          ;; with a profile walked too, its bindings are the ones in force (its snapshot holds the
+          ;; base's elements, the bindings it changes changed): the base walk leaves codes to it
+          (define (walked) (walk i rt json tx))
+          (define issues (append (at-place rt rt (if (and (zero? n) (pair? (cdr indexes))) (lambda () (codes-left-to-profiles walked)) walked))
                                  (if inv? (invariant-issues i rt node) '())))
           (for/fold ([acc acc]) ([is (in-list issues)])
             (define k (list (issue-code is) (or (issue-location is) (issue-path is)) (issue-msg is)))
@@ -393,13 +396,28 @@
 ;; per-instance value checks, against the element's concrete (narrowed) type `tc`
 ;; value-issues : Index ElementDef type-code loc value tx -> (listof Issue)
 (define (value-issues idx ce tc loc v tx)
-  (append (empty-object-issues loc v)
-          (fixed-pattern-issues ce loc v)
-          (primitive-issues tc loc v)
-          (ucum-issues tc loc v)
-          (unknown-code-issues tc loc v)
-          (binding-issues ce loc v tx)
-          (recurse-issues idx ce tc loc v tx)))
+  (within-binding ce tc tx
+    (lambda ()
+      (append (empty-object-issues loc v)
+              (fixed-pattern-issues ce loc v)
+              (primitive-issues tc loc v)
+              (ucum-issues tc loc v)
+              (unknown-code-issues tc loc v)
+              (binding-issues ce loc v tx)
+              (recurse-issues idx ce tc loc v tx)))))
+
+;; current-binding : thread cell of (cons value-set-url tx) | #f   the binding of the coded element
+;; the walk is in. A CodeableConcept's codings are walked against the CodeableConcept datatype,
+;; whose `coding` element has no binding: the one that decides them is the element's above.
+(define current-binding (make-thread-cell #f))
+;; within-binding : ElementDef type-code tx thunk -> any   the thunk with the binding in force for a
+;; value of this element: its own; a Coding's enclosing one when it has none; none for other values
+(define (within-binding ce tc tx thunk)
+  (define b (hash-ref ce 'binding #f))
+  (define vs (and (hash? b) (let ([u (hash-ref b 'valueSet #f)]) (and (string? u) (canonical-url u)))))
+  (define saved (thread-cell-ref current-binding))
+  (thread-cell-set! current-binding (cond [vs (cons vs tx)] [(equal? tc "Coding") saved] [else #f]))
+  (begin0 (thunk) (thread-cell-set! current-binding saved)))
 
 ;; empty-object-issues : loc value -> (listof Issue)   `{}` says nothing: an element that is there
 ;; has a value, children or extensions (a fact about the JSON, whatever the definition says)
@@ -413,7 +431,12 @@
 ;; (content `complete`, its concepts listed) and the code is not one of them, the code does not
 ;; exist — whatever the element's binding (an extensible or example binding lets other SYSTEMS in,
 ;; not codes a system does not define). A system nothing here defines, one held in part, or a
-;; version asked for that is not here decides nothing.
+;; version asked for that is not here decides nothing; nor does a coding under a binding whose
+;; value set cannot say whether it holds the coding (one nothing here defines — a VSAC set
+;; offline —, or one that takes systems whose content is not here). HL7's validator checks a code
+;; against its system as part of the binding it decides, and says nothing of the code when it
+;; cannot decide the binding; and the code systems a core package copies from terminology.hl7.org
+;; are a release's snapshot, which a newer code is not in (fhir-examples' V-profile, sixth pass).
 (define (unknown-code-issues tc loc v)
   (define system (and (hash? v) (hash-ref v 'system #f)))
   (define code (and (hash? v) (hash-ref v 'code #f)))
@@ -426,6 +449,7 @@
                (equal? (hash-ref cs 'content #f) "complete") (pair? (hash-ref cs 'concept '()))))
      '()]
     [(find-concept cs code) '()]
+    [(undecided-binding? code system) '()]
     ;; a code system that is not case sensitive holds the code in any case
     [(and (not (eq? (hash-ref cs 'caseSensitive #f) #t))
           (for/or ([k (in-hash-keys (csix-by-code (cs-index cs)))]) (and (string? k) (string-ci=? k code))))
@@ -434,6 +458,29 @@
      (list (issue "error" "code-invalid" (string-append loc ".code")
                   (format "`~a` is not a code of ~a~a" code system
                           (did-you-mean code (filter string? (hash-keys (csix-by-code (cs-index cs))))))))]))
+
+;; undecided-binding? : code system -> boolean   the coding is under a binding that cannot say
+;; whether its value set holds it, or the walk is the base type's while a profile's is made too
+(define (undecided-binding? code system)
+  (define b (thread-cell-ref current-binding))
+  (or (thread-cell-ref codes-left?)
+      (and b (or (partial-value-set? (car b))
+                 (eq? (member? (cdr b) (car b) code system) 'unknown)))))
+;; partial-value-set? : url -> boolean   the value set imports one nothing in context defines (US
+;; Core's location types import a VSAC set): what it holds cannot be known here
+(define (partial-value-set? vs)
+  (define r (context-terminology))
+  (and r (hash-ref! (hash-ref! partial-sets r make-hash) vs
+                    (lambda () (pair? (with-handlers ([exn:fail? (lambda (_) '())]) (missing-imports r vs)))))))
+(define partial-sets (make-weak-hasheq))
+;; codes-left-to-profiles : thunk -> any   the base type's walk when a profile is walked as well: a
+;; code's check against its system is the profile's, under the binding the profile puts in force
+;; (US Core's Specimen.type is bound to a VSAC set, the base's to v2-0487 as an example)
+(define codes-left? (make-thread-cell #f))
+(define (codes-left-to-profiles thunk)
+  (define saved (thread-cell-ref codes-left?))
+  (thread-cell-set! codes-left? #t)
+  (begin0 (thunk) (thread-cell-set! codes-left? saved)))
 
 ;; ucum-issues : type-code loc value -> (listof Issue)   a Quantity coded in UCUM must carry a UCUM
 ;; code: `mmHg` is not one (`mm[Hg]` is), and a unit nobody can convert breaks every comparison made

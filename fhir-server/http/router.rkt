@@ -159,7 +159,15 @@
      (define t (sym type))
      (case method
        [("GET")    (values 'read (dispatch app (read-request t id)))]
-       [("PUT")    (with-body body (lambda (n) (if (same-type? n t) (values 'update (dispatch app (update-request t id n))) (wrong-type n t "PUT"))))]
+       [("PUT")    (with-body body (lambda (n)
+                                    (cond
+                                      [(not (same-type? n t)) (wrong-type n t "PUT")]
+                                      [else
+                                       ;; a PUT that makes the resource created it (201), a re-creation
+                                       ;; after a delete included, whose version is not the first
+                                       (define before (there-now? app t id))
+                                       (define answer (dispatch app (update-request t id n)))
+                                       (values (if (eq? before 'absent) 'create 'update) answer)])))]
        [("DELETE") (values 'delete (dispatch app (delete-request t id)))]
        ;; JSON Patch (application/json-patch+json): the body is an array of operations
        [("PATCH")
@@ -279,6 +287,15 @@
     ;; a PUT that made the resource (its first version) created it: 201, as FHIR says, with Location
     [(and (eq? kind 'update) (first-version? node)) 201]
     [else 200]))
+
+;; there-now? : app type id -> 'present | 'absent | 'unknown   whether a read finds the resource
+;; (a server that serves no read cannot say, and a PUT's answer is then judged by its version)
+(define (there-now? app t id)
+  (define r (with-handlers ([exn:fail? (lambda (_) #f)]) (dispatch app (read-request t id))))
+  (cond [(not (fhir? r)) 'unknown]
+        [(not (eq? (fhir-type r) 'OperationOutcome)) 'present]
+        [(member (issue-code r) '("not-found" "deleted")) 'absent]
+        [else 'unknown]))
 
 ;; first-version? : node -> boolean   the resource a write answered is version 1
 (define (first-version? node)

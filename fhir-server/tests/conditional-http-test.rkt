@@ -8,7 +8,7 @@
 ;;;   - a read with `If-None-Match` naming the current version is 304, with no body;
 ;;;   - an update with `If-Match` naming another version is 412 and writes nothing;
 ;;;   - a resource that was deleted is 410 Gone (its versions can still be read), one that never
-;;;     was is 404;
+;;;     was is 404; the delete is a version of its own, in the history and Gone when read;
 ;;;   - `POST /Type/_search` with the parameters as a form is the search.
 ;;; None of these were there: a client could not cache a read or guard a write.
 
@@ -78,5 +78,25 @@
 (check-regexp-match #rx"was deleted" (hash-ref (car (hash-ref (json gone) 'issue)) 'diagnostics))
 (check-equal? (response-status (ask "GET" (string-append path "/_history/1"))) 200)
 (check-equal? (response-status (ask "GET" "/Patient/never-was")) 404)
+
+;; the delete is a version of its own (https://hl7.org/fhir/http.html#delete): the history lists it
+;; first, with no resource; a vread of that version is Gone; a resource made again is the version
+;; after it, a create
+(define hist (json (ask "GET" (string-append path "/_history"))))
+(check-equal? (hash-ref hist 'total) 3)
+(define newest (car (hash-ref hist 'entry)))
+(check-equal? (hash-ref (hash-ref newest 'request) 'method) "DELETE")
+(check-equal? (hash-ref (hash-ref newest 'request) 'url) (substring path 1))
+(check-equal? (hash-ref (hash-ref newest 'response) 'etag) "W/\"3\"")
+(check-false (hash-ref newest 'resource #f))
+(define gone3 (ask "GET" (string-append path "/_history/3")))
+(check-equal? (response-status gone3) 410)
+(check-regexp-match #rx"deleted at version 3" (hash-ref (car (hash-ref (json gone3) 'issue)) 'diagnostics))
+(check-equal? (response-status (ask "GET" (string-append path "/_history/9"))) 404)
+(define again (ask "PUT" path '() (patient "female")))
+(check-equal? (response-status again) 201 "made again: created, though not its first version")
+(check-equal? (header again "ETag") "W/\"4\"")
+(define hist2 (hash-ref (json (ask "GET" (string-append path "/_history"))) 'entry))
+(check-equal? (map (lambda (e) (hash-ref (hash-ref e 'request) 'method)) hist2) '("POST" "DELETE" "PUT" "POST"))
 
 (delete-directory/files dir)
