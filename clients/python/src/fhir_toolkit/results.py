@@ -391,7 +391,8 @@ class Match:
     """One code a code maps to: what `Toolkit.translate` answers a list of.
 
     `relationship` is how the source code relates to it ("equivalent",
-    "source-is-narrower-than-target", … or R4's "equal", "wider", …).
+    "source-is-narrower-than-target", … or R4's "equal", "wider", …). `source` is the
+    ConceptMap that made the match (its canonical and version), when no map was named.
     """
 
     def __init__(self, part: Dict[str, Any]):

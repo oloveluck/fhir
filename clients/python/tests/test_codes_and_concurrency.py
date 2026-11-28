@@ -76,7 +76,7 @@ class Codes(unittest.TestCase):
         self.assertEqual(self.fhir.translate("florp", GENDER, concept_map=TO_V2), [])
         # no map named: the maps in context between the two systems, each match saying which
         found = self.fhir.translate("female", GENDER, target=V2)
-        self.assertEqual([(m.code, m.source) for m in found], [("F", TO_V2)])
+        self.assertEqual([(m.code, m.source) for m in found], [("F", TO_V2 + "|4.0.1")])   # the map, at its version
         self.assertEqual(found[0].coding(), {"system": V2, "code": "F"})
         self.assertGreater(len(self.fhir.translate("female", GENDER)), 1)
 
