@@ -3552,6 +3552,24 @@ Measured and not done: answering tables by column instead of a dict a row (a 20,
 columns for pandas (FHIR's partial dates do not fit datetime64); a typed stub for `AsyncToolkit`
 (its methods are made in a loop, so an editor does not list them).
 
+## Named agentfhir (2026-11-28)
+The owner: a FHIR implementation designed for agents, to be marketed as one ("toolkit" named
+neither). The Python package is **`agentfhir`** (import and PyPI name; free on PyPI, no GitHub
+repository of that name), so every `fhir_toolkit`/`fhir-toolkit` in the sections above is it now:
+`clients/python/src/agentfhir/`, `context.py` (was `toolkit.py`), `tests/test_context.py`. The
+class is **`FhirContext`** (FHIR at one version; `FhirContext.r4()`, `.r5()`), `AsyncFhirContext`,
+`FhirEngineNotFound` (was `ToolkitNotFound`); the pydantic annotations take `context=`, and a
+notebook's state is `notebook.context`. Not published, so no aliases were kept. The Racket
+packages, collections and `raco` commands keep their names, and the server's own words (the
+function table, `raw`) are unchanged.
+- **`agentfhir mcp …`** (`cli.py`, a console script): the engine's MCP server with the arguments
+  given — the `fhir-mcp` a wheel carries, else `fhir-mcp` on the PATH, else `raco fhir-mcp`
+  (`exec`, so the server speaks over the command's own stdin and stdout). `agentfhir version`.
+  The wheel does NOT carry `fhir-mcp` yet: built together here, the two executables with the
+  twelve packages compress to 122 MB (fhir-api alone 96 MB), over PyPI's 100 MB; the shipped
+  wheel carries two core packages (62 MB) and fhir-mcp would add about 26 MB. What it takes: one
+  executable answering both protocols, or a wheel of fewer packages.
+
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam
   and the sd profiling lang exercise delegation; whole-package IG codegen is not wired yet.

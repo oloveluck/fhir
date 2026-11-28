@@ -24,7 +24,7 @@
 
 ;; the README's examples are on the page, with what they print
 (check-true (file-exists? readme))
-(check-regexp-match #rx"fhir = Toolkit\\(\\)" text)
+(check-regexp-match #rx"fhir = FhirContext\\(\\)" text)
 (check-regexp-match #rx"# \\['Ann Lee'\\]" text)
 (check-regexp-match #rx"# input.fsh:3:3: error: profile: P: `nmae` is not an element of Patient" text)
 (check-false (regexp-match? #rx"the example is in clients/python/README.md" text))

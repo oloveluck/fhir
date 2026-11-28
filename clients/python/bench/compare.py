@@ -18,7 +18,7 @@ import statistics
 import sys
 import time
 
-from fhir_toolkit import Toolkit
+from agentfhir import FhirContext
 
 try:
     import fhirpathpy
@@ -68,17 +68,17 @@ def main(argv):
     rows = []                                           # (task, toolkit, fhirpathpy, fhir.resources)
 
     started = time.perf_counter()
-    fhir = Toolkit()
+    fhir = FhirContext()
     made = (time.perf_counter() - started) * 1000
     fhir.fhirpath("name.family", patient(0))
     first = (time.perf_counter() - started) * 1000
-    rows.append(("Toolkit() returns; then the first answer", "%s; %s" % (shown(made), shown(first)), "no start", "no start"))
+    rows.append(("FhirContext() returns; then the first answer", "%s; %s" % (shown(made), shown(first)), "no start", "no start"))
     fhir.close()
     # a first validation reads the definitions too: asked of a new process, at once
     started = time.perf_counter()
-    fhir = Toolkit()
+    fhir = FhirContext()
     assert fhir.validate(patient(0)).ok
-    rows.append(("A new Toolkit's first validation", shown((time.perf_counter() - started) * 1000), "no start", "no start"))
+    rows.append(("A new FhirContext's first validation", shown((time.perf_counter() - started) * 1000), "no start", "no start"))
 
     expression = "name.given.first() + ' ' + name.family.first()"
     path = fhirpathpy.compile(expression) if fhirpathpy else None
@@ -104,9 +104,9 @@ def main(argv):
 
     workers = os.cpu_count() or 1
     if workers > 1:
-        shared = Toolkit(workers=min(workers, 4))
+        shared = FhirContext(workers=min(workers, 4))
         assert all(shared.validate_each(patients))          # (every worker has started and validated)
-        rows.append(("…with `Toolkit(workers=%d)`" % min(workers, 4),
+        rows.append(("…with `FhirContext(workers=%d)`" % min(workers, 4),
                      shown(median_ms(lambda i: shared.validate_each(patients), 3)) + " (one call)", None, None))
         shared.close()
     if Patient:
@@ -140,7 +140,7 @@ def main(argv):
     rows.append(("A SQL aggregate over that view, data loaded",
                  shown(median_ms(lambda i: fhir.sql(count, project=views, data=loaded), 5)), None, None))
 
-    print("| task | fhir-toolkit | fhirpathpy | fhir.resources |")
+    print("| task | agentfhir | fhirpathpy | fhir.resources |")
     print("|---|---|---|---|")
     for task, ours, theirs, models in rows:
         print("| %s | %s | %s | %s |" % (task, ours or "—", theirs or "—", models or "—"))
@@ -158,7 +158,7 @@ def main(argv):
                 theirs = "refused"
         else:
             theirs = "—"
-        print("  %s: fhir-toolkit %s, fhir.resources %s" % (what, ours, theirs))
+        print("  %s: agentfhir %s, fhir.resources %s" % (what, ours, theirs))
     fhir.close()
     return 0
 

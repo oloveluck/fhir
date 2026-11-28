@@ -1,6 +1,6 @@
 """Typed FHIR models in and out.
 
-The toolkit's values are FHIR JSON: dicts and lists. A program that holds its
+The engine's values are FHIR JSON: dicts and lists. A program that holds its
 resources as objects of a model library gives them as they are, and asks for
 answers as objects with `model=`:
 

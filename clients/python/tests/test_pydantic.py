@@ -27,9 +27,9 @@ try:
 except ImportError:                                         # pragma: no cover
     Patient = None
 
-from fhir_toolkit import Toolkit  # noqa: E402
-from fhir_toolkit._server import encode  # noqa: E402
-from fhir_toolkit.toolkit import _parts  # noqa: E402
+from agentfhir import FhirContext  # noqa: E402
+from agentfhir._server import encode  # noqa: E402
+from agentfhir.context import _parts  # noqa: E402
 
 ANN = {"resourceType": "Patient", "id": "ann", "gender": "female", "birthDate": "1980-02-28", "name": [{"family": "Lee", "given": ["Ann"]}]}
 
@@ -38,9 +38,9 @@ ANN = {"resourceType": "Patient", "id": "ann", "gender": "female", "birthDate": 
 class WithPydantic(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from fhir_toolkit import pydantic as held
+        from agentfhir import pydantic as held
         cls.held = held
-        cls.fhir = held.use(Toolkit())
+        cls.fhir = held.use(FhirContext())
 
     @classmethod
     def tearDownClass(cls):
@@ -169,8 +169,8 @@ class Workers(unittest.TestCase):
 
     def test_workers_answer_as_one_process_does(self):
         patients = [dict(ANN, id="p%d" % i, gender="florp" if i % 7 == 0 else "female") for i in range(300)]
-        with Toolkit() as one, Toolkit(workers=3) as three:
-            self.assertEqual(repr(three), "Toolkit(FHIR 4.0.1, running, 3 workers)")
+        with FhirContext() as one, FhirContext(workers=3) as three:
+            self.assertEqual(repr(three), "FhirContext(FHIR 4.0.1, running, 3 workers)")
             self.assertEqual(three.fhirpath_each("id", patients), one.fhirpath_each("id", patients))
             self.assertEqual([o.resource for o in three.validate_each(patients)], [o.resource for o in one.validate_each(patients)])
             self.assertEqual(three.fhirpath_each("id", patients[:5]), [["p%d" % i] for i in range(5)])   # a short list: this process
@@ -178,7 +178,7 @@ class Workers(unittest.TestCase):
                 three.fhirpath_each("nosuch(", patients)
             self.assertEqual(three.fhirpath_each("id", patients[:70])[69], ["p69"])                    # and the workers go on
         with self.assertRaises(ValueError):
-            Toolkit(workers=0, start=False)
+            FhirContext(workers=0, start=False)
 
 
 if __name__ == "__main__":

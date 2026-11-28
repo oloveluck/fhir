@@ -3,7 +3,7 @@
 Written by clients/python/generate.py from clients/functions.json, the table
 the function server answers from (`raco fhir-api functions`). Each method sends
 its arguments as they are and returns the server's answer as plain JSON values;
-`fhir_toolkit.Toolkit` builds the friendlier interface on top.
+`agentfhir.FhirContext` builds the friendlier interface on top.
 """
 from typing import Any, Dict, Optional
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write src/fhir_toolkit/_functions.py from ../functions.json.
+"""Write src/agentfhir/_functions.py from ../functions.json.
 
 clients/functions.json is the toolkit's table of functions (written by
 `raco fhir-api functions --json`). This script turns it into one Python method
@@ -14,14 +14,14 @@ import textwrap
 
 HERE = pathlib.Path(__file__).resolve().parent
 TABLE = HERE.parent / "functions.json"
-TARGET = HERE / "src" / "fhir_toolkit" / "_functions.py"
+TARGET = HERE / "src" / "agentfhir" / "_functions.py"
 
 HEADER = '''"""The toolkit's functions, one method each. GENERATED: do not edit.
 
 Written by clients/python/generate.py from clients/functions.json, the table
 the function server answers from (`raco fhir-api functions`). Each method sends
 its arguments as they are and returns the server's answer as plain JSON values;
-`fhir_toolkit.Toolkit` builds the friendlier interface on top.
+`agentfhir.FhirContext` builds the friendlier interface on top.
 """
 from typing import Any, Dict, Optional
 

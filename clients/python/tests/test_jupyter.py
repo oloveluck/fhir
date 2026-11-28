@@ -51,13 +51,13 @@ class TheMagics(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.shell = InteractiveShell.instance()
-        cls.shell.run_line_magic("load_ext", "fhir_toolkit.jupyter")
-        from fhir_toolkit.jupyter import notebook
+        cls.shell.run_line_magic("load_ext", "agentfhir.jupyter")
+        from agentfhir.jupyter import notebook
         cls.notebook = notebook
 
     @classmethod
     def tearDownClass(cls):
-        cls.notebook.toolkit.close()
+        cls.notebook.context.close()
 
     def setUp(self):
         self.shell.run_line_magic("fhir", "reset")
@@ -77,7 +77,7 @@ class TheMagics(unittest.TestCase):
         self.assertEqual([r["resourceType"] for r in self.shell.user_ns["defined"]], ["StructureDefinition", "Patient"])
         self.assertEqual(self.shell.run_line_magic("fhir", ""), ["AdultPatient.fsh"])
         # the profile is there for Python cells, and for a later FSH cell
-        outcome = self.notebook.toolkit.validate({"resourceType": "Patient", "id": "z"}, "AdultPatient", project=self.notebook.project)
+        outcome = self.notebook.context.validate({"resourceType": "Patient", "id": "z"}, "AdultPatient", project=self.notebook.project)
         self.assertEqual(outcome.messages(), ["Patient.birthDate: error: minimum required = 1, but found 0"])
         _, _, wrong = self.cell("fsh", "", "Instance: cy\nInstanceOf: AdultPatient\n* gender = #male\n")
         self.assertRegex(wrong, r"^cy\.fsh:1:1: error: instance cy: Patient\.birthDate: minimum required = 1")
@@ -123,8 +123,8 @@ class TheMagics(unittest.TestCase):
         self.assertEqual(self.shell.run_line_magic("fhir", ""), ["A1c.cql", "a1c.vcl", "pts.sof"])
 
     def test_data_loaded_once_is_a_cell_s_data(self):
-        from fhir_toolkit.jupyter import notebook
-        self.shell.user_ns["kept"] = notebook.toolkit.load([PATIENT, OBSERVATION])
+        from agentfhir.jupyter import notebook
+        self.shell.user_ns["kept"] = notebook.context.load([PATIENT, OBSERVATION])
         answer, _, wrong = self.cell("sof", "-d kept", "SELECT id FROM Patient")
         self.assertEqual(wrong, "")
         self.assertEqual(rows(answer), [{"id": "ann"}])

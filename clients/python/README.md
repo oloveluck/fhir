@@ -1,29 +1,36 @@
-# fhir-toolkit
+# agentfhir
 
-[FHIR](https://hl7.org/fhir/) is the standard for health data, and it comes with small languages:
-one for what valid data looks like (FSH), one for clinical logic (CQL), one for questions of a
-record (FHIRPath), one for converting data (the mapping language), one for sets of codes (VCL),
-one for tables (SQL on FHIR). This package is all of them from Python: compile, check, run and
-validate, with every problem reported at its line.
+A FHIR implementation designed for agents. [FHIR](https://hl7.org/fhir/) is the standard for
+health data, and it comes with small languages: one for what valid data looks like (FSH), one for
+clinical logic (CQL), one for questions of a record (FHIRPath), one for converting data (the
+mapping language), one for sets of codes (VCL), one for tables (SQL on FHIR). This package is all
+of them, from Python and as an MCP server: compile, check, run and validate, with every problem
+reported at its line, in words a model can act on.
 
 It is not on the Python Package Index yet. A wheel is built by the repository's `wheels`
-workflow (its artifacts), and it carries the toolkit itself, so nothing else has to be installed:
+workflow (its artifacts), and it carries the engine itself, so nothing else has to be installed:
 
 ```sh
-pip install fhir_toolkit-0.1.0-py3-none-<your platform>.whl
+pip install agentfhir-0.1.0-py3-none-<your platform>.whl
 ```
 
-Calls go to one process of the toolkit. It starts in the background when you make a `Toolkit`
-(making one does not wait for it) and answers each call in well under a millisecond of overhead.
-While your program does something else, it loads what your first calls will need, so that they do
-not wait for it.
+A `FhirContext` is FHIR at one version (`FhirContext()` is R4, `FhirContext.r5()` R5). Calls go
+to one process of the engine. It starts in the background when you make the context (making one
+does not wait for it) and answers each call in well under a millisecond of overhead. While your
+program does something else, it loads what your first calls will need, so that they do not wait
+for it.
+
+For an agent with tools, `agentfhir mcp --workspace <dir>` is the engine's MCP server over a
+folder of FHIR and its languages (`agentfhir mcp init <dir>` makes one; for Claude Code,
+`claude mcp add fhir -- agentfhir mcp --workspace <dir>`). The wheel does not carry that server
+yet: the command runs a standalone `fhir-mcp`, else `raco fhir-mcp`.
 
 ## A first example
 
 ```python
-from fhir_toolkit import Toolkit
+from agentfhir import FhirContext
 
-fhir = Toolkit()
+fhir = FhirContext()
 
 patient = {
     "resourceType": "Patient", "id": "ann", "gender": "female", "birthDate": "1980-02-28",
@@ -66,7 +73,7 @@ False
 A mistake in the FSH itself is an exception that knows its line:
 
 ```python
-from fhir_toolkit import FhirError
+from agentfhir import FhirError
 
 try:
     fhir.fsh("Profile: P\nParent: Patient\n* nmae 1..1\n")
@@ -220,7 +227,7 @@ store: who wrote which version, when and why.
 import os
 import tempfile
 
-from fhir_toolkit import FhirError
+from agentfhir import FhirError
 
 store = os.path.join(tempfile.mkdtemp(), "clinic.db")
 a1c = {
@@ -326,7 +333,7 @@ ann
 ```
 
 pydantic checks the shape a model declares. FHIR asks more: a code its value set holds, the
-rules of the base specification, whatever a profile adds. `fhir_toolkit.pydantic` runs the
+rules of the base specification, whatever a profile adds. `agentfhir.pydantic` runs the
 toolkit's validation, and FHIRPath, where pydantic runs its own, and what is wrong is a pydantic
 `ValidationError` whose `loc` is the element:
 
@@ -334,9 +341,9 @@ toolkit's validation, and FHIRPath, where pydantic runs its own, and what is wro
 from typing import Annotated
 from fhir.resources.R4B.patient import Patient
 from pydantic import ValidationError
-from fhir_toolkit.pydantic import Holds, Valid, checked, use
+from agentfhir.pydantic import Holds, Valid, checked, use
 
-use(fhir)                                   # the Toolkit these ask
+use(fhir)                                   # the FhirContext these ask
 
 class Intake(BaseModel):
     patient: Annotated[Patient, Valid(), Holds("birthDate.exists()", "a birth date is required")]
@@ -366,14 +373,14 @@ Ito
 ```
 
 `Valid(profile)` and `checked(Model, profile)` take a canonical too, with the guide's package in
-context (`Toolkit(packages=[...])`). Each check is one call of the toolkit, so in a loop over
+context (`FhirContext(packages=[...])`). Each check is one call of the engine, so in a loop over
 thousands of objects use `validate_each`. An error's `loc` is where it is in the resource, inside a
 datatype too (`Patient.name[0].given[1]` is `("name", 0, "given", 1)`).
-`fhir_toolkit.plain(obj)` and `fhir_toolkit.typed(Model, resource)` are the two conversions.
+`agentfhir.plain(obj)` and `agentfhir.typed(Model, resource)` are the two conversions.
 
 ## Many resources, and data you use more than once
 
-A call crosses to the toolkit's process and back, so ask one question of many resources in one
+A call crosses to the engine's process and back, so ask one question of many resources in one
 call, not in a loop:
 
 ```python
@@ -390,7 +397,7 @@ valid
 Patient.gender: error: code `florp` not in required value set http://hl7.org/fhir/ValueSet/administrative-gender; it holds female, male, other, unknown
 ```
 
-On a machine with several cores, `Toolkit(workers=4)` answers such a list with four processes at
+On a machine with several cores, `FhirContext(workers=4)` answers such a list with four processes at
 once, each taking a part, and puts the answers back in order: about three times quicker for
 validation, for four times the memory (some 150 MB a process).
 
@@ -416,16 +423,16 @@ Data(2 resources)
 
 ## From several threads, and from asyncio
 
-A `Toolkit` is safe to share between threads. With `workers=n` it keeps n processes, and calls
+A `FhirContext` is safe to share between threads. With `workers=n` it keeps n processes, and calls
 made at the same time are answered each by its own: a web server's requests do not wait for one
-another. `AsyncToolkit` has the same methods as coroutines, for asyncio programs:
+another. `AsyncFhirContext` has the same methods as coroutines, for asyncio programs:
 
 ```python
 import asyncio
-from fhir_toolkit import AsyncToolkit
+from agentfhir import AsyncFhirContext
 
 async def main():
-    async with AsyncToolkit(workers=2) as tk:
+    async with AsyncFhirContext(workers=2) as tk:
         outcomes = await asyncio.gather(*(tk.validate(p) for p in patients))
         print([outcome.ok for outcome in outcomes])
         print((await tk.lookup(gender, "male")).display)
@@ -469,7 +476,7 @@ of a value in its source that it could not read.
 
 ```python
 import warnings
-from fhir_toolkit import FhirWarning
+from agentfhir import FhirWarning
 
 reading = {"resourceType": "Observation", "id": "w1", "status": "final", "code": {"text": "weight"},
            "effectiveDateTime": "2025-03-01T08:00:00"}
@@ -502,8 +509,8 @@ id,given,born
 ann,Ann,1980-02-28
 ```
 
-`Toolkit(timeout=30)` gives every call 30 seconds. A call that takes longer, or that you
-interrupt (Ctrl-C, a notebook's stop button), stops the toolkit's process: the call raises, the
+`FhirContext(timeout=30)` gives every call 30 seconds. A call that takes longer, or that you
+interrupt (Ctrl-C, a notebook's stop button), stops the engine's process: the call raises, the
 next call starts a new process, and data you loaded is loaded again by itself. Nothing an
 interrupted call was computing is ever taken for a later call's answer.
 
@@ -512,7 +519,7 @@ interrupted call was computing is ever taken for a later call's answer.
 Every error is a `FhirError`, and each kind is its own class, so you catch what you mean:
 
 ```python
-from fhir_toolkit import FhirNotFound, FhirSourceError
+from agentfhir import FhirNotFound, FhirSourceError
 
 try:
     fhir.lookup("http://loinc.org", "4548-4")
@@ -536,9 +543,9 @@ FhirSourceError: Bad.cql:2:11: error: in define "A": unknown function 'Lst' (did
 | `FhirValidationError` | a resource was refused: `write` wrote nothing, or `raise_for_errors()` was asked; `.result` is the `Outcome` or `Stage` | |
 | `FhirNotFound` | a value set, code system, ConceptMap or profile nothing in context defines, or a code its system lacks | `LookupError` |
 | `FhirOperationError` | an operation refused otherwise; `.outcome` is FHIR's OperationOutcome, `.issue_code` its code | |
-| `FhirUsageError` | a call the toolkit does not take: an argument it has no use for, a resource that is not JSON | `ValueError` |
-| `FhirTimeout` | a call took longer than the Toolkit's `timeout` (its process is started again) | `TimeoutError` |
-| `FhirProcessError` | the toolkit's process ended or could not start | |
+| `FhirUsageError` | a call the engine does not take: an argument it has no use for, a resource that is not JSON | `ValueError` |
+| `FhirTimeout` | a call took longer than the FhirContext's `timeout` (its process is started again) | `TimeoutError` |
+| `FhirProcessError` | the engine's process ended or could not start | |
 
 ## Beside other FHIR libraries for Python
 
@@ -548,7 +555,7 @@ runtimes that a Python program starts as a process: HL7's validator (Java), SUSH
 FHIR Shorthand (Node), the CQL translator and engines (Java, JavaScript), the mapping engine
 (Java). This package is one install, and each row below is a method on one object:
 
-| | fhir-toolkit | fhirpathpy | fhir.resources |
+| | agentfhir | fhirpathpy | fhir.resources |
 |---|---|---|---|
 | FHIRPath | yes | yes | — |
 | check a resource against the base specification | yes: shape, codes, rules | — | shape |
@@ -563,7 +570,7 @@ FHIR Shorthand (Node), the CQL translator and engines (Java, JavaScript), the ma
 | a class for each resource type | no: values are JSON; it takes theirs | — | yes |
 
 **How much of FHIRPath.** HL7 publishes a test suite for FHIRPath: 934 expressions over
-resources, each with the answer it must give. This toolkit gives 932 of them, compared with their
+resources, each with the answer it must give. This engine gives 932 of them, compared with their
 types. `fhirpathpy` 2.2.4, asked the same expressions and counted right whenever its values equal
 the expected ones whatever their type, gives 788; of the rest, 102 raise an error (`lowBoundary`,
 `highBoundary`, `sort`, `matchesFull`, `precision` are not implemented there).
@@ -572,7 +579,7 @@ the expected ones whatever their type, gives 788; of the rest, 102 raise an erro
 **What a check catches.** One published US Core example, changed in one way, eight ways
 (`python bench/validation.py`):
 
-| one published example, with | fhir-toolkit | fhir.resources | HL7's validator (Java) |
+| one published example, with | agentfhir | fhir.resources | HL7's validator (Java) |
 |---|---|---|---|
 | a code its required value set does not hold (`gender: florp`) | refused | accepted | refused |
 | a day the calendar lacks (`birthDate: 1980-02-30`) | refused | refused | refused |
@@ -583,8 +590,8 @@ the expected ones whatever their type, gives 788; of the rest, 102 raise an erro
 | an element the profile requires, left out (a US Core Patient's `name`) | refused | accepted | refused |
 | a code the profile fixes, changed (a blood pressure's `code`) | refused | accepted | refused |
 
-The toolkit decides as HL7's validator does on all eight. On a larger set — 741 changed copies of
-US Core examples, each judged by HL7's validator — the two agree on 740, and the toolkit refuses
+The engine decides as HL7's validator does on all eight. On a larger set — 741 changed copies of
+US Core examples, each judged by HL7's validator — the two agree on 740, and the engine refuses
 nothing that HL7's passes.
 
 **What a check costs.** The 230 examples US Core 9.0.0 publishes, each held to the profiles it
@@ -592,33 +599,33 @@ claims, from nothing to an answer for every one:
 
 | checked by | against | the whole run | a resource, once running | passed |
 |---|---|---|---|---|
-| fhir-toolkit | the base specification and US Core's profiles | 2.1 s | 1.2 ms | 230 of 230 |
+| agentfhir | the base specification and US Core's profiles | 2.1 s | 1.2 ms | 230 of 230 |
 | HL7's validator (Java), as a process | the same | 49 s | 35 ms | 230 of 230 |
 | fhir.resources | the base specification's shape | 0.4 s | 1.8 ms | 230 of 230 |
 
 (HL7's validator spends most of its run loading the guide; the time for a resource is its own
 account of validating. Its first run on a machine, which fills its package cache, took 79 s
 here. Versions: fhirpathpy 2.2.4, fhir.resources 8.3.0, HL7's validator_cli as downloaded in
-November 2026, with its terminology server off, as the toolkit's checks are offline.)
+November 2026, with its terminology server off, as the engine's checks are offline.)
 
 ## How fast it is
 
-The toolkit is a compiled program in a process of its own. Work done inside one call is quick;
+The engine is a compiled program in a process of its own. Work done inside one call is quick;
 each call also pays for crossing to that process and back (about 0.1 ms). So one call over many
 resources beats a loop of calls, and data you use twice is worth loading once.
 
 `python bench/compare.py` times it beside two pure-Python libraries. On the machine this was
 written on (medians; 5,000 resources where it says many):
 
-| task | fhir-toolkit | fhirpathpy | fhir.resources |
+| task | agentfhir | fhirpathpy | fhir.resources |
 |---|---|---|---|
-| making a `Toolkit`; then its first answer | 4 ms; 0.72 s | no start | no start |
-| a new `Toolkit`'s first validation | 1.1 s | no start | no start |
+| making a `FhirContext`; then its first answer | 4 ms; 0.72 s | no start | no start |
+| a new `FhirContext`'s first validation | 1.1 s | no start | no start |
 | one FHIRPath expression, one Patient | 0.15 ms | 0.050 ms | — |
 | the same expression over 5,000 Patients | 68 ms (one call) | 227 ms (a loop) | — |
 | validate one Patient | 0.22 ms | — | 0.034 ms |
 | validate 5,000 Patients | 417 ms (one call) | — | 195 ms (a loop) |
-| …with `Toolkit(workers=4)` | 100 ms (one call) | — | — |
+| …with `FhirContext(workers=4)` | 100 ms (one call) | — | — |
 | …the Patients given as `fhir.resources` objects | 673 ms (one call) | — | 266 ms (writing them as JSON) |
 | one value from each of 5,000 Observations | 152 ms (a view) | 54 ms (a loop) | 343 ms (a loop) |
 | the same, the data loaded once | 85 ms (a view) | — | — |
@@ -627,7 +634,7 @@ written on (medians; 5,000 resources where it says many):
 
 Read a row as what the task costs each way, not as one engine against another: they do not do
 the same work. `fhirpathpy` is timed with its expression compiled once, walking Python dicts.
-`fhir.resources` checks that the data has the right shape; the toolkit's validation also checks
+`fhir.resources` checks that the data has the right shape; the engine's validation also checks
 codes against their value sets and the rules of profiles (it refuses `"gender": "florp"`, which
 `fhir.resources` accepts). An object costs what its library takes to write it as JSON: about
 0.05 ms each for `fhir.resources`, which is most of that row; a plain pydantic model writes
@@ -646,21 +653,21 @@ FHIRPath answer after 1.2 s and a first validation after 1.5 s. Everything after
 the same.
 
 Validation reads FHIR's own definitions from the core package. The first time that happens on a
-machine the toolkit unpacks them into your cache directory (27 MB for FHIR R4, about a second
+machine the engine unpacks them into your cache directory (27 MB for FHIR R4, about a second
 more, once); later processes read from there. `FHIR_CACHE_DIR` names another directory, and
 `FHIR_PACKAGE_CACHE=0` keeps the definitions in memory and writes nothing.
 
 The real cost of validating is the resource, not the call: a small Patient takes 0.05 ms inside
-the toolkit, a US Core example with its narrative and profile about 0.6 ms.
+the engine, a US Core example with its narrative and profile about 0.6 ms.
 
 ## In a notebook
 
-`%load_ext fhir_toolkit.jupyter` adds a cell magic for each language. What a cell defines stays
+`%load_ext agentfhir.jupyter` adds a cell magic for each language. What a cell defines stays
 for the cells after it, so a profile written in one cell is what a later cell validates against,
 and a view written in one is a table the next joins.
 
 ```ipython
-%load_ext fhir_toolkit.jupyter
+%load_ext agentfhir.jupyter
 people = [patient, a1c]
 ```
 
@@ -706,8 +713,8 @@ FROM Observation
 | `%fhir` | lists what the notebook has defined; `%fhir reset` forgets it |
 
 `-o name` keeps a cell's answer in a variable, and `-d` takes loaded data as well
-(`clinic = notebook.toolkit.load(resources)`). From Python cells the same state is
-`fhir_toolkit.jupyter.notebook` (`.toolkit`, `.project`). A `Table` and a validation's `Outcome`
+(`clinic = notebook.context.load(resources)`). From Python cells the same state is
+`agentfhir.jupyter.notebook` (`.context`, `.project`). A `Table` and a validation's `Outcome`
 show themselves as HTML in a notebook, with or without pandas.
 
 ## What is where
@@ -728,34 +735,34 @@ show themselves as HTML in a notebook, with or without pandas.
 | a FHIR search | `search("Observation?code=4548-4", data)` |
 | any FHIR operation | `operation("$expand", inputs={...})` |
 | resources to store | `write(resources, data=store, reason=…)`; `stage(…)` then `.commit(reason)` |
-| threads or asyncio | `Toolkit(workers=n)`; `AsyncToolkit` (every method awaited) |
-| pydantic models | give them as resources; `model=` for answers; `Valid`, `Holds`, `checked` from `fhir_toolkit.pydantic` |
+| threads or asyncio | `FhirContext(workers=n)`; `AsyncFhirContext` (every method awaited) |
+| pydantic models | give them as resources; `model=` for answers; `Valid`, `Holds`, `checked` from `agentfhir.pydantic` |
 | several files in several languages | `compile(project)`, `check(project)`, `run(path, project=…, data=…)`, `explain(…)` |
 
 A resource is a dict, an object of a model library, JSON text, or the path of a JSON file.
 A `Table` has `.rows`, `.columns`, `.notes`, `.column(name)`, `.to_pandas()`, `.to_polars()`,
 `.to_csv()`, `.to_models(Model)` and, for a search, `.resources(model=None)`.
 
-`fhir.raw` has every function exactly as the toolkit defines it, answering plain JSON.
+`fhir.raw` has every function exactly as the engine defines it, answering plain JSON.
 
 ## Limits
 
-- The toolkit has no resource classes of its own: values are JSON, and objects of a model
+- The engine has no resource classes of its own: values are JSON, and objects of a model
   library are converted at the edge (above). It does not generate pydantic classes from a
-  profile: a profile is enforced when an object is checked (`fhir_toolkit.pydantic`).
+  profile: a profile is enforced when an object is checked (`agentfhir.pydantic`).
 - `write` and `stage` write to a SQLite store or a directory of FHIR JSON, not to a FHIR
   server.
-- A `Toolkit` reads one version of FHIR: `Toolkit("5.0.0")` is a second process for R5. R4
+- A `FhirContext` reads one version of FHIR: `FhirContext.r5()` is a second process for R5. R4
   (4.0.1) is the default.
 - Numbers pass through JSON, so a decimal written `1.50` arrives as `1.5`.
 - A wheel carries the FHIR R4 and R5 core packages. An implementation guide is given by its
-  package file: `Toolkit(packages=["hl7.fhir.us.core-6.1.0.tgz"])`.
+  package file: `FhirContext(packages=["hl7.fhir.us.core-6.1.0.tgz"])`.
 
 ## From a source checkout
 
-Without a wheel, the package starts the toolkit it finds: the `FHIR_API_COMMAND` environment
-variable, `fhir-api` on the PATH, or `raco fhir-api` when Racket and the toolkit's packages are
+Without a wheel, the package starts the engine it finds: the `FHIR_API_COMMAND` environment
+variable, `fhir-api` on the PATH, or `raco fhir-api` when Racket and the engine's packages are
 installed ([how](https://github.com/oloveluck/fhir#install-from-source)).
 
-The toolkit is [oloveluck/fhir](https://github.com/oloveluck/fhir); this package is its
+The engine is [oloveluck/fhir](https://github.com/oloveluck/fhir); this package is its
 `clients/python`.

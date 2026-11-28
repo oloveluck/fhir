@@ -1,5 +1,5 @@
 """Codes and value sets as Python values; the kinds of error; calls answered at the same time
-(threads, asyncio, workers). Runs against the toolkit the package finds, as test_toolkit does."""
+(threads, asyncio, workers). Runs against the toolkit the package finds, as test_context does."""
 import asyncio
 import os
 import pathlib
@@ -14,8 +14,8 @@ ROOT = HERE.parent
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from fhir_toolkit import (AsyncToolkit, CodeCheck, Concept, FhirError, FhirNotFound, FhirOperationError,  # noqa: E402
-                          FhirSourceError, FhirTimeout, FhirUsageError, FhirValidationError, Match, Toolkit)
+from agentfhir import (AsyncFhirContext, CodeCheck, Concept, FhirError, FhirNotFound, FhirOperationError,  # noqa: E402
+                          FhirSourceError, FhirTimeout, FhirUsageError, FhirValidationError, Match, FhirContext)
 
 GENDER = "http://hl7.org/fhir/administrative-gender"
 GENDERS = "http://hl7.org/fhir/ValueSet/administrative-gender"
@@ -27,7 +27,7 @@ PATIENT = {"resourceType": "Patient", "id": "ann", "gender": "female", "birthDat
 class Codes(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.fhir = Toolkit()
+        cls.fhir = FhirContext()
 
     @classmethod
     def tearDownClass(cls):
@@ -105,7 +105,7 @@ class AtTheSameTime(unittest.TestCase):
     PATIENTS = [dict(PATIENT, id="p%d" % i, gender="florp" if i % 3 == 0 else "female") for i in range(3000)]
 
     def test_calls_from_threads_go_to_the_processes_free(self):
-        with Toolkit(workers=3) as fhir:
+        with FhirContext(workers=3) as fhir:
             answers = [None] * 6
 
             def work(i):
@@ -118,7 +118,7 @@ class AtTheSameTime(unittest.TestCase):
             self.assertEqual(answers, [[(i * 100 + k) % 3 != 0 for k in range(100)] for i in range(6)])
 
     def test_loaded_data_is_loaded_where_it_is_used(self):
-        with Toolkit(workers=2) as fhir:
+        with FhirContext(workers=2) as fhir:
             clinic = fhir.load(self.PATIENTS[:5])
             first, second = fhir._raws
             first.busy += 1                          # the first is busy: the next call goes to the second
@@ -132,7 +132,7 @@ class AtTheSameTime(unittest.TestCase):
                 fhir.view("SELECT id FROM Patient", clinic)
 
     def test_a_stage_is_committed_where_it_was_made(self):
-        with Toolkit(workers=2) as fhir, tempfile.TemporaryDirectory() as d:
+        with FhirContext(workers=2) as fhir, tempfile.TemporaryDirectory() as d:
             store = os.path.join(d, "s.db")
             staged = fhir.stage([PATIENT], data=store)
             fhir._raws[0].busy += 5                  # whichever made it, the other is now "freer"
@@ -143,7 +143,7 @@ class AtTheSameTime(unittest.TestCase):
 
     def test_asyncio(self):
         async def main():
-            async with AsyncToolkit(workers=2) as fhir:
+            async with AsyncFhirContext(workers=2) as fhir:
                 self.assertEqual(await fhir.fhirpath("gender", PATIENT), ["female"])
                 checks = await asyncio.gather(*[fhir.validate_code(GENDERS, code, GENDER) for code in ("female", "florp")])
                 self.assertEqual([bool(c) for c in checks], [True, False])
@@ -186,9 +186,9 @@ class AtTheSameTime(unittest.TestCase):
             for t in threads:
                 t.join()
             return time.perf_counter() - start
-        with Toolkit() as one:
+        with FhirContext() as one:
             alone = timed(one)
-        with Toolkit(workers=2) as two:
+        with FhirContext(workers=2) as two:
             together = timed(two)
         self.assertLess(together, alone * 0.9, "two processes %.2f s, one %.2f s" % (together, alone))
 

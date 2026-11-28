@@ -32,7 +32,7 @@
 @title{fhir-api: the toolkit from Python, and from any other language}
 
 The toolkit is written in Racket. Most people who work with health data write Python. This page
-is how the two meet: a Python package, @tt{fhir-toolkit}, whose functions compile, check, run and
+is how the two meet: a Python package, @tt{agentfhir}, whose functions compile, check, run and
 validate FHIR and its languages, and under it a small server that any other language can speak to
 in the same way.
 
@@ -56,13 +56,13 @@ Install the package. It is not on the Python Package Index yet: a wheel is built
 repository's @tt{wheels} workflow, and @secref["source"] says how to use a source checkout
 meanwhile. A wheel carries the toolkit itself, so nothing else is needed.
 
-@verbatim[#:indent 2]{pip install fhir_toolkit-0.1.0-py3-none-<your platform>.whl}
+@verbatim[#:indent 2]{pip install agentfhir-0.1.0-py3-none-<your platform>.whl}
 
-Then make a @tt{Toolkit} and call it. Each line under a @tt{#} is what the example prints.
+Then make a @tt{FhirContext} and call it. Each line under a @tt{#} is what the example prints.
 
 @(example 0)
 
-@tt{Toolkit()} starts one process of the toolkit in the background and returns at once; the
+@tt{FhirContext()} starts one process of the toolkit in the background and returns at once; the
 process is kept for every call. A call adds about a tenth of a millisecond to the work it asks
 for. @tt{fhirpath} answers a list, because a FHIRPath
 expression answers a collection. @tt{validate} answers an outcome: @tt{.ok} is true when no issue
@@ -136,7 +136,7 @@ resources behind them:
 @(example 10)
 
 pydantic checks the shape a model declares. FHIR asks more: a code its value set holds, the
-rules of the base specification, whatever a profile adds. @tt{fhir_toolkit.pydantic} runs the
+rules of the base specification, whatever a profile adds. @tt{agentfhir.pydantic} runs the
 toolkit's validation, and FHIRPath, where pydantic runs its own. @tt{Valid()} and
 @tt{Holds(expression)} annotate a field of any model; @tt{checked(Model, profile)} answers a
 class every object of which is held to a profile. What is wrong is a pydantic
@@ -182,7 +182,7 @@ A table goes where tables go: @tt{to_pandas()}, @tt{to_polars()}, or CSV.
 
 @(example 16)
 
-@tt{Toolkit(timeout=30)} gives every call 30 seconds. A call that takes longer, or that you
+@tt{FhirContext(timeout=30)} gives every call 30 seconds. A call that takes longer, or that you
 interrupt (Ctrl-C, a notebook's stop button), stops the toolkit's process: the call raises, the
 next call starts a new process, and data you loaded is loaded again by itself. Nothing an
 interrupted call was computing is ever taken for a later call's answer.
@@ -197,10 +197,10 @@ validation checks codes and profiles, a model library's checks shape), so read t
 task costs, not as one engine against another.
 
 @itemlist[
-@item{@bold{Starting.} Making a @tt{Toolkit} takes about a millisecond: the process starts
+@item{@bold{Starting.} Making a @tt{FhirContext} takes about a millisecond: the process starts
 behind it. While your program does something else, the process loads what first calls need
 (the FHIR types, the definitions, the view engine, CQL). Asked straight away instead, a first
-call waits for what it needs. Counted from making the @tt{Toolkit}: about 0.7 s to a first
+call waits for what it needs. Counted from making the @tt{FhirContext}: about 0.7 s to a first
 FHIRPath answer, 0.9 s to a first validation, 1.3 s to a first view, 2 s to a first CQL run.
 Asked after a pause of a few seconds, each first call takes milliseconds. (Those are from a
 source checkout; the executable a wheel carries reads all of its code when it starts, about
@@ -214,7 +214,7 @@ validate a small Patient. The resource is what costs, not the call: a US Core ex
 narrative and profile takes about 0.6 ms.}
 @item{@bold{Many resources.} One call for all of them: one expression over 5,000 Patients
 takes 68 ms, validating them 417 ms. A loop of single calls costs the crossing each time.
-@tt{Toolkit(workers=4)} shares such a list between four processes: 100 ms for that
+@tt{FhirContext(workers=4)} shares such a list between four processes: 100 ms for that
 validation, for four times the memory.}
 @item{@bold{Objects.} An object costs what its library takes to write it as JSON: about
 0.05 ms each for @tt{fhir.resources}, a thousandth of a millisecond for a plain pydantic
@@ -256,7 +256,7 @@ The Python package's README has the tables.
 
 @section{In a notebook}
 
-@tt{%load_ext fhir_toolkit.jupyter} adds a cell magic for each language: @tt{%%fsh},
+@tt{%load_ext agentfhir.jupyter} adds a cell magic for each language: @tt{%%fsh},
 @tt{%%cql}, @tt{%%sof}, @tt{%%fhir_sql}, @tt{%%fhirpath}, @tt{%%vcl} and @tt{%%fml}. What a
 cell defines stays for the cells after it, so a profile written in one cell is what a later
 cell validates against, and a view written in one is a table the next joins. A mistake is said
@@ -326,10 +326,10 @@ when it is a FHIR OperationOutcome. Problems in a source you gave to @tt{compile
 
 @itemlist[
 @item{The toolkit has no resource classes of its own. Values are JSON, and objects of a model library are converted on the way in and out.}
-@item{A process reads one version of FHIR, 4.0.1 or 5.0.0. @tt{Toolkit("5.0.0")} is a second process.}
+@item{A process reads one version of FHIR, 4.0.1 or 5.0.0. @tt{FhirContext.r5()} is a second process.}
 @item{Numbers pass through JSON: a decimal written @tt{1.50} arrives as @tt{1.5}.}
 @item{A wheel carries the FHIR R4 and R5 core packages. Any other implementation guide is given by its package file.}
-@item{@tt{write} and @tt{stage} write to a SQLite store or a directory of FHIR JSON, not to a FHIR server. A stage is kept by the process that made it: commit it from the same @tt{Toolkit}.}
+@item{@tt{write} and @tt{stage} write to a SQLite store or a directory of FHIR JSON, not to a FHIR server. A stage is kept by the process that made it: commit it from the same @tt{FhirContext}.}
 @item{Wheels are built for Linux and macOS. Windows has not been built.}
 @item{A table defined over a large SQLite store is computed again by each new process: for that, use a workspace.}]
 

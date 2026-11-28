@@ -129,7 +129,7 @@ page starts from an empty folder.
       (list "run a FHIR server" "" @hyperlink["fhir-server/index.html"]{fhir-server})
       (list "see mistakes in your editor as you type" "" @hyperlink["fhir-lsp/index.html"]{fhir-lsp})
       (list "let an AI agent do the work, with a record of what it did" "" @hyperlink["fhir-mcp/index.html"]{fhir-mcp})
-      (list "use all of it from Python" "" @hyperlink["fhir-api/index.html"]{fhir-toolkit}))]
+      (list "use all of it from Python" "" @hyperlink["fhir-api/index.html"]{agentfhir}))]
 
 Worked examples that use several of these together are in
 @hyperlink["https://oloveluck.github.io/fhir-examples/"]{fhir-examples}.
@@ -173,7 +173,7 @@ qr2patient.map:14:49: fml check error: `gendr` is not an element of Patient (did
 @tt{raco fhir new pipeline my-pipeline} writes that project (the profile, the map, the library,
 a form's answers and a test), and @tt{raco fhir guide racket} is the Racket route on one page.
 
-From Python it is one package, @hyperlink["fhir-api/index.html"]{fhir-toolkit}, with nothing
+From Python it is one package, @hyperlink["fhir-api/index.html"]{agentfhir}, with nothing
 else to install. Beside the Python libraries people use for FHIR today, each measured by a
 program you can run:
 
@@ -287,7 +287,7 @@ Implementation Guide or declared in a short file, over a SQLite store. @tt{raco 
 mistakes in the five text languages as you type. @tt{raco fhir-lsp}.}
 @item{@hyperlink["fhir-mcp/index.html"]{fhir-mcp}: the workspace an AI agent works in.
 @tt{raco fhir-mcp}.}
-@item{@hyperlink["fhir-api/index.html"]{fhir-api}: the toolkit from Python (the @tt{fhir-toolkit}
+@item{@hyperlink["fhir-api/index.html"]{fhir-api}: the toolkit from Python (the @tt{agentfhir}
 package) and from any other language: its functions over one small protocol. @tt{raco fhir-api}.}]
 
 @section{Words used here}

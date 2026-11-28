@@ -26,9 +26,9 @@ KEPT_ON_WINDOWS = ("SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "PATHEXT", 
 def the_wheel(given):
     if given.is_file():
         return given
-    wheels = sorted(given.glob("fhir_toolkit-*.whl"))
+    wheels = sorted(given.glob("agentfhir-*.whl"))
     if len(wheels) != 1:
-        raise SystemExit("%s holds %d wheels of fhir_toolkit: name the one to test" % (given, len(wheels)))
+        raise SystemExit("%s holds %d wheels of agentfhir: name the one to test" % (given, len(wheels)))
     return wheels[0]
 
 
@@ -48,7 +48,7 @@ def main():
     parser.add_argument("--with", dest="extras", action="append", default=[], help="another package to install beside it")
     options = parser.parse_args()
     wheel = the_wheel(options.wheel.resolve())
-    work = pathlib.Path(tempfile.mkdtemp(prefix="fhir-toolkit-wheel-"))
+    work = pathlib.Path(tempfile.mkdtemp(prefix="agentfhir-wheel-"))
     try:
         venv.create(work / "env", with_pip=True)
         programs = work / "env" / ("Scripts" if WINDOWS else "bin")

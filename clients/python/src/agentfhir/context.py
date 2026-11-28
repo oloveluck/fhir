@@ -1,23 +1,23 @@
-"""The FHIR toolkit from Python.
+"""agentfhir: a FHIR implementation for agents, from Python.
 
-    from fhir_toolkit import Toolkit
+    from agentfhir import FhirContext
 
-    with Toolkit() as fhir:
+    with FhirContext() as fhir:
         fhir.fhirpath("name.family", patient)             # ['Lee']
         fhir.validate(patient).ok                         # True
         fhir.view("SELECT id, birthDate FROM Patient", data).to_pandas()
 
-A `Toolkit` is one process of the toolkit, started in the background when the
-Toolkit is made and kept for every call. A PROJECT is the sources a call may refer to — profiles
+A `FhirContext` is FHIR at one version (4.0.1 unless asked: `FhirContext.r5()`): one process
+of the engine, started in the background when the context is made and kept for every call. A PROJECT is the sources a call may refer to — profiles
 in FSH, CQL libraries, maps, value sets in VCL, views, FHIR JSON definitions —
 given as a dict of file name -> text, as a directory, or as a `Project`. DATA
 is the FHIR a call reads: resources (a list, one resource, a Bundle), or the
 path of a directory of FHIR JSON, a JSON file or a SQLite FHIR store, or a FHIR
 server's base url. A resource is FHIR JSON (a dict), an object of a model
-library that writes itself as JSON (`fhir_toolkit.models`), JSON text, or a
+library that writes itself as JSON (`agentfhir.models`), JSON text, or a
 `pathlib.Path` to a JSON file.
 
-What the toolkit could not read of the data (a date its month lacks, a time
+What the engine could not read of the data (a date its month lacks, a time
 without a zone) it says as a `FhirWarning`, and a table keeps under `.notes`.
 
 Data used by several calls is given once: `clinic = fhir.load(resources)`, then
@@ -83,17 +83,17 @@ def as_project(project: ProjectLike) -> Project:
 
 
 class Data:
-    """Data given to the toolkit once and kept there: what `Toolkit.load` answers.
+    """Data given to the engine once and kept there: what `FhirContext.load` answers.
 
     Give it as any call's `data`. The resources (or the directory's files) were
     read when it was loaded, so a call does not send or read them again, and a
     search's index over them is built once. `count` is how many resources were
-    given (None for a place). `close()` lets the toolkit forget it; it is also
-    a context manager. Should the toolkit's process start again, the data is
+    given (None for a place). `close()` lets the engine forget it; it is also
+    a context manager. Should the engine's process start again, the data is
     loaded again from what was given, at the next call that names it.
     """
 
-    def __init__(self, toolkit: "Toolkit", source: Any, project: "Project"):
+    def __init__(self, toolkit: "FhirContext", source: Any, project: "Project"):
         self._toolkit = toolkit
         self._source = source
         self._project = project
@@ -119,7 +119,7 @@ class Data:
             return {"loaded": key}
 
     def close(self) -> None:
-        """Let the toolkit forget the data. Using it after this is an error."""
+        """Let the engine forget the data. Using it after this is an error."""
         with self._lock:
             keys, self._keys, self._source = self._keys, {}, None
         for raw, (key, generation) in keys.items():
@@ -174,7 +174,7 @@ class _Raw(Functions):
 
 
 class _Pool(Functions):
-    """The generated functions over the Toolkit's processes: each call goes to the one with the
+    """The generated functions over the FhirContext's processes: each call goes to the one with the
     fewest calls in flight (the first, of those with as few), so calls from several threads run at
     the same time, one in each process. `held()` names a process for calls that must meet the
     same one (a stage and its commit)."""
@@ -207,23 +207,23 @@ class _Pool(Functions):
         return raw
 
 
-class Toolkit:
-    """One process of the FHIR toolkit.
+class FhirContext:
+    """FHIR at one version: the engine's process, its packages, and every call.
 
     Args:
         fhir_version: "4.0.1" (the default) or "5.0.0". A process reads one
-            version; make a second Toolkit for the other.
+            version; make a second FhirContext for the other.
         packages: FHIR packages in context for every call, by name
             ("hl7.fhir.us.core-6.1.0") or as .tgz paths.
-        command: the command that starts the toolkit, when it should not be
-            found the usual way (see `fhir_toolkit.find_command`).
+        command: the command that starts the engine, when it should not be
+            found the usual way (see `agentfhir.find_command`).
         start: True (the default) starts the process now, in the background:
-            making a Toolkit does not wait for it, and the first call waits
+            making a FhirContext does not wait for it, and the first call waits
             only for what is left of its start (well under a second in all).
             False leaves it until the first call.
         workers: how many processes answer calls (1, the default). With more,
             calls made at the same time — from several threads, or awaited
-            together through `AsyncToolkit` — are each answered by a process
+            together through `AsyncFhirContext` — are each answered by a process
             of their own, and `fhirpath_each` and `validate_each` cut a long
             list into that many parts answered at once: about that many times
             quicker on a machine with the cores, for that many times the
@@ -234,7 +234,7 @@ class Toolkit:
             is interrupted, by Ctrl-C or a notebook's stop button — raises,
             and the process is started afresh for the next call.
 
-    `raw` has every function of the toolkit exactly as the server defines it
+    `raw` has every function of the engine exactly as the server defines it
     (plain JSON values); the methods here are the convenient forms.
     """
 
@@ -249,9 +249,19 @@ class Toolkit:
         self.raw = _Pool(self._raws)
         atexit.register(self.close)
 
+    @classmethod
+    def r4(cls, **options: Any) -> "FhirContext":
+        """FHIR R4 (4.0.1), as `FhirContext()` is; `options` as for the constructor."""
+        return cls("4.0.1", **options)
+
+    @classmethod
+    def r5(cls, **options: Any) -> "FhirContext":
+        """FHIR R5 (5.0.0); `options` as for the constructor."""
+        return cls("5.0.0", **options)
+
     def __repr__(self) -> str:
-        return "Toolkit(FHIR %s, %s%s)" % (self._server.fhir_version, "running" if self._server.running else "not started",
-                                           ", %d workers" % len(self._servers) if len(self._servers) > 1 else "")
+        return "FhirContext(FHIR %s, %s%s)" % (self._server.fhir_version, "running" if self._server.running else "not started",
+                                               ", %d workers" % len(self._servers) if len(self._servers) > 1 else "")
 
     def close(self) -> None:
         """Stop the process (and its workers). A call after this starts it again."""
@@ -285,13 +295,13 @@ class Toolkit:
             raise failures[0]
         return [answer for part in answers for answer in part]
 
-    def __enter__(self) -> "Toolkit":
+    def __enter__(self) -> "FhirContext":
         return self
 
     def __exit__(self, *exc) -> None:
         self.close()
 
-    # ---- what the toolkit is --------------------------------------------------------------------
+    # ---- what the engine is --------------------------------------------------------------------
     def version(self) -> Dict[str, Any]:
         """The protocol, the FHIR version read, the packages in context, the functions."""
         return self.raw.version()
@@ -324,7 +334,7 @@ class Toolkit:
 
     # ---- data given once ------------------------------------------------------------------------
     def load(self, data: DataLike, *, project: ProjectLike = None) -> "Data":
-        """Data given once and kept by the toolkit: use the answer as later calls' `data`.
+        """Data given once and kept by the engine: use the answer as later calls' `data`.
 
         Resources (a list, one, a Bundle) are sent once and held in memory; a
         directory or file of FHIR JSON is read once; a store or a server is
@@ -368,7 +378,7 @@ class Toolkit:
 
     def operation(self, operation: str, resource: Optional[Resource] = None, *, inputs: Optional[Dict[str, Any]] = None,
                   project: ProjectLike = None, data: DataLike = None, model: Any = None) -> Any:
-        """Any FHIR operation the toolkit implements: "$expand", "$validate-code", "$lookup", …"""
+        """Any FHIR operation the engine implements: "$expand", "$validate-code", "$lookup", …"""
         return _as(model, self.raw.operation(operation, resource=_resource(resource), inputs=inputs, data=as_data(data),
                                              **as_project(project).arguments()))
 
@@ -391,7 +401,7 @@ class Toolkit:
         """A CQL library translated to ELM, as JSON: the form other CQL engines run.
 
         Includes are found among the project's .cql files, then among the
-        libraries the toolkit carries (FHIRHelpers). With `check` a translation
+        libraries the engine carries (FHIRHelpers). With `check` a translation
         error raises FhirError; without, the answer is None when there are errors.
         """
         answer = self.raw.translate(text, name=name, **as_project(project).arguments())

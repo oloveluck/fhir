@@ -1,6 +1,6 @@
-"""Cell magics: the toolkit's languages as notebook cells.
+"""Cell magics: the engine's languages as notebook cells.
 
-    %load_ext fhir_toolkit.jupyter
+    %load_ext agentfhir.jupyter
 
     %%fsh                    a cell of FHIR Shorthand: compiled and checked
     %%cql -d patients        a CQL library run over the data in `patients`
@@ -22,9 +22,9 @@ file: a file is named by what the cell defines (`-n` names it otherwise).
 name of a variable to keep the answer in. A problem in a cell is printed with
 its line and column in the cell, and nothing is assigned.
 
-From Python cells the same state is `fhir_toolkit.jupyter.notebook`:
-`notebook.toolkit` (a `Toolkit`) and `notebook.project` (a `Project`), as in
-`notebook.toolkit.validate(resource, "AdultPatient", project=notebook.project)`.
+From Python cells the same state is `agentfhir.jupyter.notebook`:
+`notebook.context` (a `FhirContext`) and `notebook.project` (a `Project`), as in
+`notebook.context.validate(resource, "AdultPatient", project=notebook.project)`.
 """
 import re
 import sys
@@ -35,22 +35,22 @@ from IPython.core.magic_arguments import argument, magic_arguments, parse_argstr
 
 from .errors import FhirError, FhirUsageError
 from .results import Table
-from .toolkit import Project, Toolkit, _library_file
+from .context import Project, FhirContext, _library_file
 
 
 class Notebook:
-    """What a notebook's cells share: one toolkit, and the project they have built."""
+    """What a notebook's cells share: one FhirContext, and the project they have built."""
 
     def __init__(self) -> None:
-        self._toolkit: Optional[Toolkit] = None
+        self._context: Optional[FhirContext] = None
         self.fhir_version = "4.0.1"
         self.project = Project({})
 
     @property
-    def toolkit(self) -> Toolkit:
-        if self._toolkit is None:
-            self._toolkit = Toolkit(self.fhir_version)
-        return self._toolkit
+    def context(self) -> FhirContext:
+        if self._context is None:
+            self._context = FhirContext(self.fhir_version)
+        return self._context
 
     def define(self, name: str, text: str) -> None:
         """Keep a cell's text as the project's file `name` (replacing the file of that name)."""
@@ -65,9 +65,9 @@ class Notebook:
         """Forget every file; with a version, read that version of FHIR from now on."""
         self.project = Project({})
         if fhir_version and fhir_version != self.fhir_version:
-            if self._toolkit is not None:
-                self._toolkit.close()
-            self._toolkit = None
+            if self._context is not None:
+                self._context.close()
+            self._context = None
             self.fhir_version = fhir_version
 
 
@@ -135,7 +135,7 @@ class FhirMagics(Magics):
             before = notebook.project
             notebook.define(name, cell)
             try:
-                table = notebook.toolkit.run(name, project=notebook.project)
+                table = notebook.context.run(name, project=notebook.project)
             except FhirError:
                 notebook.project = before          # a cell that does not parse defines nothing
                 raise
@@ -167,7 +167,7 @@ class FhirMagics(Magics):
             name = _library_file(cell)
             # IPython hands an option's quotes on with it: `-e "Above 9"` names the define Above 9
             entry = options.entry.strip("\"'") if options.entry else None
-            answer = _shown(notebook.toolkit.cql(cell, data, project=notebook.project, entry=entry))
+            answer = _shown(notebook.context.cql(cell, data, project=notebook.project, entry=entry))
             notebook.define(name, cell)
             self._keep(options.out, answer)
             return answer
@@ -184,7 +184,7 @@ class FhirMagics(Magics):
 
         def run() -> Any:
             data = self._named(options.data, "%%sof -d names the data")
-            answer = _shown(notebook.toolkit.view(cell, data, project=notebook.project))
+            answer = _shown(notebook.context.view(cell, data, project=notebook.project))
             named = _VIEW_NAME.search(cell)
             if named:
                 notebook.define(named.group(1) + ".sof", cell)
@@ -203,7 +203,7 @@ class FhirMagics(Magics):
 
         def run() -> Any:
             data = self._named(options.data, "%%fhir_sql -d names the data")
-            answer = _shown(notebook.toolkit.sql(cell, project=notebook.project, data=data))
+            answer = _shown(notebook.context.sql(cell, project=notebook.project, data=data))
             self._keep(options.out, answer)
             return answer
 
@@ -222,7 +222,7 @@ class FhirMagics(Magics):
             expressions = [text.strip() for text in cell.splitlines() if text.strip() and not text.strip().startswith("//")]
             if not expressions:
                 raise FhirUsageError("the cell holds no expression")
-            values = {e: notebook.toolkit.fhirpath(e, resource) for e in expressions}
+            values = {e: notebook.context.fhirpath(e, resource) for e in expressions}
             answer = values[expressions[0]] if len(expressions) == 1 else values
             self._keep(options.out, answer)
             return answer
@@ -239,7 +239,7 @@ class FhirMagics(Magics):
 
         def run() -> Any:
             text = " ".join(part.strip() for part in cell.splitlines() if part.strip())
-            answer = _shown(notebook.toolkit.query("vcl", text, project=notebook.project))
+            answer = _shown(notebook.context.query("vcl", text, project=notebook.project))
             if options.name:
                 notebook.define(_file_name(options.name, None, "cell", ".vcl"), text)
             self._keep(options.out, answer)
@@ -257,7 +257,7 @@ class FhirMagics(Magics):
 
         def run() -> Any:
             source = self._named(options.data, "%%fml -d names the resource to convert")
-            answer = notebook.toolkit.transform(cell, source, project=notebook.project)
+            answer = notebook.context.transform(cell, source, project=notebook.project)
             notebook.define(_file_name(None, _MAP_NAME.search(cell), "cell", ".map"), cell)
             self._keep(options.out, answer)
             return answer
@@ -282,5 +282,5 @@ class FhirMagics(Magics):
 
 
 def load_ipython_extension(ipython) -> None:
-    """`%load_ext fhir_toolkit.jupyter`"""
+    """`%load_ext agentfhir.jupyter`"""
     ipython.register_magics(FhirMagics)

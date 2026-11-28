@@ -25,7 +25,7 @@ targets macOS 11. There is no wheel for Windows, nor for Linux on ARM.
 1. **Pin the family.** `release/lock-family.sh` writes `release/family.lock` from each language
    repository's `main`. Read the diff and commit it.
 2. **Set the version** in `clients/python/pyproject.toml` and
-   `clients/python/src/fhir_toolkit/__init__.py`.
+   `clients/python/src/agentfhir/__init__.py`.
 3. **Build and test.** Push to `main`: the `wheels` workflow runs whenever the release
    machinery changes (this folder, `build-tools.sh`, the wheel's builder), and can be started
    by hand (Actions, `wheels`, "Run workflow"). Each wheel is installed into a clean environment
@@ -33,7 +33,7 @@ targets macOS 11. There is no wheel for Windows, nor for Linux on ARM.
    the run's artifacts.
 4. **Tag.** `git tag v0.1.0 && git push origin v0.1.0` builds the same wheels for the tag.
 5. **Publish** (once, to set up):
-   - on pypi.org, add a *trusted publisher* for the project `fhir-toolkit`: owner `oloveluck`,
+   - on pypi.org, add a *trusted publisher* for the project `agentfhir`: owner `oloveluck`,
      repository `fhir`, workflow `wheels.yml`, environment `pypi`;
    - in this repository's settings, add an environment named `pypi`, and a repository
      *variable* `PUBLISH_TO_PYPI` with the value `true`.

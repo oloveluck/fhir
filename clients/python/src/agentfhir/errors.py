@@ -1,4 +1,4 @@
-"""What the toolkit says when something is wrong."""
+"""What the engine says when something is wrong."""
 import os
 import sys
 import warnings
@@ -48,7 +48,7 @@ class Diagnostic:
 
 
 class FhirError(Exception):
-    """A call the toolkit could not answer, or an answer with errors in it.
+    """A call the engine could not answer, or an answer with errors in it.
 
     Attributes:
         diagnostics: the problems that have a place in a source text, if any.
@@ -67,7 +67,7 @@ class FhirError(Exception):
 
 
 class FhirWarning(UserWarning):
-    """Something the toolkit did that a caller should know, though the call was answered.
+    """Something the engine did that a caller should know, though the call was answered.
 
     A value of the data that is not valid FHIR and was not read (a date its
     month lacks, a time without a time zone), an element the FHIR version
@@ -78,7 +78,7 @@ class FhirWarning(UserWarning):
 
 
 class FhirUsageError(FhirError, ValueError):
-    """A call the toolkit does not take: an argument it has no use for, a value of the wrong kind,
+    """A call the engine does not take: an argument it has no use for, a value of the wrong kind,
     a function it does not have. The message says what it takes."""
 
 
@@ -108,15 +108,15 @@ class FhirValidationError(FhirError):
 
 
 class FhirProcessError(FhirError):
-    """The toolkit's process ended, or could not be started. The next call starts it again."""
+    """The engine's process ended, or could not be started. The next call starts it again."""
 
 
 class FhirTimeout(FhirProcessError, TimeoutError):
-    """A call took longer than the Toolkit's `timeout`: its process was stopped."""
+    """A call took longer than the FhirContext's `timeout`: its process was stopped."""
 
 
-class ToolkitNotFound(FhirProcessError):
-    """No toolkit to start: neither bundled with this package, nor on the PATH."""
+class FhirEngineNotFound(FhirProcessError):
+    """No engine to start: none bundled with this package, nor `fhir-api` or `raco` on the PATH."""
 
 
 def failure(message: str, code: Optional[int], data: Dict[str, Any]) -> FhirError:

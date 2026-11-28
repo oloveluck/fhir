@@ -74,8 +74,8 @@ class TheReadme(unittest.TestCase):
         finally:
             if "fhir" in namespace:
                 namespace["fhir"].close()
-            if "IPython" not in left_out and "fhir_toolkit.jupyter" in sys.modules:
-                sys.modules["fhir_toolkit.jupyter"].notebook.toolkit.close()
+            if "IPython" not in left_out and "agentfhir.jupyter" in sys.modules:
+                sys.modules["agentfhir.jupyter"].notebook.context.close()
         if left_out:
             self.skipTest("examples not run for want of: " + ", ".join(sorted(set(left_out))))
 

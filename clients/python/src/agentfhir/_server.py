@@ -1,4 +1,4 @@
-"""The toolkit's process: found, started, and spoken to a line at a time."""
+"""The engine's process: found, started, and spoken to a line at a time."""
 import json
 import os
 import re
@@ -10,18 +10,18 @@ import threading
 from typing import Any, Dict, List, Optional, Sequence
 
 from ._functions import PROTOCOL
-from .errors import FhirError, FhirProcessError, FhirTimeout, ToolkitNotFound, failure, warn
+from .errors import FhirError, FhirProcessError, FhirTimeout, FhirEngineNotFound, failure, warn
 from .models import model_json, plain
 
 #: the environment variable that names the command to start, e.g. "raco fhir-api"
 COMMAND_VARIABLE = "FHIR_API_COMMAND"
 
 
-def bundled_command() -> Optional[List[str]]:
-    """The executable a wheel carries, beside this module, when it does."""
+def bundled_command(tool: str = "fhir-api") -> Optional[List[str]]:
+    """The executable `tool` a wheel carries, beside this module, when it does."""
     here = os.path.dirname(os.path.abspath(__file__))
-    # bin/fhir-api on Unix and macOS; on Windows the executable is at the top of the build
-    for parts in (("bin", "fhir-api"), ("fhir-api.exe",), ("bin", "fhir-api.exe")):
+    # bin/<tool> on Unix and macOS; on Windows the executable is at the top of the build
+    for parts in (("bin", tool), (tool + ".exe",), ("bin", tool + ".exe")):
         candidate = os.path.join(here, "_bin", *parts)
         if os.path.isfile(candidate):
             return [candidate]
@@ -33,7 +33,7 @@ def find_command(command: Optional[Sequence[str]] = None) -> List[str]:
 
     the one given; the FHIR_API_COMMAND environment variable; the executable
     bundled with this package; `fhir-api` on the PATH (a standalone build);
-    `raco fhir-api` (Racket with the toolkit's packages installed).
+    `raco fhir-api` (Racket with the engine's packages installed).
     """
     if command:
         return list(command)
@@ -47,8 +47,8 @@ def find_command(command: Optional[Sequence[str]] = None) -> List[str]:
         return ["fhir-api"]
     if shutil.which("raco"):
         return ["raco", "fhir-api"]
-    raise ToolkitNotFound(
-        "no FHIR toolkit to start: this installation carries no executable, and neither `fhir-api` nor `raco` "
+    raise FhirEngineNotFound(
+        "no FHIR engine to start: this installation carries no executable, and neither `fhir-api` nor `raco` "
         "is on the PATH. Install a wheel built for this platform, or set %s to the command that starts it "
         "(for a source checkout with Racket: \"raco fhir-api\")." % COMMAND_VARIABLE
     )
@@ -122,7 +122,7 @@ class Server:
         try:
             self._process = subprocess.Popen(arguments, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
         except OSError as e:
-            raise ToolkitNotFound("could not start the FHIR toolkit (%s): %s" % (" ".join(arguments), e)) from e
+            raise FhirEngineNotFound("could not start the FHIR engine (%s): %s" % (" ".join(arguments), e)) from e
         self._greeted = False
         self.generation += 1
 
@@ -132,7 +132,7 @@ class Server:
         if version.get("protocol") != PROTOCOL:
             self.close()
             raise FhirProcessError(
-                "the toolkit that was started speaks protocol %s and this package protocol %s: install matching versions"
+                "the engine that was started speaks protocol %s and this package protocol %s: install matching versions"
                 % (version.get("protocol"), PROTOCOL)
             )
         self._greeted = True
@@ -192,15 +192,15 @@ class Server:
         if not line:
             self.close()
             if timed_out is not None and timed_out.is_set():
-                raise FhirTimeout("%s did not answer within %s s: the FHIR toolkit's process was stopped; it starts again at the "
+                raise FhirTimeout("%s did not answer within %s s: the FHIR engine's process was stopped; it starts again at the "
                                 "next call" % (name, self.timeout))
             status = process.poll()
-            raise FhirProcessError("the FHIR toolkit's process ended%s while answering %s; it starts again at the next call"
+            raise FhirProcessError("the FHIR engine's process ended%s while answering %s; it starts again at the next call"
                             % ("" if status is None else " (exit status %s)" % status, name))
         reply = json.loads(line)
         if reply.get("id") != self._id:
             self.close()
-            raise FhirProcessError("the FHIR toolkit answered another call than %s (answer %r to call %r): its process was stopped; "
+            raise FhirProcessError("the FHIR engine answered another call than %s (answer %r to call %r): its process was stopped; "
                             "it starts again at the next call" % (name, reply.get("id"), self._id))
         said = reply.get("warnings")
         if said:

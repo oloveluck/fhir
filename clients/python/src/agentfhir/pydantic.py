@@ -1,14 +1,14 @@
-"""pydantic models held to FHIR by the toolkit.
+"""pydantic models held to FHIR by the engine.
 
 pydantic checks the shape a model's fields declare. FHIR asks more of a resource: a code its
 value set holds, a date the calendar has, the rules of the base specification, and whatever a
-profile adds (US Core's Patient must have a name and an identifier). These put the toolkit's
+profile adds (US Core's Patient must have a name and an identifier). These put the engine's
 validation, and FHIRPath, where pydantic runs its own:
 
     from typing import Annotated
     from pydantic import BaseModel
     from fhir.resources.R4B.patient import Patient
-    from fhir_toolkit.pydantic import Valid, Holds, checked
+    from agentfhir.pydantic import Valid, Holds, checked
 
     class Intake(BaseModel):                        # a field of any model, held to FHIR
         patient: Annotated[Patient, Valid(), Holds("birthDate.exists()", "a birth date is required")]
@@ -20,9 +20,9 @@ its `loc` the element (`("patient", "name", 0, "family")`), its `type` `fhir_` a
 code. The value may be an object of a FHIR model library, a model of your own that writes FHIR
 JSON, or a dict.
 
-Each validation is one call of the toolkit (a fifth of a millisecond and the resource's own
+Each validation is one call of the engine (a fifth of a millisecond and the resource's own
 work): negligible beside a request, noticeable in a loop over thousands, where
-`Toolkit.validate_each` checks them all in one call.
+`FhirContext.validate_each` checks them all in one call.
 
 This module needs pydantic 2.
 """
@@ -34,30 +34,30 @@ from pydantic_core import InitErrorDetails, PydanticCustomError, core_schema
 
 from .models import plain
 from .results import Outcome
-from .toolkit import ProjectLike, Toolkit
+from .context import ProjectLike, FhirContext
 
 __all__ = ["Valid", "Holds", "checked", "use", "errors_of"]
 
-_default: Optional[Toolkit] = None
+_default: Optional[FhirContext] = None
 
 
-def use(toolkit: Optional[Toolkit]) -> Optional[Toolkit]:
-    """The Toolkit that `Valid`, `Holds` and `checked` ask when they were given none.
+def use(context: Optional[FhirContext]) -> Optional[FhirContext]:
+    """The FhirContext that `Valid`, `Holds` and `checked` ask when they were given none.
 
     Without this, one is made the first time it is needed: FHIR 4.0.1 and no package. Give
     one made for another version, or with an implementation guide's packages in context.
     """
     global _default
-    _default = toolkit
-    return toolkit
+    _default = context
+    return context
 
 
-def _toolkit(given: Optional[Toolkit]) -> Toolkit:
+def _context(given: Optional[FhirContext]) -> FhirContext:
     global _default
     if given is not None:
         return given
     if _default is None:
-        _default = Toolkit()
+        _default = FhirContext()
     return _default
 
 
@@ -69,7 +69,7 @@ def location(expression: str, root: Optional[str] = None) -> Optional[Tuple[Any,
     """Where a FHIR issue is, as pydantic says where: `Patient.name[0].given` is
     ("name", 0, "given"). The resource's own type at the front is left out.
 
-    None for a path rooted elsewhere than the resource (`HumanName.given`): the toolkit says
+    None for a path rooted elsewhere than the resource (`HumanName.given`): the engine says
     where an issue is in the instance (`Patient.name[0].given[1]`); a path of the definition is
     left for the rare issue the walk cannot place (an invariant, a slice's own rule).
     """
@@ -133,17 +133,17 @@ class Valid:
 
     The value is held to its resource type, to the profiles it claims and to `profile` (a
     canonical, or the id or name of a profile `project` defines), after pydantic has read it.
-    `toolkit` is the Toolkit to ask (see `use`); `project` the FSH, value sets and the like
+    `context` is the FhirContext to ask (see `use`); `project` the FSH, value sets and the like
     that the profile comes from.
     """
 
-    def __init__(self, profile: Optional[str] = None, *, toolkit: Optional[Toolkit] = None, project: ProjectLike = None):
+    def __init__(self, profile: Optional[str] = None, *, context: Optional[FhirContext] = None, project: ProjectLike = None):
         self.profile = profile
-        self.toolkit = toolkit
+        self.context = context
         self.project = project
 
     def check(self, value: Any) -> Any:
-        outcome = _toolkit(self.toolkit).validate(value, self.profile, project=self.project)
+        outcome = _context(self.context).validate(value, self.profile, project=self.project)
         if not outcome.ok:
             raise ValidationError.from_exception_data(_title(value), errors_of(outcome, value))
         return value
@@ -163,13 +163,13 @@ class Holds:
     expression and what it answered.
     """
 
-    def __init__(self, expression: str, message: Optional[str] = None, *, toolkit: Optional[Toolkit] = None):
+    def __init__(self, expression: str, message: Optional[str] = None, *, context: Optional[FhirContext] = None):
         self.expression = expression
         self.message = message
-        self.toolkit = toolkit
+        self.context = context
 
     def check(self, value: Any) -> Any:
-        values = _toolkit(self.toolkit).fhirpath(self.expression, value)
+        values = _context(self.context).fhirpath(self.expression, value)
         if values != [True]:
             said = self.message or "`%s` does not hold (it answered %s)" % (self.expression, "nothing" if values == [] else repr(values)[:80])
             raise PydanticCustomError("fhir_invariant", said.replace("{", "{{").replace("}", "}}"))
@@ -182,7 +182,7 @@ class Holds:
         return "Holds(%r)" % self.expression
 
 
-def checked(model: Any = None, profile: Optional[str] = None, *, toolkit: Optional[Toolkit] = None,
+def checked(model: Any = None, profile: Optional[str] = None, *, context: Optional[FhirContext] = None,
             project: ProjectLike = None) -> Any:
     """A pydantic model class whose every object is valid FHIR.
 
@@ -193,13 +193,13 @@ def checked(model: Any = None, profile: Optional[str] = None, *, toolkit: Option
             pass
 
     The class answered is a subclass of `model`, of the same name: making an object of it, or
-    reading one (`model_validate`, `model_validate_json`), runs the toolkit's validation after
+    reading one (`model_validate`, `model_validate_json`), runs the engine's validation after
     pydantic's own, and what is wrong is raised as pydantic's `ValidationError`.
     """
     if model is None or isinstance(model, str):
         stated = profile if model is None else model
-        return lambda decorated: checked(decorated, stated, toolkit=toolkit, project=project)
-    valid = Valid(profile, toolkit=toolkit, project=project)
+        return lambda decorated: checked(decorated, stated, context=context, project=project)
+    valid = Valid(profile, context=context, project=project)
 
     def held_to_fhir(self: Any) -> Any:
         return valid.check(self)

@@ -7,7 +7,7 @@ The data is a published implementation guide's own: the 230 example resources of
 which claim its profiles (the package is vendored in this repository's fhir-spec/).
 
 Three validators, as a Python program meets them:
-  fhir-toolkit     this package: the base specification, and the profiles a resource claims
+  agentfhir     this package: the base specification, and the profiles a resource claims
   fhir.resources   pydantic models of the base specification (optional: pip install fhir.resources)
   HL7's validator  the reference implementation, a Java program run as a process (optional: the
                    path of validator_cli.jar; it needs Java and reads the packages it has cached)
@@ -28,7 +28,7 @@ import tarfile
 import tempfile
 import time
 
-from fhir_toolkit import Toolkit
+from agentfhir import FhirContext
 
 try:
     from fhir.resources.R4B import get_fhir_model_class
@@ -131,14 +131,14 @@ def main(argv=None):
 
     # ---- what each refuses
     cases = probes(found)
-    fhir = Toolkit(packages=[str(package)])
+    fhir = FhirContext(packages=[str(package)])
     ours = [not fhir.validate(resource).ok for _, resource in cases]
     models = [not model_accepts(resource) for _, resource in cases] if get_fhir_model_class else None
     theirs = None
     if jar:
         _, verdicts, _ = hl7_run(jar, {"probe-%d.json" % i: r for i, (_, r) in enumerate(cases)}, package)
         theirs = [verdicts.get("probe-%d.json" % i) for i in range(len(cases))]
-    print("| one published example, with | fhir-toolkit | fhir.resources | HL7's validator (Java) |")
+    print("| one published example, with | agentfhir | fhir.resources | HL7's validator (Java) |")
     print("|---|---|---|---|")
     for i, (what, _) in enumerate(cases):
         print("| %s | %s | %s | %s |" % (what, said(ours[i]), said(models[i]) if models else "—", said(theirs[i]) if theirs and theirs[i] is not None else "—"))
@@ -149,14 +149,14 @@ def main(argv=None):
     n = len(resources)
     rows = []
     started = time.perf_counter()
-    fresh = Toolkit(packages=[str(package)])
+    fresh = FhirContext(packages=[str(package)])
     outcomes = fresh.validate_each(resources)
     whole = time.perf_counter() - started
     started = time.perf_counter()
     again = fresh.validate_each(resources)
     warm = time.perf_counter() - started
     fresh.close()
-    rows.append(("fhir-toolkit", "the base specification and the US Core profiles each claims",
+    rows.append(("agentfhir", "the base specification and the US Core profiles each claims",
                  "%.1f s" % whole, "%.1f ms" % (warm / n * 1000), "%d of %d" % (sum(1 for o in again if o.ok), n)))
     if get_fhir_model_class:
         started = time.perf_counter()

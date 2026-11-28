@@ -7,8 +7,8 @@ servers, built so that an AI agent writes the languages instead of JSON, nothing
 unchecked, and every write can be traced.
 
 It is written in [Racket](https://racket-lang.org) and used from Racket (each language is a
-`#lang`, each tool a `raco` command), from Python ([`fhir-toolkit`](clients/python/README.md)),
-from a shell, or by an agent as an MCP server (`fhir-mcp`).
+`#lang`, each tool a `raco` command), from Python ([`agentfhir`](clients/python/README.md)),
+from a shell, or by an agent as an MCP server (`fhir-mcp`; `agentfhir mcp` from Python).
 
 A stored reading is corrected by the rules that change, and the store keeps who changed what:
 

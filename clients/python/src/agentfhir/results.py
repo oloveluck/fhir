@@ -1,4 +1,4 @@
-"""What the toolkit's functions answer, as Python values."""
+"""What the engine's functions answer, as Python values."""
 import csv
 import html
 import io
@@ -54,7 +54,7 @@ class Table:
 
     @property
     def notes(self) -> List[str]:
-        """What the toolkit says of the answer besides its rows: values of the data that were
+        """What the engine says of the answer besides its rows: values of the data that were
         not read (and why), a define that is null for every patient. Each is also a FhirWarning
         when the table is made."""
         said = []
@@ -332,7 +332,7 @@ def _listed(value: Any) -> List[Any]:
 
 
 class CodeCheck:
-    """Whether a value set holds a code: what `Toolkit.validate_code` answers.
+    """Whether a value set holds a code: what `FhirContext.validate_code` answers.
 
     It is true when it holds it (`if fhir.validate_code(...)`); `ok` says the same.
     `display` is the code's display where the code system has one, `message` why
@@ -357,7 +357,7 @@ class CodeCheck:
 
 
 class Concept:
-    """A code looked up in its code system: what `Toolkit.lookup` answers.
+    """A code looked up in its code system: what `FhirContext.lookup` answers.
 
     `display` and `definition` as the code system gives them; `name` and
     `version` are the code system's; `designations` each a dict of language,
@@ -388,7 +388,7 @@ class Concept:
 
 
 class Match:
-    """One code a code maps to: what `Toolkit.translate` answers a list of.
+    """One code a code maps to: what `FhirContext.translate` answers a list of.
 
     `relationship` is how the source code relates to it ("equivalent",
     "source-is-narrower-than-target", … or R4's "equal", "wider", …). `source` is the

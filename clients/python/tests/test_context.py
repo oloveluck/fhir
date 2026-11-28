@@ -1,5 +1,5 @@
 """The Python client held to the toolkit: the generated functions to the table, and every
-method to what the function server answers. The server is started as `Toolkit()` starts it
+method to what the function server answers. The server is started as `FhirContext()` starts it
 (FHIR_API_COMMAND, a bundled executable, `fhir-api` or `raco fhir-api` on the PATH).
 
     python3 -m unittest discover -s clients/python/tests
@@ -22,9 +22,9 @@ ROOT = HERE.parent
 if not os.environ.get("FHIR_TOOLKIT_TEST_INSTALLED"):
     sys.path.insert(0, str(ROOT / "src"))
 
-import fhir_toolkit  # noqa: E402
-from fhir_toolkit import Commit, Compiled, Data, Diagnostic, FhirError, FhirWarning, Outcome, Project, Stage, Table, Toolkit, ToolkitNotFound, plain, typed  # noqa: E402
-from fhir_toolkit._functions import Functions  # noqa: E402
+import agentfhir  # noqa: E402
+from agentfhir import Commit, Compiled, Data, Diagnostic, FhirError, FhirWarning, Outcome, Project, Stage, Table, FhirContext, FhirEngineNotFound, plain, typed  # noqa: E402
+from agentfhir._functions import Functions  # noqa: E402
 
 TABLE = ROOT.parent / "functions.json"
 
@@ -70,8 +70,8 @@ class GeneratedFromTheTable(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
 
     def test_protocol_and_names(self):
-        self.assertEqual(fhir_toolkit.PROTOCOL, self.table["protocol"])
-        self.assertEqual(fhir_toolkit.FUNCTIONS, [f["name"] for f in self.table["functions"]])
+        self.assertEqual(agentfhir.PROTOCOL, self.table["protocol"])
+        self.assertEqual(agentfhir.FUNCTIONS, [f["name"] for f in self.table["functions"]])
 
     def test_each_function_is_a_method_with_the_tables_parameters(self):
         for f in self.table["functions"]:
@@ -100,17 +100,17 @@ class GeneratedFromTheTable(unittest.TestCase):
             self.assertEqual(sorted(sent[-1][1]), sorted(f["parameters"]["required"]), f["name"])
 
     def test_the_toolkit_reaches_every_function(self):
-        source = (ROOT / "src" / "fhir_toolkit" / "toolkit.py").read_text(encoding="utf-8")
-        for name in fhir_toolkit.FUNCTIONS:
-            self.assertRegex(source, r"\braw\.%s\(" % name, "Toolkit has no method over the function %s" % name)
+        source = (ROOT / "src" / "agentfhir" / "context.py").read_text(encoding="utf-8")
+        for name in agentfhir.FUNCTIONS:
+            self.assertRegex(source, r"\braw\.%s\(" % name, "FhirContext has no method over the function %s" % name)
 
 
-class TheToolkit(unittest.TestCase):
+class TheContext(unittest.TestCase):
     """Every method against the function server."""
 
     @classmethod
     def setUpClass(cls):
-        cls.fhir = Toolkit()
+        cls.fhir = FhirContext()
 
     @classmethod
     def tearDownClass(cls):
@@ -120,7 +120,7 @@ class TheToolkit(unittest.TestCase):
     def test_version_and_guides(self):
         version = self.fhir.version()
         self.assertEqual(version["fhirVersion"], "4.0.1")
-        self.assertEqual(version["functions"], fhir_toolkit.FUNCTIONS)
+        self.assertEqual(version["functions"], agentfhir.FUNCTIONS)
         self.assertIn("cql", self.fhir.guide())
         self.assertIn("FHIRPath", self.fhir.guide("fhirpath"))
         with self.assertRaisesRegex(FhirError, "no guide nope"):
@@ -506,7 +506,7 @@ class TheToolkit(unittest.TestCase):
             self.fhir.load("/nonexistent/place")
 
     def test_loaded_data_is_one_process_s(self):
-        with Toolkit() as other:
+        with FhirContext() as other:
             theirs = other.load(DATA)
             # asked of another process, the key names nothing there
             with self.assertRaisesRegex(FhirError, "no data is loaded as"):
@@ -527,7 +527,7 @@ class TheToolkit(unittest.TestCase):
         bad = self.fhir.validate(dict(PATIENT, gender="florp"))
         self.assertTrue(str(bad).startswith("Patient.gender: error: code `florp`"))
         self.assertIn("<li>Patient.gender: error", bad._repr_html_())
-        self.assertRegex(repr(self.fhir), r"Toolkit\(FHIR 4\.0\.1, running\)")
+        self.assertRegex(repr(self.fhir), r"FhirContext\(FHIR 4\.0\.1, running\)")
 
     # ---- the plain functions, and calls from several threads ------------------------------------
     def test_a_resource_as_json_text_or_a_file(self):
@@ -642,23 +642,23 @@ class TheProcess(unittest.TestCase):
     """Starting, stopping, another FHIR version, and what goes wrong before a call is answered."""
 
     def test_a_toolkit_starts_when_it_is_made_and_again_after_close(self):
-        fhir = Toolkit()
+        fhir = FhirContext()
         self.assertTrue(fhir._server.running)                       # started, and not waited for
         self.assertEqual(fhir.fhirpath("gender", PATIENT), ["female"])
         fhir.close()
         self.assertFalse(fhir._server.running)
-        self.assertEqual(repr(fhir), "Toolkit(FHIR 4.0.1, not started)")
+        self.assertEqual(repr(fhir), "FhirContext(FHIR 4.0.1, not started)")
         self.assertEqual(fhir.fhirpath("gender", PATIENT), ["female"])
         fhir.close()
         fhir.close()
-        late = Toolkit(start=False)                                 # left until the first call
+        late = FhirContext(start=False)                                 # left until the first call
         self.assertFalse(late._server.running)
         self.assertEqual(late.fhirpath("gender", PATIENT), ["female"])
         self.assertTrue(late._server.running)
         late.close()
 
     def test_a_process_that_dies_is_said_and_started_again(self):
-        with Toolkit() as fhir:
+        with FhirContext() as fhir:
             fhir.version()
             fhir._server._process.kill()
             fhir._server._process.wait()
@@ -673,7 +673,7 @@ class TheProcess(unittest.TestCase):
         # Ctrl-C (a notebook's stop button) while the toolkit is answering: its answer, still on
         # its way, was read as the answer to the NEXT call
         many = [dict(PATIENT, id="p%d" % i) for i in range(60000)]
-        with Toolkit() as fhir:
+        with FhirContext() as fhir:
             fhir.version()
             before = fhir._server.generation
             timer = threading.Timer(0.2, lambda: os.kill(os.getpid(), signal.SIGINT))
@@ -691,7 +691,7 @@ class TheProcess(unittest.TestCase):
 
     def test_a_call_interrupted_while_it_waits_stops_the_process(self):
         # the same, with the interrupt exactly where it matters: the request sent, the answer awaited
-        with Toolkit() as fhir:
+        with FhirContext() as fhir:
             fhir.version()
             before = fhir._server.generation
             process = fhir._server._process
@@ -712,7 +712,7 @@ class TheProcess(unittest.TestCase):
 
     def test_a_call_may_be_given_so_long(self):
         many = [dict(PATIENT, id="p%d" % i) for i in range(60000)]
-        with Toolkit(timeout=120) as fhir:
+        with FhirContext(timeout=120) as fhir:
             self.assertEqual(fhir._server.timeout, 120)
             fhir.version()
             fhir._server.timeout = 0.2
@@ -721,7 +721,7 @@ class TheProcess(unittest.TestCase):
             fhir._server.timeout = 120
             self.assertEqual(fhir.fhirpath("name.family", PATIENT), ["Lee"])
         # the wait for the process to start is not a call's time
-        with Toolkit(timeout=0.001, start=False) as quick:
+        with FhirContext(timeout=0.001, start=False) as quick:
             with self.assertRaisesRegex(FhirError, "did not answer within 0.001 s"):
                 quick.validate_each(many)
 
@@ -729,11 +729,11 @@ class TheProcess(unittest.TestCase):
         fake = ("import sys, json\nfor line in sys.stdin:\n    r = json.loads(line)\n"
                 "    late = 7 if r['method'] == 'validate' else 0\n"
                 "    print(json.dumps({'jsonrpc': '2.0', 'id': r['id'] + late, 'result': {'protocol': %d, 'values': [1]},"
-                " 'warnings': ['careful'] if r['method'] == 'fhirpath' else []}), flush=True)\n" % fhir_toolkit.PROTOCOL)
+                " 'warnings': ['careful'] if r['method'] == 'fhirpath' else []}), flush=True)\n" % agentfhir.PROTOCOL)
         with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as script:
             script.write(fake)
         try:
-            with Toolkit(command=[sys.executable, script.name]) as stub:
+            with FhirContext(command=[sys.executable, script.name]) as stub:
                 with warnings.catch_warnings(record=True) as caught:
                     warnings.simplefilter("always")
                     self.assertEqual(stub.fhirpath("x", PATIENT), [1])
@@ -746,34 +746,34 @@ class TheProcess(unittest.TestCase):
 
     def test_fhir_r5_is_another_process(self):
         encounter = {"resourceType": "Encounter", "status": "completed", "actualPeriod": {"start": "2025-01-01"}}
-        with Toolkit("5.0.0") as r5:
+        with FhirContext("5.0.0") as r5:
             self.assertEqual(r5.version()["fhirVersion"], "5.0.0")
             self.assertEqual(r5.fhirpath("actualPeriod.start", encounter), ["2025-01-01"])
             self.assertEqual(r5.fsh("Profile: P\nParent: Patient\n")[0]["fhirVersion"], "5.0.0")
         with self.assertRaisesRegex(FhirError, "FHIR version 3.0.2 is not one this toolkit reads|ended"):
-            Toolkit("3.0.2").version()
+            FhirContext("3.0.2").version()
 
-    def test_no_toolkit_to_start(self):
+    def test_no_engine_to_start(self):
         environment = dict(os.environ)
         try:
             os.environ["PATH"] = ""
             os.environ.pop("FHIR_API_COMMAND", None)
-            if fhir_toolkit._server.bundled_command():
+            if agentfhir._server.bundled_command():
                 self.skipTest("this installation carries the executable")
-            with self.assertRaisesRegex(ToolkitNotFound, "no FHIR toolkit to start"):
-                Toolkit().version()
+            with self.assertRaisesRegex(FhirEngineNotFound, "no FHIR engine to start"):
+                FhirContext().version()
         finally:
             os.environ.clear()
             os.environ.update(environment)
-        with self.assertRaisesRegex(ToolkitNotFound, "could not start the FHIR toolkit"):
-            Toolkit(command=["/nonexistent/fhir-api"]).version()
+        with self.assertRaisesRegex(FhirEngineNotFound, "could not start the FHIR engine"):
+            FhirContext(command=["/nonexistent/fhir-api"]).version()
 
     def test_the_command_can_be_named(self):
-        self.assertEqual(fhir_toolkit.find_command(["x", "y"]), ["x", "y"])
+        self.assertEqual(agentfhir.find_command(["x", "y"]), ["x", "y"])
         environment = dict(os.environ)
         try:
             os.environ["FHIR_API_COMMAND"] = "raco fhir-api"
-            self.assertEqual(fhir_toolkit.find_command(), ["raco", "fhir-api"])
+            self.assertEqual(agentfhir.find_command(), ["raco", "fhir-api"])
         finally:
             os.environ.clear()
             os.environ.update(environment)
@@ -783,8 +783,8 @@ class TheProcess(unittest.TestCase):
         with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as script:
             script.write(fake)
         try:
-            with self.assertRaisesRegex(FhirError, "speaks protocol 99 and this package protocol %d" % fhir_toolkit.PROTOCOL):
-                Toolkit(command=[sys.executable, script.name]).version()
+            with self.assertRaisesRegex(FhirError, "speaks protocol 99 and this package protocol %d" % agentfhir.PROTOCOL):
+                FhirContext(command=[sys.executable, script.name]).version()
         finally:
             os.unlink(script.name)
 

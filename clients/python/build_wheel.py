@@ -5,10 +5,10 @@
     python3 clients/python/build_wheel.py dist [--out wheels] [--packages core|all]
 
 The standalone build (bin/ — on Windows the executable itself —, lib/, share/fhir-packages/)
-is copied into the package as fhir_toolkit/_bin, a wheel is built and tagged for this platform,
+is copied into the package as agentfhir/_bin, a wheel is built and tagged for this platform,
 and the copy is removed again. `--packages core` (the default) carries the FHIR R4 and R5 core packages only; `all`
 carries every package the build holds (US Core, IPS, mCODE and the rest: a larger file).
-A package the wheel does not carry is given to `Toolkit(packages=[…])` as a .tgz path.
+A package the wheel does not carry is given to `FhirContext(packages=[…])` as a .tgz path.
 """
 import argparse
 import pathlib
@@ -20,7 +20,7 @@ import sys
 import sysconfig
 
 HERE = pathlib.Path(__file__).resolve().parent
-BUNDLE = HERE / "src" / "fhir_toolkit" / "_bin"
+BUNDLE = HERE / "src" / "agentfhir" / "_bin"
 CORE = ("hl7.fhir.r4.core.tgz", "hl7.fhir.r5.core.tgz")
 
 
@@ -119,17 +119,17 @@ def main():
     dist = options.dist.resolve()
     copy_build(dist, options.packages)
     try:
-        for stale in (HERE / "build", HERE / "src" / "fhir_toolkit.egg-info"):
+        for stale in (HERE / "build", HERE / "src" / "agentfhir.egg-info"):
             shutil.rmtree(stale, ignore_errors=True)
         subprocess.run([sys.executable, "-m", "pip", "wheel", str(HERE), "--no-deps", "-w", str(out)], check=True)
-        built = sorted(out.glob("fhir_toolkit-*-py3-none-any.whl"))[-1]
+        built = sorted(out.glob("agentfhir-*-py3-none-any.whl"))[-1]
         executable = next((p for p in (dist / "bin" / "fhir-api", dist / "fhir-api.exe") if p.is_file()), None)
         subprocess.run([sys.executable, "-m", "wheel", "tags", "--platform-tag", platform_tag(executable), "--remove", str(built)], check=True)
     finally:
         shutil.rmtree(BUNDLE, ignore_errors=True)
-        for stale in (HERE / "build", HERE / "src" / "fhir_toolkit.egg-info"):
+        for stale in (HERE / "build", HERE / "src" / "agentfhir.egg-info"):
             shutil.rmtree(stale, ignore_errors=True)
-    wheel = sorted(out.glob("fhir_toolkit-*.whl"), key=lambda p: p.stat().st_mtime)[-1]
+    wheel = sorted(out.glob("agentfhir-*.whl"), key=lambda p: p.stat().st_mtime)[-1]
     print("%s  %.1f MB" % (wheel, wheel.stat().st_size / 1048576))
 
 
