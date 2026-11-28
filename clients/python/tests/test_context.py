@@ -18,8 +18,8 @@ import warnings
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent
-# FHIR_TOOLKIT_TEST_INSTALLED=1 tests the package as installed (a wheel with its executable), not this source tree
-if not os.environ.get("FHIR_TOOLKIT_TEST_INSTALLED"):
+# AGENTFHIR_TEST_INSTALLED=1 tests the package as installed (a wheel with its executable), not this source tree
+if not os.environ.get("AGENTFHIR_TEST_INSTALLED"):
     sys.path.insert(0, str(ROOT / "src"))
 
 import agentfhir  # noqa: E402
@@ -103,6 +103,14 @@ class GeneratedFromTheTable(unittest.TestCase):
         source = (ROOT / "src" / "agentfhir" / "context.py").read_text(encoding="utf-8")
         for name in agentfhir.FUNCTIONS:
             self.assertRegex(source, r"\braw\.%s\(" % name, "FhirContext has no method over the function %s" % name)
+
+
+    def test_every_test_file_can_test_the_installed_package(self):
+        """A wheel is tested with AGENTFHIR_TEST_INSTALLED=1: no test file may then put the source first."""
+        for test in sorted(HERE.glob("test_*.py")):
+            text = test.read_text(encoding="utf-8")
+            if "sys.path.insert" in text:
+                self.assertIn('if not os.environ.get("AGENTFHIR_TEST_INSTALLED")', text, test.name)
 
 
 class TheContext(unittest.TestCase):

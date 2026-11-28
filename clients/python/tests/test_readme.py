@@ -20,7 +20,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent
 import os  # noqa: E402
 
-if not os.environ.get("FHIR_TOOLKIT_TEST_INSTALLED"):
+if not os.environ.get("AGENTFHIR_TEST_INSTALLED"):
     sys.path.insert(0, str(ROOT / "src"))
 
 BLOCK = re.compile(r"```(python|ipython|text)\n(.*?)```", re.DOTALL)

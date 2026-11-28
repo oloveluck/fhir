@@ -33,7 +33,7 @@ def the_wheel(given):
 
 
 def bare_environment(programs, home):
-    environment = {"PATH": str(programs), "HOME": str(home), "FHIR_TOOLKIT_TEST_INSTALLED": "1"}
+    environment = {"PATH": str(programs), "HOME": str(home), "AGENTFHIR_TEST_INSTALLED": "1"}
     if WINDOWS:
         environment["USERPROFILE"] = str(home)
         for name in KEPT_ON_WINDOWS:

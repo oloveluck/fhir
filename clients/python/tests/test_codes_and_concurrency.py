@@ -11,7 +11,8 @@ import unittest
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent
-if str(ROOT / "src") not in sys.path:
+# AGENTFHIR_TEST_INSTALLED=1 tests the package as installed (a wheel with its executable), not this source tree
+if not os.environ.get("AGENTFHIR_TEST_INSTALLED") and str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
 from agentfhir import (AsyncFhirContext, CodeCheck, Concept, FhirError, FhirNotFound, FhirOperationError,  # noqa: E402

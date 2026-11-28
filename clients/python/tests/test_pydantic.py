@@ -12,7 +12,7 @@ import unittest
 from typing import Annotated, List, Optional
 
 HERE = pathlib.Path(__file__).resolve().parent
-if not os.environ.get("FHIR_TOOLKIT_TEST_INSTALLED"):
+if not os.environ.get("AGENTFHIR_TEST_INSTALLED"):
     sys.path.insert(0, str(HERE.parent / "src"))
 
 try:
