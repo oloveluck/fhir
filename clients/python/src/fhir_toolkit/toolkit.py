@@ -29,13 +29,14 @@ import threading
 import json
 import os
 import re
+import urllib.parse
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
 
 from ._functions import Functions
 from ._server import Server
-from .errors import Diagnostic, FhirError, warn
+from .errors import Diagnostic, FhirError, FhirSourceError, FhirUsageError, warn
 from .models import typed
-from .results import Commit, Compiled, Outcome, Stage, Table
+from .results import CodeCheck, Commit, Compiled, Concept, Match, Outcome, Stage, Table, _listed, _params
 
 Resource = Dict[str, Any]
 ProjectLike = Union["Project", Mapping[str, str], str, "os.PathLike[str]", None]
@@ -96,28 +97,34 @@ class Data:
         self._toolkit = toolkit
         self._source = source
         self._project = project
-        self._key: Optional[str] = None
-        self._generation = -1
+        # what each process holds this data as: process -> (key, the process's generation)
+        self._keys: Dict["_Raw", Any] = {}
+        self._lock = threading.Lock()
         self.count: Optional[int] = None
-        self._argument()
+        self._argument(toolkit._raws[0])
 
-    def _argument(self) -> Dict[str, str]:
-        """This data as a function's `data`; loaded (again) when this process does not hold it."""
-        if self._source is None:
-            raise FhirError("the data was closed: load it again")
-        server = self._toolkit._server
-        # (a process that has ended starts again at the next call, without this data)
-        if self._key is None or self._generation != server.generation or not server.running:
-            answer = self._toolkit._load(self._source, self._project)
-            self._key, self.count, self._generation = answer["loaded"], answer.get("count"), server.generation
-        return {"loaded": self._key}
+    def _argument(self, raw: "_Raw") -> Dict[str, str]:
+        """This data as a function's `data` in one process; loaded (again) there when that process
+        does not hold it (it has not been asked yet, or it has started again since)."""
+        with self._lock:
+            if self._source is None:
+                raise FhirUsageError("the data was closed: load it again")
+            server = raw._server
+            key, generation = self._keys.get(raw, (None, -1))
+            if key is None or generation != server.generation or not server.running:
+                answer = raw.load(self._source, **self._project.arguments())
+                key = answer["loaded"]
+                self.count = answer.get("count")
+                self._keys[raw] = (key, server.generation)
+            return {"loaded": key}
 
     def close(self) -> None:
         """Let the toolkit forget the data. Using it after this is an error."""
-        key, self._key, self._source = self._key, None, None
-        server = self._toolkit._server
-        if key is not None and server.running and self._generation == server.generation:
-            self._toolkit._unload(key)
+        with self._lock:
+            keys, self._keys, self._source = self._keys, {}, None
+        for raw, (key, generation) in keys.items():
+            if raw._server.running and generation == raw._server.generation:
+                raw.unload(key)
 
     def __enter__(self) -> "Data":
         return self
@@ -137,9 +144,10 @@ class Data:
 
 
 def as_data(data: DataLike) -> Any:
-    """Data as the functions take it: a path as text, resources as they are, loaded data by its key."""
+    """Data as the functions take it: a path as text, resources as they are; loaded data as itself,
+    which the process a call goes to names by its own key (`_Raw._call`)."""
     if isinstance(data, Data):
-        return data._argument()
+        return data
     if data is None or isinstance(data, (str, dict, list)):
         return data
     if isinstance(data, os.PathLike):
@@ -150,14 +158,53 @@ def as_data(data: DataLike) -> Any:
 
 
 class _Raw(Functions):
-    """The generated functions over a server: plain JSON in, plain JSON out."""
+    """The generated functions over one process: plain JSON in, plain JSON out."""
 
     def __init__(self, server: Server):
         self._server = server
+        self.busy = 0         # calls in flight here (counted by the pool, under its lock)
 
     def _call(self, name: str, arguments: Dict[str, Any]) -> Any:
-        # (typed models among the arguments go as the JSON they write: Server encodes them)
+        # loaded data is named by what THIS process holds it as; typed models among the
+        # arguments go as the JSON they write (Server encodes them)
+        data = arguments.get("data")
+        if isinstance(data, Data):
+            arguments = dict(arguments, data=data._argument(self))
         return self._server.call(name, arguments)
+
+
+class _Pool(Functions):
+    """The generated functions over the Toolkit's processes: each call goes to the one with the
+    fewest calls in flight (the first, of those with as few), so calls from several threads run at
+    the same time, one in each process. `held()` names a process for calls that must meet the
+    same one (a stage and its commit)."""
+
+    def __init__(self, raws: List[_Raw]):
+        self._raws = raws
+        self._lock = threading.Lock()
+
+    def _take(self) -> _Raw:
+        with self._lock:
+            raw = min(self._raws, key=lambda r: r.busy)      # (min keeps the first of equals)
+            raw.busy += 1
+            return raw
+
+    def _give(self, raw: _Raw) -> None:
+        with self._lock:
+            raw.busy -= 1
+
+    def _call(self, name: str, arguments: Dict[str, Any]) -> Any:
+        raw = self._take()
+        try:
+            return raw._call(name, arguments)
+        finally:
+            self._give(raw)
+
+    def held(self) -> _Raw:
+        """The process least busy now, to which every call of a sequence then goes."""
+        raw = self._take()
+        self._give(raw)
+        return raw
 
 
 class Toolkit:
@@ -174,11 +221,14 @@ class Toolkit:
             making a Toolkit does not wait for it, and the first call waits
             only for what is left of its start (well under a second in all).
             False leaves it until the first call.
-        workers: how many processes answer `fhirpath_each` and `validate_each`
-            (1, the default: this one). With more, a list of resources is cut
-            into that many parts, each answered by its own process at the same
-            time: about that many times quicker on a machine with the cores,
-            for that many times the memory (some 150 MB a process).
+        workers: how many processes answer calls (1, the default). With more,
+            calls made at the same time — from several threads, or awaited
+            together through `AsyncToolkit` — are each answered by a process
+            of their own, and `fhirpath_each` and `validate_each` cut a long
+            list into that many parts answered at once: about that many times
+            quicker on a machine with the cores, for that many times the
+            memory (some 150 MB a process). Data you `load` is loaded into
+            each process the first time a call there uses it.
         timeout: how many seconds a call may take; None (the default) lets
             it take as long as it takes. A call that runs out of time — or
             is interrupted, by Ctrl-C or a notebook's stop button — raises,
@@ -192,12 +242,11 @@ class Toolkit:
                  start: bool = True, timeout: Optional[float] = None, workers: int = 1):
         if not isinstance(workers, int) or workers < 1:
             raise ValueError("workers is how many processes answer a list of resources: 1 or more (got %r)" % (workers,))
-        self._server = Server(fhir_version, packages, command, start=start, timeout=timeout)
-        self.raw = _Raw(self._server)
-        # the processes a list of resources is shared between: this one first
-        self._servers = [self._server] + [Server(fhir_version, packages, command, start=start, timeout=timeout)
-                                          for _ in range(workers - 1)]
-        self._raws = [self.raw] + [_Raw(server) for server in self._servers[1:]]
+        self._servers = [Server(fhir_version, packages, command, start=start, timeout=timeout) for _ in range(workers)]
+        self._server = self._servers[0]
+        self._raws = [_Raw(server) for server in self._servers]
+        # every call goes to the process least busy: with one worker, always the one
+        self.raw = _Pool(self._raws)
         atexit.register(self.close)
 
     def __repr__(self) -> str:
@@ -285,12 +334,6 @@ class Toolkit:
             return data
         return Data(self, as_data(data), as_project(project))
 
-    def _load(self, source: Any, project: "Project") -> Dict[str, Any]:
-        return self.raw.load(source, **project.arguments())
-
-    def _unload(self, key: str) -> None:
-        self.raw.unload(key)
-
     def validate(self, resource: Resource, profile: Optional[str] = None, *, project: ProjectLike = None) -> Outcome:
         """A resource held to its type, the profiles it claims and `profile`.
 
@@ -344,8 +387,8 @@ class Toolkit:
         """Every problem in a project's files (errors and warnings); never raises for them."""
         return self.compile(project, check=False).diagnostics
 
-    def translate(self, text: str, *, name: Optional[str] = None, project: ProjectLike = None, check: bool = True) -> Optional[Dict[str, Any]]:
-        """A CQL library's ELM as JSON.
+    def elm(self, text: str, *, name: Optional[str] = None, project: ProjectLike = None, check: bool = True) -> Optional[Dict[str, Any]]:
+        """A CQL library translated to ELM, as JSON: the form other CQL engines run.
 
         Includes are found among the project's .cql files, then among the
         libraries the toolkit carries (FHIRHelpers). With `check` a translation
@@ -354,7 +397,7 @@ class Toolkit:
         answer = self.raw.translate(text, name=name, **as_project(project).arguments())
         errors = [d for d in (Diagnostic.from_json(j) for j in answer["diagnostics"]) if d.is_error]
         if check and errors:
-            raise FhirError("\n".join(str(d) for d in errors), diagnostics=errors)
+            raise FhirSourceError("\n".join(str(d) for d in errors), diagnostics=errors)
         return answer["elm"]
 
     def run(self, path: str, *, project: ProjectLike, data: DataLike = None, entry: Optional[str] = None,
@@ -421,6 +464,57 @@ class Toolkit:
             return [{"system": c.get("system"), "code": c.get("code"), "display": c.get("display")} for c in expansion.get("contains", [])]
         return self.query("vcl", value_set, project=project).rows
 
+    def validate_code(self, value_set: str, code: Union[str, Dict[str, Any]], system: Optional[str] = None, *,
+                      display: Optional[str] = None, version: Optional[str] = None, project: ProjectLike = None) -> CodeCheck:
+        """Whether a value set holds a code (FHIR's ValueSet/$validate-code).
+
+        `value_set` is a canonical url (with `|version` if need be), or a VCL
+        expression. `code` is a code (with its `system`), a Coding, or a
+        CodeableConcept (held when any of its codings is). With `display`, the
+        display is checked too. The answer is a `CodeCheck`, true when the code
+        is held: `if fhir.validate_code(vs, "female", gender_system): ...`.
+        A value set nothing in context defines raises FhirError.
+        """
+        inputs: Dict[str, Any] = {"url": _value_set_url(value_set)}
+        if isinstance(code, dict):
+            inputs["codeableConcept" if "coding" in code else "coding"] = code
+        else:
+            inputs.update({"code": code, "system": system, "systemVersion": version, "display": display})
+        inputs = {k: v for k, v in inputs.items() if v is not None}
+        return CodeCheck(self.operation("ValueSet/$validate-code", inputs=inputs, project=project))
+
+    def lookup(self, system: str, code: str, *, version: Optional[str] = None, project: ProjectLike = None) -> Concept:
+        """A code looked up in its code system (FHIR's $lookup): its display, definition,
+        designations and properties, as a `Concept`. A code system that is not in context, or
+        a code it lacks, raises FhirError."""
+        inputs = {k: v for k, v in (("system", system), ("code", code), ("version", version)) if v is not None}
+        return Concept(system, code, self.operation("$lookup", inputs=inputs, project=project))
+
+    def subsumes(self, system: str, code_a: str, code_b: str, *, version: Optional[str] = None,
+                 project: ProjectLike = None) -> str:
+        """How code A relates to code B in their code system's hierarchy (FHIR's $subsumes):
+        "equivalent", "subsumes" (A is broader), "subsumed-by" (A is narrower) or "not-subsumed"."""
+        inputs = {k: v for k, v in (("system", system), ("codeA", code_a), ("codeB", code_b), ("version", version)) if v is not None}
+        answer = self.operation("$subsumes", inputs=inputs, project=project)
+        return _params(answer.get("parameter", [])).get("outcome")
+
+    def translate(self, code: Union[str, Dict[str, Any]], system: Optional[str] = None, *, concept_map: Optional[str] = None,
+                  target: Optional[str] = None, project: ProjectLike = None) -> List[Match]:
+        """The codes a code maps to (FHIR's ConceptMap/$translate), each a `Match`.
+
+        `concept_map` is the ConceptMap's canonical; `target` the code system to
+        map into (FHIR's `targetSystem`). `code` is a code with its `system`, or
+        a Coding. No match is an empty list.
+        """
+        inputs: Dict[str, Any] = {"url": concept_map, "targetSystem": target}
+        if isinstance(code, dict):
+            inputs["sourceCodeableConcept" if "coding" in code else "sourceCoding"] = code
+        else:
+            inputs.update({"sourceCode": code, "system": system})
+        answer = self.operation("$translate", inputs={k: v for k, v in inputs.items() if v is not None}, project=project)
+        found = _params(answer.get("parameter", []))
+        return [Match(m) for m in _listed(found.get("match"))]
+
     # ---- writing --------------------------------------------------------------------------------
     def stage(self, resources: Any = None, *, data: Union[str, "os.PathLike[str]"], fsh: Optional[str] = None,
               project: ProjectLike = None, keep: bool = True) -> Stage:
@@ -435,12 +529,16 @@ class Toolkit:
         """
         place = os.fspath(data)
         arguments = as_project(project).arguments()
-        answer = self.raw.stage(resources=_resources(resources), fsh=fsh, data=place, keep=None if keep else False, **arguments)
+        raw = self.raw.held()       # a stage is kept by the process that made it: its commit goes there too
+        answer = raw.stage(resources=_resources(resources), fsh=fsh, data=place, keep=None if keep else False, **arguments)
 
         def commit(reason: Optional[str] = None, agent: Optional[str] = None) -> Commit:
-            return Commit(self.raw.commit(answer["stage"], place, reason=reason, agent=agent, **arguments))
+            return Commit(raw.commit(answer["stage"], place, reason=reason, agent=agent, **arguments))
 
-        return Stage(answer, commit if answer.get("stage") else None)
+        def drop() -> None:
+            raw.stage(drop=answer["stage"], data=place, **arguments)
+
+        return Stage(answer, commit if answer.get("stage") else None, drop if answer.get("stage") else None)
 
     def write(self, resources: Any = None, *, data: Union[str, "os.PathLike[str]"], fsh: Optional[str] = None,
               reason: Optional[str] = None, agent: Optional[str] = None, project: ProjectLike = None) -> Commit:
@@ -453,8 +551,7 @@ class Toolkit:
         """
         staged = self.stage(resources, data=data, fsh=fsh, project=project)
         if not staged.ok:
-            if staged.id:
-                self.raw.stage(drop=staged.id, data=os.fspath(data), **as_project(project).arguments())
+            staged.drop()
             staged.raise_for_errors()
         return staged.commit(reason, agent=agent) if staged.id else Commit({})
 
@@ -501,8 +598,8 @@ def _resource(resource: Any) -> Any:
             try:
                 return json.loads(text)
             except ValueError as e:
-                raise FhirError("the resource is not JSON: %s" % e) from e
-        raise FhirError("a resource is FHIR JSON (a dict), an object of a model library, JSON text, or a pathlib.Path to a "
+                raise FhirUsageError("the resource is not JSON: %s" % e) from e
+        raise FhirUsageError("a resource is FHIR JSON (a dict), an object of a model library, JSON text, or a pathlib.Path to a "
                         "JSON file — not the text %r" % (text if len(text) <= 40 else text[:39] + "…"))
     return resource
 
@@ -524,6 +621,14 @@ def _parameters(parameters: Optional[Mapping[str, str]]) -> Optional[Dict[str, s
         if not isinstance(value, str):
             raise TypeError("the value of CQL parameter %r is a CQL expression as text (got %r)" % (name, value))
     return dict(parameters)
+
+
+def _value_set_url(value_set: str) -> str:
+    """A value set as `$validate-code` takes it: a url as it is; a VCL expression as the implicit
+    value set VCL defines (`http://fhir.org/VCL?v1=` and the expression, percent-encoded)."""
+    if re.match(r"^https?://\S+$", value_set):
+        return value_set
+    return "http://fhir.org/VCL?v1=" + urllib.parse.quote(value_set, safe="")
 
 
 def _library_file(text: str) -> str:

@@ -17,11 +17,12 @@
                   subsumes-definition find-matches-definition closure-definition)
          fhir/operation fhir/data-source
          (only-in fhir/sd/sd-index sd-context current-sd-packages)
+         (only-in fhir/package-store package-entries package-entry-kind package-entry-url)
          (only-in fhir/serialize/jsexpr-util drop-false)
          (only-in "service.rkt" packages->resolver resources->resolver packages->code-systems
                   expand/json validate-code/json cs-validate-code/json lookup/json translate/json
                   subsumes/json find-matches/json closure-relation terminology-capabilities policy-of
-                  implicit-vcl-valueset current-terminology-strict? exn:fail:terminology?
+                  implicit-vcl-valueset current-terminology-strict? exn:fail:terminology? translate-between/json
                   exn:fail:terminology-code))
 
 (provide
@@ -253,13 +254,34 @@
                 (lambda (ps) (append ps (list (hasheq 'name "code" 'use "in" 'min 0 'max "1" 'type "code")))))
    (lambda (in subject)
      (define cm (or subject (input in "conceptMap")))
-     (define url (or (and cm (hash-ref cm 'url #f)) (input in "url")
-                     (operation-error "required" "$translate needs a ConceptMap (piped), conceptMap, or url")))
+     (define system (or (input in "system") (input in "sourceSystem")
+                        (let ([c (input in "sourceCoding")]) (and c (hash-ref c 'system #f)))))
+     (define target (input in "targetSystem"))
+     (define url (or (and cm (hash-ref cm 'url #f)) (input in "url")))
+     (unless (or url system target)
+       (operation-error "required" "$translate needs a ConceptMap (piped), conceptMap or url, or the system and targetSystem to map between"))
      (define code (or (input in "sourceCode") (input in "code")
                       (let ([c (input in "sourceCoding")]) (and c (hash-ref c 'code #f)))
                       (operation-error "required" "$translate needs sourceCode or sourceCoding")))
-     (translate/json (current-terminology-resolver (if cm (list cm) '())) url code
-                     (or (input in "system") (let ([c (input in "sourceCoding")]) (and c (hash-ref c 'system #f))))))))
+     (define resolver (current-terminology-resolver (if cm (list cm) '())))
+     ;; without a map named, every map in context between the two systems (FHIR: the server
+     ;; chooses), each match saying which map made it; a target system narrows either way
+     (translate-between/json resolver (if url (list url) (concept-map-urls)) code system target
+                             #:say-map? (not url)))))
+
+;; ConceptMaps in context: the data source's, those required modules registered, the packages'
+;; concept-map-urls : -> (listof url)
+(define (concept-map-urls)
+  (define ds (current-data-source))
+  (define search (data-source-search ds))
+  (remove-duplicates
+   (append (filter-map (lambda (r) (hash-ref r 'url #f))
+                       (append (if search (search "ConceptMap" '()) ((data-source-all ds) "ConceptMap"))
+                               (registered-resources "ConceptMap")))
+           (for*/list ([p (in-list (sd-context))] [e (in-list (package-entries p))]
+                       #:when (equal? (package-entry-kind e) "ConceptMap")
+                       #:when (package-entry-url e))
+             (package-entry-url e)))))
 
 (define terminology-operations
   (list $expand $validate-code $cs-validate-code $lookup $subsumes $find-matches $translate $closure))
@@ -287,6 +309,19 @@
       (check-false (result ($validate-code #:url vcl-url #:code "other" #:system "http://hl7.org/fhir/administrative-gender")))
       (check-true (result ($cs-validate-code #:url "http://hl7.org/fhir/administrative-gender" #:code "male")))
       (check-false (result ($cs-validate-code #:url "http://hl7.org/fhir/administrative-gender" #:code "florp")))
+      ;; $translate with no map named: the maps in context between the two systems, each match
+      ;; saying which map made it; a target system narrows the matches
+      (define (match-codes ps) (for*/list ([p (in-list (hash-ref ps 'parameter))] #:when (equal? (hash-ref p 'name) "match")
+                                           [part (in-list (hash-ref p 'part))] #:when (equal? (hash-ref part 'name) "concept"))
+                                 (hash-ref (hash-ref part 'valueCoding) 'code)))
+      (define gender-system "http://hl7.org/fhir/administrative-gender")
+      (define found ($translate #:sourceCode "female" #:system gender-system #:targetSystem "http://terminology.hl7.org/CodeSystem/v2-0001"))
+      (check-equal? (match-codes found) '("F"))
+      (check-not-false (regexp-match? #rx"originMap" (format "~s" found)))
+      (check-true (> (length (match-codes ($translate #:sourceCode "female" #:system gender-system))) 1))
+      (check-equal? (match-codes ($translate #:url "http://hl7.org/fhir/ConceptMap/cm-administrative-gender-v2"
+                                             #:sourceCode "female" #:system gender-system #:targetSystem "http://elsewhere")) '())
+      (check-exn #rx"needs a ConceptMap" (lambda () ($translate #:sourceCode "female")))
       (check-equal? (hash-ref (car (hash-ref ($subsumes #:system "http://hl7.org/fhir/administrative-gender" #:codeA "male" #:codeB "male") 'parameter)) 'valueCode) "equivalent")
       (check-equal? (hash-ref (current-terminology-capabilities) 'resourceType) "TerminologyCapabilities")
       (check-equal? (hash-ref ($closure #:name "t") 'resourceType) "ConceptMap")

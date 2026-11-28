@@ -23,7 +23,7 @@
          (only-in fhir/sd/sd-index current-sd-packages)
          (only-in fhir/terminology/service packages->resolver expand/json validate-code/json
                   lookup/json translate/json subsumes/json
-                  implicit-vcl-valueset rule-systems-without-content))
+                  implicit-vcl-valueset rule-systems-without-content current-terminology-strict?))
 
 (provide resolver-of split-options)
 
@@ -111,7 +111,8 @@
       [("lookup")
        (need 2)
        (known! r "CodeSystem" (car pos) packages)
-       (print-json (lookup/json r (car pos) (cadr pos)))]
+       ;; a code the system lacks is said, as $lookup says it (it printed the system's name alone)
+       (print-json (parameterize ([current-terminology-strict? #t]) (lookup/json r (car pos) (cadr pos))))]
       [("translate")
        (need 2)
        (known! r "ConceptMap" (car pos) packages)

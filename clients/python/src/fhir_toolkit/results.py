@@ -5,7 +5,7 @@ import io
 import json
 from typing import Callable, Any, Dict, Iterator, List, Optional
 
-from .errors import Diagnostic, FhirError
+from .errors import Diagnostic, FhirError, FhirSourceError, FhirUsageError, FhirValidationError
 
 
 class Table:
@@ -48,7 +48,7 @@ class Table:
         of a model library), as objects of it."""
         from .models import typed
         if "json" not in self.columns and not any("json" in row for row in self.rows):
-            raise FhirError("these rows are no resources (a search's rows are; the columns here: %s)" % ", ".join(self.columns))
+            raise FhirUsageError("these rows are no resources (a search's rows are; the columns here: %s)" % ", ".join(self.columns))
         found = [row["json"] for row in self.rows if isinstance(row.get("json"), dict)]
         return found if model is None else [typed(model, resource) for resource in found]
 
@@ -154,7 +154,7 @@ class Compiled:
 
     def raise_for_errors(self) -> "Compiled":
         if self.errors:
-            raise FhirError("\n".join(str(d) for d in self.errors), diagnostics=self.errors, result=self)
+            raise FhirSourceError("\n".join(str(d) for d in self.errors), diagnostics=self.errors, result=self)
         return self
 
     def __iter__(self) -> Iterator[Dict[str, Any]]:
@@ -200,7 +200,7 @@ class Outcome:
 
     def raise_for_errors(self) -> "Outcome":
         if self.errors:
-            raise FhirError("\n".join(self.messages()), outcome=self.resource)
+            raise FhirValidationError("\n".join(self.messages()), outcome=self.resource, result=self)
         return self
 
     def __repr__(self) -> str:
@@ -226,11 +226,13 @@ class Stage:
     nothing differs, or when it was a check only).
     """
 
-    def __init__(self, js: Dict[str, Any], commit: Optional[Callable[..., "Commit"]] = None):
+    def __init__(self, js: Dict[str, Any], commit: Optional[Callable[..., "Commit"]] = None,
+                 drop: Optional[Callable[[], None]] = None):
         self.raw = js
         self.id: Optional[str] = js.get("stage")
         self.changes: List[Dict[str, Any]] = list(js.get("changes", []))
         self._commit = commit
+        self._drop = drop
 
     def _lines(self, key: str) -> List[str]:
         return ["%s: %s" % (c.get("resource"), line) for c in self.changes for line in c.get(key, [])]
@@ -258,15 +260,21 @@ class Stage:
 
     def raise_for_errors(self) -> "Stage":
         if self.errors:
-            raise FhirError("\n".join(self.errors))
+            raise FhirValidationError("\n".join(self.errors), result=self)
         return self
 
     def commit(self, reason: Optional[str] = None, *, agent: Optional[str] = None) -> "Commit":
         """Write this stage to the data it was staged for, with its trail."""
         if self._commit is None or self.id is None:
-            raise FhirError("nothing to commit: " + ("the stage was a check only, or nothing differs from the data"
+            raise FhirUsageError("nothing to commit: " + ("the stage was a check only, or nothing differs from the data"
                                                     if self.ok else "the stage has errors"))
         return self._commit(reason=reason, agent=agent)
+
+    def drop(self) -> None:
+        """Discard this stage without writing it (nothing happens when there is nothing to drop)."""
+        if self._drop is not None:
+            self._drop()
+            self._drop = self._commit = None
 
     def __repr__(self) -> str:
         return "Stage(%s, create=%d, update=%d, unchanged=%d, errors=%d)" % (
@@ -293,3 +301,113 @@ class Commit:
 
     def __repr__(self) -> str:
         return "Commit(%d written, provenance=%s)" % (len(self.written), self.provenance)
+
+
+# ---- terminology --------------------------------------------------------------------------------
+
+def _value(parameter: Dict[str, Any]) -> Any:
+    """A Parameters entry's value: its one value[x], or its parts as a dict of name -> value."""
+    for key, value in parameter.items():
+        if key.startswith("value"):
+            return value
+    if "part" in parameter:
+        return _params(parameter["part"])
+    return parameter.get("resource")
+
+
+def _params(parameters: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Parameters as a dict: name -> value, a list for a name given more than once."""
+    out: Dict[str, Any] = {}
+    for p in parameters:
+        name, value = p.get("name"), _value(p)
+        if name in out:
+            out[name] = (out[name] if isinstance(out[name], list) else [out[name]]) + [value]
+        else:
+            out[name] = value
+    return out
+
+
+def _listed(value: Any) -> List[Any]:
+    return [] if value is None else value if isinstance(value, list) else [value]
+
+
+class CodeCheck:
+    """Whether a value set holds a code: what `Toolkit.validate_code` answers.
+
+    It is true when it holds it (`if fhir.validate_code(...)`); `ok` says the same.
+    `display` is the code's display where the code system has one, `message` why
+    it is not held (or what is wrong with the display given).
+    """
+
+    def __init__(self, parameters: Dict[str, Any]):
+        p = _params(parameters.get("parameter", []))
+        self.ok: bool = p.get("result") is True
+        self.code: Optional[str] = p.get("code")
+        self.system: Optional[str] = p.get("system")
+        self.version: Optional[str] = p.get("version")
+        self.display: Optional[str] = p.get("display")
+        self.message: Optional[str] = p.get("message")
+
+    def __bool__(self) -> bool:
+        return self.ok
+
+    def __repr__(self) -> str:
+        said = "held" if self.ok else "not held"
+        return "CodeCheck(%s|%s: %s%s)" % (self.system, self.code, said, "" if not self.message else "; " + self.message)
+
+
+class Concept:
+    """A code looked up in its code system: what `Toolkit.lookup` answers.
+
+    `display` and `definition` as the code system gives them; `name` and
+    `version` are the code system's; `designations` each a dict of language,
+    use and value; `properties` property code -> its value (a list when there
+    are several).
+    """
+
+    def __init__(self, system: str, code: str, parameters: Dict[str, Any]):
+        p = _params(parameters.get("parameter", []))
+        self.system = system
+        self.code = code
+        self.name: Optional[str] = p.get("name")
+        self.version: Optional[str] = p.get("version")
+        self.display: Optional[str] = p.get("display")
+        self.definition: Optional[str] = p.get("definition")
+        self.designations: List[Dict[str, Any]] = _listed(p.get("designation"))
+        properties: Dict[str, Any] = {}
+        for prop in _listed(p.get("property")):
+            code_, value = prop.get("code"), prop.get("value")
+            if code_ in properties:
+                properties[code_] = _listed(properties[code_]) + [value]
+            else:
+                properties[code_] = value
+        self.properties: Dict[str, Any] = properties
+
+    def __repr__(self) -> str:
+        return "Concept(%s|%s %r)" % (self.system, self.code, self.display)
+
+
+class Match:
+    """One code a code maps to: what `Toolkit.translate` answers a list of.
+
+    `relationship` is how the source code relates to it ("equivalent",
+    "source-is-narrower-than-target", … or R4's "equal", "wider", …).
+    """
+
+    def __init__(self, part: Dict[str, Any]):
+        concept = part.get("concept") or {}
+        self.relationship: Optional[str] = part.get("relationship") or part.get("equivalence")
+        self.system: Optional[str] = concept.get("system")
+        self.code: Optional[str] = concept.get("code")
+        self.display: Optional[str] = concept.get("display")
+        self.source: Optional[str] = part.get("source") or part.get("originMap")
+
+    def coding(self) -> Dict[str, Any]:
+        """The code mapped to, as a FHIR Coding."""
+        return {k: v for k, v in (("system", self.system), ("code", self.code), ("display", self.display)) if v is not None}
+
+    def __eq__(self, other: Any) -> bool:
+        return isinstance(other, Match) and (self.relationship, self.system, self.code) == (other.relationship, other.system, other.code)
+
+    def __repr__(self) -> str:
+        return "Match(%s %s|%s)" % (self.relationship, self.system, self.code)

@@ -10,7 +10,7 @@ import threading
 from typing import Any, Dict, List, Optional, Sequence
 
 from ._functions import PROTOCOL
-from .errors import Diagnostic, FhirError, ToolkitNotFound, warn
+from .errors import FhirError, FhirProcessError, FhirTimeout, ToolkitNotFound, failure, warn
 from .models import model_json, plain
 
 #: the environment variable that names the command to start, e.g. "raco fhir-api"
@@ -131,7 +131,7 @@ class Server:
         version = self._exchange("version", {}, timed=False)
         if version.get("protocol") != PROTOCOL:
             self.close()
-            raise FhirError(
+            raise FhirProcessError(
                 "the toolkit that was started speaks protocol %s and this package protocol %s: install matching versions"
                 % (version.get("protocol"), PROTOCOL)
             )
@@ -192,28 +192,22 @@ class Server:
         if not line:
             self.close()
             if timed_out is not None and timed_out.is_set():
-                raise FhirError("%s did not answer within %s s: the FHIR toolkit's process was stopped; it starts again at the "
+                raise FhirTimeout("%s did not answer within %s s: the FHIR toolkit's process was stopped; it starts again at the "
                                 "next call" % (name, self.timeout))
             status = process.poll()
-            raise FhirError("the FHIR toolkit's process ended%s while answering %s; it starts again at the next call"
+            raise FhirProcessError("the FHIR toolkit's process ended%s while answering %s; it starts again at the next call"
                             % ("" if status is None else " (exit status %s)" % status, name))
         reply = json.loads(line)
         if reply.get("id") != self._id:
             self.close()
-            raise FhirError("the FHIR toolkit answered another call than %s (answer %r to call %r): its process was stopped; "
+            raise FhirProcessError("the FHIR toolkit answered another call than %s (answer %r to call %r): its process was stopped; "
                             "it starts again at the next call" % (name, reply.get("id"), self._id))
         said = reply.get("warnings")
         if said:
             warn(said)
         error = reply.get("error")
         if error:
-            data = error.get("data") or {}
-            raise FhirError(
-                error.get("message", "the call failed"),
-                diagnostics=[Diagnostic.from_json(d) for d in data.get("diagnostics", [])],
-                outcome=data.get("outcome"),
-                code=error.get("code"),
-            )
+            raise failure(error.get("message", "the call failed"), error.get("code"), error.get("data") or {})
         return reply.get("result")
 
     def _abandon(self, process: "subprocess.Popen") -> None:

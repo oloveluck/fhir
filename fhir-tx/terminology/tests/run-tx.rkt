@@ -8,7 +8,7 @@
          racket/list)
 
 ;; NEVER LOWER. Raise as $expand/$validate-code gain capability.
-(define floor-pass 600)
+(define floor-pass 601)
 
 (module+ main
   (define verbose? (and (member "-v" (vector->list (current-command-line-arguments))) #t))

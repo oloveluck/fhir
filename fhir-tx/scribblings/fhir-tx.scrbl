@@ -137,7 +137,7 @@ code is @tt{required}, one of the kinds of problem a FHIR validator reports:
 {"parameter":[{"name":"name","valueString":"IssueType"},{"name":"version","valueString":"5.0.0"},{"name":"display","valueString":"Required element missing"},{"name":"definition","valueString":"A required element is missing."}],"resourceType":"Parameters"}}|
 
 @tt{name} and @tt{version} are the code system's; @tt{display} and @tt{definition} are the code's.
-A code the system does not have comes back with the system's name and version and no display.
+A code the system does not have is an error that says so (exit status 1), as the @tt{$lookup} operation answers it.
 
 @subsection[#:tag "translate"]{What is this code in another system? (@tt{$translate})}
 
@@ -151,6 +151,10 @@ Each @tt{match} is a target code and how good the match is: @tt{equivalent} here
 several matches, or a looser one: the same map sends @tt{other} to two version 2 codes, each marked
 @tt{source-is-broader-than-target}. A code the map does not mention answers @tt{result} false.
 @litchar{--system} names the source code's system when the map has groups for several.
+
+The operation can also be asked without naming a map: given the source system and the
+@tt{targetSystem}, it uses every map in context between the two, and each match names the map
+that made it (@tt{originMap}).
 
 @subsection[#:tag "subsumes"]{Is this code a kind of that one? (@tt{$subsumes})}
 
@@ -553,7 +557,7 @@ gives. @tt{raco fhir-tx tck} runs it:
 
 @verbatim{
 $ raco fhir-tx tck
-terminology conformance: 600/600  (skipped 320: suites for content not here, such as SNOMED CT,
+terminology conformance: 601/601  (skipped 319: suites for content not here, such as SNOMED CT,
   LOINC and OMOP; candidate operations; -v says why each)
 }
 

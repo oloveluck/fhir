@@ -77,8 +77,63 @@ class FhirWarning(UserWarning):
     """
 
 
-class ToolkitNotFound(FhirError):
+class FhirUsageError(FhirError, ValueError):
+    """A call the toolkit does not take: an argument it has no use for, a value of the wrong kind,
+    a function it does not have. The message says what it takes."""
+
+
+class FhirSourceError(FhirError):
+    """A source given had errors in it (FSH, CQL, a map, a view …): `diagnostics` says each, at its
+    file, line and column."""
+
+
+class FhirOperationError(FhirError):
+    """An operation refused what it was asked: `outcome` is FHIR's OperationOutcome, `issue_code`
+    its first issue's code ("not-found", "invalid", "processing" …)."""
+
+    @property
+    def issue_code(self) -> Optional[str]:
+        issues = (self.outcome or {}).get("issue") or [{}]
+        return issues[0].get("code")
+
+
+class FhirNotFound(FhirOperationError, LookupError):
+    """What a call names is not here: a value set, a code system, a ConceptMap, a profile that no
+    package in context and nothing in the project defines (or a code its code system lacks)."""
+
+
+class FhirValidationError(FhirError):
+    """A resource was refused by validation, so nothing was written (`write`) or `raise_for_errors`
+    was asked: `outcome` holds every issue, and `result` the `Outcome` or `Stage`."""
+
+
+class FhirProcessError(FhirError):
+    """The toolkit's process ended, or could not be started. The next call starts it again."""
+
+
+class FhirTimeout(FhirProcessError, TimeoutError):
+    """A call took longer than the Toolkit's `timeout`: its process was stopped."""
+
+
+class ToolkitNotFound(FhirProcessError):
     """No toolkit to start: neither bundled with this package, nor on the PATH."""
+
+
+def failure(message: str, code: Optional[int], data: Dict[str, Any]) -> FhirError:
+    """The error a server's failure is, by what it carries: a call it does not take, problems in
+    a source, an operation's refusal (not found, or another)."""
+    diagnostics = [Diagnostic.from_json(d) for d in data.get("diagnostics", [])]
+    outcome = data.get("outcome")
+    if code in (-32600, -32601, -32602):
+        kind = FhirUsageError
+    elif diagnostics:
+        kind = FhirSourceError
+    elif outcome is not None:
+        first = ((outcome.get("issue") or [{}])[0]).get("code")
+        kind = FhirNotFound if first == "not-found" else FhirOperationError
+    else:
+        kind = FhirError
+    return kind(message, diagnostics=diagnostics, outcome=outcome, code=code)
 
 
 _HERE = os.path.dirname(os.path.abspath(__file__))

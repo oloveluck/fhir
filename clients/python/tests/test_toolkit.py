@@ -102,7 +102,7 @@ class GeneratedFromTheTable(unittest.TestCase):
     def test_the_toolkit_reaches_every_function(self):
         source = (ROOT / "src" / "fhir_toolkit" / "toolkit.py").read_text(encoding="utf-8")
         for name in fhir_toolkit.FUNCTIONS:
-            self.assertIn("self.raw.%s(" % name, source, "Toolkit has no method over the function %s" % name)
+            self.assertRegex(source, r"\braw\.%s\(" % name, "Toolkit has no method over the function %s" % name)
 
 
 class TheToolkit(unittest.TestCase):
@@ -237,16 +237,16 @@ class TheToolkit(unittest.TestCase):
         self.assertEqual(len(raised.exception.result.resources), 2)
         self.assertEqual(self.fhir.check({"p.fsh": PROFILE}), [])
 
-    def test_translate(self):
-        elm = self.fhir.translate(CQL)
+    def test_elm(self):
+        elm = self.fhir.elm(CQL)
         self.assertEqual(elm["library"]["identifier"], {"id": "A1c", "version": "1.0"})
         with self.assertRaises(FhirError) as raised:
-            self.fhir.translate(CQL.replace("Last(", "Lst("), name="A1c.cql")
+            self.fhir.elm(CQL.replace("Last(", "Lst("), name="A1c.cql")
         problem = raised.exception.diagnostics[0]
         self.assertEqual((problem.source, problem.line, problem.column), ("A1c.cql", 5, 18))
-        self.assertIsNone(self.fhir.translate(CQL.replace("Last(", "Lst("), check=False))
+        self.assertIsNone(self.fhir.elm(CQL.replace("Last(", "Lst("), check=False))
         uses = "library Uses\nusing FHIR version '4.0.1'\ninclude A1c version '1.0' called A\ncontext Patient\ndefine X: A.\"Above 9\"\n"
-        self.assertIn("library", self.fhir.translate(uses, project={"A1c.cql": CQL}))
+        self.assertIn("library", self.fhir.elm(uses, project={"A1c.cql": CQL}))
 
     def test_cql_over_data(self):
         table = self.fhir.cql(CQL, DATA)
@@ -510,7 +510,7 @@ class TheToolkit(unittest.TestCase):
             theirs = other.load(DATA)
             # asked of another process, the key names nothing there
             with self.assertRaisesRegex(FhirError, "no data is loaded as"):
-                self.fhir.raw.query("view", "SELECT id FROM Patient", data=theirs._argument())
+                self.fhir.raw.query("view", "SELECT id FROM Patient", data=theirs._argument(other._raws[0]))
             # the process gone, the data is given again at the next call that names it
             other._server._process.kill()
             other._server._process.wait()

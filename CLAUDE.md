@@ -653,7 +653,7 @@ why), driven by an execution harness, and gated by a floor that only rises:
 | **CQL over QI-Core** | **cqframework/ecqm-content-qicore-2024: 98 libraries vs the reference ELM (3.25.0); 4 eCQMs over 190 MADiE test cases vs their MeasureReports** | `cql/tests/qicore-elm-corpus-test.rkt`, `qicore-measure-test.rkt` (cql repo) | **98/98 compile, 1932/2144 defs ELM-equal; 188/190 cases** (2 named) |
 | **CQL over QDM** | **cqm-execution's fixtures: 42 QDM libraries vs their ELM; 19 measures over 33 cqm-models patients vs cqm-execution's own assertions and the stored expected values** | `cql/tests/qdm-elm-corpus-test.rkt`, `qdm-measure-test.rkt` (cql repo) | **41/42 compile, 559/723 defs ELM-equal; 31/31 assertions, 16/26 stored** (10 named) |
 | **SQL on FHIR** | **the shared suite from FHIR/sql-on-fhir.js, over the model generated from the 3.0.0-ballot package** | `raco sql-on-fhir tck` (sql-on-fhir repo) | **144/144** |
-| **terminology** | **hl7.fhir.uv.tx-ecosystem 1.9.3** | **`raco fhir-tx tck`** (fhir-tx) | **600/600** (320 skipped, each with its reason) |
+| **terminology** | **hl7.fhir.uv.tx-ecosystem 1.9.3** | **`raco fhir-tx tck`** (fhir-tx) | **601/601** (319 skipped, each with its reason) |
 | **FHIRPath vs HL7's Java engine** | **172,527 pairs: R4 core and US Core search parameters and invariants over US Core's examples, each search expression continued in 116 ways, changed copies; a fifth of the expressions read, the rest held out** | fhir-examples `value-experiment/reference/fhirpath-reference.rkt` (its test, over the kept reference answers) | **129,564/145,371 held-out pairs the same answer (89.1%); 144,123 (99.1%) apart from the reference's departures from the specification. A fresh set (IPS, mCODE: 142,488 pairs, none read): 127,795 (89.7%); 141,834 (99.5%); 66 under no class** |
 | **FML vs the validator's StructureMap engine** | **the mapping tutorial's 25 maps over its 18 sources, and both changed in one way: 887 pairs; a third of the maps read** | fhir-examples `value-experiment/reference/map-reference.rkt` (its test); fml `tests/reference-test.rkt` | **544/606 held-out pairs the same result (89.8%); 271/281 read (96.4%). Matchbox's own maps over FHIR resources, both engines as R4 (667 pairs, all read by the fourth pass): 561 the same, every difference classed, none this engine's. HL7's structure-mapping tests under the same changes (199 pairs, none read): 183** |
 | **FSH vs SUSHI, text by text** | **SUSHI 3.21.1 as a library and this compiler over 2,802 whole FSH texts: SUSHI's 515 importer test inputs, the golden texts and the guide's blocks, each also changed in one rule line; a third of the published texts read** | fhir-examples `value-experiment/reference/fsh-reference.rkt` (its test, over SUSHI's kept answers); fsh `tests/sushi-reference-test.rkt` | **the same answer on 2,799 texts (99.9%; 98.8% after the second pass, 84.0% after the first, 57.6% as first measured), the same verdict on 2,799; this compiler alone reports an error on none; the 3 left are SUSHI's own failures (2) and one SUSHI quirk** |
@@ -3507,6 +3507,50 @@ first, each time.
   set of US Core cases (20 profiles, 1,118 cases judged by HL7's validator, measured unread first:
   1,095): 1,100 now, one refused that HL7's passes and kept by decision (text alone under a
   required binding, which FHIR's `required` refuses).
+
+## The Python client: codes, errors, several at once (2026-11-28)
+The owner: "continue iterating on making this FHIR implementation the best one for python" (the
+boundary, naming, the API surface). Used first as a newcomer would; what that showed, each now
+in `clients/python/tests/test_codes_and_concurrency.py` and the README (its examples are run):
+- **Terminology was reachable only as Parameters** (`operation("ValueSet/$validate-code", …)`).
+  `validate_code(value_set, code, system)` answers a `CodeCheck` (true when held; the value set a
+  canonical or a VCL expression, the code a code, a Coding or a CodeableConcept), `lookup` a
+  `Concept`, `subsumes` the outcome code, `translate` a list of `Match` (results.py `_params`
+  reads a Parameters). **Renamed, before anything is published**: `translate` was CQL→ELM; it is
+  `elm` now, and `translate` is FHIR's `$translate` (the server's own function is still named
+  `translate`: `raw` keeps the server's names).
+- **`$lookup` of a code nothing holds answered an empty Parameters** (no error, no message).
+  Under strict mode — the operations, the command line, the suite — it is refused: a code system
+  not here, or a code it lacks, `not-found` (service.rkt `tx-lookup`, kinds `'system` and
+  `'code`). `raco fhir-tx lookup` says it too (exit 1); elsewhere the answer is as it was.
+- **`$translate` without a map** (FHIR: the server chooses): given the source system and/or the
+  `targetSystem`, every ConceptMap in context between them, each match with `originMap` (the
+  map's canonical and version) — service.rkt `translate-between/json` (maps given as canonicals
+  or as resources: the suite has two maps of one canonical), operations.rkt `concept-map-urls`
+  (data source, registry, packages). `targetSystem` narrows a named map's matches too;
+  `sourceSystem` is read as the source's system. tx-ecosystem 600/600 -> **601/601** (the
+  translate suite's `translate-1`; the reverse translation, by `targetCode`, stays skipped).
+- **One `FhirError` for everything**: subclasses by what happened (errors.py `failure`, from the
+  server's code and data): `FhirSourceError` (diagnostics), `FhirValidationError` (refused by
+  validation; `.result`), `FhirNotFound` (also a `LookupError`), `FhirOperationError`
+  (`.issue_code`), `FhirUsageError` (also a `ValueError`), `FhirProcessError`, `FhirTimeout` (also
+  a `TimeoutError`). `except FhirError` still catches all.
+- **Several at once**: `workers=n` served only `fhirpath_each`/`validate_each`; every other call
+  waited on one lock. `Toolkit.raw` is a pool (`_Pool`): each call goes to the process with the
+  fewest calls in flight; loaded `Data` is loaded into a process the first time a call there uses
+  it (`Data._keys`, per process and generation); a stage is committed (or dropped, `Stage.drop`)
+  by the process that made it (`held()`). Eight threads validating one resource each: 3,500 a
+  second with one process, 6,000 with two (four cores). `AsyncToolkit` (aio.py): every method a
+  coroutine through `asyncio.to_thread`; it gains for calls that do work, not for tiny ones
+  (asyncio and the thread hand-off cost ~0.4 ms a call in Python).
+- Found by the README's own example: a CQL library that fails to translate when RUN (not only
+  translated) was placed at its define's first column; cql's workspace now hands the text to
+  `at-the-name` there too (`raise-cql`), so `fhir.cql(…)` and a notebook's `%%cql` say `2:11`, as
+  `raco cql` does.
+Measured and not done: answering tables by column instead of a dict a row (a 20,000-row view:
+1.9 MB of JSON decoded in 14.5 ms, 5.5 ms by column — about a fifth of such a call); typed
+columns for pandas (FHIR's partial dates do not fit datetime64); a typed stub for `AsyncToolkit`
+(its methods are made in a loop, so an editor does not list them).
 
 ## Known deferrals
 - Full IG *package* generation (an IG as a `gen-target` with `delegate-base`) — the `#:delegate` seam

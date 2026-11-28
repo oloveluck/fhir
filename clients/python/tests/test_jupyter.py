@@ -96,7 +96,7 @@ class TheMagics(unittest.TestCase):
         self.assertEqual(self.shell.run_line_magic("fhir", ""), [])
         answer, _, wrong = self.cell("cql", "-d data", "library B version '1.0'\nusing FHIR version '4.0.1'\ncontext Patient\ndefine \"X\": Foo\n")
         self.assertIsNone(answer)
-        self.assertEqual(wrong, "B.cql:4:1: error: in define \"X\": unknown identifier 'Foo'\n")
+        self.assertEqual(wrong, "B.cql:4:13: error: in define \"X\": unknown identifier 'Foo'\n")
         answer, _, wrong = self.cell("fhirpath", "-d nope", "name")
         self.assertEqual(wrong, "no variable `nope` in the notebook (%%fhirpath -d names a resource)\n")
 

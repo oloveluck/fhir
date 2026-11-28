@@ -33,7 +33,7 @@ from typing import Any, List, Optional
 from IPython.core.magic import Magics, cell_magic, line_magic, magics_class
 from IPython.core.magic_arguments import argument, magic_arguments, parse_argstring
 
-from .errors import FhirError
+from .errors import FhirError, FhirUsageError
 from .results import Table
 from .toolkit import Project, Toolkit, _library_file
 
@@ -104,7 +104,7 @@ class FhirMagics(Magics):
         if name is None:
             return None
         if name not in self.shell.user_ns:
-            raise FhirError("no variable `%s` in the notebook (%s)" % (name, what))
+            raise FhirUsageError("no variable `%s` in the notebook (%s)" % (name, what))
         return self.shell.user_ns[name]
 
     def _keep(self, name: Optional[str], value: Any) -> None:
@@ -221,7 +221,7 @@ class FhirMagics(Magics):
             resource = self._named(options.data, "%%fhirpath -d names a resource")
             expressions = [text.strip() for text in cell.splitlines() if text.strip() and not text.strip().startswith("//")]
             if not expressions:
-                raise FhirError("the cell holds no expression")
+                raise FhirUsageError("the cell holds no expression")
             values = {e: notebook.toolkit.fhirpath(e, resource) for e in expressions}
             answer = values[expressions[0]] if len(expressions) == 1 else values
             self._keep(options.out, answer)

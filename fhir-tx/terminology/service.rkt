@@ -72,6 +72,8 @@
  (struct-out exn:fail:terminology)
  ;; the index layer (index.rkt): resolvers over packages or resources, and what they hold
  packages->resolver resources->resolver packages->code-systems
+ ;; a code through the maps of a list that map between two systems ($translate naming no map)
+ translate-between/json
  ;; the same operations as FHIR JSON (no type tower needed), for terminology/operations:
  ;; resolver url ... -> ValueSet | Parameters jsexpr
  (rename-out [tx-expand expand/json] [tx-validate validate-code/json]
@@ -87,7 +89,8 @@
 ;; version the server's check forbids, a filter without a value, a value set that includes itself,
 ;; a display language that is none. It is (exn:fail:terminology message marks kind code):
 ;;   kind : 'valueset | 'import | 'system-version | 'version-check | 'supplement | 'filter
-;;          | 'circular | 'language | 'too-costly      which rule refused
+;;          | 'circular | 'language | 'too-costly | 'system | 'code      which rule refused
+;;          ('system and 'code: $lookup of a code system that is not here, of a code it lacks)
 ;;   code : the OperationOutcome issue code a server answers it with ("not-found", "exception", …)
 ;; It is RAISED only where `current-terminology-strict?` is set — the operations, the command line
 ;; and the conformance suite, whose callers are told. Elsewhere (the validator's bindings,
@@ -937,6 +940,11 @@
                       (hasheq 'resourceType "CodeSystem" 'url ucum-system 'name "UCUM"
                               'concept (list (hasheq 'code code 'display code))))))
   (define concept (and cs (find-concept cs code)))
+  ;; nothing to look up is said, where the caller is told (FHIR's $lookup answers an error for
+  ;; both); elsewhere the answer is the empty Parameters it was
+  (cond [(not cs) (refused (void) 'system "not-found"
+                           "The code system ~a is not here (no package in context defines it)" system)]
+        [(not concept) (refused (void) 'code "not-found" "Unknown code '~a' in the CodeSystem '~a'" code system)])
   (define-values (sup-designations sup-properties) (supplement-parts resource supplements code))
   (define designations (append (if concept (jlist concept 'designation) '()) sup-designations))
   (define properties (append (if concept (jlist concept 'property) '()) sup-properties))
@@ -1097,7 +1105,9 @@
 
 ;; a match is (vector relationship target-system target-code target-display).
 (define (translate-matches resource url code [system #f])
-  (define cm (resource url))
+  (map-matches (resource url) code system))
+;; map-matches : ConceptMap|#f code system|#f -> (listof (vector relationship system code display))
+(define (map-matches cm code [system #f])
   (append-map
    (lambda (g)
      (define src (jref g 'source))
@@ -1113,6 +1123,37 @@
                 '()))
           (jlist g 'element))))
    (jlist cm 'group)))
+;; translate-between/json : resolver (listof (or url ConceptMap)) code system|#f target|#f
+;;                          [#:say-map? boolean] -> Parameters
+;; A code through several maps, as FHIR's $translate answers when it names no map: of `maps` (each a
+;; canonical the resolver finds, or the resource itself — two maps may share a canonical), those
+;; with a group from `system` to `target` (either #f: any), their matches into `target` (all, when
+;; #f), each saying the map that made it (`originMap`, the map's canonical with its version) unless
+;; `say-map?` is #f (a map named by the caller). `result` is whether any matched.
+(define (translate-between/json resource maps code system target #:say-map? [say-map? #t])
+  (define (between? cm)
+    (for/or ([g (in-list (jlist cm 'group))])
+      (and (or (not system) (equal? (jref g 'source) system))
+           (or (not target) (equal? (jref g 'target) target)))))
+  (define matches
+    (for*/list ([m (in-list maps)]
+                [cm (in-value (if (string? m) (resource m) m))]
+                #:when (and cm (or (not say-map?) (between? cm)))
+                [mt (in-list (map-matches cm code system))]
+                #:when (or (not target) (equal? (vector-ref mt 1) target)))
+      (hasheq 'name "match"
+              'part (append
+                     (list (drop-false (hasheq 'name "relationship" 'valueCode (vector-ref mt 0)))
+                           (hasheq 'name "concept"
+                                   'valueCoding (drop-false (hasheq 'system (vector-ref mt 1) 'code (vector-ref mt 2)
+                                                                    'display (vector-ref mt 3)))))
+                     (if say-map?
+                         (list (hasheq 'name "originMap"
+                                       'valueCanonical (if (jref cm 'version) (format "~a|~a" (jref cm 'url) (jref cm 'version)) (jref cm 'url))))
+                         '())))))
+  (hasheq 'resourceType "Parameters"
+          'parameter (cons (hasheq 'name "result" 'valueBoolean (pair? matches)) matches)))
+
 (define (tx-translate resource url code [system #f])
   (define matches (translate-matches resource url code system))
   (values

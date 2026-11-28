@@ -133,7 +133,7 @@ define "Above 9": (Latest.value as Quantity) > 9 '%'
 """
 
 print(fhir.cql(library, data).rows)
-print(fhir.translate(library)["library"]["identifier"])
+print(fhir.elm(library)["library"]["identifier"])
 ```
 
 ```text
@@ -141,7 +141,7 @@ print(fhir.translate(library)["library"]["identifier"])
 {'id': 'A1c', 'version': '1.0'}
 ```
 
-`cql` answers one row per patient and one column per define; `translate` gives the library's ELM.
+`cql` answers one row per patient and one column per define; `elm` gives the library translated to ELM.
 
 ## The other languages
 
@@ -175,6 +175,40 @@ Usage: #example
 
 `fhir.guide("cql")` (or `fsh`, `fhirpath`, `fml`, `vcl`, `sql-on-fhir`, `fhir`) prints a guide
 to each language, written for an AI agent and useful to a person.
+
+## Codes, value sets and maps
+
+FHIR's terminology operations answer Python values. `validate_code` is true when the value set
+holds the code; the value set is a canonical url or a VCL expression, and the code may be given
+with its system, as a Coding or as a CodeableConcept.
+
+```python
+gender = "http://hl7.org/fhir/administrative-gender"
+genders = "http://hl7.org/fhir/ValueSet/administrative-gender"
+
+print(bool(fhir.validate_code(genders, "female", gender)))
+print(fhir.validate_code(genders, "femme", gender))
+print(bool(fhir.validate_code("(%s)(female;male)" % gender, "other", gender)))
+print(fhir.lookup(gender, "female").display)
+print(fhir.subsumes("http://terminology.hl7.org/CodeSystem/v3-ActCode", "AMB", "_ActEncounterCode"))
+print(fhir.translate("female", gender, target="http://terminology.hl7.org/CodeSystem/v2-0001"))
+```
+
+```text
+True
+CodeCheck(http://hl7.org/fhir/administrative-gender|femme: not held; Unknown code 'femme' in the CodeSystem 'http://hl7.org/fhir/administrative-gender')
+False
+Female
+subsumed-by
+[Match(equal http://terminology.hl7.org/CodeSystem/v2-0001|F)]
+```
+
+`lookup` answers a `Concept` (display, definition, designations, properties); `subsumes` says how
+code A relates to code B in their hierarchy; `translate` answers the codes a code maps to, by the
+ConceptMap you name (`concept_map=`) or, given only the system to map into, by every map in
+context between the two systems (each `Match` says which in `.source`). The code systems and
+value sets are those of the FHIR packages in context and of your project (an FSH `ValueSet:` is
+one): SNOMED CT and LOINC are not shipped, and asking for them is an error that says so.
 
 ## Write data, with a record of who and why
 
@@ -380,6 +414,36 @@ Data(2 resources)
 ['Observation/a1']
 ```
 
+## From several threads, and from asyncio
+
+A `Toolkit` is safe to share between threads. With `workers=n` it keeps n processes, and calls
+made at the same time are answered each by its own: a web server's requests do not wait for one
+another. `AsyncToolkit` has the same methods as coroutines, for asyncio programs:
+
+```python
+import asyncio
+from fhir_toolkit import AsyncToolkit
+
+async def main():
+    async with AsyncToolkit(workers=2) as tk:
+        outcomes = await asyncio.gather(*(tk.validate(p) for p in patients))
+        print([outcome.ok for outcome in outcomes])
+        print((await tk.lookup(gender, "male")).display)
+
+asyncio.run(main())
+```
+
+```text
+[True, False]
+Male
+```
+
+Measured on four cores, eight threads validating one resource at a time: 3,500 a second with one
+process, 6,000 with two. Calls that do more each (a list, a view) gain more; for very small calls
+the Python side is what limits, and asyncio adds about 0.4 ms a call of its own. Data you `load`
+is loaded into each process the first time a call there uses it, and a `Stage` is committed by
+the process that made it.
+
 ## Files, warnings, and calls that take too long
 
 A resource may be given as a dict, as JSON text, or as the path of a file that holds it:
@@ -442,6 +506,39 @@ ann,Ann,1980-02-28
 interrupt (Ctrl-C, a notebook's stop button), stops the toolkit's process: the call raises, the
 next call starts a new process, and data you loaded is loaded again by itself. Nothing an
 interrupted call was computing is ever taken for a later call's answer.
+
+## When something is wrong
+
+Every error is a `FhirError`, and each kind is its own class, so you catch what you mean:
+
+```python
+from fhir_toolkit import FhirNotFound, FhirSourceError
+
+try:
+    fhir.lookup("http://loinc.org", "4548-4")
+except FhirNotFound as e:
+    print(type(e).__name__ + ":", e)
+
+try:
+    fhir.cql("library Bad\ndefine A: Lst(1)\n", data)
+except FhirSourceError as e:
+    print(type(e).__name__ + ":", e.diagnostics[0])
+```
+
+```text
+FhirNotFound: The code system http://loinc.org is not here (no package in context defines it)
+FhirSourceError: Bad.cql:2:11: error: in define "A": unknown function 'Lst' (did you mean `Last`?)
+```
+
+| class | when | also a |
+|---|---|---|
+| `FhirSourceError` | a source you gave (FSH, CQL, a map, a view) has errors; `.diagnostics` places each | |
+| `FhirValidationError` | a resource was refused: `write` wrote nothing, or `raise_for_errors()` was asked; `.result` is the `Outcome` or `Stage` | |
+| `FhirNotFound` | a value set, code system, ConceptMap or profile nothing in context defines, or a code its system lacks | `LookupError` |
+| `FhirOperationError` | an operation refused otherwise; `.outcome` is FHIR's OperationOutcome, `.issue_code` its code | |
+| `FhirUsageError` | a call the toolkit does not take: an argument it has no use for, a resource that is not JSON | `ValueError` |
+| `FhirTimeout` | a call took longer than the Toolkit's `timeout` (its process is started again) | `TimeoutError` |
+| `FhirProcessError` | the toolkit's process ended or could not start | |
 
 ## Beside other FHIR libraries for Python
 
@@ -623,13 +720,15 @@ show themselves as HTML in a notebook, with or without pandas.
 | many resources to check | `validate_each(resources, profile=None, project=None)` |
 | data several calls read | `clinic = load(resources_or_place)`, then `data=clinic` |
 | FSH | `fsh(text)` gives resources; `decompile(resource)` gives FSH back |
-| a CQL library | `cql(text, data)` runs it; `translate(text)` gives ELM |
+| a CQL library | `cql(text, data)` runs it; `elm(text)` gives ELM |
 | a view | `view(text, data)`; `sql(statement, project=views, data=data)` |
 | a map | `transform(map, source)` |
-| a value set | `expand(url_or_vcl)` |
+| a value set | `expand(url_or_vcl)`; `validate_code(value_set, code, system)` |
+| a code | `lookup(system, code)`, `subsumes(system, a, b)`, `translate(code, system, target=…)` |
 | a FHIR search | `search("Observation?code=4548-4", data)` |
 | any FHIR operation | `operation("$expand", inputs={...})` |
 | resources to store | `write(resources, data=store, reason=…)`; `stage(…)` then `.commit(reason)` |
+| threads or asyncio | `Toolkit(workers=n)`; `AsyncToolkit` (every method awaited) |
 | pydantic models | give them as resources; `model=` for answers; `Valid`, `Holds`, `checked` from `fhir_toolkit.pydantic` |
 | several files in several languages | `compile(project)`, `check(project)`, `run(path, project=…, data=…)`, `explain(…)` |
 

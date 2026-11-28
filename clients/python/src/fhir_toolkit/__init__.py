@@ -10,14 +10,18 @@ See `Toolkit`.
 """
 from ._functions import FUNCTIONS, PROTOCOL
 from ._server import COMMAND_VARIABLE, find_command
-from .errors import Diagnostic, FhirError, FhirWarning, ToolkitNotFound
+from .errors import (Diagnostic, FhirError, FhirNotFound, FhirOperationError, FhirProcessError, FhirSourceError,
+                     FhirTimeout, FhirUsageError, FhirValidationError, FhirWarning, ToolkitNotFound)
 from .models import plain, typed
-from .results import Commit, Compiled, Outcome, Stage, Table
+from .results import CodeCheck, Commit, Compiled, Concept, Match, Outcome, Stage, Table
 from .toolkit import Data, Project, Toolkit
+from .aio import AsyncToolkit
 
 __version__ = "0.1.0"
 
 __all__ = [
-    "Toolkit", "Project", "Data", "Table", "Compiled", "Outcome", "Stage", "Commit", "plain", "typed", "Diagnostic", "FhirError", "FhirWarning", "ToolkitNotFound",
+    "Toolkit", "AsyncToolkit", "Project", "Data", "Table", "Compiled", "Outcome", "Stage", "Commit", "CodeCheck", "Concept", "Match",
+    "plain", "typed", "Diagnostic", "FhirError", "FhirUsageError", "FhirSourceError", "FhirOperationError", "FhirNotFound",
+    "FhirValidationError", "FhirProcessError", "FhirTimeout", "FhirWarning", "ToolkitNotFound",
     "find_command", "COMMAND_VARIABLE", "FUNCTIONS", "PROTOCOL", "__version__",
 ]

@@ -21,7 +21,7 @@
          json file/gunzip file/untar
          (only-in "../service.rkt" resources->resolver packages->resolver make-undecidable? policy-of
                   rule-systems-without-content
-                  expand/json validate-code/json cs-validate-code/json lookup/json translate/json
+                  expand/json validate-code/json cs-validate-code/json lookup/json translate/json translate-between/json
                   current-terminology-strict? exn:fail:terminology?))
 
 (provide
@@ -276,17 +276,25 @@
             (cons 'fail (format "display ~s != expected ~s" got want-display)))))]))
 
 ;; $translate: compare the `result` verdict
-(define (run-translate resolver request expected)
+(define (run-translate resolver request expected suite-resources)
   (define url (param-value request "url"))
-  (define code (param-value request "code"))
-  (define system (param-value request "system"))
+  (define code (or (param-value request "code") (param-value request "sourceCode")))
+  (define system (or (param-value request "system") (param-value request "sourceSystem")))
+  (define target (param-value request "targetSystem"))
   (define want (param-value expected "result"))
+  ;; no map named: the suite's maps between the two systems, as $translate chooses them
+  (define maps (for/list ([r (in-list suite-resources)] #:when (equal? (hash-ref r 'resourceType #f) "ConceptMap")) r))
   (cond
-    [(not (and url code (boolean? want))) (cons 'skip "translate: no url, code or result")]
+    [(not (and code (boolean? want) (or url system target)))
+     (cons 'skip "translate: no url or systems, no source code (a reverse translation), or no result")]
     [else
      (answered
       expected
-      (lambda () (translate/json resolver (format "~a" url) (format "~a" code) (and system (format "~a" system))))
+      (lambda ()
+        (if url
+            (translate/json resolver (format "~a" url) (format "~a" code) (and system (format "~a" system)))
+            (translate-between/json resolver maps (format "~a" code) (and system (format "~a" system))
+                                    (and target (format "~a" target)))))
       (lambda (out)
         (define got (param-value out "result"))
         (if (eq? got want) 'pass (cons 'fail (format "result ~a != expected ~a" got want)))))]))
@@ -383,7 +391,7 @@
                                        (hash-ref t 'Accept-Language #f))]
                    [("cs-validate-code") (run-cs-validate resolver request expected)]
                    [("lookup") (run-lookup resolver request expected)]
-                   [("translate") (run-translate resolver request expected)]
+                   [("translate") (run-translate resolver request expected resources)]
                    [("undecidable") (cons 'skip "the value set rests on a code system that is not here")]
                    [else (cons 'skip (format "operation ~a" op))]))))]))
       (cond
