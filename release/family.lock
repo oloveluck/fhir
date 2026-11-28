@@ -1,8 +1,8 @@
 # The commits of the family's other repositories a release is built from.
 # Written by release/lock-family.sh; read by release/install-family.sh.
-fhirpath 487cc7df166a777283bedb0055e6e97eac774902
+fhirpath d05e8b26ba2891d4edbce11cb6c600ef580acd6a
 vcl 502e35e49daf90a18590f81b5f21149381ace761
-cql ad555d167956bb76cc8c4a94f4d3ebb96ea6ff47
-fml 6695d04cd714e50d0ed51a76e5f2debb180c2aeb
-fsh 73b25b4e2a0084ec4c61965e5b9a77b60c68788a
+cql c3dfb11873ab5871c81246eee31af6ac3e483b54
+fml f24a291f79cbf354335e84d5abd9d245ce2ad823
+fsh 2b0161dad922e53d5de5b1c23c41252fb6d4c9ad
 sql-on-fhir 74957d7447a5425306991dfc8c19cc76c5628ba7
